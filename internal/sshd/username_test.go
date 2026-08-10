@@ -57,6 +57,13 @@ func TestParseUsername(t *testing.T) {
 			raw:     "yigit:" + strings.Repeat("w", 506),
 			wantErr: true,
 		},
+		{
+			// İmplementasyon user ve target'ı ayrı ayrı sınırlıyor;
+			// user tarafının sınırını da ayrıca pinle.
+			name:    "cok uzun user",
+			raw:     strings.Repeat("u", 256) + ":web01",
+			wantErr: true,
+		},
 	}
 
 	for _, tc := range cases {
