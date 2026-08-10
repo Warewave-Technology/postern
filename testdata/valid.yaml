@@ -1,0 +1,25 @@
+# Elle çalıştırma için örnek config (S1.1 bitiş kriteri):
+#   postern serve --config testdata/valid.yaml
+#
+# Göreli yollar bu dosyanın bulunduğu dizine göre çözülür.
+# Unit test verisi ayrıdır: internal/config/testdata/
+listen:
+   addr: ":2222"
+
+host_key: keys/host_ed25519
+
+recording:
+   dir: recordings
+
+targets:
+   - name: web01
+     host: 127.0.0.1
+     port: 2201
+     user: yigit
+     key_file: keys/target_ed25519
+     host_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIcLUQM0UcoZdJVh2EokribDvFZyyNyAVURM/LrCugFM"
+
+users:
+   - name: yigit
+     public_keys:
+        - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ7ynKb+gJBketKjkTJIL43cjcTXicjWR9lSa5cYiQLh yigit@warewave.io"

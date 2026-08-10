@@ -1,0 +1,3 @@
+BU GERCEK BIR ANAHTAR DEGIL — test placeholder.
+S1.1 Validate yalnizca dosyanin var olup olmadigina bakar.
+S1.2'de gercek anahtar gerekince: ssh-keygen -t ed25519 -f host_ed25519 -N ''

@@ -1,0 +1,3 @@
+# Bilerek bozuk YAML — parse hatası bekleniyor.
+listen: [
+  addr: ":2222"

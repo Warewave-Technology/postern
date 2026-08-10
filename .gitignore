@@ -1,0 +1,21 @@
+# Derleme çıktıları
+/bin/
+
+# Oturum kayıtları
+/recordings/
+*.cast
+
+# Test/coverage artıkları
+coverage.out
+
+# Gerçek anahtarlar asla repoya girmez (testdata placeholder'ları hariç,
+# onlar anahtar değil düz metin)
+*.pem
+
+# Elle çalıştırma için ssh-keygen ile üretilen GERÇEK anahtarlar (S1.2+).
+# Taze clone'da yeniden üretilmeleri gerekir — bkz. README.
+/testdata/keys/host_ed25519
+/testdata/keys/host_ed25519.pub
+
+# macOS
+.DS_Store

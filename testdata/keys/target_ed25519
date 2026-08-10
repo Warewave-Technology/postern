@@ -1,0 +1,2 @@
+BU GERCEK BIR ANAHTAR DEGIL — test placeholder.
+S1.4'te gercek anahtar gerekince: ssh-keygen -t ed25519 -f target_ed25519 -N ''
