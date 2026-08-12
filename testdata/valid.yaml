@@ -13,13 +13,13 @@ recording:
 
 targets:
    - name: web01
-     host: 127.0.0.1
-     port: 2201
-     user: yigit
+     host: 192.168.1.30
+     port: 22
+     user: root
      key_file: keys/target_ed25519
-     host_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIcLUQM0UcoZdJVh2EokribDvFZyyNyAVURM/LrCugFM"
+     host_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGdpouXBeONMBzNN6LOpbEPY34PipC199IiNYbh26RGa"
 
 users:
-   - name: yigit
+   - name: root
      public_keys:
         - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ7ynKb+gJBketKjkTJIL43cjcTXicjWR9lSa5cYiQLh yigit@warewave.io"

@@ -22,7 +22,7 @@ import (
 // testServer, geçici host key + tek kullanıcılı config ile sunucuyu
 // 127.0.0.1'de rastgele portta başlatır. Anahtarlar test içinde üretilir,
 // diske yalnızca host key yazılır (New dosyadan yüklediği için).
-func testServer(t *testing.T) (addr string, hostPub ssh.PublicKey, clientSigner ssh.Signer) {
+func testServer(t *testing.T, targets ...config.TargetConfig) (addr string, hostPub ssh.PublicKey, clientSigner ssh.Signer) {
 	t.Helper()
 
 	_, hostPriv, err := ed25519.GenerateKey(rand.Reader)
@@ -55,6 +55,7 @@ func testServer(t *testing.T) (addr string, hostPub ssh.PublicKey, clientSigner 
 	cfg := &config.Config{
 		Listen:  config.ListenConfig{Addr: "127.0.0.1:0"},
 		HostKey: hostKeyPath,
+		Targets: targets,
 		Users: []config.UserConfig{
 			{Name: "yigit", PublicKeys: []string{authorized}},
 		},

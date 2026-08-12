@@ -97,7 +97,7 @@ func (s *Server) handleConn(ctx context.Context, nConn net.Conn) {
 	go ssh.DiscardRequests(reqs)
 
 	for newChan := range chans {
-		newChan.Reject(ssh.UnknownChannelType, "channels not implemented yet")
+		go s.handleChannel(ctx, sshConn, newChan)
 	}
 }
 

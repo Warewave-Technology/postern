@@ -8,9 +8,11 @@ import (
 	"crypto/rand"
 	"encoding/pem"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -163,10 +165,55 @@ func TestDial(t *testing.T) {
 	})
 }
 
-// Yanıtsız hedefte Dial, ctx süresine uymalı — OS'un dakikalar süren TCP
-// timeout'una asılmamalı. 192.0.2.1 (RFC 5737 TEST-NET-1) yönlendirilemez:
-// SYN kara deliğe düşer, bağlantıyı ancak ctx keser.
+// tarpit, TCP bağlantısını kabul eden ama SSH banner'ı hiç göndermeyen bir
+// dinleyici döner. Ölü bir sunucu, kasıtlı bir tarpit ya da tüm TCP'yi kabul
+// eden bir ara katman gerçek hayatta tam böyle davranır.
+func tarpit(t *testing.T) (host string, port int) {
+	t.Helper()
+
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var mu sync.Mutex
+	var conns []net.Conn
+
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			conns = append(conns, c) // hiçbir şey yazma: karşı taraf beklesin
+			mu.Unlock()
+		}
+	}()
+
+	t.Cleanup(func() {
+		l.Close()
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range conns {
+			c.Close()
+		}
+	})
+
+	addr := l.Addr().(*net.TCPAddr)
+	return addr.IP.String(), addr.Port
+}
+
+// Dial'ın TAMAMI ctx'e uymalı — yalnızca TCP fazı değil, SSH el sıkışması da.
+//
+// ⚠️ ssh.NewClientConn'un kendi zaman aşımı YOKTUR; ClientConfig.Timeout
+// sadece ssh.Dial'ın TCP bağlantısına uygulanır (x/crypto client.go:204).
+// Yani TCP'yi kabul edip el sıkışmayan bir hedef, önlem alınmazsa Dial'ı
+// sonsuza dek tutar — bastion için kaynak tüketimi açığı (plan Ek B:
+// "Timeout'lar tanımlı: handshake, idle, toplam").
 func TestDialRespectsContext(t *testing.T) {
+	host, port := tarpit(t)
+
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -185,9 +232,9 @@ func TestDialRespectsContext(t *testing.T) {
 	}
 
 	cfg := config.TargetConfig{
-		Name:    "blackhole",
-		Host:    "192.0.2.1",
-		Port:    22,
+		Name:    "tarpit",
+		Host:    host,
+		Port:    port,
 		User:    "postern",
 		KeyFile: keyFile,
 		HostKey: strings.TrimSpace(string(ssh.MarshalAuthorizedKey(signer.PublicKey()))),
@@ -201,9 +248,9 @@ func TestDialRespectsContext(t *testing.T) {
 	elapsed := time.Since(start)
 
 	if err == nil {
-		t.Fatal("yanıtsız hedefe Dial başarılı olamaz")
+		t.Fatal("el sıkışmayan hedefe Dial başarılı olamaz")
 	}
 	if elapsed > 5*time.Second {
-		t.Fatalf("Dial ctx'e saygı göstermedi: %v sürdü (beklenen ~1s)", elapsed)
+		t.Fatalf("Dial ctx'e saygı göstermedi: %v sürdü (beklenen ~1s) — SSH el sıkışması sınırsız", elapsed)
 	}
 }

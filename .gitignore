@@ -14,8 +14,9 @@ coverage.out
 
 # Elle çalıştırma için ssh-keygen ile üretilen GERÇEK anahtarlar (S1.2+).
 # Taze clone'da yeniden üretilmeleri gerekir — bkz. README.
-/testdata/keys/host_ed25519
-/testdata/keys/host_ed25519.pub
+# (Birim test verisi ayrıdır: internal/config/testdata/keys/ altındaki
+# placeholder'lar anahtar değil düz metindir ve repoda kalır.)
+/testdata/keys/*
 
 # macOS
 .DS_Store

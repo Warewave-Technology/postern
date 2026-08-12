@@ -53,6 +53,9 @@ func Dial(ctx context.Context, t config.TargetConfig) (*Conn, error) {
 		return nil, fmt.Errorf("target %s: %w", t.Name, err)
 	}
 
+	stop := context.AfterFunc(ctx, func() { nc.Close() })
+	defer stop()
+
 	c, chans, reqs, err := ssh.NewClientConn(nc, addr, ccfg)
 	if err != nil {
 		nc.Close()
