@@ -1,4 +1,4 @@
-package sshd
+package proxy
 
 import (
 	"errors"
@@ -34,7 +34,7 @@ type ExecRequest struct {
 }
 
 // ErrShortPayload, payload beklenen alanları taşımayacak kadar kısaysa döner.
-var ErrShortPayload = errors.New("sshd: request payload too short")
+var ErrShortPayload = errors.New("proxy: request payload too short")
 
 // ParsePty parses a "pty-req" payload.
 func ParsePty(payload []byte) (PtyRequest, error) {

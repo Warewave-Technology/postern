@@ -34,6 +34,10 @@ func Load(path string) (*Config, error) {
 		}
 	}
 
+	if cfg.Recording.Dir != "" && !filepath.IsAbs(cfg.Recording.Dir) {
+		cfg.Recording.Dir = filepath.Join(base, cfg.Recording.Dir)
+	}
+
 	err = cfg.Validate()
 	if err != nil {
 		return nil, fmt.Errorf("config %s: %w", path, err)

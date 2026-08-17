@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+
+	"github.com/warewave/postern/internal/record"
 )
 
 // --- test yardımcıları: sahte ssh.Channel ---
@@ -167,7 +169,7 @@ func TestBrokerRelaysData(t *testing.T) {
 	defer cancel()
 
 	done := make(chan error, 1)
-	go func() { done <- New(down, downR, up, upR, testLogger()).Run(ctx) }()
+	go func() { done <- New(down, downR, up, upR, nil, false, testLogger()).Run(ctx) }()
 
 	mustWrite(t, feedDown, "ls -la\n")
 	waitForContent(t, up.dataW, "ls -la")
@@ -199,7 +201,7 @@ func TestBrokerForwardsExitStatusBeforeClosing(t *testing.T) {
 	upR := make(chan *ssh.Request)
 
 	done := make(chan error, 1)
-	go func() { done <- New(down, downR, up, upR, testLogger()).Run(context.Background()) }()
+	go func() { done <- New(down, downR, up, upR, nil, false, testLogger()).Run(context.Background()) }()
 
 	// Hedefin çıktısı bitti.
 	feedUp.Close()
@@ -320,7 +322,7 @@ func TestBrokerKeepsDownWritableWhileStderrFlows(t *testing.T) {
 	upR := make(chan *ssh.Request)
 
 	done := make(chan error, 1)
-	go func() { done <- New(down, downR, up, upR, testLogger()).Run(context.Background()) }()
+	go func() { done <- New(down, downR, up, upR, nil, false, testLogger()).Run(context.Background()) }()
 
 	// stdout bitti; stderr HÂLÂ açık.
 	feedUp.Close()
@@ -345,4 +347,107 @@ func TestBrokerKeepsDownWritableWhileStderrFlows(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run dönmedi")
 	}
+}
+
+// --- S1.8: kayda tee'leme ---
+
+// memCloser, record.Writer'ın yazacağı bellek hedefi.
+type memCloser struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (m *memCloser) Write(p []byte) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.buf.Write(p)
+}
+
+func (m *memCloser) Close() error { return nil }
+
+func (m *memCloser) String() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.buf.String()
+}
+
+// Hedefin çıktısı hem kullanıcıya hem kayda gitmeli; kullanıcının girdisi
+// ise recordInput=false iken kayda GİTMEMELİ.
+//
+// ⚠️ Girdi varsayılan kapalı: kullanıcının yazdığı her şey girdidir, sudo
+// parolası dahil.
+func TestBrokerTeesOutputNotInput(t *testing.T) {
+	down, feedDown, _ := newFakeChannel()
+	up, feedUp, _ := newFakeChannel()
+	downR := make(chan *ssh.Request)
+	upR := make(chan *ssh.Request)
+
+	sink := &memCloser{}
+	rec, err := record.NewWriter(sink, 80, 24, nil)
+	if err != nil {
+		t.Fatalf("record.NewWriter: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() { done <- New(down, downR, up, upR, rec, false, testLogger()).Run(ctx) }()
+
+	mustWrite(t, feedUp, "hedefin ciktisi\n")
+	waitForContent(t, down.dataW, "hedefin ciktisi")
+
+	mustWrite(t, feedDown, "gizli-parola\n")
+	waitForContent(t, up.dataW, "gizli-parola")
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run dönmedi")
+	}
+	if err := rec.Close(); err != nil {
+		t.Fatalf("rec.Close: %v", err)
+	}
+
+	cast := sink.String()
+	if !strings.Contains(cast, "hedefin ciktisi") {
+		t.Errorf("çıktı kayda tee'lenmemiş; kayıt: %q", cast)
+	}
+	if strings.Contains(cast, "gizli-parola") {
+		t.Errorf("recordInput=false iken GİRDİ kayda düştü — parola sızıntısı; kayıt: %q", cast)
+	}
+}
+
+// recordInput=true iken girdi de kaydedilmeli — AMA yarı kapatma
+// kaybolmamalı: pipe klavye yönünde CloseWrite arar ve io.MultiWriter bunu
+// sağlamaz. Kaybolursa "cat f | ssh host 'wc -l'" asılır (Ek C.6).
+func TestBrokerTeedInputKeepsHalfClose(t *testing.T) {
+	down, feedDown, _ := newFakeChannel()
+	up, _, _ := newFakeChannel()
+	downR := make(chan *ssh.Request)
+	upR := make(chan *ssh.Request)
+
+	rec, err := record.NewWriter(&memCloser{}, 80, 24, nil)
+	if err != nil {
+		t.Fatalf("record.NewWriter: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- New(down, downR, up, upR, rec, true, testLogger()).Run(context.Background()) }()
+
+	mustWrite(t, feedDown, "girdi\n")
+	waitForContent(t, up.dataW, "girdi")
+
+	// Kullanıcı stdin'i kapattı: hedef bunu EOF olarak görmeli.
+	feedDown.Close()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if up.isCloseWritten() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("stdin kapandı ama hedefe yarı kapatma iletilmedi — tee CloseWrite'ı yuttu")
 }

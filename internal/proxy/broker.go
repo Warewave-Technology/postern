@@ -2,10 +2,13 @@ package proxy
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"sync"
 
 	"golang.org/x/crypto/ssh"
+
+	"github.com/warewave/postern/internal/record"
 )
 
 // requestSender, üzerine request gönderilebilen uç (ssh.Channel bunu sağlar).
@@ -17,20 +20,58 @@ type requestSender interface {
 
 // Broker, bir kullanıcı kanalı (down) ile bir hedef kanalı (up) arasında
 // veriyi ve request'leri iki yönde taşır.
-//
-// S1.7'de buraya bir *record.Writer eklenecek ve çıktı akışı tee'lenecek.
 type Broker struct {
 	down  ssh.Channel
 	downR <-chan *ssh.Request
 	up    ssh.Channel
 	upR   <-chan *ssh.Request
 
+	// rec nil olabilir: kayıt kapalıysa broker aynen çalışmaya devam eder.
+	// Sahipliği çağırana aittir — Close'u handleChannel çağırır, broker değil
+	// (kayıt oturumdan uzun yaşayabilir: başlık zaten yazıldı, kapanışta
+	// kuyruklar boşaltılacak).
+	rec *record.Writer
+
+	// recordInput, girdi akışının da kayda tee'lenip tee'lenmeyeceğini söyler.
+	// ⚠️ VARSAYILAN KAPALI (config record_input: false): kullanıcının yazdığı
+	// her şey girdidir — sudo parolası dahil.
+	recordInput bool
+
 	logger *slog.Logger
 }
 
 // New wires an inbound channel to an outbound one.
-func New(down ssh.Channel, downR <-chan *ssh.Request, up ssh.Channel, upR <-chan *ssh.Request, logger *slog.Logger) *Broker {
-	return &Broker{down: down, downR: downR, up: up, upR: upR, logger: logger}
+//
+// rec nil geçilebilir (kayıt kapalı). recordInput yalnızca config açıkça
+// istediğinde true olmalı.
+func New(down ssh.Channel, downR <-chan *ssh.Request, up ssh.Channel, upR <-chan *ssh.Request, rec *record.Writer, recordInput bool, logger *slog.Logger) *Broker {
+	return &Broker{down: down, downR: downR, up: up, upR: upR, rec: rec, recordInput: recordInput, logger: logger}
+}
+
+// outputSink returns where target→user bytes should be written: the user's
+// channel alone, or that channel tee'd into the recording.
+func (b *Broker) outputSink() io.Writer {
+	if b.rec != nil {
+		return io.MultiWriter(b.down, b.rec.OutputStream())
+	}
+	return b.down
+}
+
+// inputSink is the same for user→target bytes, gated by recordInput.
+func (b *Broker) inputSink() io.Writer {
+	if b.rec != nil && b.recordInput {
+		return io.MultiWriter(b.up, b.rec.InputStream())
+	}
+	return b.up
+}
+
+// errorSink returns where target→user bytes should be written: the user's
+// channel alone, or that channel tee'd into the recording.
+func (b *Broker) stderrSink() io.Writer {
+	if b.rec != nil {
+		return io.MultiWriter(b.down.Stderr(), b.rec.OutputStream())
+	}
+	return b.down.Stderr()
 }
 
 // Run shuttles data and requests until the session ends, then returns.
@@ -40,7 +81,7 @@ func (b *Broker) Run(ctx context.Context) error {
 	wg.Add(3)
 
 	go func() {
-		n, err := pipe(b.up, b.down, true)
+		n, err := pipe(b.inputSink(), b.down, b.up)
 		if err != nil {
 			b.logger.Error("down->up pipe failed",
 				"error", err,
@@ -52,7 +93,7 @@ func (b *Broker) Run(ctx context.Context) error {
 	go func() {
 		defer wg.Done()
 
-		n, err := pipe(b.down, b.up, false)
+		n, err := pipe(b.outputSink(), b.up, nil)
 		if err != nil {
 			b.logger.Error("up->down pipe failed",
 				"error", err,
@@ -64,7 +105,7 @@ func (b *Broker) Run(ctx context.Context) error {
 	go func() {
 		defer wg.Done()
 
-		n, err := pipe(b.down.Stderr(), b.up.Stderr(), false)
+		n, err := pipe(b.stderrSink(), b.up.Stderr(), nil)
 		if err != nil {
 			b.logger.Error("up.stderr->down.stderr pipe failed",
 				"error", err,
@@ -76,9 +117,9 @@ func (b *Broker) Run(ctx context.Context) error {
 	go func() {
 		defer wg.Done()
 
-		b.relayRequests(b.down, b.upR, "upR->down")
+		b.relayRequests(b.down, b.upR, "upR->down", false)
 	}()
-	go b.relayRequests(b.up, b.downR, "downR->up")
+	go b.relayRequests(b.up, b.downR, "downR->up", true)
 
 	go func() {
 		wg.Wait()
@@ -98,7 +139,7 @@ func (b *Broker) Run(ctx context.Context) error {
 
 // relayRequests forwards every request from src to dst, answering the sender
 // when it asked for a reply.
-func (b *Broker) relayRequests(dst ssh.Channel, src <-chan *ssh.Request, direction string) {
+func (b *Broker) relayRequests(dst ssh.Channel, src <-chan *ssh.Request, direction string, observe bool) {
 	for req := range src {
 		res, err := forwardRequest(dst, req)
 		if err != nil {
@@ -107,6 +148,10 @@ func (b *Broker) relayRequests(dst ssh.Channel, src <-chan *ssh.Request, directi
 				"direction", direction,
 				"req.type", req.Type,
 			)
+		}
+
+		if observe {
+			b.recordResize(req)
 		}
 
 		if req.WantReply {
@@ -125,4 +170,56 @@ func (b *Broker) relayRequests(dst ssh.Channel, src <-chan *ssh.Request, directi
 // forwardRequest sends req to dst verbatim and reports dst's answer.
 func forwardRequest(dst requestSender, req *ssh.Request) (bool, error) {
 	return dst.SendRequest(req.Type, req.WantReply, req.Payload)
+}
+
+// recordResize mirrors terminal size changes into the recording.
+func (b *Broker) recordResize(req *ssh.Request) {
+	if b.rec == nil {
+		return
+	}
+
+	switch req.Type {
+	case "pty-req":
+		p, err := ParsePty(req.Payload)
+		if err != nil {
+			b.logger.Error("pty-req parse error",
+				"error", err,
+				"req.type", req.Type,
+			)
+			return
+		}
+
+		err = b.rec.Resize(int(p.Columns), int(p.Rows))
+		if err != nil {
+			b.logger.Error("pty-req resize error",
+				"error", err,
+				"req.type", req.Type,
+			)
+		}
+
+		return
+
+	case "window-change":
+		p, err := ParseWindowChange(req.Payload)
+		if err != nil {
+			b.logger.Error("window-change parse error",
+				"error", err,
+				"req.type", req.Type,
+			)
+			return
+		}
+
+		err = b.rec.Resize(int(p.Columns), int(p.Rows))
+		if err != nil {
+			b.logger.Error("window-change resize error",
+				"error", err,
+				"req.type", req.Type,
+			)
+		}
+
+		return
+
+	default:
+		return
+	}
 }

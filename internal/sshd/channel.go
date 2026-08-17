@@ -6,6 +6,7 @@ import (
 
 	"github.com/warewave/postern/internal/config"
 	"github.com/warewave/postern/internal/proxy"
+	"github.com/warewave/postern/internal/record"
 	"github.com/warewave/postern/internal/upstream"
 	"golang.org/x/crypto/ssh"
 )
@@ -68,6 +69,66 @@ func (s *Server) handleChannel(ctx context.Context, sshConn *ssh.ServerConn, new
 		return
 	}
 
+	id, err := record.NewSessionID()
+	if err != nil {
+		s.logger.Error("sshd.handleChannel.record.uuid",
+			"error", err,
+			"target", target.Name,
+			"user", route.User,
+		)
+		newChan.Reject(ssh.ConnectionFailed, "recording unavailable")
+		return
+	}
+
+	f, path, err := s.rStore.Create(id)
+	if err != nil {
+		s.logger.Error("sshd.handleChannel.record.folder_create",
+			"error", err,
+			"target", target.Name,
+			"user", route.User,
+		)
+		newChan.Reject(ssh.ConnectionFailed, "recording unavailable")
+		return
+	}
+
+	// TERM pty-req ile gelir, yani başlık yazılırken henüz bilinmiyor: boş
+	// string yazmaktansa alanı hiç koymuyoruz (omitempty). Boyut da 80x24
+	// varsayılanıyla başlar, broker pty-req'i görünce Resize ile düzeltir.
+	rec, err := record.NewWriter(f, 80, 24, nil)
+	if err != nil {
+		s.logger.Error("sshd.handleChannel.record.rec",
+			"error", err,
+			"target", target.Name,
+			"user", route.User,
+		)
+		newChan.Reject(ssh.ConnectionFailed, "recording unavailable")
+		return
+	}
+
+	// Kapanış ve kayıt sağlığı tek yerde. Err() ancak Close'dan SONRA
+	// anlamlıdır: yapışkan hata oturum boyunca birikir ve adaptörler kayıt
+	// arızasını yutup oturumu yaşatır — bu satır olmazsa bozuk kayıt tamamen
+	// sessiz kalır.
+	defer func() {
+		if cerr := rec.Close(); cerr != nil {
+			s.logger.Error("recording close failed",
+				"error", cerr,
+				"target", target.Name,
+				"user", route.User,
+				"id", id,
+			)
+		}
+		if rerr := rec.Err(); rerr != nil {
+			s.logger.Error("recording degraded — session was not fully captured",
+				"error", rerr,
+				"target", target.Name,
+				"user", route.User,
+				"id", id,
+				"record_path", path,
+			)
+		}
+	}()
+
 	down, downR, err := newChan.Accept()
 	if err != nil {
 		s.logger.Error("sshd.handleChannel.channel.accept",
@@ -82,8 +143,10 @@ func (s *Server) handleChannel(ctx context.Context, sshConn *ssh.ServerConn, new
 	s.logger.Info("session started",
 		"target", target.Name,
 		"user", route.User,
+		"id", id,
+		"record_path", path,
 	)
-	err = proxy.New(down, downR, up, upR, s.logger).Run(ctx)
+	err = proxy.New(down, downR, up, upR, rec, s.cfg.Recording.RecordInput, s.logger).Run(ctx)
 	if err != nil {
 		s.logger.Error("sshd.handleChannel.proxy.run",
 			"error", err,
@@ -95,5 +158,7 @@ func (s *Server) handleChannel(ctx context.Context, sshConn *ssh.ServerConn, new
 		"target", target.Name,
 		"user", route.User,
 		"duration", time.Since(start),
+		"id", id,
+		"record_path", path,
 	)
 }

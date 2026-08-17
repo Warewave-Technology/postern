@@ -80,8 +80,9 @@ func testConfig(t *testing.T, authorizedKeys ...string) *config.Config {
 
 	hostKeyPath, _ := writeHostKey(t)
 	return &config.Config{
-		Listen:  config.ListenConfig{Addr: "127.0.0.1:0"},
-		HostKey: hostKeyPath,
+		Listen:    config.ListenConfig{Addr: "127.0.0.1:0"},
+		HostKey:   hostKeyPath,
+		Recording: config.RecordingConfig{Dir: filepath.Join(t.TempDir(), "recordings")},
 		Users: []config.UserConfig{
 			{Name: "yigit", PublicKeys: authorizedKeys},
 		},

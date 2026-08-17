@@ -19,12 +19,12 @@ func (w *writeCloseRecorder) Write(p []byte) (int, error) { return w.buf.Write(p
 func (w *writeCloseRecorder) CloseWrite() error           { w.closeWrite = true; return nil }
 func (w *writeCloseRecorder) Close() error                { w.closeAll = true; return nil }
 
-// singleWriter=true: dst'ye tek yazıcı var, EOF'ta yarı kapatma yapılmalı.
+// Yarı kapatılacak uç açıkça verildiğinde EOF sonrası CloseWrite çağrılmalı.
 func TestPipeCopiesAndHalfCloses(t *testing.T) {
 	const payload = "merhaba dunya\n"
 	dst := &writeCloseRecorder{}
 
-	n, err := pipe(dst, strings.NewReader(payload), true)
+	n, err := pipe(dst, strings.NewReader(payload), dst)
 	if err != nil {
 		t.Fatalf("beklenmeyen hata: %v", err)
 	}
@@ -42,13 +42,13 @@ func TestPipeCopiesAndHalfCloses(t *testing.T) {
 	}
 }
 
-// singleWriter=false: dst'yi başka bir akış da paylaşıyor (down = stdout +
+// closeWrite nil: dst'yi başka bir akış da paylaşıyor (down = stdout +
 // stderr). Yeteneği olsa bile yarı kapatma YAPILMAMALI — kapatma kararı, o
 // kanala yazan herkesin bittiğini bilen koordinatöre (Run) aittir.
 func TestPipeSharedWriterSkipsHalfClose(t *testing.T) {
 	dst := &writeCloseRecorder{}
 
-	if _, err := pipe(dst, strings.NewReader("cikti\n"), false); err != nil {
+	if _, err := pipe(dst, strings.NewReader("cikti\n"), nil); err != nil {
 		t.Fatalf("beklenmeyen hata: %v", err)
 	}
 	if dst.buf.String() != "cikti\n" {
@@ -62,11 +62,11 @@ func TestPipeSharedWriterSkipsHalfClose(t *testing.T) {
 	}
 }
 
-// CloseWrite'ı olmayan bir hedefe yazarken panik/hata olmamalı.
+// CloseWrite'ı olmayan düz bir hedefe yazarken panik/hata olmamalı.
 func TestPipePlainWriter(t *testing.T) {
 	var dst bytes.Buffer
 
-	n, err := pipe(&dst, strings.NewReader("abc"), true)
+	n, err := pipe(&dst, strings.NewReader("abc"), nil)
 	if err != nil {
 		t.Fatalf("beklenmeyen hata: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestPipeErrorContract(t *testing.T) {
 	t.Run("gercek hata raporlanir", func(t *testing.T) {
 		boom := errors.New("connection reset by peer")
 
-		if _, err := pipe(&writeCloseRecorder{}, errReader{err: boom}, true); err == nil {
+		if _, err := pipe(&writeCloseRecorder{}, errReader{err: boom}, nil); err == nil {
 			t.Fatal("gerçek kopyalama hatası yutuldu")
 		} else if !errors.Is(err, boom) {
 			t.Fatalf("hata sarmalanmalı; gelen: %v", err)
@@ -117,8 +117,27 @@ func TestPipeErrorContract(t *testing.T) {
 	})
 
 	t.Run("zararsiz kapanis yutulur", func(t *testing.T) {
-		if _, err := pipe(&writeCloseRecorder{}, errReader{err: io.ErrClosedPipe}, true); err != nil {
+		if _, err := pipe(&writeCloseRecorder{}, errReader{err: io.ErrClosedPipe}, nil); err != nil {
 			t.Fatalf("normal kapanış hata sayılmamalı; gelen: %v", err)
 		}
 	})
+}
+
+// Yarı kapatılacak uç, YAZILAN hedeften farklı olabilir: kayıt açıkken dst
+// bir io.MultiWriter'dır (CloseWrite'ı yoktur) ama yarı kapatma yine de
+// gerçek kanala ulaşmalıdır. Aksi halde "cat f | ssh host 'wc -l'" asılır.
+func TestPipeHalfClosesGivenTargetNotDst(t *testing.T) {
+	ch := &writeCloseRecorder{} // gerçek kanal
+	var copyDst bytes.Buffer    // tee edilmiş hedef (CloseWrite'sız)
+	dst := io.MultiWriter(&copyDst, ch)
+
+	if _, err := pipe(dst, strings.NewReader("veri\n"), ch); err != nil {
+		t.Fatalf("beklenmeyen hata: %v", err)
+	}
+	if !ch.closeWrite {
+		t.Error("tee arkasındaki kanala yarı kapatma ulaşmadı")
+	}
+	if copyDst.String() != "veri\n" {
+		t.Errorf("tee edilen kopya = %q", copyDst.String())
+	}
 }

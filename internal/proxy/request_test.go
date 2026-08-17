@@ -1,4 +1,4 @@
-package sshd
+package proxy
 
 import (
 	"errors"

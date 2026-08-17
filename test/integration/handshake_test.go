@@ -53,9 +53,10 @@ func testServer(t *testing.T, targets ...config.TargetConfig) (addr string, host
 	authorized := string(ssh.MarshalAuthorizedKey(clientSigner.PublicKey()))
 
 	cfg := &config.Config{
-		Listen:  config.ListenConfig{Addr: "127.0.0.1:0"},
-		HostKey: hostKeyPath,
-		Targets: targets,
+		Listen:    config.ListenConfig{Addr: "127.0.0.1:0"},
+		HostKey:   hostKeyPath,
+		Recording: config.RecordingConfig{Dir: filepath.Join(t.TempDir(), "recordings")},
+		Targets:   targets,
 		Users: []config.UserConfig{
 			{Name: "yigit", PublicKeys: []string{authorized}},
 		},
