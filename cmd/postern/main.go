@@ -23,5 +23,6 @@ func newRootCmd() *cobra.Command {
 		SilenceErrors: true,
 	}
 	root.AddCommand(newServeCmd())
+	root.AddCommand(newCACmd())
 	return root
 }
