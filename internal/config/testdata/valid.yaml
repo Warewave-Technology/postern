@@ -7,6 +7,9 @@ listen:
 
 host_key: keys/host_ed25519
 
+ca:
+  key_file: keys/ca_ed25519
+
 recording:
    dir: recordings
    # record_input bilinçli olarak yazılmadı: varsayılan false kalmalı.
@@ -27,5 +30,6 @@ targets:
 
 users:
    - name: yigit
+     os_user: yigit
      public_keys:
         - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ7ynKb+gJBketKjkTJIL43cjcTXicjWR9lSa5cYiQLh yigit@warewave.io"

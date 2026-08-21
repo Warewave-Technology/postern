@@ -7,9 +7,29 @@ package config
 type Config struct {
 	Listen    ListenConfig    `yaml:"listen"`
 	HostKey   string          `yaml:"host_key"` // path to the bastion's own host private key
+	CA        CAConfig        `yaml:"ca"`
 	Recording RecordingConfig `yaml:"recording"`
 	Targets   []TargetConfig  `yaml:"targets"`
+	Roles     []RoleConfig    `yaml:"roles"`
 	Users     []UserConfig    `yaml:"users"`
+}
+
+// CAConfig, sertifika otoritesi.
+//
+// key_file, `postern ca init` ile üretilen özel anahtar. serve her oturumda
+// bununla sertifika kesecek; ca.Load izin kontrolünü kendisi yapıyor.
+type CAConfig struct {
+	KeyFile string `yaml:"key_file"`
+}
+
+// RoleConfig, bir hedef kümesine erişim yetkisi.
+//
+// S3'te roles + role_targets tablolarına taşınacak; şimdilik config'de.
+// Kullanıcılar rollere ADIYLA referans verir, böylece hedef listesi tek
+// yerde durur.
+type RoleConfig struct {
+	Name    string   `yaml:"name"`
+	Targets []string `yaml:"targets"`
 }
 
 type ListenConfig struct {
@@ -34,6 +54,14 @@ type TargetConfig struct {
 }
 
 type UserConfig struct {
-	Name       string   `yaml:"name"`
+	Name string `yaml:"name"`
+
+	// OSUser, kişinin hedeflerdeki hesabı — sertifikanın principal'ı olacak
+	// değer. Kişiye özel, paylaşılmaz: driver 1'in özü bu alan.
+	OSUser string `yaml:"os_user"`
+
+	// Roles, kişinin sahip olduğu rol ADLARI (roles listesine referans).
+	Roles []string `yaml:"roles"`
+
 	PublicKeys []string `yaml:"public_keys"` // authorized keys, OpenSSH format
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/goccy/go-yaml"
 	"golang.org/x/crypto/ssh"
@@ -38,6 +39,10 @@ func Load(path string) (*Config, error) {
 		cfg.Recording.Dir = filepath.Join(base, cfg.Recording.Dir)
 	}
 
+	if cfg.CA.KeyFile != "" && !filepath.IsAbs(cfg.CA.KeyFile) {
+		cfg.CA.KeyFile = filepath.Join(base, cfg.CA.KeyFile)
+	}
+
 	err = cfg.Validate()
 	if err != nil {
 		return nil, fmt.Errorf("config %s: %w", path, err)
@@ -60,6 +65,10 @@ func (c *Config) Validate() error {
 
 	if _, err := os.Stat(c.HostKey); err != nil {
 		return fmt.Errorf("host_key: %w", err)
+	}
+
+	if c.CA.KeyFile == "" {
+		return fmt.Errorf("ca.key_file is empty")
 	}
 
 	for i, target := range c.Targets {
@@ -107,10 +116,32 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("user[%s]: has no public key", user.Name)
 		}
 
+		if user.OSUser == "" {
+			return fmt.Errorf("user[%s]: has no os_user", user.Name)
+		}
+
+		for _, role := range user.Roles {
+			if !slices.ContainsFunc(c.Roles, func(r RoleConfig) bool {
+				return r.Name == role
+			}) {
+				return fmt.Errorf("user[%s]: has no role %s", user.Name, role)
+			}
+		}
+
 		for i, publicKey := range user.PublicKeys {
 			_, _, _, _, err := ssh.ParseAuthorizedKey([]byte(publicKey))
 			if err != nil {
 				return fmt.Errorf("user[%s], public_keys[%d] %w", user.Name, i, err)
+			}
+		}
+	}
+
+	for _, role := range c.Roles {
+		for _, target := range role.Targets {
+			if !slices.ContainsFunc(c.Targets, func(t TargetConfig) bool {
+				return t.Name == target
+			}) {
+				return fmt.Errorf("role[%s]: has no target %s", role.Name, target)
 			}
 		}
 	}

@@ -1,4 +1,4 @@
-# Elle çalıştırma için örnek config (S1.1 bitiş kriteri):
+# Elle çalıştırma için örnek config:
 #   postern serve --config testdata/valid.yaml
 #
 # Göreli yollar bu dosyanın bulunduğu dizine göre çözülür.
@@ -8,6 +8,12 @@ listen:
 
 host_key: keys/host_ed25519
 
+# S2: hedefe artık statik anahtarla değil, bu CA'nın kestiği kısa ömürlü
+# sertifikayla bağlanılıyor. `postern ca init --key testdata/keys/ca_ed25519`
+# ile üret; public satırı hedeflere `postern ca show` ile dağıt.
+ca:
+   key_file: keys/ca_ed25519
+
 recording:
    dir: recordings
 
@@ -15,11 +21,26 @@ targets:
    - name: web01
      host: 192.168.1.30
      port: 22
-     user: root
-     key_file: keys/target_ed25519
      host_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGdpouXBeONMBzNN6LOpbEPY34PipC199IiNYbh26RGa"
+     # ⚠️ user ve key_file sertifika yolunda KULLANILMIYOR — hedefteki hesap
+     # artık kullanıcının os_user'ından, kimlik de sertifikadan geliyor.
+     # Validate hâlâ zorunlu tuttuğu için duruyorlar; S2 temizliğinde
+     # kaldırılabilirler.
+     user: unused
+     key_file: keys/target_ed25519
+
+# Roller hedef kümelerini tanımlar; kullanıcılar rollere adıyla bağlanır.
+# S3'te roles + role_targets tablolarına taşınacak.
+roles:
+   - name: ops
+     targets: [web01]
 
 users:
-   - name: root
+   - name: yigit
+     # Hedefte açılacak hesap: sertifikanın principal'ı ve SSH kullanıcı adı.
+     # ⚠️ "root" olamaz — policy bunu reddediyor (herkes hedefe KENDİ adıyla
+     # düşer). Hedefte bu adda bir hesap açman gerekiyor.
+     os_user: yigit
+     roles: [ops]
      public_keys:
         - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ7ynKb+gJBketKjkTJIL43cjcTXicjWR9lSa5cYiQLh yigit@warewave.io"

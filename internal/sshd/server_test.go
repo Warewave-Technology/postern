@@ -26,6 +26,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/warewave/postern/internal/ca"
 	"github.com/warewave/postern/internal/config"
 )
 
@@ -82,11 +83,24 @@ func testConfig(t *testing.T, authorizedKeys ...string) *config.Config {
 	return &config.Config{
 		Listen:    config.ListenConfig{Addr: "127.0.0.1:0"},
 		HostKey:   hostKeyPath,
+		CA:        config.CAConfig{KeyFile: testCAKey(t)},
 		Recording: config.RecordingConfig{Dir: filepath.Join(t.TempDir(), "recordings")},
 		Users: []config.UserConfig{
-			{Name: "yigit", PublicKeys: authorizedKeys},
+			{Name: "yigit", OSUser: "yigit", PublicKeys: authorizedKeys},
 		},
 	}
+}
+
+// testCAKey, gerçek bir CA anahtarı üretir: New artık ca.Load çağırdığı için
+// sahte bir yol yetmiyor — sertifika modelinde CA olmadan sunucu açılmamalı.
+func testCAKey(t *testing.T) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "ca_ed25519")
+	if _, err := ca.Init(path); err != nil {
+		t.Fatalf("ca.Init: %v", err)
+	}
+	return path
 }
 
 // fakeConnMeta, PublicKeyCallback'i handshake olmadan çağırabilmek için

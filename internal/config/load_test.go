@@ -140,6 +140,7 @@ func validConfig() Config {
 	return Config{
 		Listen:  ListenConfig{Addr: ":2222"},
 		HostKey: "testdata/keys/host_ed25519",
+		CA:      CAConfig{KeyFile: "testdata/keys/ca_ed25519"},
 		Targets: []TargetConfig{
 			{
 				Name:    "web01",
@@ -159,7 +160,7 @@ func validConfig() Config {
 			},
 		},
 		Users: []UserConfig{
-			{Name: "yigit", PublicKeys: []string{testUserPubKey}},
+			{Name: "yigit", OSUser: "yigit", PublicKeys: []string{testUserPubKey}},
 		},
 	}
 }
@@ -211,7 +212,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "cakisan user adi",
 			mutate: func(c *Config) {
-				c.Users = append(c.Users, UserConfig{Name: "yigit", PublicKeys: []string{"ssh-ed25519 AAAA-test2"}})
+				c.Users = append(c.Users, UserConfig{Name: "yigit", OSUser: "yigit", PublicKeys: []string{"ssh-ed25519 AAAA-test2"}})
 			},
 			wantErr:     true,
 			errContains: "yigit",
@@ -265,10 +266,16 @@ func TestLoadAbsolutePaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	absCA, err := filepath.Abs("testdata/keys/ca_ed25519")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	content := fmt.Sprintf(`listen:
   addr: ":2222"
 host_key: %s
+ca:
+  key_file: %s
 recording:
   dir: recordings
 targets:
@@ -280,9 +287,10 @@ targets:
     host_key: "%s"
 users:
   - name: yigit
+    os_user: yigit
     public_keys:
       - "%s"
-`, absHost, absTarget, testTargetHostKey, testUserPubKey)
+`, absHost, absCA, absTarget, testTargetHostKey, testUserPubKey)
 
 	cfgPath := filepath.Join(t.TempDir(), "abs.yaml")
 	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
@@ -295,6 +303,9 @@ users:
 	}
 	if len(cfg.Targets) != 1 {
 		t.Fatalf("len(Targets) = %d, beklenen 1 — target kaybolmuş", len(cfg.Targets))
+	}
+	if cfg.CA.KeyFile != absCA {
+		t.Errorf("CA.KeyFile değişmiş: %q, beklenen %q", cfg.CA.KeyFile, absCA)
 	}
 	if cfg.HostKey != absHost {
 		t.Errorf("HostKey değişmiş: %q, beklenen %q", cfg.HostKey, absHost)

@@ -19,14 +19,22 @@ func errorAs(err error, target any) bool { return errors.As(err, target) }
 // bağlanma, request relay, veri kopyalama, exit-status.
 //
 // proxyClient bir istemci kurar; hedef konteyner "web01" adıyla config'e girer.
+//
+// ⚠️ S2'den sonra proxy hedefe SERTİFİKAYLA bağlanıyor, statik anahtarla
+// değil. Bu yüzden hedef, bastion'ın CA'sına güvenen konteyner olmalı
+// (testdata/certtarget) ve ikisi AYNI CA'yı paylaşmalı. Böylece bu testler
+// artık S1 davranışını S2 yolundan doğruluyor: aynı shell semantiği, ama
+// erişimi veren şey kısa ömürlü bir sertifika.
 func proxyClient(t *testing.T) *ssh.Client {
 	t.Helper()
 
-	tgt := startSSHTarget(t)
+	caKeyPath, caAuthorizedKey := newTestCA(t)
+
+	tgt := startCertTarget(t, caAuthorizedKey)
 	tc := tgt.targetConfig()
 	tc.Name = "web01"
 
-	addr, hostPub, signer := testServer(t, tc)
+	addr, hostPub, signer := testServer(t, caKeyPath, tc)
 
 	client, err := ssh.Dial("tcp", addr, &ssh.ClientConfig{
 		User:            "yigit:web01",
@@ -139,11 +147,13 @@ func TestProxyPtySize(t *testing.T) {
 
 // 5) Bilinmeyen hedef reddedilmeli — varsayılan deny.
 func TestProxyUnknownTargetRejected(t *testing.T) {
-	tgt := startSSHTarget(t)
+	caKeyPath, caAuthorizedKey := newTestCA(t)
+
+	tgt := startCertTarget(t, caAuthorizedKey)
 	tc := tgt.targetConfig()
 	tc.Name = "web01"
 
-	addr, hostPub, signer := testServer(t, tc)
+	addr, hostPub, signer := testServer(t, caKeyPath, tc)
 
 	client, err := ssh.Dial("tcp", addr, &ssh.ClientConfig{
 		User:            "yigit:boyle-bir-hedef-yok",

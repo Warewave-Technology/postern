@@ -11,16 +11,18 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/warewave/postern/internal/ca"
 	"github.com/warewave/postern/internal/config"
 	"github.com/warewave/postern/internal/record"
 )
 
 // Server accepts inbound SSH connections on behalf of the bastion.
 type Server struct {
-	cfg    *config.Config
-	signer ssh.Signer // bastion'ın kendi host key'i
-	logger *slog.Logger
-	rStore *record.Store
+	cfg       *config.Config
+	signer    ssh.Signer // bastion'ın kendi host key'i
+	logger    *slog.Logger
+	rStore    *record.Store
+	authority *ca.CA
 }
 
 // New loads the host key from cfg.HostKey and prepares the server.
@@ -40,7 +42,12 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		return nil, fmt.Errorf("sshd.New: %w", err)
 	}
 
-	return &Server{cfg: cfg, signer: signer, logger: logger, rStore: store}, nil
+	caAuthority, err := ca.Load(cfg.CA.KeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("sshd.New: %w", err)
+	}
+
+	return &Server{cfg: cfg, signer: signer, logger: logger, rStore: store, authority: caAuthority}, nil
 }
 
 // ListenAndServe listens on cfg.Listen.Addr and hands the listener to Serve.
