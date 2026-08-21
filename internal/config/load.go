@@ -29,12 +29,6 @@ func Load(path string) (*Config, error) {
 		cfg.HostKey = filepath.Join(base, cfg.HostKey)
 	}
 
-	for i := range cfg.Targets {
-		if cfg.Targets[i].KeyFile != "" && !filepath.IsAbs(cfg.Targets[i].KeyFile) {
-			cfg.Targets[i].KeyFile = filepath.Join(base, cfg.Targets[i].KeyFile)
-		}
-	}
-
 	if cfg.Recording.Dir != "" && !filepath.IsAbs(cfg.Recording.Dir) {
 		cfg.Recording.Dir = filepath.Join(base, cfg.Recording.Dir)
 	}
@@ -71,6 +65,10 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("ca.key_file is empty")
 	}
 
+	if c.Recording.Dir == "" {
+		return fmt.Errorf("recording.dir is empty")
+	}
+
 	for i, target := range c.Targets {
 		if target.Name == "" {
 			return fmt.Errorf("targets[%d]: missing required field: name", i)
@@ -81,8 +79,6 @@ func (c *Config) Validate() error {
 			val  string
 		}{
 			{"host", target.Host},
-			{"user", target.User},
-			{"key_file", target.KeyFile},
 			{"host_key", target.HostKey},
 		}
 
@@ -90,10 +86,6 @@ func (c *Config) Validate() error {
 			if f.val == "" {
 				return fmt.Errorf("targets[%s]: missing required field: %s", target.Name, f.name)
 			}
-		}
-
-		if _, err := os.Stat(target.KeyFile); err != nil {
-			return fmt.Errorf("targets[%s]: key_file: %w", target.Name, err)
 		}
 
 		if target.Port < 1 || target.Port > 65535 {
@@ -109,6 +101,11 @@ func (c *Config) Validate() error {
 	user, found := findDuplicate(c.Users, func(t UserConfig) string { return t.Name })
 	if found {
 		return fmt.Errorf("duplicate username: %s", user)
+	}
+
+	role, found := findDuplicate(c.Roles, func(r RoleConfig) string { return r.Name })
+	if found {
+		return fmt.Errorf("duplicate role: %s", role)
 	}
 
 	for _, user := range c.Users {

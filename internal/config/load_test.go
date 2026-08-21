@@ -46,8 +46,8 @@ func TestLoad(t *testing.T) {
 			errContains: "web01", // hata mesajı çakışan adı söylemeli
 		},
 		{
-			name:        "olmayan key dosyasi hata",
-			file:        "testdata/missing_key_file.yaml",
+			name:        "olmayan anahtar dosyasi hata",
+			file:        "testdata/missing_host_key_file.yaml",
 			wantErr:     true,
 			errContains: "does_not_exist", // hata mesajı yolu söylemeli
 		},
@@ -106,8 +106,8 @@ func TestLoadValidFields(t *testing.T) {
 	if got, want := cfg.Targets[0].Name, "web01"; got != want {
 		t.Errorf("Targets[0].Name = %q, beklenen %q", got, want)
 	}
-	if got, want := cfg.Targets[1].User, "postgres"; got != want {
-		t.Errorf("Targets[1].User = %q, beklenen %q", got, want)
+	if got, want := cfg.Targets[1].Name, "db01"; got != want {
+		t.Errorf("Targets[1].Name = %q, beklenen %q", got, want)
 	}
 	if cfg.Recording.RecordInput {
 		t.Error("Recording.RecordInput varsayılan false olmalı (şifre yazımı da girdidir)")
@@ -125,11 +125,6 @@ func TestLoadValidFields(t *testing.T) {
 	if _, err := os.Stat(cfg.HostKey); err != nil {
 		t.Errorf("HostKey yolu çözülmemiş görünüyor (%q): %v", cfg.HostKey, err)
 	}
-	for _, tgt := range cfg.Targets {
-		if _, err := os.Stat(tgt.KeyFile); err != nil {
-			t.Errorf("target %s key_file yolu çözülmemiş (%q): %v", tgt.Name, tgt.KeyFile, err)
-		}
-	}
 }
 
 // validConfig, Validate'in dosya sistemine dokunan alanlarını gerçek
@@ -141,26 +136,18 @@ func validConfig() Config {
 		Listen:  ListenConfig{Addr: ":2222"},
 		HostKey: "testdata/keys/host_ed25519",
 		CA:      CAConfig{KeyFile: "testdata/keys/ca_ed25519"},
+		// Dizinin var olması aranmıyor, dolu olması aranıyor: kayıt dizinini
+		// Store ilk oturumda kendisi açar (S1.8).
+		Recording: RecordingConfig{Dir: "testdata/recordings"},
 		Targets: []TargetConfig{
-			{
-				Name:    "web01",
-				Host:    "127.0.0.1",
-				Port:    2201,
-				User:    "yigit",
-				KeyFile: "testdata/keys/target_ed25519",
-				HostKey: testTargetHostKey,
-			},
-			{
-				Name:    "db01",
-				Host:    "127.0.0.1",
-				Port:    2202,
-				User:    "postgres",
-				KeyFile: "testdata/keys/target_ed25519",
-				HostKey: testTargetHostKey,
-			},
+			{Name: "web01", Host: "127.0.0.1", Port: 2201, HostKey: testTargetHostKey},
+			{Name: "db01", Host: "127.0.0.1", Port: 2202, HostKey: testTargetHostKey},
+		},
+		Roles: []RoleConfig{
+			{Name: "ops", Targets: []string{"web01", "db01"}},
 		},
 		Users: []UserConfig{
-			{Name: "yigit", OSUser: "yigit", PublicKeys: []string{testUserPubKey}},
+			{Name: "yigit", OSUser: "yigit", Roles: []string{"ops"}, PublicKeys: []string{testUserPubKey}},
 		},
 	}
 }
@@ -179,13 +166,6 @@ func TestValidate(t *testing.T) {
 			mutate: func(c *Config) {},
 		},
 		{
-			// İki target'ın aynı OS kullanıcısıyla bağlanması meşrudur
-			// (örn. ikisi de "deploy" kullanır). Bu bir çakışma değildir;
-			// benzersizlik kısıtı target.User'a değil Users listesine aittir.
-			name:   "iki target ayni os user kullanabilir",
-			mutate: func(c *Config) { c.Targets[1].User = "yigit" },
-		},
-		{
 			name:        "port 0 gecersiz",
 			mutate:      func(c *Config) { c.Targets[0].Port = 0 },
 			wantErr:     true,
@@ -202,12 +182,6 @@ func TestValidate(t *testing.T) {
 			mutate:      func(c *Config) { c.Targets[1].Host = "" },
 			wantErr:     true,
 			errContains: "db01",
-		},
-		{
-			name:        "olmayan key_file hatasi key_file demeli",
-			mutate:      func(c *Config) { c.Targets[0].KeyFile = "testdata/keys/does_not_exist" },
-			wantErr:     true,
-			errContains: "key_file",
 		},
 		{
 			name: "cakisan user adi",
@@ -230,6 +204,42 @@ func TestValidate(t *testing.T) {
 			mutate:      func(c *Config) { c.Users[0].PublicKeys = []string{"bu bir ssh anahtari degil"} },
 			wantErr:     true,
 			errContains: "yigit",
+		},
+		{
+			// ⚠️ Yazım hatası olan rol adı SESSİZCE atlanmamalı: kullanıcı
+			// hiçbir hedefe giremez ve sebebini kimse anlamaz. Hata rol adını
+			// söylemeli ki operatör hangi satırı düzelteceğini bilsin.
+			name:        "tanimsiz rol adi hata",
+			mutate:      func(c *Config) { c.Users[0].Roles = []string{"opss"} },
+			wantErr:     true,
+			errContains: "opss",
+		},
+		{
+			// Aynı sebep: rol var olmayan bir hedefi listeliyorsa yetki
+			// sessizce boşa düşer.
+			name: "rol tanimsiz target'a referans veriyor",
+			mutate: func(c *Config) {
+				c.Roles[0].Targets = append(c.Roles[0].Targets, "boyle-bir-hedef-yok")
+			},
+			wantErr:     true,
+			errContains: "boyle-bir-hedef-yok",
+		},
+		{
+			name: "cakisan rol adi",
+			mutate: func(c *Config) {
+				c.Roles = append(c.Roles, RoleConfig{Name: "ops", Targets: []string{"web01"}})
+			},
+			wantErr:     true,
+			errContains: "ops",
+		},
+		{
+			// recording.dir boşken sunucu anlaşılmaz bir "mkdir :" hatasıyla
+			// ölüyordu. Config katmanında yakalanırsa operatör hangi alanı
+			// dolduracağını öğrenir.
+			name:        "recording.dir bos hata",
+			mutate:      func(c *Config) { c.Recording.Dir = "" },
+			wantErr:     true,
+			errContains: "recording.dir",
 		},
 	}
 
@@ -262,10 +272,6 @@ func TestLoadAbsolutePaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	absTarget, err := filepath.Abs("testdata/keys/target_ed25519")
-	if err != nil {
-		t.Fatal(err)
-	}
 	absCA, err := filepath.Abs("testdata/keys/ca_ed25519")
 	if err != nil {
 		t.Fatal(err)
@@ -282,15 +288,13 @@ targets:
   - name: web01
     host: 127.0.0.1
     port: 2201
-    user: yigit
-    key_file: %s
     host_key: "%s"
 users:
   - name: yigit
     os_user: yigit
     public_keys:
       - "%s"
-`, absHost, absCA, absTarget, testTargetHostKey, testUserPubKey)
+`, absHost, absCA, testTargetHostKey, testUserPubKey)
 
 	cfgPath := filepath.Join(t.TempDir(), "abs.yaml")
 	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
@@ -309,8 +313,5 @@ users:
 	}
 	if cfg.HostKey != absHost {
 		t.Errorf("HostKey değişmiş: %q, beklenen %q", cfg.HostKey, absHost)
-	}
-	if cfg.Targets[0].KeyFile != absTarget {
-		t.Errorf("KeyFile değişmiş: %q, beklenen %q", cfg.Targets[0].KeyFile, absTarget)
 	}
 }

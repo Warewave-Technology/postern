@@ -44,12 +44,15 @@ type RecordingConfig struct {
 	RecordInput bool `yaml:"record_input"`
 }
 
+// TargetConfig, bağlanılacak makine.
+//
+// Hedefteki HESAP burada yok ve olmamalı: sertifika modelinde hangi hesapla
+// açılacağı kişiye göre değişir (users[].os_user) ve kararı policy verir.
+// Statik anahtar da yok — erişimi veren şey oturum başına kesilen sertifika.
 type TargetConfig struct {
 	Name    string `yaml:"name"`
 	Host    string `yaml:"host"`
 	Port    int    `yaml:"port"`
-	User    string `yaml:"user"`     // OS user on the target (S1 only; certs replace this in S2)
-	KeyFile string `yaml:"key_file"` // private key used to reach the target (S1 only)
 	HostKey string `yaml:"host_key"` // target's expected host public key, OpenSSH format
 }
 

@@ -22,15 +22,6 @@ targets:
      host: 192.168.1.30
      port: 22
      host_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGdpouXBeONMBzNN6LOpbEPY34PipC199IiNYbh26RGa"
-     # ⚠️ user ve key_file sertifika yolunda KULLANILMIYOR — hedefteki hesap
-     # artık kullanıcının os_user'ından, kimlik de sertifikadan geliyor.
-     # Validate hâlâ zorunlu tuttuğu için duruyorlar; S2 temizliğinde
-     # kaldırılabilirler.
-     user: unused
-     key_file: keys/target_ed25519
-
-# Roller hedef kümelerini tanımlar; kullanıcılar rollere adıyla bağlanır.
-# S3'te roles + role_targets tablolarına taşınacak.
 roles:
    - name: ops
      targets: [web01]

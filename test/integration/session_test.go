@@ -21,14 +21,18 @@ import (
 // kanalı aç → "exec" request'i gönder (WantReply=true, cevabı bekle) →
 // çıktıyı oku → hedeften gelen request akışında exit-status'ü yakala.
 func TestOpenSession(t *testing.T) {
-	tgt := startSSHTarget(t)
+	authority := testAuthority(t)
+	tgt := startCertTarget(t, authority.AuthorizedKey())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	conn, err := upstream.Dial(ctx, tgt.targetConfig())
+	conn, err := upstream.DialWithCert(ctx, tgt.targetConfig(), upstream.Identity{
+		PosternUser: "yigit@warewave.io",
+		OSUser:      "postern",
+	}, authority)
 	if err != nil {
-		t.Fatalf("Dial: %v", err)
+		t.Fatalf("DialWithCert: %v", err)
 	}
 	defer conn.Close()
 

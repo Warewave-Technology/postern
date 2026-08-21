@@ -1,8 +1,8 @@
-# key_file olmayan bir dosyayı gösteriyor — Validate yolu içeren hata vermeli.
+# host_key olmayan bir dosyayı gösteriyor — Validate yolu içeren hata vermeli.
 listen:
   addr: ":2222"
 
-host_key: keys/host_ed25519
+host_key: keys/does_not_exist
 
 ca:
   key_file: keys/ca_ed25519
@@ -14,8 +14,6 @@ targets:
   - name: web01
     host: 127.0.0.1
     port: 2201
-    user: yigit
-    key_file: keys/does_not_exist
     host_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIcLUQM0UcoZdJVh2EokribDvFZyyNyAVURM/LrCugFM"
 
 users:

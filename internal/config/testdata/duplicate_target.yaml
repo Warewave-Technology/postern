@@ -14,14 +14,10 @@ targets:
   - name: web01
     host: 127.0.0.1
     port: 2201
-    user: yigit
-    key_file: keys/target_ed25519
     host_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIcLUQM0UcoZdJVh2EokribDvFZyyNyAVURM/LrCugFM"
   - name: web01
     host: 127.0.0.2
     port: 2202
-    user: yigit
-    key_file: keys/target_ed25519
     host_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIcLUQM0UcoZdJVh2EokribDvFZyyNyAVURM/LrCugFM"
 
 users:

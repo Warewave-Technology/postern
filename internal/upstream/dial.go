@@ -8,7 +8,6 @@ import (
 	"crypto/rand"
 	"fmt"
 	"net"
-	"os"
 	"strconv"
 	"time"
 
@@ -22,27 +21,6 @@ import (
 type Conn struct {
 	client *ssh.Client
 	target config.TargetConfig
-}
-
-// Dial connects to target t as an SSH client, authenticating with the key
-// at t.KeyFile. The target's host key MUST match t.HostKey.
-func Dial(ctx context.Context, t config.TargetConfig) (*Conn, error) {
-	data, err := os.ReadFile(t.KeyFile)
-	if err != nil {
-		return nil, fmt.Errorf("target %s: %w", t.Name, err)
-	}
-
-	signer, err := ssh.ParsePrivateKey(data)
-	if err != nil {
-		return nil, fmt.Errorf("target %s: %w", t.Name, err)
-	}
-
-	conn, err := dialer(ctx, t, signer)
-	if err != nil {
-		return nil, fmt.Errorf("upstream.Dial: %w", err)
-	}
-
-	return conn, nil
 }
 
 // Client exposes the underlying SSH client
@@ -94,9 +72,7 @@ func DialWithCert(ctx context.Context, t config.TargetConfig, identity Identity,
 		return nil, fmt.Errorf("upstream.DialWithCert: %w", err)
 	}
 
-	t.User = identity.OSUser
-
-	conn, err := dialer(ctx, t, signer)
+	conn, err := dialer(ctx, t, identity.OSUser, signer)
 	if err != nil {
 		return nil, fmt.Errorf("upstream.DialWithCert: %w", err)
 	}
@@ -104,14 +80,18 @@ func DialWithCert(ctx context.Context, t config.TargetConfig, identity Identity,
 	return conn, nil
 }
 
-func dialer(ctx context.Context, t config.TargetConfig, signer ssh.Signer) (*Conn, error) {
+// dialer, hedefe bağlanmanın ortak yolu. Kullanıcı adı PARAMETRE: sertifika
+// modelinde hangi hesapla açılacağı config'in değil, oturumun kararıdır
+// (policy.Authorize üretir) ve sertifikanın principal'ıyla aynı olmak
+// zorundadır.
+func dialer(ctx context.Context, t config.TargetConfig, user string, signer ssh.Signer) (*Conn, error) {
 	cb, algos, err := hostKeyCallback(t.HostKey)
 	if err != nil {
 		return nil, fmt.Errorf("target %s: %w", t.Name, err)
 	}
 
 	ccfg := &ssh.ClientConfig{
-		User:              t.User,
+		User:              user,
 		Auth:              []ssh.AuthMethod{ssh.PublicKeys(signer)},
 		HostKeyCallback:   cb,
 		HostKeyAlgorithms: algos,
