@@ -98,15 +98,19 @@ func TestMigrateCreatesSchema(t *testing.T) {
 		t.Fatalf("Migrate: %v", err)
 	}
 
+	// Beklenen versiyon SABİT DEĞİL: migrations/ klasörüne yeni bir dosya
+	// eklendiğinde bu testin de düzeltilmesi gerekmesin.
+	want := lastMigrationVersion(t)
+
 	v, err = s.SchemaVersion(ctx)
 	if err != nil {
 		t.Fatalf("SchemaVersion: %v", err)
 	}
-	if v != 1 {
-		t.Fatalf("migrate sonrası versiyon = %d, beklenen 1", v)
+	if v != want {
+		t.Fatalf("migrate sonrası versiyon = %d, beklenen %d", v, want)
 	}
 
-	for _, table := range []string{"users", "roles", "targets", "user_roles", "role_targets", "sessions"} {
+	for _, table := range []string{"users", "roles", "targets", "user_roles", "role_targets", "sessions", "user_public_keys"} {
 		if !tableExists(t, s, table) {
 			t.Errorf("%q tablosu oluşmadı", table)
 		}
@@ -129,26 +133,50 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 1 {
-		t.Fatalf("iki Migrate sonrası versiyon = %d, beklenen 1", v)
+	if want := lastMigrationVersion(t); v != want {
+		t.Fatalf("iki Migrate sonrası versiyon = %d, beklenen %d", v, want)
 	}
+}
+
+// lastMigrationVersion, gömülü migration'ların en yüksek versiyonu.
+func lastMigrationVersion(t *testing.T) int {
+	t.Helper()
+
+	migs, err := loadMigrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(migs) == 0 {
+		t.Fatal("hiç migration yok")
+	}
+	return migs[len(migs)-1].version
 }
 
 func TestRollback(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
-	if err := s.Rollback(ctx); err != nil {
-		t.Fatalf("Rollback: %v", err)
+	// Rollback TEK adım geri alır; sıfıra inmek için tekrar tekrar çağrılır.
+	// Her çağrının versiyonu gerçekten DÜŞÜRDÜĞÜNÜ de doğruluyoruz: aynı
+	// versiyonda takılan bir Rollback burada sonsuz döngü yerine hata verir.
+	prev := lastMigrationVersion(t)
+	for i := 0; prev > 0; i++ {
+		if i > len(migrationsForTest(t)) {
+			t.Fatalf("Rollback ilerlemiyor, versiyon %d'de takıldı", prev)
+		}
+		if err := s.Rollback(ctx); err != nil {
+			t.Fatalf("Rollback: %v", err)
+		}
+		v, err := s.SchemaVersion(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if v >= prev {
+			t.Fatalf("Rollback sonrası versiyon %d -> %d, düşmesi gerekirdi", prev, v)
+		}
+		prev = v
 	}
 
-	v, err := s.SchemaVersion(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v != 0 {
-		t.Fatalf("rollback sonrası versiyon = %d, beklenen 0", v)
-	}
 	if tableExists(t, s, "users") {
 		t.Error("rollback sonrası users tablosu duruyor — down SQL çalışmadı")
 	}
@@ -165,5 +193,55 @@ func TestRollback(t *testing.T) {
 	}
 	if !tableExists(t, s, "users") {
 		t.Error("tekrar migrate sonrası users tablosu yok")
+	}
+}
+
+// migrationsForTest, döngü sınırı için migration sayısını verir.
+func migrationsForTest(t *testing.T) []migration {
+	t.Helper()
+
+	migs, err := loadMigrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return migs
+}
+
+func TestPendingMigrations(t *testing.T) {
+	ctx := context.Background()
+	s := newEmptyStore(t)
+
+	// Boş veritabanı: her şey bekliyor.
+	n, err := s.PendingMigrations(ctx)
+	if err != nil {
+		t.Fatalf("boş veritabanında PendingMigrations: %v", err)
+	}
+	if want := len(migrationsForTest(t)); n != want {
+		t.Fatalf("bekleyen = %d, beklenen %d", n, want)
+	}
+
+	if err := s.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// Migrate sonrası: sıfır. serve'ün "başlayabilir miyim" sorusu bu.
+	n, err = s.PendingMigrations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("migrate sonrası bekleyen = %d, beklenen 0", n)
+	}
+
+	// Bir adım geri al: tam olarak 1 beklemeli.
+	if err := s.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	n, err = s.PendingMigrations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("rollback sonrası bekleyen = %d, beklenen 1", n)
 	}
 }

@@ -28,6 +28,7 @@ import (
 
 	"github.com/warewave/postern/internal/ca"
 	"github.com/warewave/postern/internal/config"
+	"github.com/warewave/postern/internal/store"
 )
 
 // --- yardımcılar ---
@@ -76,7 +77,7 @@ func clientKey(t *testing.T) (authorized string, pub ssh.PublicKey) {
 	return string(ssh.MarshalAuthorizedKey(signer.PublicKey())), signer.PublicKey()
 }
 
-func testConfig(t *testing.T, authorizedKeys ...string) *config.Config {
+func testConfig(t *testing.T) *config.Config {
 	t.Helper()
 
 	hostKeyPath, _ := writeHostKey(t)
@@ -84,11 +85,43 @@ func testConfig(t *testing.T, authorizedKeys ...string) *config.Config {
 		Listen:    config.ListenConfig{Addr: "127.0.0.1:0"},
 		HostKey:   hostKeyPath,
 		CA:        config.CAConfig{KeyFile: testCAKey(t)},
+		Database:  config.DatabaseConfig{Path: filepath.Join(t.TempDir(), "postern.db")},
 		Recording: config.RecordingConfig{Dir: filepath.Join(t.TempDir(), "recordings")},
-		Users: []config.UserConfig{
-			{Name: "yigit", OSUser: "yigit", PublicKeys: authorizedKeys},
-		},
 	}
+}
+
+// testStore, "yigit" kullanıcısını verilen anahtarlarla tanıyan gerçek bir
+// SQLite store kurar — auth.go anahtarları oradan okuyor.
+//
+// Kimlik verisi artık config'te YAŞAMADIĞI için doğrudan store'a yazılır;
+// üretimde bu işi yetkili CLI komutları yapar (S3 sözleşmesi).
+func testStore(t *testing.T, cfg *config.Config, authorizedKeys ...string) *store.Store {
+	t.Helper()
+	ctx := context.Background()
+
+	db, err := store.Open(ctx, cfg.Database.Path)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	if _, err := db.CreateUser(ctx, "yigit", "", "yigit"); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	for _, line := range authorizedKeys {
+		pub, comment, _, _, err := ssh.ParseAuthorizedKey([]byte(line))
+		if err != nil {
+			t.Fatalf("ParseAuthorizedKey: %v", err)
+		}
+		if err := db.AddPublicKey(ctx, "yigit", pub.Marshal(), comment); err != nil {
+			t.Fatalf("AddPublicKey: %v", err)
+		}
+	}
+	return db
 }
 
 // testCAKey, gerçek bir CA anahtarı üretir: New artık ca.Load çağırdığı için
@@ -122,8 +155,7 @@ func (f fakeConnMeta) LocalAddr() net.Addr {
 
 func TestNew(t *testing.T) {
 	t.Run("gecerli anahtar yukleniyor", func(t *testing.T) {
-		authorized, _ := clientKey(t)
-		srv, err := New(testConfig(t, authorized), testLogger())
+		srv, err := New(testConfig(t), nil, testLogger())
 		if err != nil {
 			t.Fatalf("beklenmeyen hata: %v", err)
 		}
@@ -133,11 +165,10 @@ func TestNew(t *testing.T) {
 	})
 
 	t.Run("olmayan host key dosyasi", func(t *testing.T) {
-		authorized, _ := clientKey(t)
-		cfg := testConfig(t, authorized)
+		cfg := testConfig(t)
 		cfg.HostKey = filepath.Join(t.TempDir(), "yok_boyle_dosya")
 
-		_, err := New(cfg, testLogger())
+		_, err := New(cfg, nil, testLogger())
 		if err == nil {
 			t.Fatal("hata bekleniyordu, nil geldi")
 		}
@@ -147,15 +178,14 @@ func TestNew(t *testing.T) {
 	})
 
 	t.Run("bozuk anahtar dosyasi", func(t *testing.T) {
-		authorized, _ := clientKey(t)
-		cfg := testConfig(t, authorized)
+		cfg := testConfig(t)
 		bad := filepath.Join(t.TempDir(), "bozuk_anahtar")
 		if err := os.WriteFile(bad, []byte("bu bir ssh anahtari degil"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		cfg.HostKey = bad
 
-		if _, err := New(cfg, testLogger()); err == nil {
+		if _, err := New(cfg, nil, testLogger()); err == nil {
 			t.Fatal("bozuk anahtar dosyası hata vermeli")
 		}
 	})
@@ -169,7 +199,8 @@ func TestNew(t *testing.T) {
 
 func TestServerConfigAndCallback(t *testing.T) {
 	authorized, clientPub := clientKey(t)
-	srv, err := New(testConfig(t, authorized), testLogger())
+	cfg := testConfig(t)
+	srv, err := New(cfg, testStore(t, cfg, authorized), testLogger())
 	if err != nil {
 		t.Fatalf("New: %v (önce TestNew'i yeşile çevir)", err)
 	}
@@ -207,7 +238,8 @@ func TestServerConfigAndCallback(t *testing.T) {
 
 func TestServeStopsOnContextCancel(t *testing.T) {
 	authorized, _ := clientKey(t)
-	srv, err := New(testConfig(t, authorized), testLogger())
+	cfg := testConfig(t)
+	srv, err := New(cfg, testStore(t, cfg, authorized), testLogger())
 	if err != nil {
 		t.Fatalf("New: %v (önce TestNew'i yeşile çevir)", err)
 	}

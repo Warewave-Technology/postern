@@ -2,13 +2,14 @@ package sshd
 
 import (
 	"context"
+	"errors"
+	"net"
 	"time"
 
-	"github.com/warewave/postern/internal/config"
-	"github.com/warewave/postern/internal/model"
 	"github.com/warewave/postern/internal/policy"
 	"github.com/warewave/postern/internal/proxy"
 	"github.com/warewave/postern/internal/record"
+	"github.com/warewave/postern/internal/store"
 	"github.com/warewave/postern/internal/upstream"
 	"golang.org/x/crypto/ssh"
 )
@@ -67,20 +68,15 @@ func (s *Server) handleChannel(ctx context.Context, sshConn *ssh.ServerConn, new
 		return
 	}
 
-	var target config.TargetConfig
-	var found bool
-
-	for _, t := range s.cfg.Targets {
-		if t.Name == route.Target {
-			target = t
-			found = true
-			break
+	target, err := s.db.Target(ctx, route.Target)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			log.Warn("target not found", "target", route.Target, "error", err)
+			newChan.Reject(ssh.ConnectionFailed, "connection failed")
+			return
 		}
-	}
-
-	if !found {
-		log.Warn("unknown target", "target", route.Target)
-		newChan.Reject(ssh.ConnectionFailed, "unknown target")
+		log.Error("target lookup failed", "target", route.Target, "error", err)
+		newChan.Reject(ssh.ConnectionFailed, "connection failed")
 		return
 	}
 
@@ -89,16 +85,19 @@ func (s *Server) handleChannel(ctx context.Context, sshConn *ssh.ServerConn, new
 	// Bundan sonrası tek bir oturuma ait: kimlik ve hedef her satırda olsun.
 	log = log.With("user", posternUser, "target", target.Name)
 
-	u, ok := s.cfg.ModelUser(posternUser)
-	if !ok {
-		// Config'de böyle bir kullanıcı yok — yetki reddinden FARKLI bir
-		// durum ve farklı bir aksiyon gerektirir (kullanıcıyı config'e ekle).
-		log.Warn("unknown postern user")
-		newChan.Reject(ssh.ConnectionFailed, "access denied")
+	u, err := s.db.User(ctx, posternUser)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			log.Warn("user not found")
+			newChan.Reject(ssh.ConnectionFailed, "access denied")
+			return
+		}
+		log.Error("user lookup failed", "error", err)
+		newChan.Reject(ssh.ConnectionFailed, "connection failed")
 		return
 	}
 
-	d := policy.Authorize(u, model.Target{Name: target.Name}, "")
+	d := policy.Authorize(u, target, "")
 	if !d.Allowed {
 		// Reason politikanın kendi cümlesi; audit'te "neden reddedildi"
 		// sorusunun cevabı bu. İstemciye gitmez, yalnızca log'a.
@@ -167,17 +166,47 @@ func (s *Server) handleChannel(ctx context.Context, sshConn *ssh.ServerConn, new
 		}
 	}()
 
+	start := time.Now()
+
+	host, _, err := net.SplitHostPort(sshConn.Conn.RemoteAddr().String())
+	if err != nil {
+		log.Error("remote addr parse failed", "error", err)
+		newChan.Reject(ssh.ConnectionFailed, "session unavailable")
+		return
+	}
+
+	err = s.db.StartSession(ctx, store.SessionStart{
+		ID: id, Username: posternUser, TargetName: target.Name,
+		OSUser: d.OSUser, SrcIP: host, StartedAt: start,
+		RecordingPath: path,
+	})
+	if err != nil {
+		log.Error("start session failed", "error", err)
+		newChan.Reject(ssh.ConnectionFailed, "session unavailable")
+		return
+	}
+	defer func() {
+		if serr := s.db.EndSession(context.WithoutCancel(ctx), id, time.Now()); serr != nil {
+			log.Error("end session failed", "error", serr)
+		}
+	}()
+
 	down, downR, err := newChan.Accept()
 	if err != nil {
 		log.Error("channel accept failed", "error", err)
 		return
 	}
 
-	start := time.Now()
 	log.Info("session started", "os_user", d.OSUser)
 	err = proxy.New(down, downR, up, upR, rec, s.cfg.Recording.RecordInput, s.logger).Run(ctx)
 	if err != nil {
 		log.Error("session broker failed", "error", err)
 	}
+
+	err = s.db.EndSession(context.WithoutCancel(ctx), id, time.Now())
+	if err != nil {
+		log.Error("end session failed", "error", err)
+	}
+
 	log.Info("session ended", "os_user", d.OSUser, "duration", time.Since(start))
 }

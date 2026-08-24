@@ -1,4 +1,4 @@
-# S1.1 — geçerli örnek config. load_test.go bu dosyadaki değerlere bağlı;
+# Geçerli örnek config — yalnızca ALTYAPI alanları (S3 sözleşmesi):
 # burayı değiştirirsen TestLoadValidFields'ı da güncelle.
 #
 # Göreli yollar bu dosyanın bulunduğu dizine göre çözülür (Load sözleşmesi).
@@ -10,22 +10,10 @@ host_key: keys/host_ed25519
 ca:
   key_file: keys/ca_ed25519
 
+database:
+   path: postern.db
+
 recording:
    dir: recordings
    # record_input bilinçli olarak yazılmadı: varsayılan false kalmalı.
 
-targets:
-   - name: web01
-     host: 127.0.0.1
-     port: 2201
-     host_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIcLUQM0UcoZdJVh2EokribDvFZyyNyAVURM/LrCugFM"
-   - name: db01
-     host: 127.0.0.1
-     port: 2202
-     host_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIcLUQM0UcoZdJVh2EokribDvFZyyNyAVURM/LrCugFM"
-
-users:
-   - name: yigit
-     os_user: yigit
-     public_keys:
-        - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ7ynKb+gJBketKjkTJIL43cjcTXicjWR9lSa5cYiQLh yigit@warewave.io"

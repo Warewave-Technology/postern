@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -309,6 +310,215 @@ func (s *Store) GrantTarget(ctx context.Context, roleName, targetName string) er
 	return nil
 }
 
+// Users, tüm kullanıcıları rolleriyle birlikte, ada göre sıralı döner.
+//
+// User'ın sorgusunun WHERE'siz hâli; gruplama iki seviyeli — önce
+// kullanıcıya, sonra role. Desen User'dakiyle aynı, yalnızca indeks
+// map'leri kullanıcı boyutu kazanıyor.
+//
+// Hiç kullanıcı yoksa boş dilim, hata değil.
+func (s *Store) Users(ctx context.Context) ([]model.User, error) {
+	queryStr := `
+		SELECT u.username,
+	       u.os_user,
+	       r.name AS role_name,
+	       t.name AS target_name
+		FROM users u
+		LEFT JOIN user_roles   ur ON ur.user_id = u.id
+		LEFT JOIN roles        r  ON r.id       = ur.role_id
+		LEFT JOIN role_targets rt ON rt.role_id = r.id
+		LEFT JOIN targets      t  ON t.id       = rt.target_id
+		ORDER BY u.username, r.name, t.name;
+	`
+
+	rows, err := s.db.QueryContext(ctx, queryStr)
+	if err != nil {
+		return nil, translateErr("store.Users", err)
+	}
+	defer rows.Close()
+
+	// Boş dilim sözleşmesi: hiç kullanıcı yoksa nil değil [] dönsün diye
+	// burada make ile başlıyoruz.
+	users := make([]model.User, 0)
+	userIndex := map[string]int{}
+	// Rol indeksi kullanıcı BAŞINA tutulur: iki kullanıcı aynı role
+	// sahipse bunlar ayrı gruplardır, tek map ikisini karıştırırdı.
+	roleIndex := map[string]map[string]int{}
+
+	for rows.Next() {
+		var name, osUser string
+		var rawRole, rawTarget sql.NullString
+
+		if err := rows.Scan(&name, &osUser, &rawRole, &rawTarget); err != nil {
+			return nil, translateErr("store.Users", err)
+		}
+
+		ui, ok := userIndex[name]
+		if !ok {
+			users = append(users, model.User{Name: name, OSUser: osUser, Roles: make([]model.Role, 0)})
+			ui = len(users) - 1
+			userIndex[name] = ui
+			roleIndex[name] = map[string]int{}
+		}
+
+		if !rawRole.Valid {
+			continue // rolsüz kullanıcının hayalet LEFT JOIN satırı
+		}
+
+		ri, ok := roleIndex[name][rawRole.String]
+		if !ok {
+			users[ui].Roles = append(users[ui].Roles, model.Role{Name: rawRole.String, Targets: make([]string, 0)})
+			ri = len(users[ui].Roles) - 1
+			roleIndex[name][rawRole.String] = ri
+		}
+
+		if rawTarget.Valid {
+			users[ui].Roles[ri].Targets = append(users[ui].Roles[ri].Targets, rawTarget.String)
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, translateErr("store.Users", err)
+	}
+
+	return users, nil
+}
+
+type PublicKey struct {
+	Blob    []byte
+	Comment string
+	AddedAt time.Time
+}
+
+func (s *Store) AddPublicKey(ctx context.Context, username string, keyBlob []byte, comment string) error {
+	var userID string
+	queryUserStr := `
+		SELECT id
+		FROM users
+		WHERE username=?;
+	`
+
+	if err := s.db.QueryRowContext(ctx, queryUserStr, username).Scan(&userID); err != nil {
+		return translateErr("store.AddPublicKey", err)
+	}
+
+	blob := base64.StdEncoding.EncodeToString(keyBlob)
+
+	insertQuery := `
+		INSERT INTO user_public_keys (key_blob, user_id, comment, added_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(key_blob) DO NOTHING;
+	`
+
+	res, err := s.db.ExecContext(ctx, insertQuery, blob, userID, comment, time.Now().Unix())
+	if err != nil {
+		return translateErr("store.AddPublicKey", err)
+	}
+
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return translateErr("store.AddPublicKey", err)
+	}
+
+	if affected > 0 {
+		return nil
+	}
+
+	var ownerID string
+	ownerQuery := `
+		SELECT user_id
+		FROM user_public_keys
+		WHERE key_blob=?;
+	`
+
+	if err := s.db.QueryRowContext(ctx, ownerQuery, blob).Scan(&ownerID); err != nil {
+		return translateErr("store.AddPublicKey", err)
+	}
+
+	if ownerID != userID {
+		return fmt.Errorf("store.AddPublicKey: %w", ErrConflict)
+	}
+
+	return nil
+}
+
+func (s *Store) UserByPublicKey(ctx context.Context, keyBlob []byte) (model.User, error) {
+	blob := base64.StdEncoding.EncodeToString(keyBlob)
+
+	var username string
+	queryUserStr := `
+		SELECT u.username
+		FROM user_public_keys k
+		JOIN users u ON u.id = k.user_id
+		WHERE k.key_blob = ?;
+	`
+
+	if err := s.db.QueryRowContext(ctx, queryUserStr, blob).Scan(&username); err != nil {
+		return model.User{}, translateErr("store.UserByPublicKey", err)
+	}
+
+	user, err := s.User(ctx, username)
+	if err != nil {
+		return model.User{}, translateErr("store.UserByPublicKey", err)
+	}
+
+	return user, nil
+}
+
+func (s *Store) PublicKeys(ctx context.Context, username string) ([]PublicKey, error) {
+	var publicKeys []PublicKey
+
+	var userID string
+	queryUserStr := `
+		SELECT id
+		FROM users
+		WHERE username=?;
+	`
+
+	if err := s.db.QueryRowContext(ctx, queryUserStr, username).Scan(&userID); err != nil {
+		return publicKeys, translateErr("store.PublicKeys", err)
+	}
+
+	queryPKeyStr := `
+		SELECT key_blob, comment, added_at
+		FROM user_public_keys
+		WHERE user_id = ?
+		ORDER BY added_at, key_blob;
+	`
+
+	rows, err := s.db.QueryContext(ctx, queryPKeyStr, userID)
+	if err != nil {
+		return publicKeys, translateErr("store.PublicKeys", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var publicKey PublicKey
+		var addeddAt int64
+
+		if err := rows.Scan(&publicKey.Blob, &publicKey.Comment, &addeddAt); err != nil {
+			return publicKeys, translateErr("store.PublicKeys", err)
+		}
+
+		publicKey.AddedAt = time.Unix(addeddAt, 0)
+
+		blob, err := base64.StdEncoding.DecodeString(string(publicKey.Blob))
+		if err != nil {
+			return publicKeys, translateErr("store.PublicKeys", err)
+		}
+
+		publicKey.Blob = blob
+
+		publicKeys = append(publicKeys, publicKey)
+	}
+
+	if err = rows.Err(); err != nil {
+		return publicKeys, translateErr("store.PublicKeys", err)
+	}
+
+	return publicKeys, nil
+}
+
 type SessionStart struct {
 	ID string
 
@@ -374,17 +584,6 @@ func (s *Store) EndSession(ctx context.Context, id string, endedAt time.Time) er
 	return nil
 }
 
-// Sessions, oturumları YENİDEN ESKİYE doğru döner.
-//
-// username boşsa herkesinkini döner; doluysa yalnızca o kullanıcınınkini.
-// limit 0 ya da negatifse sınır uygulanmaz.
-//
-// user_id ve target_id yerine ADLARI döndürmek için JOIN gerekiyor
-// (model.Session ad tutuyor — sebebi orada yazıyor).
-//
-// ⚠️ ended_at NULL olabilir; doğrudan int64'e taramak hata verir.
-// Taradıktan sonra NULL ise EndedAt'i sıfır time.Time bırak — model.Session.Open()
-// tam olarak buna bakıyor.
 func (s *Store) Sessions(ctx context.Context, username string, limit int) ([]model.Session, error) {
 	var sessions []model.Session
 
@@ -418,8 +617,6 @@ func (s *Store) Sessions(ctx context.Context, username string, limit int) ([]mod
 	for rows.Next() {
 		var session model.Session
 
-		// Zamanlar şemada INTEGER (UTC Unix saniyesi) ve database/sql
-		// int64'ü kendiliğinden time.Time'a çevirmez — ara değişken şart.
 		var startedAt int64
 		var endedAt sql.NullInt64
 
@@ -429,11 +626,6 @@ func (s *Store) Sessions(ctx context.Context, username string, limit int) ([]mod
 
 		session.StartedAt = time.Unix(startedAt, 0)
 
-		// NULL ise EndedAt'e DOKUNMA: sıfır time.Time kalsın.
-		// model.Session.Open() tam olarak buna bakıyor, yani "oturum hâlâ
-		// açık" bilgisi ayrı bir bayrakla değil bu alanın sıfırlığıyla
-		// taşınıyor. time.Unix(0, 0) yazmak 1970 demek olurdu — sıfır
-		// time.Time değil, geçerli bir tarih.
 		if endedAt.Valid {
 			session.EndedAt = time.Unix(endedAt.Int64, 0)
 		}

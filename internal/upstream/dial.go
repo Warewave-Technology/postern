@@ -14,13 +14,13 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/warewave/postern/internal/ca"
-	"github.com/warewave/postern/internal/config"
+	"github.com/warewave/postern/internal/model"
 )
 
 // Conn is an established SSH connection to a target.
 type Conn struct {
 	client *ssh.Client
-	target config.TargetConfig
+	target model.Target
 }
 
 // Client exposes the underlying SSH client
@@ -45,7 +45,7 @@ type Identity struct {
 
 // DialWithCert connects to t using a freshly minted, short-lived certificate
 // instead of a static key.
-func DialWithCert(ctx context.Context, t config.TargetConfig, identity Identity, authority *ca.CA) (*Conn, error) {
+func DialWithCert(ctx context.Context, t model.Target, identity Identity, authority *ca.CA) (*Conn, error) {
 	_, privKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("upstream.DialWithCert: %w", err)
@@ -84,7 +84,7 @@ func DialWithCert(ctx context.Context, t config.TargetConfig, identity Identity,
 // modelinde hangi hesapla açılacağı config'in değil, oturumun kararıdır
 // (policy.Authorize üretir) ve sertifikanın principal'ıyla aynı olmak
 // zorundadır.
-func dialer(ctx context.Context, t config.TargetConfig, user string, signer ssh.Signer) (*Conn, error) {
+func dialer(ctx context.Context, t model.Target, user string, signer ssh.Signer) (*Conn, error) {
 	cb, algos, err := hostKeyCallback(t.HostKey)
 	if err != nil {
 		return nil, fmt.Errorf("target %s: %w", t.Name, err)

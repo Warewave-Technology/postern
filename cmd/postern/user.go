@@ -1,0 +1,210 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"strings"
+	"text/tabwriter"
+
+	"github.com/spf13/cobra"
+	"golang.org/x/crypto/ssh"
+
+	"github.com/warewave/postern/internal/config"
+	"github.com/warewave/postern/internal/store"
+)
+
+// newUserCmd, kullanıcı yönetimi.
+//
+// YETKİ MODELİ (S3 sözleşmesi): bu komutlar bastion hostunda, veritabanı
+// dosyasına erişebilen kişi tarafından çalıştırılır. Ayrı bir kimlik
+// katmanı BİLEREK yok: dosyayı (0700) ve CA anahtarını zaten okuyabilen
+// biri her şeyi yapabilir; CLI'a şifre koymak güvenlik değil tören olurdu.
+// OIDC'li API/UI geldiğinde (S3.2+) yetki oradan sorulacak, CLI "cam
+// kırılınca" aracı olarak kalacak.
+func newUserCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "user",
+		Short: "Manage users",
+	}
+	cmd.AddCommand(newUserAddCmd())
+	cmd.AddCommand(newUserListCmd())
+	return cmd
+}
+
+// newUserAddCmd, kullanıcıyı TEK komutta erişilir kılar: oluştur + roller +
+// anahtarlar.
+//
+//	postern user add --name yigit --os-user yigit \
+//	    --role ops --key ~/.ssh/id_ed25519.pub
+//
+// KISMİ BAŞARI SORUNU ve buradaki cevabı: bileşik bir komut yarıda
+// kalabilir (kullanıcı oluştu, rol yazım hatalı çıktı). İki önlem birlikte:
+//
+//  1. Yazmaya başlamadan önce doğrulanabilecek her şey doğrulanır —
+//     anahtar dosyaları okunup parse edilir. Bozuk dosya, kullanıcı
+//     yaratılmadan ÖNCE hata verir.
+//  2. Komut yeniden çalıştırılabilir: kullanıcı zaten varsa bu bir hata
+//     değil, "bu kullanıcı şu rollere ve anahtarlara sahip OLSUN" isteğinin
+//     devamıdır. AssignRole ve AddPublicKey zaten idempotent; rol yazım
+//     hatasını düzeltip aynı komutu tekrar çalıştırmak işi tamamlar.
+//     Tek koşul: var olan kullanıcının os_user'ı bayrakla ÇELİŞMEMELİ —
+//     çelişki sessizce eski değeri korumak yerine açık hata verir.
+func newUserAddCmd() *cobra.Command {
+	var configPath, name, osUser, email string
+	var roles, keyFiles []string
+
+	cmd := &cobra.Command{
+		Use:   "add",
+		Short: "Create a user with roles and public keys",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Önlem 1: önce doğrula, sonra dokun.
+			type parsedKey struct {
+				blob    []byte
+				comment string
+				path    string
+			}
+			keys := make([]parsedKey, 0, len(keyFiles))
+			for _, path := range keyFiles {
+				data, err := os.ReadFile(path)
+				if err != nil {
+					return fmt.Errorf("key file: %w", err)
+				}
+				pub, comment, _, _, err := ssh.ParseAuthorizedKey(data)
+				if err != nil {
+					return fmt.Errorf("key file %s: not a valid public key: %w", path, err)
+				}
+				keys = append(keys, parsedKey{blob: pub.Marshal(), comment: comment, path: path})
+			}
+
+			cfg, err := config.Load(configPath)
+			if err != nil {
+				return err
+			}
+
+			ctx := context.Background()
+
+			db, err := store.Open(ctx, cfg.Database.Path)
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+
+			out := cmd.OutOrStdout()
+
+			_, err = db.CreateUser(ctx, name, email, osUser)
+			switch {
+			case errors.Is(err, store.ErrConflict):
+				// Önlem 2: yeniden çalıştırma. Ama kimlik alanı çelişiyorsa
+				// sessizce eskiyi korumak, operatörü yanıltır.
+				existing, uerr := db.User(ctx, name)
+				if uerr != nil {
+					return uerr
+				}
+				if existing.OSUser != osUser {
+					return fmt.Errorf("user %q exists with os-user %q (asked for %q); refusing to change identity implicitly",
+						name, existing.OSUser, osUser)
+				}
+				fmt.Fprintf(out, "user %q already exists, updating grants\n", name)
+			case err != nil:
+				return err
+			default:
+				fmt.Fprintf(out, "user %q created\n", name)
+			}
+
+			for _, role := range roles {
+				if err := db.AssignRole(ctx, name, role); err != nil {
+					if errors.Is(err, store.ErrNotFound) {
+						return fmt.Errorf("role %q not found — create it with `postern role add`, then re-run this command (already-applied grants are kept)", role)
+					}
+					return err
+				}
+				fmt.Fprintf(out, "  role %q assigned\n", role)
+			}
+
+			for _, k := range keys {
+				if err := db.AddPublicKey(ctx, name, k.blob, k.comment); err != nil {
+					if errors.Is(err, store.ErrConflict) {
+						return fmt.Errorf("key %s belongs to another user — a key can only identify one person", k.path)
+					}
+					return err
+				}
+				fmt.Fprintf(out, "  key %s added\n", k.path)
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
+	cmd.Flags().StringVar(&name, "name", "", "postern kullanıcı adı (zorunlu)")
+	cmd.Flags().StringVar(&osUser, "os-user", "", "hedeflerdeki hesap (zorunlu)")
+	cmd.Flags().StringVar(&email, "email", "", "OIDC eşleşmesi için e-posta")
+	cmd.Flags().StringArrayVar(&roles, "role", nil, "verilecek rol (tekrarlanabilir)")
+	cmd.Flags().StringArrayVar(&keyFiles, "key", nil, "public key dosyası (tekrarlanabilir)")
+	_ = cmd.MarkFlagRequired("name")
+	_ = cmd.MarkFlagRequired("os-user")
+	return cmd
+}
+
+// newUserListCmd, kullanıcıları rolleriyle listeler.
+func newUserListCmd() *cobra.Command {
+	var configPath string
+
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List users with their roles",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load(configPath)
+			if err != nil {
+				return err
+			}
+
+			ctx := context.Background()
+
+			db, err := store.Open(ctx, cfg.Database.Path)
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+
+			users, err := db.Users(ctx)
+			if err != nil {
+				return err
+			}
+			if len(users) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "no users defined")
+				return nil
+			}
+
+			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+			fmt.Fprintln(w, "NAME\tOS USER\tROLES\tKEYS")
+
+			for _, u := range users {
+				roleNames := make([]string, 0, len(u.Roles))
+				for _, r := range u.Roles {
+					roleNames = append(roleNames, r.Name)
+				}
+				rolesCol := "-"
+				if len(roleNames) > 0 {
+					rolesCol = strings.Join(roleNames, ",")
+				}
+
+				// Kullanıcı başına bir sorgu: listeleme yolu için kabul
+				// edilebilir; sıcak yol değil.
+				keys, err := db.PublicKeys(ctx, u.Name)
+				if err != nil {
+					return err
+				}
+
+				fmt.Fprintf(w, "%s\t%s\t%s\t%d\n", u.Name, u.OSUser, rolesCol, len(keys))
+			}
+
+			return w.Flush()
+		},
+	}
+
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
+	return cmd
+}

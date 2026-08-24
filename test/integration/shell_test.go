@@ -31,7 +31,7 @@ func proxyClient(t *testing.T) *ssh.Client {
 	caKeyPath, caAuthorizedKey := newTestCA(t)
 
 	tgt := startCertTarget(t, caAuthorizedKey)
-	tc := tgt.targetConfig()
+	tc := tgt.target()
 	tc.Name = "web01"
 
 	addr, hostPub, signer := testServer(t, caKeyPath, tc)
@@ -150,7 +150,7 @@ func TestProxyUnknownTargetRejected(t *testing.T) {
 	caKeyPath, caAuthorizedKey := newTestCA(t)
 
 	tgt := startCertTarget(t, caAuthorizedKey)
-	tc := tgt.targetConfig()
+	tc := tgt.target()
 	tc.Name = "web01"
 
 	addr, hostPub, signer := testServer(t, caKeyPath, tc)

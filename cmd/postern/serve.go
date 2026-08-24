@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 
@@ -9,6 +10,7 @@ import (
 
 	"github.com/warewave/postern/internal/config"
 	"github.com/warewave/postern/internal/sshd"
+	"github.com/warewave/postern/internal/store"
 )
 
 func newServeCmd() *cobra.Command {
@@ -25,19 +27,33 @@ func newServeCmd() *cobra.Command {
 				return err
 			}
 
+			ctx := context.Background()
+
+			db, err := store.Open(ctx, cfg.Database.Path)
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+
+			pending, err := db.PendingMigrations(ctx)
+			if err != nil {
+				return err
+			}
+			if pending > 0 {
+				return fmt.Errorf("schema is %d migration(s) behind; run `postern db migrate` first", pending)
+			}
+
 			logger.Info("config loaded",
 				"listen", cfg.Listen.Addr,
-				"targets", len(cfg.Targets),
-				"users", len(cfg.Users),
+				"database", cfg.Database.Path,
 			)
 
-			// S1.2: burada sshd.Server kurulup ListenAndServe çağrılacak.
-			s, err := sshd.New(cfg, logger)
+			s, err := sshd.New(cfg, db, logger)
 			if err != nil {
 				return err
 			}
 
-			return s.ListenAndServe(context.Background())
+			return s.ListenAndServe(ctx)
 		},
 	}
 

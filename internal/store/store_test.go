@@ -1,11 +1,15 @@
 package store
 
 import (
+	"bytes"
 	"context"
+	"crypto/ed25519"
 	"database/sql"
 	"errors"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 
 	"github.com/warewave/postern/internal/model"
 )
@@ -512,5 +516,268 @@ func TestSessionsOrderFilterAndLimit(t *testing.T) {
 	}
 	if len(one) != 1 || one[0].ID != "s3" {
 		t.Fatalf("limit=1 sonucu = %+v, beklenen tek eleman s3", one)
+	}
+}
+
+// ---------------------------------------------------------------------
+// Açık anahtarlar
+// ---------------------------------------------------------------------
+
+// testKeyBlob, deterministik bir ed25519 açık anahtarının Marshal çıktısı.
+// seed'i değiştirmek farklı bir anahtar üretir.
+func testKeyBlob(t *testing.T, seed byte) []byte {
+	t.Helper()
+
+	raw := make([]byte, ed25519.SeedSize)
+	for i := range raw {
+		raw[i] = seed
+	}
+	pub, err := ssh.NewPublicKey(ed25519.NewKeyFromSeed(raw).Public())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pub.Marshal()
+}
+
+func TestPublicKeyRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	if _, err := s.CreateUser(ctx, "yigit", "", "yigit"); err != nil {
+		t.Fatal(err)
+	}
+	blob := testKeyBlob(t, 1)
+
+	if err := s.AddPublicKey(ctx, "yigit", blob, "yigit@laptop"); err != nil {
+		t.Fatalf("AddPublicKey: %v", err)
+	}
+
+	u, err := s.UserByPublicKey(ctx, blob)
+	if err != nil {
+		t.Fatalf("UserByPublicKey: %v", err)
+	}
+	if u.Name != "yigit" || u.OSUser != "yigit" {
+		t.Errorf("kullanıcı = %+v, beklenen yigit/yigit", u)
+	}
+
+	keys, err := s.PublicKeys(ctx, "yigit")
+	if err != nil {
+		t.Fatalf("PublicKeys: %v", err)
+	}
+	if len(keys) != 1 {
+		t.Fatalf("%d anahtar döndü, beklenen 1", len(keys))
+	}
+	if !bytes.Equal(keys[0].Blob, blob) {
+		t.Error("dönen blob yazılanla aynı değil — base64 çevrimi kayıplı olabilir")
+	}
+	if keys[0].Comment != "yigit@laptop" {
+		t.Errorf("comment = %q, beklenen %q", keys[0].Comment, "yigit@laptop")
+	}
+}
+
+// UserByPublicKey'in dönüşü doğrudan policy'ye gidecek: rolsüz gelirse
+// kimliği doğrulanmış kullanıcı hiçbir hedefe erişemez.
+func TestUserByPublicKeyCarriesRoles(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	if _, err := s.CreateUser(ctx, "yigit", "", "yigit"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateRole(ctx, "ops"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateTarget(ctx, model.Target{
+		Name: "web01", Host: "127.0.0.1", Port: 22, HostKey: testHostKey,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AssignRole(ctx, "yigit", "ops"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.GrantTarget(ctx, "ops", "web01"); err != nil {
+		t.Fatal(err)
+	}
+
+	blob := testKeyBlob(t, 2)
+	if err := s.AddPublicKey(ctx, "yigit", blob, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	u, err := s.UserByPublicKey(ctx, blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(u.Roles) != 1 || u.Roles[0].Name != "ops" {
+		t.Fatalf("Roles = %+v, beklenen tek 'ops' rolü", u.Roles)
+	}
+	if len(u.Roles[0].Targets) != 1 || u.Roles[0].Targets[0] != "web01" {
+		t.Fatalf("rolün hedefleri = %v, beklenen [web01]", u.Roles[0].Targets)
+	}
+}
+
+func TestUnknownPublicKey(t *testing.T) {
+	_, err := newTestStore(t).UserByPublicKey(context.Background(), testKeyBlob(t, 9))
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("hata = %v, beklenen ErrNotFound", err)
+	}
+}
+
+// Aynı anahtarı aynı kişiye tekrar eklemek istek zaten yerine getirilmiş
+// demektir; AssignRole ile aynı sözleşme.
+func TestAddPublicKeyIsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	if _, err := s.CreateUser(ctx, "yigit", "", "yigit"); err != nil {
+		t.Fatal(err)
+	}
+	blob := testKeyBlob(t, 3)
+
+	if err := s.AddPublicKey(ctx, "yigit", blob, "laptop"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddPublicKey(ctx, "yigit", blob, "laptop"); err != nil {
+		t.Fatalf("ikinci ekleme hata verdi: %v", err)
+	}
+
+	keys, err := s.PublicKeys(ctx, "yigit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 1 {
+		t.Fatalf("%d anahtar döndü, beklenen 1 — anahtar iki kez yazılmış olabilir", len(keys))
+	}
+}
+
+// ⚠️ Bir anahtar TEK bir kimliğe ait olabilir.
+//
+// İkinci kullanıcıya da bağlanabilseydi, o anahtarla gelen birinin hangi
+// hesap olduğu belirsizleşirdi: auth ikisinden birini seçer, denetim kaydı
+// o seçimi doğru sanar. "Kim girdi" sorusunun tek cevabı olmalı.
+func TestPublicKeyBelongsToOneUser(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	for _, name := range []string{"yigit", "ayse"} {
+		if _, err := s.CreateUser(ctx, name, "", name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	blob := testKeyBlob(t, 4)
+
+	if err := s.AddPublicKey(ctx, "yigit", blob, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	err := s.AddPublicKey(ctx, "ayse", blob, "")
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("hata = %v, beklenen ErrConflict — anahtar iki kimliğe bağlanabiliyor", err)
+	}
+
+	// Ve sahibi DEĞİŞMEMİŞ olmalı.
+	u, err := s.UserByPublicKey(ctx, blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Name != "yigit" {
+		t.Errorf("anahtarın sahibi = %q, beklenen %q — reddedilen ekleme sahipliği devretmiş", u.Name, "yigit")
+	}
+}
+
+func TestAddPublicKeyUnknownUser(t *testing.T) {
+	err := newTestStore(t).AddPublicKey(context.Background(), "yok-boyle-biri", testKeyBlob(t, 5), "")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("hata = %v, beklenen ErrNotFound", err)
+	}
+}
+
+// Kullanıcı silinince anahtarları da gitmeli (ON DELETE CASCADE).
+// Yetim bir anahtar, silinmiş bir kullanıcının hâlâ giriş yapabilmesi demek.
+func TestDeletingUserRemovesKeys(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	if _, err := s.CreateUser(ctx, "yigit", "", "yigit"); err != nil {
+		t.Fatal(err)
+	}
+	blob := testKeyBlob(t, 6)
+	if err := s.AddPublicKey(ctx, "yigit", blob, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM users WHERE username = ?`, "yigit"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.UserByPublicKey(ctx, blob); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("hata = %v, beklenen ErrNotFound — silinen kullanıcının anahtarı hâlâ tanınıyor", err)
+	}
+}
+
+func TestUsersListsAllWithRoles(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	// Bilerek alfabetik olmayan sırada ve farklı şekillerde:
+	// rolsüz, tek rollü, iki rollü.
+	for _, u := range []struct{ name, os string }{
+		{"zeynep", "zeynep"}, {"ali", "ali"}, {"yigit", "yigit"},
+	} {
+		if _, err := s.CreateUser(ctx, u.name, "", u.os); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, r := range []string{"ops", "dba"} {
+		if _, err := s.CreateRole(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.CreateTarget(ctx, model.Target{Name: "web01", Host: "h", Port: 22, HostKey: testHostKey}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.GrantTarget(ctx, "ops", "web01"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AssignRole(ctx, "yigit", "ops"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AssignRole(ctx, "yigit", "dba"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AssignRole(ctx, "ali", "ops"); err != nil {
+		t.Fatal(err)
+	}
+
+	users, err := s.Users(ctx)
+	if err != nil {
+		t.Fatalf("Users: %v", err)
+	}
+	if len(users) != 3 {
+		t.Fatalf("%d kullanıcı döndü, beklenen 3: %+v", len(users), users)
+	}
+	for i, want := range []string{"ali", "yigit", "zeynep"} {
+		if users[i].Name != want {
+			t.Errorf("users[%d] = %q, beklenen %q — sıralama ada göre değil", i, users[i].Name, want)
+		}
+	}
+
+	byName := map[string]model.User{}
+	for _, u := range users {
+		byName[u.Name] = u
+	}
+	if got := len(byName["zeynep"].Roles); got != 0 {
+		t.Errorf("zeynep %d rolle geldi, beklenen 0", got)
+	}
+	if got := len(byName["yigit"].Roles); got != 2 {
+		t.Errorf("yigit %d rolle geldi, beklenen 2: %+v", got, byName["yigit"].Roles)
+	}
+	// Satır çarpımı tuzağı: ali'nin TEK rolü var; kullanıcı gruplaması
+	// yanlışsa ops'un hedef satırları ali'yi çoğaltır ya da rolünü şişirir.
+	if got := len(byName["ali"].Roles); got != 1 {
+		t.Errorf("ali %d rolle geldi, beklenen 1: %+v", got, byName["ali"].Roles)
+	}
+	if len(byName["ali"].Roles) == 1 && len(byName["ali"].Roles[0].Targets) != 1 {
+		t.Errorf("ali'nin ops rolü %v hedefiyle geldi, beklenen [web01]", byName["ali"].Roles[0].Targets)
 	}
 }

@@ -14,24 +14,9 @@ host_key: keys/host_ed25519
 ca:
    key_file: keys/ca_ed25519
 
+database:
+   path: postern.db
+
 recording:
    dir: recordings
 
-targets:
-   - name: web01
-     host: 192.168.1.30
-     port: 22
-     host_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGdpouXBeONMBzNN6LOpbEPY34PipC199IiNYbh26RGa"
-roles:
-   - name: ops
-     targets: [web01]
-
-users:
-   - name: yigit
-     # Hedefte açılacak hesap: sertifikanın principal'ı ve SSH kullanıcı adı.
-     # ⚠️ "root" olamaz — policy bunu reddediyor (herkes hedefe KENDİ adıyla
-     # düşer). Hedefte bu adda bir hesap açman gerekiyor.
-     os_user: yigit
-     roles: [ops]
-     public_keys:
-        - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ7ynKb+gJBketKjkTJIL43cjcTXicjWR9lSa5cYiQLh yigit@warewave.io"

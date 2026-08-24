@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/pem"
@@ -17,7 +18,9 @@ import (
 
 	"github.com/warewave/postern/internal/ca"
 	"github.com/warewave/postern/internal/config"
+	"github.com/warewave/postern/internal/model"
 	"github.com/warewave/postern/internal/sshd"
+	"github.com/warewave/postern/internal/store"
 )
 
 // newTestCA, hem bastion'ın kullanacağı anahtar YOLUNU hem hedefin
@@ -37,7 +40,16 @@ func newTestCA(t *testing.T) (keyPath, authorizedKey string) {
 // testServer, geçici host key + tek kullanıcılı config ile sunucuyu
 // 127.0.0.1'de rastgele portta başlatır. Anahtarlar test içinde üretilir,
 // diske yalnızca host key yazılır (New dosyadan yüklediği için).
-func testServer(t *testing.T, caKeyPath string, targets ...config.TargetConfig) (addr string, hostPub ssh.PublicKey, clientSigner ssh.Signer) {
+func testServer(t *testing.T, caKeyPath string, targets ...model.Target) (addr string, hostPub ssh.PublicKey, clientSigner ssh.Signer) {
+	t.Helper()
+
+	addr, hostPub, clientSigner, _ = testServerWithDB(t, caKeyPath, targets...)
+	return addr, hostPub, clientSigner
+}
+
+// testServerWithDB, testServer'ın store'u da dışarı veren hâli: denetim
+// kaydını doğrulayan ya da veritabanını bilerek deviren testler için.
+func testServerWithDB(t *testing.T, caKeyPath string, targets ...model.Target) (addr string, hostPub ssh.PublicKey, clientSigner ssh.Signer, db *store.Store) {
 	t.Helper()
 
 	_, hostPriv, err := ed25519.GenerateKey(rand.Reader)
@@ -67,28 +79,21 @@ func testServer(t *testing.T, caKeyPath string, targets ...config.TargetConfig) 
 	}
 	authorized := string(ssh.MarshalAuthorizedKey(clientSigner.PublicKey()))
 
-	// Kullanıcıya verilen hedeflerin hepsini kapsayan tek bir rol: policy
-	// artık hedef yetkisini rollerden okuyor.
-	var targetNames []string
-	for _, tgt := range targets {
-		targetNames = append(targetNames, tgt.Name)
-	}
-
 	cfg := &config.Config{
 		Listen:    config.ListenConfig{Addr: "127.0.0.1:0"},
 		HostKey:   hostKeyPath,
 		CA:        config.CAConfig{KeyFile: caKeyPath},
+		Database:  config.DatabaseConfig{Path: filepath.Join(t.TempDir(), "postern.db")},
 		Recording: config.RecordingConfig{Dir: filepath.Join(t.TempDir(), "recordings")},
-		Targets:   targets,
-		Roles:     []config.RoleConfig{{Name: "ops", Targets: targetNames}},
-		Users: []config.UserConfig{
-			// OSUser "postern": hedef konteynerdeki hesap. Sertifikanın
-			// principal'ı ve SSH kullanıcı adı bu olacak.
-			{Name: "yigit", OSUser: "postern", Roles: []string{"ops"}, PublicKeys: []string{authorized}},
-		},
 	}
 
-	srv, err := sshd.New(cfg, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	// Kimlik verisi config'te YAŞAMAZ (S3 sözleşmesi): kullanıcı, rol ve
+	// hedefler doğrudan store'a yazılır — üretimde bu işi yetkili CLI yapar.
+	// OSUser "postern": hedef konteynerdeki hesap; sertifikanın principal'ı
+	// ve SSH kullanıcı adı bu olacak.
+	db = seedStore(t, cfg.Database.Path, targets, authorized)
+
+	srv, err := sshd.New(cfg, db, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	if err != nil {
 		t.Fatalf("sshd.New: %v", err)
 	}
@@ -101,7 +106,7 @@ func testServer(t *testing.T, caKeyPath string, targets ...config.TargetConfig) 
 
 	go srv.Serve(t.Context(), l)
 
-	return l.Addr().String(), hostSigner.PublicKey(), clientSigner
+	return l.Addr().String(), hostSigner.PublicKey(), clientSigner, db
 }
 
 // S1.2 kanıtı: handshake tamamlanıyor ama henüz kanal açılamıyor.
@@ -150,4 +155,49 @@ func TestHandshakeRejectsUnknownKey(t *testing.T) {
 	if err == nil {
 		t.Fatal("bilinmeyen anahtar reddedilmeliydi (varsayılan deny)")
 	}
+}
+
+// seedStore, "yigit" kullanıcısını (os_user: postern) verilen hedeflerin
+// hepsini kapsayan "ops" rolüyle tanıyan bir store kurar. FK sırası:
+// hedefler, rol, kullanıcı, bağlar.
+func seedStore(t *testing.T, dbPath string, targets []model.Target, authorizedKey string) *store.Store {
+	t.Helper()
+	ctx := context.Background()
+
+	db, err := store.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	if _, err := db.CreateRole(ctx, "ops"); err != nil {
+		t.Fatalf("CreateRole: %v", err)
+	}
+	for _, tgt := range targets {
+		if _, err := db.CreateTarget(ctx, tgt); err != nil {
+			t.Fatalf("CreateTarget(%s): %v", tgt.Name, err)
+		}
+		if err := db.GrantTarget(ctx, "ops", tgt.Name); err != nil {
+			t.Fatalf("GrantTarget(%s): %v", tgt.Name, err)
+		}
+	}
+
+	if _, err := db.CreateUser(ctx, "yigit", "", "postern"); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	if err := db.AssignRole(ctx, "yigit", "ops"); err != nil {
+		t.Fatalf("AssignRole: %v", err)
+	}
+	pub, comment, _, _, err := ssh.ParseAuthorizedKey([]byte(authorizedKey))
+	if err != nil {
+		t.Fatalf("ParseAuthorizedKey: %v", err)
+	}
+	if err := db.AddPublicKey(ctx, "yigit", pub.Marshal(), comment); err != nil {
+		t.Fatalf("AddPublicKey: %v", err)
+	}
+	return db
 }

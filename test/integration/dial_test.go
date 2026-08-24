@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/warewave/postern/internal/config"
+	"github.com/warewave/postern/internal/model"
 	"github.com/warewave/postern/internal/upstream"
 )
 
@@ -66,7 +66,7 @@ func TestDialRespectsContext(t *testing.T) {
 	host, port := tarpit(t)
 	authority := testAuthority(t)
 
-	cfg := config.TargetConfig{
+	cfg := model.Target{
 		Name:    "tarpit",
 		Host:    host,
 		Port:    port,

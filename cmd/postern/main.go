@@ -24,5 +24,10 @@ func newRootCmd() *cobra.Command {
 	}
 	root.AddCommand(newServeCmd())
 	root.AddCommand(newCACmd())
+	root.AddCommand(newDBCmd())
+	root.AddCommand(newSessionCmd())
+	root.AddCommand(newUserCmd())
+	root.AddCommand(newTargetCmd())
+	root.AddCommand(newRoleCmd())
 	return root
 }

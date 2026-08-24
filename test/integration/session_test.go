@@ -27,7 +27,7 @@ func TestOpenSession(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	conn, err := upstream.DialWithCert(ctx, tgt.targetConfig(), upstream.Identity{
+	conn, err := upstream.DialWithCert(ctx, tgt.target(), upstream.Identity{
 		PosternUser: "yigit@warewave.io",
 		OSUser:      "postern",
 	}, authority)

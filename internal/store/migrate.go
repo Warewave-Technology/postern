@@ -156,6 +156,28 @@ func (s *Store) Migrate(ctx context.Context) error {
 	return nil
 }
 
+func (s *Store) PendingMigrations(ctx context.Context) (int, error) {
+	var pendingMigration int
+
+	migrations, err := loadMigrations()
+	if err != nil {
+		return pendingMigration, fmt.Errorf("store.migrate.PendingMigrations: %w", err)
+	}
+
+	schemaVersion, err := s.SchemaVersion(ctx)
+	if err != nil {
+		return pendingMigration, fmt.Errorf("store.migrate.PendingMigrations: %w", err)
+	}
+
+	for _, migration := range migrations {
+		if migration.version > schemaVersion {
+			pendingMigration++
+		}
+	}
+
+	return pendingMigration, nil
+}
+
 func (s *Store) Rollback(ctx context.Context) error {
 	migrations, err := loadMigrations()
 	if err != nil {

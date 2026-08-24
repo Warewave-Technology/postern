@@ -15,7 +15,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/warewave/postern/internal/ca"
-	"github.com/warewave/postern/internal/config"
+	"github.com/warewave/postern/internal/model"
 	"github.com/warewave/postern/internal/upstream"
 )
 
@@ -101,13 +101,14 @@ func startCertTarget(t *testing.T, caAuthorizedKey string) certTarget {
 	}
 }
 
-func (c certTarget) targetConfig() config.TargetConfig {
-	return config.TargetConfig{
+// target, upstream'in beklediği domain tipi.
+func (c certTarget) target() model.Target {
+	return model.Target{
 		Name:    "cert-target",
 		Host:    c.host,
 		Port:    c.port,
 		HostKey: c.hostKey,
-		// ⚠️ KeyFile YOK: sertifika modelinde statik anahtar kullanılmıyor.
+		// ⚠️ Hedefteki HESAP burada yok: sertifika modelinde onu policy verir.
 	}
 }
 
@@ -147,7 +148,7 @@ func TestDialWithCert(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	conn, err := upstream.DialWithCert(ctx, tgt.targetConfig(), upstream.Identity{
+	conn, err := upstream.DialWithCert(ctx, tgt.target(), upstream.Identity{
 		PosternUser: "yigit@warewave.io",
 		OSUser:      "postern",
 	}, authority)
@@ -178,7 +179,7 @@ func TestDialWithCertUntrustedCA(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if _, err := upstream.DialWithCert(ctx, tgt.targetConfig(), upstream.Identity{
+	if _, err := upstream.DialWithCert(ctx, tgt.target(), upstream.Identity{
 		PosternUser: "saldirgan@example.com",
 		OSUser:      "postern",
 	}, rogue); err == nil {
@@ -196,7 +197,7 @@ func TestDialWithCertUnknownPrincipal(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if _, err := upstream.DialWithCert(ctx, tgt.targetConfig(), upstream.Identity{
+	if _, err := upstream.DialWithCert(ctx, tgt.target(), upstream.Identity{
 		PosternUser: "yigit@warewave.io",
 		OSUser:      "nobody", // /etc/ssh/auth_principals/nobody yok
 	}, authority); err == nil {
@@ -211,7 +212,7 @@ func TestDialWithCertStillPinsHostKey(t *testing.T) {
 	authority := testAuthority(t)
 	tgt := startCertTarget(t, authority.AuthorizedKey())
 
-	cfg := tgt.targetConfig()
+	cfg := tgt.target()
 	cfg.HostKey = authority.AuthorizedKey() // hedefin değil, CA'nın anahtarı
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

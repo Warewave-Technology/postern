@@ -11,10 +11,7 @@ import (
 // Gerçek (parse edilebilir) test anahtarları. Private yarıları üretildikleri
 // anda silindi; burada yalnızca public satırlar yaşıyor — sır değiller.
 // Validate anahtar sözdizimini denetlediği için sahte string kullanılamaz.
-const (
-	testUserPubKey    = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOIPqmYrvP98V3v7Tyn71W5TL4eEQJlROZYGw0yFho9T yigit@warewave.io"
-	testTargetHostKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIcLUQM0UcoZdJVh2EokribDvFZyyNyAVURM/LrCugFM"
-)
+const ()
 
 // S1.1 test tablosu — postern-PLAN.md'deki 5 senaryo + olmayan config dosyası.
 // Bu tablo Load/Validate implementasyonunun sözleşmesidir: hepsi yeşile
@@ -38,12 +35,6 @@ func TestLoad(t *testing.T) {
 			file:        "testdata/missing_hostkey.yaml",
 			wantErr:     true,
 			errContains: "host_key",
-		},
-		{
-			name:        "cakisan target adi hata",
-			file:        "testdata/duplicate_target.yaml",
-			wantErr:     true,
-			errContains: "web01", // hata mesajı çakışan adı söylemeli
 		},
 		{
 			name:        "olmayan anahtar dosyasi hata",
@@ -91,6 +82,32 @@ func TestLoad(t *testing.T) {
 // Geçerli config'te alanların doğru geldiğini alan alan kontrol eder.
 // testdata/valid.yaml'daki değerlere bağlıdır — orayı değiştirirsen
 // burayı da güncelle.
+// SÖZLEŞMENİN BEKÇİSİ: kimlik verisi config'e geri sızamaz.
+//
+// yaml.Strict() bilinmeyen alanları reddediyor; bu test, birinin YAML'a
+// "users:" yazıp "neden girmiyor" diye saatler harcamasını, açılışta net
+// bir hataya çevirir. Alanları şemaya geri ekleyen biri de önce bu testi
+// silmek zorunda kalır — ki tam olarak istenen sürtünme bu.
+func TestLoadRejectsIdentityData(t *testing.T) {
+	for _, field := range []string{"targets", "roles", "users"} {
+		t.Run(field, func(t *testing.T) {
+			content := "listen:\n  addr: \":2222\"\n" + field + ": []\n"
+			path := filepath.Join(t.TempDir(), "old.yaml")
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			_, err := Load(path)
+			if err == nil {
+				t.Fatalf("%q alanı kabul edildi — kimlik verisi config'e geri sızmış", field)
+			}
+			if !strings.Contains(err.Error(), field) {
+				t.Errorf("hata suçlu alanı (%q) söylemeli; gelen: %v", field, err)
+			}
+		})
+	}
+}
+
 func TestLoadValidFields(t *testing.T) {
 	cfg, err := Load("testdata/valid.yaml")
 	if err != nil {
@@ -100,23 +117,8 @@ func TestLoadValidFields(t *testing.T) {
 	if got, want := cfg.Listen.Addr, ":2222"; got != want {
 		t.Errorf("Listen.Addr = %q, beklenen %q", got, want)
 	}
-	if got := len(cfg.Targets); got != 2 {
-		t.Fatalf("len(Targets) = %d, beklenen 2", got)
-	}
-	if got, want := cfg.Targets[0].Name, "web01"; got != want {
-		t.Errorf("Targets[0].Name = %q, beklenen %q", got, want)
-	}
-	if got, want := cfg.Targets[1].Name, "db01"; got != want {
-		t.Errorf("Targets[1].Name = %q, beklenen %q", got, want)
-	}
 	if cfg.Recording.RecordInput {
 		t.Error("Recording.RecordInput varsayılan false olmalı (şifre yazımı da girdidir)")
-	}
-	if got := len(cfg.Users); got != 1 {
-		t.Fatalf("len(Users) = %d, beklenen 1", got)
-	}
-	if got := len(cfg.Users[0].PublicKeys); got == 0 {
-		t.Error("Users[0].PublicKeys boş olmamalı")
 	}
 
 	// Yol çözümleme sözleşmesi: Load göreli yolları config dosyasının
@@ -133,22 +135,13 @@ func TestLoadValidFields(t *testing.T) {
 // kendi kopyasını alıp tek bir şeyi bozar.
 func validConfig() Config {
 	return Config{
-		Listen:  ListenConfig{Addr: ":2222"},
-		HostKey: "testdata/keys/host_ed25519",
-		CA:      CAConfig{KeyFile: "testdata/keys/ca_ed25519"},
+		Listen:   ListenConfig{Addr: ":2222"},
+		HostKey:  "testdata/keys/host_ed25519",
+		CA:       CAConfig{KeyFile: "testdata/keys/ca_ed25519"},
+		Database: DatabaseConfig{Path: "testdata/postern.db"},
 		// Dizinin var olması aranmıyor, dolu olması aranıyor: kayıt dizinini
 		// Store ilk oturumda kendisi açar (S1.8).
 		Recording: RecordingConfig{Dir: "testdata/recordings"},
-		Targets: []TargetConfig{
-			{Name: "web01", Host: "127.0.0.1", Port: 2201, HostKey: testTargetHostKey},
-			{Name: "db01", Host: "127.0.0.1", Port: 2202, HostKey: testTargetHostKey},
-		},
-		Roles: []RoleConfig{
-			{Name: "ops", Targets: []string{"web01", "db01"}},
-		},
-		Users: []UserConfig{
-			{Name: "yigit", OSUser: "yigit", Roles: []string{"ops"}, PublicKeys: []string{testUserPubKey}},
-		},
 	}
 }
 
@@ -166,76 +159,15 @@ func TestValidate(t *testing.T) {
 			mutate: func(c *Config) {},
 		},
 		{
-			name:        "port 0 gecersiz",
-			mutate:      func(c *Config) { c.Targets[0].Port = 0 },
-			wantErr:     true,
-			errContains: "port",
-		},
-		{
-			name:        "port 65536 gecersiz",
-			mutate:      func(c *Config) { c.Targets[0].Port = 65536 },
-			wantErr:     true,
-			errContains: "port",
-		},
-		{
-			name:        "eksik alan hatasi hangi target oldugunu soyler",
-			mutate:      func(c *Config) { c.Targets[1].Host = "" },
-			wantErr:     true,
-			errContains: "db01",
-		},
-		{
-			name: "cakisan user adi",
-			mutate: func(c *Config) {
-				c.Users = append(c.Users, UserConfig{Name: "yigit", OSUser: "yigit", PublicKeys: []string{"ssh-ed25519 AAAA-test2"}})
-			},
-			wantErr:     true,
-			errContains: "yigit",
-		},
-		{
-			name:        "public keysiz user",
-			mutate:      func(c *Config) { c.Users[0].PublicKeys = nil },
-			wantErr:     true,
-			errContains: "yigit",
-		},
-		{
-			// Bozuk anahtar auth anında değil, config yüklenirken yakalanmalı.
-			// Hata suçluyu (kullanıcıyı) söylemeli.
-			name:        "bozuk public key satiri hata",
-			mutate:      func(c *Config) { c.Users[0].PublicKeys = []string{"bu bir ssh anahtari degil"} },
-			wantErr:     true,
-			errContains: "yigit",
-		},
-		{
-			// ⚠️ Yazım hatası olan rol adı SESSİZCE atlanmamalı: kullanıcı
-			// hiçbir hedefe giremez ve sebebini kimse anlamaz. Hata rol adını
-			// söylemeli ki operatör hangi satırı düzelteceğini bilsin.
-			name:        "tanimsiz rol adi hata",
-			mutate:      func(c *Config) { c.Users[0].Roles = []string{"opss"} },
-			wantErr:     true,
-			errContains: "opss",
-		},
-		{
-			// Aynı sebep: rol var olmayan bir hedefi listeliyorsa yetki
-			// sessizce boşa düşer.
-			name: "rol tanimsiz target'a referans veriyor",
-			mutate: func(c *Config) {
-				c.Roles[0].Targets = append(c.Roles[0].Targets, "boyle-bir-hedef-yok")
-			},
-			wantErr:     true,
-			errContains: "boyle-bir-hedef-yok",
-		},
-		{
-			name: "cakisan rol adi",
-			mutate: func(c *Config) {
-				c.Roles = append(c.Roles, RoleConfig{Name: "ops", Targets: []string{"web01"}})
-			},
-			wantErr:     true,
-			errContains: "ops",
-		},
-		{
 			// recording.dir boşken sunucu anlaşılmaz bir "mkdir :" hatasıyla
 			// ölüyordu. Config katmanında yakalanırsa operatör hangi alanı
 			// dolduracağını öğrenir.
+			name:        "database.path bos hata",
+			mutate:      func(c *Config) { c.Database.Path = "" },
+			wantErr:     true,
+			errContains: "database.path",
+		},
+		{
 			name:        "recording.dir bos hata",
 			mutate:      func(c *Config) { c.Recording.Dir = "" },
 			wantErr:     true,
@@ -266,7 +198,7 @@ func TestValidate(t *testing.T) {
 	}
 }
 
-// Mutlak yollar çözümlemeden OLDUĞU GİBİ geçmeli; hiçbir target kaybolmamalı.
+// Mutlak yollar çözümlemeden OLDUĞU GİBİ geçmeli.
 func TestLoadAbsolutePaths(t *testing.T) {
 	absHost, err := filepath.Abs("testdata/keys/host_ed25519")
 	if err != nil {
@@ -277,24 +209,18 @@ func TestLoadAbsolutePaths(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	absDB := filepath.Join(t.TempDir(), "postern.db")
+
 	content := fmt.Sprintf(`listen:
   addr: ":2222"
 host_key: %s
 ca:
   key_file: %s
+database:
+  path: %s
 recording:
   dir: recordings
-targets:
-  - name: web01
-    host: 127.0.0.1
-    port: 2201
-    host_key: "%s"
-users:
-  - name: yigit
-    os_user: yigit
-    public_keys:
-      - "%s"
-`, absHost, absCA, testTargetHostKey, testUserPubKey)
+`, absHost, absCA, absDB)
 
 	cfgPath := filepath.Join(t.TempDir(), "abs.yaml")
 	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
@@ -305,11 +231,11 @@ users:
 	if err != nil {
 		t.Fatalf("mutlak yollu config yüklenemedi: %v", err)
 	}
-	if len(cfg.Targets) != 1 {
-		t.Fatalf("len(Targets) = %d, beklenen 1 — target kaybolmuş", len(cfg.Targets))
-	}
 	if cfg.CA.KeyFile != absCA {
 		t.Errorf("CA.KeyFile değişmiş: %q, beklenen %q", cfg.CA.KeyFile, absCA)
+	}
+	if cfg.Database.Path != absDB {
+		t.Errorf("Database.Path değişmiş: %q, beklenen %q", cfg.Database.Path, absDB)
 	}
 	if cfg.HostKey != absHost {
 		t.Errorf("HostKey değişmiş: %q, beklenen %q", cfg.HostKey, absHost)
