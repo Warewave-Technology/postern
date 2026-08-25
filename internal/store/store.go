@@ -313,6 +313,56 @@ func (s *Store) GrantTarget(ctx context.Context, roleName, targetName string) er
 	return nil
 }
 
+// SetUserEmail, kullanıcının e-postasını değiştirir; boş string adresi
+// SİLER (NULL). Kullanıcı yoksa ErrNotFound; adres başka bir kullanıcıda
+// kayıtlıysa ErrConflict (users.email UNIQUE — OIDC eşleşmesi tekil kalmalı).
+//
+// "user add"in reddettiği örtük değişikliğin AÇIK hâli: yönetici ne
+// yaptığını komutun adıyla söylüyor.
+func (s *Store) SetUserEmail(ctx context.Context, username, email string) error {
+	// CreateUser ile aynı kural: boş e-posta NULL'dır, '' değil —
+	// UNIQUE, e-postasız ikinci kullanıcıya takılmasın.
+	val := sql.NullString{String: email, Valid: email != ""}
+
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE users SET email = ? WHERE username = ?;`, val, username)
+	if err != nil {
+		return translateErr("store.SetUserEmail", err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return translateErr("store.SetUserEmail", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("store.SetUserEmail: %w", ErrNotFound)
+	}
+	return nil
+}
+
+// SetUserOSUser, kullanıcının hedeflerdeki hesabını değiştirir. Boş değer
+// şemadaki CHECK'e takılır; kullanıcı yoksa ErrNotFound.
+//
+// ⚠️ Bu, bir sonraki oturumdan itibaren kesilecek SERTİFİKALARIN
+// principal'ını değiştirir — geçmiş denetim kayıtlarına dokunmaz
+// (sessions.os_user o günkü kararı saklar; sebebi şemada yazıyor).
+func (s *Store) SetUserOSUser(ctx context.Context, username, osUser string) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE users SET os_user = ? WHERE username = ?;`, osUser, username)
+	if err != nil {
+		return translateErr("store.SetUserOSUser", err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return translateErr("store.SetUserOSUser", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("store.SetUserOSUser: %w", ErrNotFound)
+	}
+	return nil
+}
+
 // Users, tüm kullanıcıları rolleriyle birlikte, ada göre sıralı döner.
 //
 // User'ın sorgusunun WHERE'siz hâli; gruplama iki seviyeli — önce
@@ -604,6 +654,46 @@ func (s *Store) EndSession(ctx context.Context, id string, endedAt time.Time) er
 	}
 
 	return nil
+}
+
+// Session, tek bir oturumu kimlik ADLARIYLA döner. Yoksa ErrNotFound.
+//
+// Sessions'ın sorgusunun WHERE s.id = ? hâli; NULL/zaman çevrimleri de
+// birebir aynı desen.
+func (s *Store) Session(ctx context.Context, id string) (model.Session, error) {
+	queryStr := `
+		SELECT s.id,
+	       u.username,
+	       t.name,
+	       s.os_user,
+	       s.src_ip,
+	       s.started_at,
+	       s.ended_at,
+	       s.recording_path
+		FROM sessions s
+		JOIN users   u ON u.id = s.user_id
+		JOIN targets t ON t.id = s.target_id
+		WHERE s.id = ?;
+	`
+
+	var session model.Session
+	var startedAt int64
+	var endedAt sql.NullInt64
+
+	err := s.db.QueryRowContext(ctx, queryStr, id).Scan(
+		&session.ID, &session.User, &session.Target, &session.OSUser,
+		&session.SrcIP, &startedAt, &endedAt, &session.RecordingPath,
+	)
+	if err != nil {
+		return model.Session{}, translateErr("store.Session", err)
+	}
+
+	session.StartedAt = time.Unix(startedAt, 0)
+	if endedAt.Valid {
+		session.EndedAt = time.Unix(endedAt.Int64, 0)
+	}
+
+	return session, nil
 }
 
 func (s *Store) Sessions(ctx context.Context, username string, limit int) ([]model.Session, error) {

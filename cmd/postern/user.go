@@ -30,6 +30,7 @@ func newUserCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newUserAddCmd())
 	cmd.AddCommand(newUserListCmd())
+	cmd.AddCommand(newUserModifyCmd())
 	return cmd
 }
 
@@ -206,5 +207,76 @@ func newUserListCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
+	return cmd
+}
+
+// newUserModifyCmd, var olan kullanıcının kimlik alanlarını AÇIKÇA değiştirir.
+//
+//	postern user modify --name yigit --email yigit@warewave.io
+//	postern user modify --name yigit --os-user deploy
+//
+// "user add" kimliği örtük değiştirmeyi reddediyor (yanlışlıkla farklı
+// os-user yazan bir yönetici sessizce kimlik değiştirmemeli); bu komut o
+// işin bilinçli kapısı. --email "" adresi siler.
+func newUserModifyCmd() *cobra.Command {
+	var configPath, name, osUser, email string
+
+	cmd := &cobra.Command{
+		Use:   "modify",
+		Short: "Change a user's email or os-user",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			emailSet := cmd.Flags().Changed("email")
+			osUserSet := cmd.Flags().Changed("os-user")
+			if !emailSet && !osUserSet {
+				return fmt.Errorf("nothing to change: pass --email and/or --os-user")
+			}
+
+			cfg, err := config.Load(configPath)
+			if err != nil {
+				return err
+			}
+
+			ctx := context.Background()
+
+			db, err := store.Open(ctx, cfg.Database.Path)
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+
+			out := cmd.OutOrStdout()
+
+			if emailSet {
+				if err := db.SetUserEmail(ctx, name, email); err != nil {
+					if errors.Is(err, store.ErrConflict) {
+						return fmt.Errorf("email %q already belongs to another user", email)
+					}
+					return err
+				}
+				if email == "" {
+					fmt.Fprintf(out, "user %q: email cleared\n", name)
+				} else {
+					fmt.Fprintf(out, "user %q: email set to %s\n", name, email)
+				}
+			}
+
+			if osUserSet {
+				if err := db.SetUserOSUser(ctx, name, osUser); err != nil {
+					return err
+				}
+				// Etki alanını açıkça söyle: geçmiş oturum kayıtları
+				// değişmez, yalnızca bundan sonraki sertifikalar.
+				fmt.Fprintf(out, "user %q: os-user set to %s (affects new sessions only)\n", name, osUser)
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
+	cmd.Flags().StringVar(&name, "name", "", "postern kullanıcı adı (zorunlu)")
+	cmd.Flags().StringVar(&email, "email", "", "yeni e-posta (boş = sil)")
+	cmd.Flags().StringVar(&osUser, "os-user", "", "hedeflerdeki yeni hesap")
+	_ = cmd.MarkFlagRequired("name")
 	return cmd
 }

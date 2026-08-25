@@ -812,3 +812,106 @@ func TestUserByEmail(t *testing.T) {
 		t.Fatalf("boş e-posta: %v, beklenen ErrNotFound", err)
 	}
 }
+
+func TestSessionByID(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedSession(t, s)
+
+	start := time.Now().Truncate(time.Second)
+	if err := s.StartSession(ctx, SessionStart{
+		ID: "tekil", Username: "yigit", TargetName: "web01", OSUser: "root",
+		SrcIP: "192.168.1.10", StartedAt: start,
+		RecordingPath: "/var/lib/postern/recordings/tekil.cast",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.Session(ctx, "tekil")
+	if err != nil {
+		t.Fatalf("Session: %v", err)
+	}
+	if got.User != "yigit" || got.Target != "web01" {
+		t.Errorf("User/Target = %q/%q — JOIN ad döndürmüyor olabilir", got.User, got.Target)
+	}
+	if got.OSUser != "root" || got.SrcIP != "192.168.1.10" {
+		t.Errorf("OSUser/SrcIP = %q/%q", got.OSUser, got.SrcIP)
+	}
+	if !got.StartedAt.Equal(start) || !got.Open() {
+		t.Errorf("zaman/durum bozuk: started=%v open=%v", got.StartedAt, got.Open())
+	}
+	if got.RecordingPath == "" {
+		t.Error("RecordingPath boş")
+	}
+
+	if _, err := s.Session(ctx, "yok-boyle-oturum"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("bilinmeyen id: %v, beklenen ErrNotFound", err)
+	}
+}
+
+func TestSetUserEmail(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	if _, err := s.CreateUser(ctx, "yigit", "", "yigit"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateUser(ctx, "ayse", "ayse@warewave.io", "ayse"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Sonradan eklenen e-posta OIDC eşleşmesinde görünmeli.
+	if err := s.SetUserEmail(ctx, "yigit", "yigit@warewave.io"); err != nil {
+		t.Fatalf("SetUserEmail: %v", err)
+	}
+	if u, err := s.UserByEmail(ctx, "yigit@warewave.io"); err != nil || u.Name != "yigit" {
+		t.Fatalf("UserByEmail = %+v, %v", u, err)
+	}
+
+	// Başkasının adresi alınamaz: OIDC eşleşmesi tekil kalmalı.
+	if err := s.SetUserEmail(ctx, "yigit", "ayse@warewave.io"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("çakışan adres: %v, beklenen ErrConflict", err)
+	}
+
+	// Boş string adresi SİLER (NULL) — ve e-postasız başka kullanıcı
+	// varken UNIQUE'e takılmamalı (NULL, '' değil).
+	if err := s.SetUserEmail(ctx, "ayse", ""); err != nil {
+		t.Fatalf("adres silme: %v", err)
+	}
+	if _, err := s.UserByEmail(ctx, "ayse@warewave.io"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("silinen adres hâlâ eşleşiyor: %v", err)
+	}
+
+	if err := s.SetUserEmail(ctx, "yok-boyle-biri", "x@y.z"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("bilinmeyen kullanıcı: %v, beklenen ErrNotFound", err)
+	}
+}
+
+func TestSetUserOSUser(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	if _, err := s.CreateUser(ctx, "yigit", "", "yigit"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.SetUserOSUser(ctx, "yigit", "deploy"); err != nil {
+		t.Fatalf("SetUserOSUser: %v", err)
+	}
+	u, err := s.User(ctx, "yigit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.OSUser != "deploy" {
+		t.Errorf("OSUser = %q, beklenen %q", u.OSUser, "deploy")
+	}
+
+	// Boş os_user şemanın CHECK'ine takılmalı: kimliksiz principal olmaz.
+	if err := s.SetUserOSUser(ctx, "yigit", ""); err == nil {
+		t.Fatal("boş os_user kabul edildi")
+	}
+
+	if err := s.SetUserOSUser(ctx, "yok", "x"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("bilinmeyen kullanıcı: %v, beklenen ErrNotFound", err)
+	}
+}

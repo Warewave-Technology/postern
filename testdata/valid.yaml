@@ -20,3 +20,13 @@ database:
 recording:
    dir: recordings
 
+# S3.3 — tarayıcı destekli giriş (OOB). İkisi birlikte ya tam ya hiç:
+# bu bloklar silinirse bastion yalnızca public key kabul eder.
+http:
+   addr: ":8088"
+   # Tarayıcının ulaştığı kök: linkler ve redirect_url bununla kurulur.
+   external_url: "http://127.0.0.1:8088"
+
+oidc:
+   issuer_url: "http://127.0.0.1:8081/realms/postern"
+   client_id: "postern"
