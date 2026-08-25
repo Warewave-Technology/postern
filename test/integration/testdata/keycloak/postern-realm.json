@@ -1,0 +1,64 @@
+{
+  "realm": "postern",
+  "enabled": true,
+  "clients": [
+    {
+      "clientId": "postern",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": [
+        "http://127.0.0.1/callback"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
+    },
+    {
+      "clientId": "postern-short",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": [
+        "http://127.0.0.1/callback"
+      ],
+      "attributes": {
+        "access.token.lifespan": "3"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "yigit",
+      "enabled": true,
+      "email": "yigit@warewave.io",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "parola-test-123",
+          "temporary": false
+        }
+      ],
+      "firstName": "Yigit",
+      "lastName": "Basalma",
+      "requiredActions": []
+    },
+    {
+      "username": "suheda",
+      "enabled": true,
+      "email": "suheda@warewave.io",
+      "emailVerified": false,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "parola-test-123",
+          "temporary": false
+        }
+      ],
+      "firstName": "Suheda",
+      "lastName": "Test",
+      "requiredActions": []
+    }
+  ]
+}

@@ -24,3 +24,4 @@ coverage.out
 # CA özel anahtarı — asla repoya girmez
 /testdata/ca_ed25519
 /testdata/ca_ed25519.pub
+/testdata/postern.db*
