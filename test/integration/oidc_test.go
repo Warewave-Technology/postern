@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -42,13 +43,44 @@ const (
 // startKeycloak, realm'i içe aktarılmış bir Keycloak kaldırır ve issuer
 // URL'sini döner. Konteyner testler arasında paylaşılmaz — her test kendi
 // temiz IdP'siyle çalışır (yavaş ama deterministik; Keycloak ~20sn açılır).
-func startKeycloak(t *testing.T) (issuer string) {
+func startKeycloak(t *testing.T, extraRedirects ...string) (issuer string) {
 	t.Helper()
 	ctx := context.Background()
 
 	realmPath, err := filepath.Abs(filepath.Join("testdata", "keycloak", "postern-realm.json"))
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	// Testin dinleyicisi rastgele portta; Keycloak ise redirect URI'yi
+	// kayıtlı listeyle birebir eşleştirir (port dahil). Ek adresler realm
+	// dosyasının geçici bir kopyasına işlenir — dosyadaki kayıt sabit
+	// kalır, port çalışma anında öğrenilir.
+	if len(extraRedirects) > 0 {
+		raw, err := os.ReadFile(realmPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var realm map[string]any
+		if err := json.Unmarshal(raw, &realm); err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range realm["clients"].([]any) {
+			client := c.(map[string]any)
+			uris := client["redirectUris"].([]any)
+			for _, r := range extraRedirects {
+				uris = append(uris, r)
+			}
+			client["redirectUris"] = uris
+		}
+		patched, err := json.Marshal(realm)
+		if err != nil {
+			t.Fatal(err)
+		}
+		realmPath = filepath.Join(t.TempDir(), "postern-realm.json")
+		if err := os.WriteFile(realmPath, patched, 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	cont, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{

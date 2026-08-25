@@ -8,14 +8,21 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/warewave/postern/internal/auth"
 	"github.com/warewave/postern/internal/ca"
 	"github.com/warewave/postern/internal/config"
 	"github.com/warewave/postern/internal/record"
 	"github.com/warewave/postern/internal/store"
 )
+
+// oobTimeout, tarayıcı onayı için üst sınır. Çok kısa olursa insan
+// yetişemez (telefonda MFA var), çok uzun olursa yarım denemeler handshake
+// goroutine'lerini bekletir.
+const oobTimeout = 2 * time.Minute
 
 // Server accepts inbound SSH connections on behalf of the bastion.
 type Server struct {
@@ -27,6 +34,26 @@ type Server struct {
 	db     *store.Store
 
 	authority *ca.CA
+
+	// logins nil değilse keyboard-interactive OOB girişi açık: anahtarı
+	// olmayan insanlar tarayıcıda OIDC ile girer. Public key yolu her
+	// durumda çalışmaya devam eder (makineler/otomasyon).
+	logins     *auth.Logins
+	oobTimeout time.Duration
+}
+
+// EnableOOB, tarayıcı destekli girişi açar. serve, config'te oidc+http
+// varsa çağırır; testler ve OIDC'siz kurulumlar hiç çağırmaz.
+// timeout 0 ise varsayılan (oobTimeout) kullanılır — testler kısaltabilir.
+//
+// Dinlemeye başlamadan ÖNCE çağrılmalı: alanlar kilitsiz, eşzamanlı
+// handshake'lerle yarışmamalı.
+func (s *Server) EnableOOB(logins *auth.Logins, timeout time.Duration) {
+	if timeout <= 0 {
+		timeout = oobTimeout
+	}
+	s.logins = logins
+	s.oobTimeout = timeout
 }
 
 // New prepares the server.
@@ -124,6 +151,11 @@ func (s *Server) serverConfig() (*ssh.ServerConfig, error) {
 	cfg := &ssh.ServerConfig{
 		PublicKeyCallback: s.publicKeyCallback,
 		ServerVersion:     "SSH-2.0-postern",
+	}
+	if s.logins != nil {
+		// nil kaldıkça istemciye bu yöntem hiç sunulmaz — OIDC'siz
+		// kurulum eskisi gibi yalnızca public key konuşur.
+		cfg.KeyboardInteractiveCallback = s.keyboardInteractiveCallback
 	}
 	cfg.AddHostKey(s.signer)
 	return cfg, nil

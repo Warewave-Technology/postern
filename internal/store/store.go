@@ -25,6 +25,9 @@ var (
 	// ErrConflict, benzersizlik kısıtının ihlal edildiğini söyler
 	// (aynı adla ikinci bir kullanıcı, rol, hedef...).
 	ErrConflict = errors.New("store: already exists")
+
+	// errNotImplementedS33, S3.3 iskeletinin bekleyen fonksiyonları.
+	errNotImplementedS33 = errors.New("store: not implemented")
 )
 
 type Store struct {
@@ -382,6 +385,25 @@ func (s *Store) Users(ctx context.Context) ([]model.User, error) {
 	}
 
 	return users, nil
+}
+
+func (s *Store) UserByEmail(ctx context.Context, email string) (model.User, error) {
+	if email == "" {
+		return model.User{}, fmt.Errorf("store.UserByEmail: %w", ErrNotFound)
+	}
+
+	var username string
+	queryStr := `
+		SELECT username
+		FROM users
+		WHERE email = ?;
+	`
+
+	if err := s.db.QueryRowContext(ctx, queryStr, email).Scan(&username); err != nil {
+		return model.User{}, translateErr("store.UserByEmail", err)
+	}
+
+	return s.User(ctx, username)
 }
 
 type PublicKey struct {

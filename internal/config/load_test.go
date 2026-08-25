@@ -173,6 +173,25 @@ func TestValidate(t *testing.T) {
 			wantErr:     true,
 			errContains: "recording.dir",
 		},
+		{
+			// OOB ya tam ya hiç: yarım yapılandırma sessizce "çalışıyor
+			// görünür" (public key yolu işler, linkler asla üretilmez).
+			name: "yarim oidc yapilandirmasi hata",
+			mutate: func(c *Config) {
+				c.OIDC.IssuerURL = "https://idp.example/realms/postern"
+			},
+			wantErr:     true,
+			errContains: "http.addr",
+		},
+		{
+			name: "tam oidc yapilandirmasi gecer",
+			mutate: func(c *Config) {
+				c.OIDC.IssuerURL = "https://idp.example/realms/postern"
+				c.OIDC.ClientID = "postern"
+				c.HTTP.Addr = ":8088"
+				c.HTTP.ExternalURL = "https://bastion.example:8088"
+			},
+		},
 	}
 
 	for _, tc := range cases {

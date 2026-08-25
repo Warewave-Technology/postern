@@ -52,6 +52,16 @@ func testServer(t *testing.T, caKeyPath string, targets ...model.Target) (addr s
 func testServerWithDB(t *testing.T, caKeyPath string, targets ...model.Target) (addr string, hostPub ssh.PublicKey, clientSigner ssh.Signer, db *store.Store) {
 	t.Helper()
 
+	srv, hostPub, clientSigner, db := newBastion(t, caKeyPath, targets...)
+	addr = startBastion(t, srv)
+	return addr, hostPub, clientSigner, db
+}
+
+// newBastion, sunucuyu KURAR ama dinlemeye başlamaz — OOB testleri gibi
+// dinlemeden önce EnableOOB çağırması gerekenler için ayrık.
+func newBastion(t *testing.T, caKeyPath string, targets ...model.Target) (srv *sshd.Server, hostPub ssh.PublicKey, clientSigner ssh.Signer, db *store.Store) {
+	t.Helper()
+
 	_, hostPriv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -93,10 +103,17 @@ func testServerWithDB(t *testing.T, caKeyPath string, targets ...model.Target) (
 	// ve SSH kullanıcı adı bu olacak.
 	db = seedStore(t, cfg.Database.Path, targets, authorized)
 
-	srv, err := sshd.New(cfg, db, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	srv, err = sshd.New(cfg, db, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	if err != nil {
 		t.Fatalf("sshd.New: %v", err)
 	}
+
+	return srv, hostSigner.PublicKey(), clientSigner, db
+}
+
+// startBastion, kurulmuş sunucuyu rastgele portta dinletir.
+func startBastion(t *testing.T, srv *sshd.Server) (addr string) {
+	t.Helper()
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -106,7 +123,7 @@ func testServerWithDB(t *testing.T, caKeyPath string, targets ...model.Target) (
 
 	go srv.Serve(t.Context(), l)
 
-	return l.Addr().String(), hostSigner.PublicKey(), clientSigner, db
+	return l.Addr().String()
 }
 
 // S1.2 kanıtı: handshake tamamlanıyor ama henüz kanal açılamıyor.
@@ -186,7 +203,9 @@ func seedStore(t *testing.T, dbPath string, targets []model.Target, authorizedKe
 		}
 	}
 
-	if _, err := db.CreateUser(ctx, "yigit", "", "postern"); err != nil {
+	// E-posta OOB (S3.3) eşleşmesi için: OIDC kimliği users.email
+	// üzerinden bulunur. Realm'deki yigit ile aynı adres.
+	if _, err := db.CreateUser(ctx, "yigit", "yigit@warewave.io", "postern"); err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
 	if err := db.AssignRole(ctx, "yigit", "ops"); err != nil {

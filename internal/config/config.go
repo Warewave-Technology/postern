@@ -13,6 +13,33 @@ type Config struct {
 	CA        CAConfig        `yaml:"ca"`
 	Database  DatabaseConfig  `yaml:"database"`
 	Recording RecordingConfig `yaml:"recording"`
+
+	// HTTP ve OIDC birlikte OOB girişini açar (S3.3). İkisi de boş
+	// bırakılabilir: o zaman bastion yalnızca public key kabul eder —
+	// mevcut kurulumlar hiçbir şey değiştirmeden çalışmaya devam eder.
+	HTTP HTTPConfig `yaml:"http"`
+	OIDC OIDCConfig `yaml:"oidc"`
+}
+
+// HTTPConfig, tarayıcıya bakan uçların dinleyicisi.
+type HTTPConfig struct {
+	// Addr, dinlenecek adres (":8088" gibi).
+	Addr string `yaml:"addr"`
+
+	// ExternalURL, KULLANICININ tarayıcısından erişilen kök
+	// ("https://bastion.warewave.io:8088" gibi). Login linkleri ve OIDC
+	// redirect_url bununla kurulur — Addr'dan türetilemez: bastion NAT/
+	// proxy arkasında olabilir, ":8088" dış dünyada bir anlam taşımaz.
+	ExternalURL string `yaml:"external_url"`
+}
+
+// OIDCConfig, kimlik sağlayıcısı. auth.OIDCConfig'e birebir taşınır.
+type OIDCConfig struct {
+	IssuerURL string `yaml:"issuer_url"`
+	ClientID  string `yaml:"client_id"`
+
+	// ClientSecret public client'ta boş — PKCE onun yerini tutuyor.
+	ClientSecret string `yaml:"client_secret"`
 }
 
 // CAConfig, sertifika otoritesi.

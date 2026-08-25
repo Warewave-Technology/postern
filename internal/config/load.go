@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/goccy/go-yaml"
 )
@@ -77,5 +79,32 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("recording.dir is empty")
 	}
 
+	// OOB girişi ya TAM açık ya tam kapalı. Yarım yapılandırma (issuer
+	// var, http yok gibi) en kötü ihtimalle çalışıyor GÖRÜNÜR: linkler
+	// üretilemez ama public key yolu işlediği için kimse fark etmez.
+	oobFields := map[string]string{
+		"http.addr":         c.HTTP.Addr,
+		"http.external_url": c.HTTP.ExternalURL,
+		"oidc.issuer_url":   c.OIDC.IssuerURL,
+		"oidc.client_id":    c.OIDC.ClientID,
+	}
+	var missing, present []string
+	for name, v := range oobFields {
+		if v == "" {
+			missing = append(missing, name)
+		} else {
+			present = append(present, name)
+		}
+	}
+	if len(present) > 0 && len(missing) > 0 {
+		sort.Strings(missing)
+		return fmt.Errorf("incomplete OIDC login config: %s set but %s missing",
+			strings.Join(present, ", "), strings.Join(missing, ", "))
+	}
+
 	return nil
 }
+
+// OOBEnabled, OIDC destekli tarayıcı girişinin yapılandırılıp
+// yapılandırılmadığını söyler (Validate tam/boş garantisini verdi).
+func (c *Config) OOBEnabled() bool { return c.OIDC.IssuerURL != "" }

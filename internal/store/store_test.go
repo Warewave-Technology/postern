@@ -781,3 +781,34 @@ func TestUsersListsAllWithRoles(t *testing.T) {
 		t.Errorf("ali'nin ops rolü %v hedefiyle geldi, beklenen [web01]", byName["ali"].Roles[0].Targets)
 	}
 }
+
+func TestUserByEmail(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	if _, err := s.CreateUser(ctx, "yigit", "yigit@warewave.io", "yigit"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateUser(ctx, "epostasiz", "", "epostasiz"); err != nil {
+		t.Fatal(err)
+	}
+
+	u, err := s.UserByEmail(ctx, "yigit@warewave.io")
+	if err != nil {
+		t.Fatalf("UserByEmail: %v", err)
+	}
+	if u.Name != "yigit" {
+		t.Errorf("Name = %q, beklenen %q", u.Name, "yigit")
+	}
+
+	// IdP'de hesap olması postern'de hesap olması demek değil.
+	if _, err := s.UserByEmail(ctx, "yabanci@ornek.com"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("bilinmeyen e-posta: %v, beklenen ErrNotFound", err)
+	}
+
+	// Boş e-posta HİÇBİR kullanıcıyla eşleşmemeli — e-postasız kullanıcılar
+	// NULL saklanıyor ama savunma katmanlı olsun.
+	if _, err := s.UserByEmail(ctx, ""); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("boş e-posta: %v, beklenen ErrNotFound", err)
+	}
+}
