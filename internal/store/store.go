@@ -14,9 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"modernc.org/sqlite"
-	sqlitelib "modernc.org/sqlite/lib"
-
 	"github.com/warewave/postern/internal/model"
 	"github.com/warewave/postern/internal/secret"
 )
@@ -52,8 +49,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		return nil, fmt.Errorf("store.Open: %w", err)
 	}
 
-	dsn := fmt.Sprintf("%s?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)", path)
-	db, err := sql.Open("sqlite", dsn)
+	db, err := sql.Open(driverName, dsn(path))
 	if err != nil {
 		return nil, fmt.Errorf("store.Open: %w", err)
 	}
@@ -92,7 +88,7 @@ func (s *Store) CreateUser(ctx context.Context, username, email, osUser string) 
 
 	queryStr := `
 		INSERT INTO users (id, username, email, os_user, created_at)
-		VALUES (?, ?, ?, ?, ?);
+		VALUES ($1, $2, $3, $4, $5);
 	`
 
 	if _, err = s.db.ExecContext(ctx, queryStr, userID, username, userEmail, osUser, time.Now().Unix()); err != nil {
@@ -117,12 +113,12 @@ func (s *Store) User(ctx context.Context, username string) (model.User, error) {
 		-- üretmez ve "kullanıcı yok" gibi görünürdü. JOIN koşulu
 		-- yalnızca eşleşmeyi düşürür, kullanıcıyı değil.
 		LEFT JOIN user_roles   ur ON ur.user_id = u.id
-		                         AND (ur.expires_at IS NULL OR ur.expires_at > ?)
+		                         AND (ur.expires_at IS NULL OR ur.expires_at > $1)
 		LEFT JOIN roles        r  ON r.id       = ur.role_id
 		LEFT JOIN role_targets rt ON rt.role_id = r.id
 		LEFT JOIN targets      t  ON t.id       = rt.target_id
-		WHERE u.username = ?
-		ORDER BY r.name, t.name;
+		WHERE u.username = $2
+		ORDER BY r.name, ` + ciOrder("t.name") + `;
 	`
 
 	rows, err := s.db.QueryContext(ctx, queryStr, time.Now().Unix(), username)
@@ -194,7 +190,7 @@ func (s *Store) CreateRole(ctx context.Context, name string) (string, error) {
 
 	queryStr := `
 		INSERT INTO roles (id, name)
-		VALUES (?, ?);
+		VALUES ($1, $2);
 	`
 
 	if _, err = s.db.ExecContext(ctx, queryStr, roleID, name); err != nil {
@@ -212,7 +208,7 @@ func (s *Store) CreateTarget(ctx context.Context, t model.Target) (string, error
 
 	queryStr := `
 		INSERT INTO targets (id, name, host, port, host_key)
-		VALUES (?, ?, ?, ?, ?);
+		VALUES ($1, $2, $3, $4, $5);
 	`
 
 	if _, err = s.db.ExecContext(ctx, queryStr, targetID, t.Name, t.Host, t.Port, t.HostKey); err != nil {
@@ -226,7 +222,7 @@ func (s *Store) Target(ctx context.Context, name string) (model.Target, error) {
 	queryStr := `
 		SELECT id, name, host, port, host_key
 		FROM targets
-		WHERE name=?;
+		WHERE ` + ciEq("name", "$1") + `;
 	`
 
 	var target model.Target
@@ -246,7 +242,7 @@ func (s *Store) Targets(ctx context.Context) ([]model.Target, error) {
 	queryStr := `
 		SELECT name, host, port, host_key
 		FROM targets
-		ORDER BY name;
+		ORDER BY ` + ciOrder("name") + `;
 	`
 
 	rows, err := s.db.QueryContext(ctx, queryStr)
@@ -303,7 +299,7 @@ func (s *Store) AssignRole(ctx context.Context, username, roleName string, expir
 	// senkronizasyonda silinmez.
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO user_roles (user_id, role_id, source, expires_at)
-		VALUES (?, ?, 'manual', ?)
+		VALUES ($1, $2, 'manual', $3)
 		ON CONFLICT(user_id, role_id) DO UPDATE SET
 			source = 'manual',
 			expires_at = excluded.expires_at;`,
@@ -319,14 +315,14 @@ func (s *Store) GrantTarget(ctx context.Context, roleName, targetName string) er
 	queryTargetStr := `
 		SELECT id
 		FROM targets
-		WHERE name=?;
+		WHERE ` + ciEq("name", "$1") + `;
 	`
 
 	var roleID string
 	queryRoleStr := `
 		SELECT id
 		FROM roles
-		WHERE name=?;
+		WHERE name=$1;
 	`
 
 	err := s.db.QueryRowContext(ctx, queryTargetStr, targetName).Scan(&targetID)
@@ -339,7 +335,7 @@ func (s *Store) GrantTarget(ctx context.Context, roleName, targetName string) er
 		return translateErr("store.GrantTarget", err)
 	}
 
-	if _, err = s.db.ExecContext(ctx, `INSERT INTO role_targets (role_id, target_id) VALUES (?, ?) ON CONFLICT(role_id, target_id) DO NOTHING;`, roleID, targetID); err != nil {
+	if _, err = s.db.ExecContext(ctx, `INSERT INTO role_targets (role_id, target_id) VALUES ($1, $2) ON CONFLICT(role_id, target_id) DO NOTHING;`, roleID, targetID); err != nil {
 		return translateErr("store.GrantTarget", err)
 	}
 
@@ -371,7 +367,7 @@ func (s *Store) LogAdmin(ctx context.Context, e AdminLogEntry) error {
 	}
 
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO admin_log (at, actor, via, action, entity, details) VALUES (?, ?, ?, ?, ?, ?);`,
+		`INSERT INTO admin_log (at, actor, via, action, entity, details) VALUES ($1, $2, $3, $4, $5, $6);`,
 		at.Unix(), e.Actor, e.Via, e.Action, e.Entity, e.Details)
 	if err != nil {
 		return translateErr("store.LogAdmin", err)
@@ -381,17 +377,13 @@ func (s *Store) LogAdmin(ctx context.Context, e AdminLogEntry) error {
 
 // AdminLog, defteri YENİDEN ESKİYE döner. limit<=0 sınırsız.
 func (s *Store) AdminLog(ctx context.Context, limit int) ([]AdminLogEntry, error) {
-	if limit <= 0 {
-		limit = -1
-	}
-
 	// id ikincil sıralama: aynı saniyeye düşen kayıtlar (bir formda arka
 	// arkaya yapılan işlemler) deterministik ve ekleme sırasında kalsın.
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT at, actor, via, action, entity, details
 		FROM admin_log
-		ORDER BY at DESC, id DESC
-		LIMIT ?;`, limit)
+		ORDER BY at DESC, id DESC`+limitClause(limit, "$1")+`;`,
+		limitArgs(limit)...)
 	if err != nil {
 		return nil, translateErr("store.AdminLog", err)
 	}
@@ -421,7 +413,7 @@ func (s *Store) Roles(ctx context.Context) ([]model.Role, error) {
 		FROM roles r
 		LEFT JOIN role_targets rt ON rt.role_id = r.id
 		LEFT JOIN targets      t  ON t.id       = rt.target_id
-		ORDER BY r.name, t.name;`)
+		ORDER BY r.name, `+ciOrder("t.name")+`;`)
 	if err != nil {
 		return nil, translateErr("store.Roles", err)
 	}
@@ -458,34 +450,18 @@ func (s *Store) Roles(ctx context.Context) ([]model.Role, error) {
 // çağıran koddan gelen SABİTLERDİR — kullanıcı girdisi buraya asla girmez
 // (string birleştirmeli SQL'in tek meşru hâli).
 func (s *Store) rowID(ctx context.Context, op, table, column, value string) (string, error) {
+	cond := column + " = $1"
+	if ciColumns[table+"."+column] {
+		cond = ciEq(column, "$1")
+	}
+
 	var id string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id FROM `+table+` WHERE `+column+` = ?;`, value).Scan(&id)
+		`SELECT id FROM `+table+` WHERE `+cond+`;`, value).Scan(&id)
 	if err != nil {
 		return "", translateErr(op, err)
 	}
 	return id, nil
-}
-
-// isFKRestrict, hatanın "bu satıra hâlâ referans var" olup olmadığını
-// söyler.
-//
-// translateErr 787'yi ErrNotFound'a çevirir — o eşleme INSERT varsayımı
-// ("işaret ettiğin ebeveyn yok"). DELETE'te anlam tersine döner: silmek
-// istediğin satır BAŞKASININ ebeveyni. Bu yüzden Delete* fonksiyonları
-// translateErr'den ÖNCE bu kontrolü yapar ve ErrConflict üretir.
-//
-// İki kod birden: SQLite, ON DELETE RESTRICT'i içeride tetikleyici gibi
-// uyguladığı için ihlali 787 (FOREIGNKEY) değil 1811 (TRIGGER) olarak
-// raporlar; varsayılan NO ACTION ise 787 verir. Şemadaki RESTRICT bilinçli
-// bir karardı — kodu da onun diliyle dinliyoruz.
-func isFKRestrict(err error) bool {
-	var sqliteErr *sqlite.Error
-	if !errors.As(err, &sqliteErr) {
-		return false
-	}
-	code := sqliteErr.Code()
-	return code == sqlitelib.SQLITE_CONSTRAINT_FOREIGNKEY || code == sqlitelib.SQLITE_CONSTRAINT_TRIGGER
 }
 
 // DeleteTarget, hedefi ve rol bağlarını (CASCADE) kaldırır. Yoksa
@@ -497,8 +473,8 @@ func (s *Store) DeleteTarget(ctx context.Context, name string) error {
 		return err
 	}
 
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM targets WHERE id = ?;`, id); err != nil {
-		if isFKRestrict(err) {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM targets WHERE id = $1;`, id); err != nil {
+		if isRestrictViolation(err) {
 			return fmt.Errorf("store.DeleteTarget: target %q has recorded sessions: %w", name, ErrConflict)
 		}
 		return translateErr("store.DeleteTarget", err)
@@ -515,8 +491,8 @@ func (s *Store) DeleteRole(ctx context.Context, name string) error {
 		return err
 	}
 
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM roles WHERE id = ?;`, id); err != nil {
-		if isFKRestrict(err) {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM roles WHERE id = $1;`, id); err != nil {
+		if isRestrictViolation(err) {
 			return fmt.Errorf("store.DeleteRole: role %q is still referenced: %w", name, ErrConflict)
 		}
 		return translateErr("store.DeleteRole", err)
@@ -534,8 +510,8 @@ func (s *Store) DeleteUser(ctx context.Context, username string) error {
 		return err
 	}
 
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM users WHERE id = ?;`, id); err != nil {
-		if isFKRestrict(err) {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM users WHERE id = $1;`, id); err != nil {
+		if isRestrictViolation(err) {
 			return fmt.Errorf("store.DeleteUser: user %q has recorded sessions: %w", username, ErrConflict)
 		}
 		return translateErr("store.DeleteUser", err)
@@ -563,7 +539,7 @@ func (s *Store) SyncRoles(ctx context.Context, username string, roleNames []stri
 	defer tx.Rollback()
 
 	if _, err := tx.ExecContext(ctx,
-		`DELETE FROM user_roles WHERE user_id = ? AND source = 'sso';`, userID); err != nil {
+		`DELETE FROM user_roles WHERE user_id = $1 AND source = 'sso';`, userID); err != nil {
 		return translateErr("store.SyncRoles", err)
 	}
 
@@ -572,7 +548,7 @@ func (s *Store) SyncRoles(ctx context.Context, username string, roleNames []stri
 		// bir eşleme silinmiş olabilir; yönetici hatası yüzünden
 		// kullanıcının girişini reddetmek yanlış olurdu.
 		var roleID string
-		err := tx.QueryRowContext(ctx, `SELECT id FROM roles WHERE name = ?;`, name).Scan(&roleID)
+		err := tx.QueryRowContext(ctx, `SELECT id FROM roles WHERE name = $1;`, name).Scan(&roleID)
 		if errors.Is(err, sql.ErrNoRows) {
 			continue
 		}
@@ -584,7 +560,7 @@ func (s *Store) SyncRoles(ctx context.Context, username string, roleNames []stri
 		// bağlı olmadan yaşamaya devam eder ("elle verilen elle alınır").
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO user_roles (user_id, role_id, source, expires_at)
-			VALUES (?, ?, 'sso', NULL)
+			VALUES ($1, $2, 'sso', NULL)
 			ON CONFLICT(user_id, role_id) DO NOTHING;`, userID, roleID); err != nil {
 			return translateErr("store.SyncRoles", err)
 		}
@@ -623,7 +599,7 @@ func (s *Store) AddGroupMapping(ctx context.Context, externalGroup, roleName, ac
 
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO group_mappings (id, external_group, role_id, created_at, created_by)
-		VALUES (?, ?, ?, ?, ?);`,
+		VALUES ($1, $2, $3, $4, $5);`,
 		id, externalGroup, roleID, time.Now().Unix(), actor)
 	if err != nil {
 		return translateErr("store.AddGroupMapping", err)
@@ -643,7 +619,7 @@ func (s *Store) RemoveGroupMapping(ctx context.Context, externalGroup, roleName 
 	}
 
 	res, err := s.db.ExecContext(ctx,
-		`DELETE FROM group_mappings WHERE external_group = ? AND role_id = ?;`,
+		`DELETE FROM group_mappings WHERE `+ciEq("external_group", "$1")+` AND role_id = $2;`,
 		externalGroup, roleID)
 	if err != nil {
 		return translateErr("store.RemoveGroupMapping", err)
@@ -664,7 +640,7 @@ func (s *Store) GroupMappings(ctx context.Context) ([]GroupMapping, error) {
 		SELECT gm.external_group, r.name, gm.created_at, gm.created_by
 		FROM group_mappings gm
 		JOIN roles r ON r.id = gm.role_id
-		ORDER BY gm.external_group, r.name;`)
+		ORDER BY `+ciOrder("gm.external_group")+`, r.name;`)
 	if err != nil {
 		return nil, translateErr("store.GroupMappings", err)
 	}
@@ -700,7 +676,7 @@ func (s *Store) RolesForGroups(ctx context.Context, groups []string) (roles, unm
 			SELECT r.name
 			FROM group_mappings gm
 			JOIN roles r ON r.id = gm.role_id
-			WHERE gm.external_group = ?;`, g)
+			WHERE `+ciEq("gm.external_group", "$1")+`;`, g)
 		if qerr != nil {
 			return nil, nil, translateErr("store.RolesForGroups", qerr)
 		}
@@ -743,8 +719,8 @@ func (s *Store) RecordUnmappedGroups(ctx context.Context, groups []string) error
 	for _, g := range groups {
 		if _, err := s.db.ExecContext(ctx, `
 			INSERT INTO unmapped_groups (name, last_seen, seen_count)
-			VALUES (?, ?, 1)
-			ON CONFLICT(name) DO UPDATE SET
+			VALUES ($1, $2, 1)
+			ON CONFLICT (lower(name)) DO UPDATE SET
 				last_seen = excluded.last_seen,
 				seen_count = unmapped_groups.seen_count + 1;`, g, now); err != nil {
 			return translateErr("store.RecordUnmappedGroups", err)
@@ -765,7 +741,7 @@ func (s *Store) UnmappedGroups(ctx context.Context) ([]UnmappedGroup, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT name, last_seen, seen_count
 		FROM unmapped_groups
-		ORDER BY seen_count DESC, name;`)
+		ORDER BY seen_count DESC, `+ciOrder("name")+`;`)
 	if err != nil {
 		return nil, translateErr("store.UnmappedGroups", err)
 	}
@@ -860,7 +836,7 @@ func (s *Store) ProvisionUser(ctx context.Context, req ProvisionRequest) (model.
 // girebilmesini açar/kapatır. Kullanıcı yoksa ErrNotFound.
 func (s *Store) SetUserSSOOnly(ctx context.Context, username string, ssoOnly bool) error {
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE users SET sso_only = ? WHERE username = ?;`, ssoOnly, username)
+		`UPDATE users SET sso_only = $1 WHERE username = $2;`, ssoOnly, username)
 	if err != nil {
 		return translateErr("store.SetUserSSOOnly", err)
 	}
@@ -895,7 +871,7 @@ func (s *Store) Setting(ctx context.Context, key string) (string, error) {
 	var encrypted bool
 
 	err := s.db.QueryRowContext(ctx,
-		`SELECT value, encrypted FROM settings WHERE key = ?;`, key).Scan(&value, &encrypted)
+		`SELECT value, encrypted FROM settings WHERE key = $1;`, key).Scan(&value, &encrypted)
 	if err != nil {
 		return "", translateErr("store.Setting", err)
 	}
@@ -938,7 +914,7 @@ func (s *Store) SetSetting(ctx context.Context, key, value string, encrypt bool,
 
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO settings (key, value, encrypted, updated_at, updated_by)
-		VALUES (?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT(key) DO UPDATE SET
 			value = excluded.value,
 			encrypted = excluded.encrypted,
@@ -1020,7 +996,7 @@ func (s *Store) RevokeRole(ctx context.Context, username, roleName string) error
 	// Bağ zaten yoksa sessiz no-op: "bu yetkiyi al" isteği, yetki zaten
 	// yokken de yerine getirilmiş sayılır (AssignRole'un aynası).
 	if _, err := s.db.ExecContext(ctx,
-		`DELETE FROM user_roles WHERE user_id = ? AND role_id = ?;`, userID, roleID); err != nil {
+		`DELETE FROM user_roles WHERE user_id = $1 AND role_id = $2;`, userID, roleID); err != nil {
 		return translateErr("store.RevokeRole", err)
 	}
 	return nil
@@ -1038,7 +1014,7 @@ func (s *Store) RevokeTarget(ctx context.Context, roleName, targetName string) e
 	}
 
 	if _, err := s.db.ExecContext(ctx,
-		`DELETE FROM role_targets WHERE role_id = ? AND target_id = ?;`, roleID, targetID); err != nil {
+		`DELETE FROM role_targets WHERE role_id = $1 AND target_id = $2;`, roleID, targetID); err != nil {
 		return translateErr("store.RevokeTarget", err)
 	}
 	return nil
@@ -1059,7 +1035,7 @@ func (s *Store) RemovePublicKey(ctx context.Context, username string, keyBlob []
 	// Sıfır satır = anahtar yok YA DA başkasının — ikisi de çağırana göre
 	// "senin böyle bir anahtarın yok", yani ErrNotFound.
 	res, err := s.db.ExecContext(ctx,
-		`DELETE FROM user_public_keys WHERE key_blob = ? AND user_id = ?;`,
+		`DELETE FROM user_public_keys WHERE key_blob = $1 AND user_id = $2;`,
 		base64.StdEncoding.EncodeToString(keyBlob), userID)
 	if err != nil {
 		return translateErr("store.RemovePublicKey", err)
@@ -1078,7 +1054,7 @@ func (s *Store) RemovePublicKey(ctx context.Context, username string, keyBlob []
 // Kullanıcı yoksa ErrNotFound.
 func (s *Store) SetUserAdmin(ctx context.Context, username string, admin bool) error {
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE users SET is_admin = ? WHERE username = ?;`, admin, username)
+		`UPDATE users SET is_admin = $1 WHERE username = $2;`, admin, username)
 	if err != nil {
 		return translateErr("store.SetUserAdmin", err)
 	}
@@ -1104,7 +1080,7 @@ func (s *Store) SetUserEmail(ctx context.Context, username, email string) error 
 	val := sql.NullString{String: email, Valid: email != ""}
 
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE users SET email = ? WHERE username = ?;`, val, username)
+		`UPDATE users SET email = $1 WHERE username = $2;`, val, username)
 	if err != nil {
 		return translateErr("store.SetUserEmail", err)
 	}
@@ -1127,7 +1103,7 @@ func (s *Store) SetUserEmail(ctx context.Context, username, email string) error 
 // (sessions.os_user o günkü kararı saklar; sebebi şemada yazıyor).
 func (s *Store) SetUserOSUser(ctx context.Context, username, osUser string) error {
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE users SET os_user = ? WHERE username = ?;`, osUser, username)
+		`UPDATE users SET os_user = $1 WHERE username = $2;`, osUser, username)
 	if err != nil {
 		return translateErr("store.SetUserOSUser", err)
 	}
@@ -1159,11 +1135,11 @@ func (s *Store) Users(ctx context.Context) ([]model.User, error) {
 	       t.name AS target_name
 		FROM users u
 		LEFT JOIN user_roles   ur ON ur.user_id = u.id
-		                         AND (ur.expires_at IS NULL OR ur.expires_at > ?)
+		                         AND (ur.expires_at IS NULL OR ur.expires_at > $1)
 		LEFT JOIN roles        r  ON r.id       = ur.role_id
 		LEFT JOIN role_targets rt ON rt.role_id = r.id
 		LEFT JOIN targets      t  ON t.id       = rt.target_id
-		ORDER BY u.username, r.name, t.name;
+		ORDER BY u.username, r.name, ` + ciOrder("t.name") + `;
 	`
 
 	rows, err := s.db.QueryContext(ctx, queryStr, time.Now().Unix())
@@ -1229,7 +1205,7 @@ func (s *Store) UserByEmail(ctx context.Context, email string) (model.User, erro
 	queryStr := `
 		SELECT username
 		FROM users
-		WHERE email = ?;
+		WHERE email = $1;
 	`
 
 	if err := s.db.QueryRowContext(ctx, queryStr, email).Scan(&username); err != nil {
@@ -1250,7 +1226,7 @@ func (s *Store) AddPublicKey(ctx context.Context, username string, keyBlob []byt
 	queryUserStr := `
 		SELECT id
 		FROM users
-		WHERE username=?;
+		WHERE username=$1;
 	`
 
 	if err := s.db.QueryRowContext(ctx, queryUserStr, username).Scan(&userID); err != nil {
@@ -1261,7 +1237,7 @@ func (s *Store) AddPublicKey(ctx context.Context, username string, keyBlob []byt
 
 	insertQuery := `
 		INSERT INTO user_public_keys (key_blob, user_id, comment, added_at)
-		VALUES (?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4)
 		ON CONFLICT(key_blob) DO NOTHING;
 	`
 
@@ -1283,7 +1259,7 @@ func (s *Store) AddPublicKey(ctx context.Context, username string, keyBlob []byt
 	ownerQuery := `
 		SELECT user_id
 		FROM user_public_keys
-		WHERE key_blob=?;
+		WHERE key_blob=$1;
 	`
 
 	if err := s.db.QueryRowContext(ctx, ownerQuery, blob).Scan(&ownerID); err != nil {
@@ -1305,7 +1281,7 @@ func (s *Store) UserByPublicKey(ctx context.Context, keyBlob []byte) (model.User
 		SELECT u.username
 		FROM user_public_keys k
 		JOIN users u ON u.id = k.user_id
-		WHERE k.key_blob = ?;
+		WHERE k.key_blob = $1;
 	`
 
 	if err := s.db.QueryRowContext(ctx, queryUserStr, blob).Scan(&username); err != nil {
@@ -1327,7 +1303,7 @@ func (s *Store) PublicKeys(ctx context.Context, username string) ([]PublicKey, e
 	queryUserStr := `
 		SELECT id
 		FROM users
-		WHERE username=?;
+		WHERE username=$1;
 	`
 
 	if err := s.db.QueryRowContext(ctx, queryUserStr, username).Scan(&userID); err != nil {
@@ -1337,7 +1313,7 @@ func (s *Store) PublicKeys(ctx context.Context, username string) ([]PublicKey, e
 	queryPKeyStr := `
 		SELECT key_blob, comment, added_at
 		FROM user_public_keys
-		WHERE user_id = ?
+		WHERE user_id = $1
 		ORDER BY added_at, key_blob;
 	`
 
@@ -1392,14 +1368,14 @@ func (s *Store) StartSession(ctx context.Context, rec SessionStart) error {
 	queryUserStr := `
 		SELECT id
 		FROM users
-		WHERE username=?;
+		WHERE username=$1;
 	`
 
 	var targetID string
 	queryTargetStr := `
 		SELECT id
 		FROM targets
-		WHERE name=?;
+		WHERE ` + ciEq("name", "$1") + `;
 	`
 
 	err := s.db.QueryRowContext(ctx, queryUserStr, rec.Username).Scan(&userID)
@@ -1412,7 +1388,7 @@ func (s *Store) StartSession(ctx context.Context, rec SessionStart) error {
 		return translateErr("store.StartSession", err)
 	}
 
-	if _, err = s.db.ExecContext(ctx, `INSERT INTO sessions (id, user_id, target_id, os_user, src_ip, recording_path, started_at) VALUES (?, ?, ?, ?, ?, ?, ?);`, rec.ID, userID, targetID, rec.OSUser, rec.SrcIP, rec.RecordingPath, rec.StartedAt.Unix()); err != nil {
+	if _, err = s.db.ExecContext(ctx, `INSERT INTO sessions (id, user_id, target_id, os_user, src_ip, recording_path, started_at) VALUES ($1, $2, $3, $4, $5, $6, $7);`, rec.ID, userID, targetID, rec.OSUser, rec.SrcIP, rec.RecordingPath, rec.StartedAt.Unix()); err != nil {
 		return translateErr("store.StartSession", err)
 	}
 
@@ -1424,7 +1400,7 @@ func (s *Store) EndSession(ctx context.Context, id string, endedAt time.Time) er
 	queryStr := `
 		SELECT id
 		FROM sessions
-		WHERE id=?;
+		WHERE id=$1;
 	`
 
 	err := s.db.QueryRowContext(ctx, queryStr, id).Scan(&sessionID)
@@ -1432,7 +1408,7 @@ func (s *Store) EndSession(ctx context.Context, id string, endedAt time.Time) er
 		return translateErr("store.EndSession", err)
 	}
 
-	if _, err = s.db.ExecContext(ctx, `UPDATE sessions SET ended_at=? WHERE id=? AND ended_at IS NULL;`, endedAt.Unix(), sessionID); err != nil {
+	if _, err = s.db.ExecContext(ctx, `UPDATE sessions SET ended_at=$1 WHERE id=$2 AND ended_at IS NULL;`, endedAt.Unix(), sessionID); err != nil {
 		return translateErr("store.EndSession", err)
 	}
 
@@ -1441,7 +1417,7 @@ func (s *Store) EndSession(ctx context.Context, id string, endedAt time.Time) er
 
 // Session, tek bir oturumu kimlik ADLARIYLA döner. Yoksa ErrNotFound.
 //
-// Sessions'ın sorgusunun WHERE s.id = ? hâli; NULL/zaman çevrimleri de
+// Sessions'ın sorgusunun WHERE s.id = $1 hâli; NULL/zaman çevrimleri de
 // birebir aynı desen.
 func (s *Store) Session(ctx context.Context, id string) (model.Session, error) {
 	queryStr := `
@@ -1456,7 +1432,7 @@ func (s *Store) Session(ctx context.Context, id string) (model.Session, error) {
 		FROM sessions s
 		JOIN users   u ON u.id = s.user_id
 		JOIN targets t ON t.id = s.target_id
-		WHERE s.id = ?;
+		WHERE s.id = $1;
 	`
 
 	var session model.Session
@@ -1494,16 +1470,13 @@ func (s *Store) Sessions(ctx context.Context, username string, limit int) ([]mod
 		FROM sessions s
 		JOIN users   u ON u.id = s.user_id
 		JOIN targets t ON t.id = s.target_id
-		WHERE (? = '' OR u.username = ?)
-		ORDER BY s.started_at DESC, s.id DESC
-		LIMIT ?;
+		-- $1 İKİ KEZ geçiyor: numaralı yer tutucunun ? üzerindeki
+		-- somut faydası. Aynı değeri iki kez göndermek gerekmiyor.
+		WHERE ($1 = '' OR u.username = $1)
+		ORDER BY s.started_at DESC, s.id DESC` + limitClause(limit, "$2") + `;
 	`
 
-	if limit <= 0 {
-		limit = -1
-	}
-
-	rows, err := s.db.QueryContext(ctx, queryStr, username, username, limit)
+	rows, err := s.db.QueryContext(ctx, queryStr, limitArgs(limit, username)...)
 	if err != nil {
 		return nil, translateErr("store.Sessions", err)
 	}
@@ -1544,15 +1517,17 @@ func translateErr(op string, err error) error {
 		return fmt.Errorf("%s: %w: %v", op, ErrNotFound, err)
 	}
 
-	var sqliteErr *sqlite.Error
-	if errors.As(err, &sqliteErr) {
-		switch sqliteErr.Code() {
-		case sqlitelib.SQLITE_CONSTRAINT_UNIQUE, sqlitelib.SQLITE_CONSTRAINT_PRIMARYKEY:
-			return fmt.Errorf("%s: %w: %v", op, ErrConflict, err)
+	// Sınıflandırma lehçeye bağlı; ayrıntı dialect.go'da.
+	switch {
+	case isUniqueViolation(err):
+		// "Bu kayıt zaten var."
+		return fmt.Errorf("%s: %w: %v", op, ErrConflict, err)
 
-		case sqlitelib.SQLITE_CONSTRAINT_FOREIGNKEY:
-			return fmt.Errorf("%s: %w: %v", op, ErrNotFound, err)
-		}
+	case isForeignKeyViolation(err):
+		// "İşaret ettiğin şey yok." ErrConflict DEĞİL: AssignRole'a olmayan
+		// bir kullanıcı adı verildiğinde çıkan hata budur ve sözleşme orada
+		// ErrNotFound diyor.
+		return fmt.Errorf("%s: %w: %v", op, ErrNotFound, err)
 	}
 
 	return fmt.Errorf("%s: %w", op, err)

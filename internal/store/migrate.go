@@ -219,11 +219,11 @@ func (s *Store) applySingleMigration(ctx context.Context, migration migration, s
 	}
 
 	if qType == "up" {
-		if _, err = tx.ExecContext(txCtx, `INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?);`, migration.version, migration.name, time.Now().Unix()); err != nil {
+		if _, err = tx.ExecContext(txCtx, `INSERT INTO schema_migrations (version, name, applied_at) VALUES ($1, $2, $3);`, migration.version, migration.name, time.Now().Unix()); err != nil {
 			return fmt.Errorf("store.migrate.Migrate[%s]: %w", migration.name, err)
 		}
 	} else {
-		if _, err = tx.ExecContext(txCtx, `DELETE FROM schema_migrations WHERE version=?;`, migration.version); err != nil {
+		if _, err = tx.ExecContext(txCtx, `DELETE FROM schema_migrations WHERE version=$1;`, migration.version); err != nil {
 			return fmt.Errorf("store.migrate.Migrate[%s]: %w", migration.name, err)
 		}
 	}
@@ -236,16 +236,9 @@ func (s *Store) applySingleMigration(ctx context.Context, migration migration, s
 }
 
 func (s *Store) tableExists(ctx context.Context, tableName string) (bool, error) {
-	query := `
-		SELECT COUNT(*)
-		FROM sqlite_master
-		WHERE type = 'table'
-		  AND name = ?;
-	`
-
 	var count int
 
-	err := s.db.QueryRowContext(ctx, query, tableName).Scan(&count)
+	err := s.db.QueryRowContext(ctx, tableExistsQuery, tableName).Scan(&count)
 	if err != nil {
 		return false, fmt.Errorf("store.migrate.tableExists[%s]: failed: %w", tableName, err)
 	}
