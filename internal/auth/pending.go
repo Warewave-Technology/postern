@@ -24,6 +24,13 @@ var (
 	// ErrUnknownAttempt: bu state'e ait bekleyen bir deneme yok (hiç
 	// olmadı, süresi doldu ya da çoktan sonuçlandı).
 	ErrUnknownAttempt = errors.New("auth: unknown login attempt")
+
+	// ErrTooManyPending: aynı anda çok fazla giriş onay bekliyor.
+	//
+	// Kuyruğa almak yerine REDDETMEK, varsayılan-reddet kuralının
+	// gereği: kuyruğa alınan bir deneme, tutulan bir goroutine demek —
+	// yani tam olarak paylaştırmaya çalıştığımız kaynak.
+	ErrTooManyPending = errors.New("auth: too many pending logins")
 )
 
 // Logins, bekleyen OOB giriş denemelerinin kaydı.
@@ -49,6 +56,9 @@ type Logins struct {
 
 	mu      sync.Mutex
 	byState map[string]*Attempt // canlı denemeler; anahtar = state
+
+	// maxPending, byState'in üst sınırı. 0 = sınırsız.
+	maxPending int
 }
 
 // Attempt, tek bir OOB giriş denemesinin SSH tarafındaki ucu.
@@ -81,7 +91,30 @@ func NewLogins(o *OIDC) *Logins {
 	return &Logins{oidc: o, byState: make(map[string]*Attempt)}
 }
 
+// SetMaxPending, aynı anda onay bekleyebilecek giriş sayısını sınırlar.
+// 0 = sınırsız. Dinlemeye başlamadan ÖNCE çağrılmalı.
+//
+// Sınırın BURADA olması gerekiyor, sshd'de değil: bekleyen girişleri
+// tutan harita bu nesnenin içinde ve HTTP kapısı (Lookup/Park/Confirm)
+// aynı haritayı okuyor. sshd'de uygulanan bir sınır, iki yazardan
+// yalnızca birini sınırlardı.
+func (l *Logins) SetMaxPending(n int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.maxPending = n
+}
+
 func (l *Logins) Start() (*Attempt, error) {
+	// Sınır kontrolü İLK: kotayı aşan bir denemede OIDC durumu üretmenin
+	// ve kod hesaplamanın anlamı yok.
+	l.mu.Lock()
+	over := l.maxPending > 0 && len(l.byState) >= l.maxPending
+	l.mu.Unlock()
+
+	if over {
+		return nil, ErrTooManyPending
+	}
+
 	code, err := newCode()
 	if err != nil {
 		return nil, fmt.Errorf("auth.pending.Start: %w", err)
@@ -102,6 +135,14 @@ func (l *Logins) Start() (*Attempt, error) {
 	}
 
 	l.mu.Lock()
+	// Kotayı kilit ALTINDA bir kez daha kontrol et: yukarıdaki kontrol
+	// ile buraya gelene kadar başka goroutine'ler eklemiş olabilir.
+	// Kontrolsüz bırakmak, sınırın eşzamanlı yükte tam olarak
+	// ihtiyaç duyulduğu anda kayması demek olurdu.
+	if l.maxPending > 0 && len(l.byState) >= l.maxPending {
+		l.mu.Unlock()
+		return nil, ErrTooManyPending
+	}
 	l.byState[a.state] = a
 	l.mu.Unlock()
 

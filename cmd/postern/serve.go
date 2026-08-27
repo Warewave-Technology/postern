@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -61,9 +62,23 @@ func newServeCmd() *cobra.Command {
 				return fmt.Errorf("schema is %d migration(s) behind; run `postern db migrate` first", pending)
 			}
 
+			// ÇÖZÜLMÜŞ değerler loglanıyor, ham config değil: "0 =
+			// varsayılan" sözleşmesinde bloğu hiç yazmamış bir operatörün
+			// yürürlükteki sınırı öğrenmesinin başka yolu yok.
 			logger.Info("config loaded",
 				"listen", cfg.Listen.Addr,
-				"database", cfg.Database.DSN,
+				// ⚠️ DSN parola taşır ve log satırları dosyaya, konsola,
+				// hata ayıklama paketine gider. Ayıklanmış hâli
+				// yazılıyor.
+				"database", redactDSN(cfg.Database.DSN),
+				"max_conns", cfg.Listen.MaxConnsOrDefault(),
+				"max_conns_per_ip", cfg.Listen.MaxConnsPerIPOrDefault(),
+				"max_auth_tries", cfg.Listen.MaxAuthTriesOrDefault(),
+				"max_channels_per_conn", cfg.Listen.MaxChannelsOrDefault(),
+				"max_pending_logins", cfg.Listen.MaxPendingLoginsOrDefault(),
+				"handshake_timeout", cfg.Listen.HandshakeTimeoutOrDefault(),
+				"session_idle_timeout", cfg.Session.IdleTimeout,
+				"session_max_lifetime", cfg.Session.MaxLifetime,
 			)
 
 			s, err := sshd.New(cfg, db, logger)
@@ -86,6 +101,10 @@ func newServeCmd() *cobra.Command {
 				}
 
 				logins := auth.NewLogins(oidcClient)
+				// Bekleyen giriş kotası: her deneme handshake içinde
+				// bekleyen bir goroutine demek ve kimlik doğrulaması
+				// gerektirmiyor.
+				logins.SetMaxPending(cfg.Listen.MaxPendingLoginsOrDefault())
 				s.EnableOOB(logins, 0)
 
 				// Grup kaynağı: LDAP ayarlanmışsa dizin, değilse ID
@@ -160,4 +179,28 @@ func newServeCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
 	return cmd
+}
+
+// redactDSN, bağlantı dizesindeki parolayı gizler.
+//
+// Log satırları dosyaya, konsola ve hata ayıklama paketlerine gider;
+// veritabanı parolasının oralara sızmaması gerekiyor. Ayrıştırılamayan
+// bir dize TAMAMEN gizleniyor: tanımadığımız bir biçimi "herhalde
+// güvenlidir" diye olduğu gibi yazmak, gizlemenin amacını bozardı.
+func redactDSN(dsn string) string {
+	if dsn == "" {
+		return ""
+	}
+
+	u, err := url.Parse(dsn)
+	if err != nil || u.Host == "" {
+		// URL değil (anahtar=değer biçimi olabilir) ya da bozuk.
+		return "[redacted]"
+	}
+	if u.User != nil {
+		if _, hasPassword := u.User.Password(); hasPassword {
+			u.User = url.UserPassword(u.User.Username(), "xxxxx")
+		}
+	}
+	return u.Redacted()
 }

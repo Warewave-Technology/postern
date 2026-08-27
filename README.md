@@ -54,6 +54,67 @@ session:
 
 An empty list relays nothing; omitting the key keeps the default.
 
+### Limits
+
+Nothing bounded the listener until recently: it accepted in an unbounded
+loop, and the SSH version string is read one byte at a time with no
+deadline — so a client sending a byte an hour held a goroutine and a file
+descriptor without ever authenticating. Worse, when file descriptors ran
+out, `Accept` returned an error that propagated all the way out and
+stopped the process. Exhaustion caused an outage rather than backpressure.
+
+Every limit defaults to something usable; `0` means "use the default" and
+`-1` means "deliberately unlimited".
+
+```yaml
+listen:
+  max_conns: 256              # concurrent connections
+  max_conns_per_ip: 8         # concurrent connections from one source
+  handshake_timeout: 30s      # time to authenticate
+  max_auth_tries: 4           # auth attempts per connection
+  max_channels_per_conn: 10   # concurrent sessions on one connection
+  max_pending_logins: 32      # browser logins awaiting approval
+
+session:
+  idle_timeout: 30m           # off by default
+  max_lifetime: 12h           # off by default
+```
+
+**What these do not do.** They do not stop a distributed attacker. A
+per-IP cap means nothing to a botnet, and once the global cap is reached
+you are refusing legitimate users too. What they buy you is degradation
+instead of an outage.
+
+**`max_conns_per_ip` behind a proxy.** postern does not speak the PROXY
+protocol, so behind an L4 load balancer every connection appears to come
+from the balancer and this limit collapses everyone onto one counter —
+your ninth user is refused. Set it to `-1` in that deployment. The
+refusal is logged with the address and the count so the cause is one grep
+away.
+
+**`max_auth_tries` and your ssh agent.** OpenSSH offers every key in the
+agent before the right one, so a developer with five keys hits the limit
+at four. This is the same tension OpenSSH resolves with its own default
+of 6; the fix on the client side is `IdentitiesOnly=yes`.
+
+**Browser login outlives the handshake timeout.** Approval is awaited
+*inside* the handshake, so a flat deadline shorter than the approval
+window would break every OIDC login — as a mid-login disconnect that
+looks like a network fault. The deadline is extended once the client
+selects the interactive method, which keeps the anonymous path cheap.
+`TestOOBLoginSurvivesShortHandshakeTimeout` runs a real Keycloak login
+with a 6s handshake deadline and a 60s approval window; removing the
+extension makes it fail.
+
+**`session.idle_timeout` is off by default, on purpose.** Idle means *no
+bytes in either direction*, not "nobody is typing" — otherwise an
+hour-long `make -j` that prints nothing gets killed mid-build. It is also
+not crash detection; TCP keepalive already notices a dead peer in about
+two and a half minutes. Its real justification is the root shell someone
+forgot on a production box. `max_lifetime` exists because time-limited
+role grants are never re-checked mid-session, so a session opened a
+minute before a grant expires currently outlives its own authorization.
+
 This was not a theoretical gap. Before the filter existed, `sftp` worked
 end to end through postern, and the transfer landed in the `.cast` file
 as binary SFTP protocol under an `80x24` header that no terminal ever

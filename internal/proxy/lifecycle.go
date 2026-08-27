@@ -32,6 +32,12 @@ var (
 	// yansıtır (SSH reject sebebi / HTTP 403).
 	ErrAccessDenied = errors.New("proxy: access denied")
 
+	// ErrIdleTimeout / ErrMaxLifetime: oturumu KAPATAN sınırlar.
+	// Hata olarak çağırana dönmezler — context.Cause ile okunup denetim
+	// kaydına yazılırlar (bkz. idle.go).
+	ErrIdleTimeout = errors.New("proxy: session idle timeout")
+	ErrMaxLifetime = errors.New("proxy: session max lifetime")
+
 	// ErrUnavailable: hedefe ulaşılamadı, kayıt açılamadı, veritabanı
 	// erişilemiyor. Kullanıcının suçu değil; birinin müdahale etmesi
 	// gerekir. Çağıran "connection failed" / HTTP 503 der.
@@ -51,6 +57,13 @@ type Deps struct {
 	// Sıfır değeri kullanılabilir: env whitelist'i varsayılana düşer,
 	// tip listeleri zaten sabit.
 	Requests RequestPolicy
+
+	// IdleTimeout, iki yönde de bayt akmayan oturumun kapatılma süresi.
+	// 0 = kapalı (bkz. config.SessionConfig.IdleTimeout).
+	IdleTimeout time.Duration
+
+	// MaxLifetime, oturumun mutlak ömrü. 0 = kapalı.
+	MaxLifetime time.Duration
 }
 
 // Request, açılacak oturumun kim/nereye bilgisi.
@@ -221,8 +234,30 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 // etmez — arayüz sözleşmesinin bütün faydası bu.
 func (s *Session) Run(ctx context.Context, down ssh.Channel, downR <-chan *ssh.Request) error {
 	s.Log.Info("session started", "os_user", s.OSUser)
-	err := New(down, downR, s.up, s.upR, s.rec, s.deps.RecordInput, s.deps.Requests, s.deps.Logger).Run(ctx)
-	s.Log.Info("session ended", "os_user", s.OSUser, "duration", time.Since(s.start))
+
+	ctx, guard, stop := bound(ctx, s.deps.IdleTimeout, s.deps.MaxLifetime)
+	defer stop()
+
+	b := New(down, downR, s.up, s.upR, s.rec, s.deps.RecordInput, s.deps.Requests, s.deps.Logger)
+	b.idle = guard
+
+	err := b.Run(ctx)
+
+	// Oturumun NEDEN bittiğini logla. "Kullanıcı çıktı", "boşta kaldı" ve
+	// "ömrü doldu" denetim kaydında ayrı olaylar; hepsini "session ended"
+	// diye yazmak, sınırların çalışıp çalışmadığını sonradan
+	// anlaşılamaz kılardı.
+	fields := []any{"os_user", s.OSUser, "duration", time.Since(s.start)}
+	if cause := context.Cause(ctx); cause != nil {
+		switch {
+		case errors.Is(cause, ErrIdleTimeout):
+			fields = append(fields, "closed_by", "idle_timeout")
+		case errors.Is(cause, ErrMaxLifetime):
+			fields = append(fields, "closed_by", "max_lifetime")
+		}
+	}
+	s.Log.Info("session ended", fields...)
+
 	return err
 }
 

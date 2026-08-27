@@ -206,7 +206,7 @@ func TestServerConfigAndCallback(t *testing.T) {
 		t.Fatalf("New: %v (önce TestNew'i yeşile çevir)", err)
 	}
 
-	scfg, err := srv.serverConfig()
+	scfg, err := srv.serverConfig(nopDeadline{})
 	if err != nil {
 		t.Fatalf("serverConfig: %v", err)
 	}
@@ -274,3 +274,8 @@ func TestServeStopsOnContextCancel(t *testing.T) {
 		t.Fatal("Serve, ctx iptaline rağmen 2 sn içinde dönmedi")
 	}
 }
+
+// nopDeadline, serverConfig'in istediği deadlineSetter'ın test karşılığı.
+type nopDeadline struct{}
+
+func (nopDeadline) SetDeadline(time.Time) error { return nil }

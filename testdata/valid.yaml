@@ -22,6 +22,10 @@ session:
    # Yazılmazsa varsayılan: LANG, LC_*
    # accept_env: ["LANG", "LC_*"]
 
+   # Oturum sınırları. İKİSİ DE VARSAYILAN KAPALI.
+   # idle_timeout: 30m     # iki yönde de bayt akmazsa kapat
+   # max_lifetime: 12h     # mutlak ömür
+
 recording:
    dir: recordings
 

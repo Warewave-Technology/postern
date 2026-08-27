@@ -40,6 +40,9 @@ type Broker struct {
 	// policy, hangi request'lerin köprüden geçeceğini söyler (requests.go).
 	policy RequestPolicy
 
+	// idle nil olabilir: boşta kalma sınırı kapalıysa sarmalayıcı yok.
+	idle *idleGuard
+
 	logger *slog.Logger
 }
 
@@ -55,26 +58,26 @@ func New(down ssh.Channel, downR <-chan *ssh.Request, up ssh.Channel, upR <-chan
 // channel alone, or that channel tee'd into the recording.
 func (b *Broker) outputSink() io.Writer {
 	if b.rec != nil {
-		return io.MultiWriter(b.down, b.rec.OutputStream())
+		return b.idle.wrap(io.MultiWriter(b.down, b.rec.OutputStream()))
 	}
-	return b.down
+	return b.idle.wrap(b.down)
 }
 
 // inputSink is the same for user→target bytes, gated by recordInput.
 func (b *Broker) inputSink() io.Writer {
 	if b.rec != nil && b.recordInput {
-		return io.MultiWriter(b.up, b.rec.InputStream())
+		return b.idle.wrap(io.MultiWriter(b.up, b.rec.InputStream()))
 	}
-	return b.up
+	return b.idle.wrap(b.up)
 }
 
 // errorSink returns where target→user bytes should be written: the user's
 // channel alone, or that channel tee'd into the recording.
 func (b *Broker) stderrSink() io.Writer {
 	if b.rec != nil {
-		return io.MultiWriter(b.down.Stderr(), b.rec.OutputStream())
+		return b.idle.wrap(io.MultiWriter(b.down.Stderr(), b.rec.OutputStream()))
 	}
-	return b.down.Stderr()
+	return b.idle.wrap(b.down.Stderr())
 }
 
 // Run shuttles data and requests until the session ends, then returns.

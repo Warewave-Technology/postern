@@ -204,3 +204,43 @@ func stateOf(t *testing.T, a *Attempt) string {
 	}
 	return u.Query().Get("state")
 }
+
+// Bekleyen giriş kotası: dolduğunda reddetmeli, boşaldığında yeniden
+// kabul etmeli.
+//
+// İkinci yarı olmadan test, kotanın MANDALLANDIĞINI (bir kez dolunca
+// hep dolu kalması) fark edemezdi — ve o hâlde tek bir yük dalgası
+// tarayıcı girişini kalıcı olarak kapatırdı.
+func TestMaxPendingRefusesThenReleases(t *testing.T) {
+	l := NewLogins(testOIDC())
+	l.SetMaxPending(2)
+
+	a1, err := l.Start()
+	if err != nil {
+		t.Fatalf("ilk deneme: %v", err)
+	}
+	if _, err := l.Start(); err != nil {
+		t.Fatalf("ikinci deneme: %v", err)
+	}
+
+	if _, err := l.Start(); !errors.Is(err, ErrTooManyPending) {
+		t.Errorf("üçüncü deneme = %v, ErrTooManyPending bekleniyordu", err)
+	}
+
+	l.Drop(a1)
+
+	if _, err := l.Start(); err != nil {
+		t.Errorf("yer açıldıktan sonra hâlâ reddediyor: %v", err)
+	}
+}
+
+// Sınır 0 iken kota uygulanmamalı.
+func TestMaxPendingZeroIsUnlimited(t *testing.T) {
+	l := NewLogins(testOIDC())
+
+	for i := 0; i < 50; i++ {
+		if _, err := l.Start(); err != nil {
+			t.Fatalf("%d. deneme reddedildi: %v", i, err)
+		}
+	}
+}

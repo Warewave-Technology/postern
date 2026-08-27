@@ -51,15 +51,50 @@ func (s *Server) publicKeyCallback(conn ssh.ConnMetadata, key ssh.PublicKey) (*s
 //
 // publicKeyCallback ile AYNI Permissions şeklini üretir — channel.go'nun
 // tek tanıdığı anahtar "postern-user", iki giriş yolu da aynı kapıya çıkar.
-func (s *Server) keyboardInteractiveCallback(conn ssh.ConnMetadata,
+// nConn, handshake son tarihini uzatabilmek için gerekiyor: OOB onayı
+// handshake'in İÇİNDE bekleniyor ve o süre listen.handshake_timeout'tan
+// uzun. Kapatma (closure) ile veriliyor çünkü ssh.ServerConfig'in
+// imzasında ham bağlantı yok.
+func (s *Server) keyboardInteractiveCallbackFor(nConn deadlineSetter) func(
+	ssh.ConnMetadata, ssh.KeyboardInteractiveChallenge) (*ssh.Permissions, error) {
+	return func(conn ssh.ConnMetadata,
+		client ssh.KeyboardInteractiveChallenge) (*ssh.Permissions, error) {
+		return s.keyboardInteractive(nConn, conn, client)
+	}
+}
+
+func (s *Server) keyboardInteractive(nConn deadlineSetter, conn ssh.ConnMetadata,
 	client ssh.KeyboardInteractiveChallenge) (*ssh.Permissions, error) {
 	a, err := s.logins.Start()
 	if err != nil {
+		// Kota dolması bir arıza DEĞİL, uygulanan bir sınır. Log'da
+		// ayrışsın ki operatör "IdP bozuldu" ile "yük altındayız"ı
+		// karıştırmasın.
+		if errors.Is(err, auth.ErrTooManyPending) {
+			s.logger.Warn("oob login refused: too many pending",
+				"remote", conn.RemoteAddr())
+		}
 		return nil, fmt.Errorf("auth.keyboardInteractiveCallback[%s]: %w", conn.RemoteAddr(), err)
 	}
 	// Drop, Wait'ten HANGİ yolla çıkarsak çıkalım denemeyi yakar; başarı
 	// yolunda Confirm zaten düşürdü, Drop idempotent — ikinci çağrı no-op.
 	defer s.logins.Drop(a)
+
+	// Handshake süresini onayı kapsayacak kadar uzat.
+	//
+	// ⚠️ SIRA ÖNEMLİ: uzatma challenge'dan ÖNCE olmalı. İstemcinin
+	// keyboard-interactive geri çağrısı içinde bloke olması meşrudur —
+	// bazı istemciler tarayıcı onayını orada bekler — ve o durumda
+	// challenge'dan SONRA uzatmak çok geç kalır. (Ölçüldü:
+	// TestOOBLoginSurvivesShortHandshakeTimeout bu sırayla düşüyordu.)
+	//
+	// Bağlantı zamanında değil BURADA uzatmak yine de anlamlı:
+	// handshake_timeout'u baştan oobTimeout kadar uzun yapmak, her
+	// anonim tarayıcıya bedava iki dakikalık goroutine vermek olurdu.
+	// Buraya gelen istemci taşıma katmanı handshake'ini tamamlamış ve
+	// keyboard-interactive'i SEÇMİŞ durumda; ayrıca MaxAuthTries ve
+	// MaxPendingLogins bu yolu ayrıca sınırlıyor.
+	extendDeadline(nConn, s.oobTimeout+oobDeadlineSlack, s.logger)
 
 	// Challenge'ın hatası "istemci gitti" demektir: linki hiç görmemiş
 	// olabilir. Wait'e girip tarayıcı onayı beklemek, terk edilmiş bir

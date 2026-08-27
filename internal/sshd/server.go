@@ -4,10 +4,13 @@ package sshd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"os"
+	"sync"
+	"syscall"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -45,6 +48,15 @@ type Server struct {
 	// groups, OOB girişinde kullanılacak grup kaynağı. httpapi ile AYNI
 	// olmalı: iki kapı aynı yetkiyi vermeli.
 	groups auth.GroupSource
+
+	// limiter, eşzamanlı bağlantı sınırları (limits.go).
+	limiter *connLimiter
+
+	// Çözülmüş sınır değerleri. Config'te 0 "varsayılan" demek olduğu
+	// için ham değeri değil çözüleni saklıyoruz.
+	handshakeTimeout time.Duration
+	maxAuthTries     int
+	maxChannels      int
 }
 
 // UseGroupSource, grup kaynağını değiştirir (LDAP için).
@@ -63,6 +75,11 @@ func (s *Server) ProxyDeps() proxy.Deps {
 		Logger:      s.logger,
 		RecordInput: s.cfg.Recording.RecordInput,
 		Requests:    proxy.RequestPolicy{AcceptEnv: s.cfg.Session.AcceptEnv},
+
+		// Oturum sınırları buradan geçiyor, dolayısıyla web terminali de
+		// (EnableTerminal aynı Deps'i alıyor) aynı sınırlara tabi.
+		IdleTimeout: s.cfg.Session.IdleTimeout,
+		MaxLifetime: s.cfg.Session.MaxLifetime,
 	}
 }
 
@@ -106,6 +123,14 @@ func New(cfg *config.Config, db *store.Store, logger *slog.Logger) (*Server, err
 		cfg: cfg, signer: signer, logger: logger,
 		rStore: recStore, db: db, authority: caAuthority,
 		groups: auth.ClaimGroups{},
+
+		limiter: newConnLimiter(
+			cfg.Listen.MaxConnsOrDefault(),
+			cfg.Listen.MaxConnsPerIPOrDefault(),
+		),
+		handshakeTimeout: cfg.Listen.HandshakeTimeoutOrDefault(),
+		maxAuthTries:     cfg.Listen.MaxAuthTriesOrDefault(),
+		maxChannels:      cfg.Listen.MaxChannelsOrDefault(),
 	}, nil
 }
 
@@ -132,27 +157,104 @@ func (s *Server) Serve(ctx context.Context, l net.Listener) error {
 		}
 	}()
 
+	// backoff, geçici Accept hatalarından sonraki bekleme. Sıfırdan
+	// başlar, her hatada ikiye katlanır, başarıda sıfırlanır.
+	var backoff time.Duration
+
 	for {
 		conn, err := l.Accept()
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil
 			}
+
+			// GEÇİCİ hatada ölme, yük at.
+			//
+			// Bu kontrol olmadan dosya tanıtıcısı tükenmesi (EMFILE) tam
+			// bir kesinti demekti: Accept hatayı döner, Serve döner,
+			// serve komutu döner, süreç biter. Üstelik fd tükenmesi tam
+			// olarak sınırsız eşzamanlılığın ürettiği şey — yani
+			// sınırlayıcının önlemeye çalıştığı durumun kendisi
+			// bastion'ı öldürüyordu.
+			if isTemporaryAcceptErr(err) {
+				backoff = nextBackoff(backoff)
+				s.logger.Error("accept temporarily failed; backing off",
+					"error", err, "backoff", backoff)
+
+				select {
+				case <-time.After(backoff):
+				case <-ctx.Done():
+					return nil
+				}
+				continue
+			}
+
 			return err
 		}
+		backoff = 0
 
-		go s.handleConn(ctx, conn)
+		// Sınır kontrolü ACCEPT GOROUTINE'İNDE, goroutine açılmadan
+		// önce: reddedilen bağlantıyı kuyruğa almak, tükenmeyi bir
+		// katman içeri taşımak olurdu.
+		ip := remoteIP(conn.RemoteAddr())
+		release, reason := s.limiter.acquire(ip)
+		if release == nil {
+			total, _ := s.limiter.stats()
+			s.logger.Warn("connection refused by limit",
+				"remote", ip, "reason", reason, "total", total)
+			conn.Close()
+			continue
+		}
+
+		go s.handleConn(ctx, conn, release)
 	}
 }
 
+// isTemporaryAcceptErr, Accept hatasının geçici olup olmadığını söyler.
+//
+// net.Error.Temporary() kullanımdan kalktığı için syscall'lar açıkça
+// eşleniyor: bunlar "kaynak şu an yok" der, "dinleyici bozuldu" demez.
+func isTemporaryAcceptErr(err error) bool {
+	return errors.Is(err, syscall.EMFILE) ||
+		errors.Is(err, syscall.ENFILE) ||
+		errors.Is(err, syscall.ECONNABORTED) ||
+		errors.Is(err, syscall.ENOBUFS) ||
+		errors.Is(err, syscall.ENOMEM)
+}
+
+// nextBackoff, katlanan bekleme süresini üst sınırla döner.
+func nextBackoff(current time.Duration) time.Duration {
+	const (
+		min = 5 * time.Millisecond
+		max = time.Second
+	)
+	if current == 0 {
+		return min
+	}
+	if next := current * 2; next < max {
+		return next
+	}
+	return max
+}
+
 // handleConn runs the SSH handshake and (from S1.5 on) dispatches channels.
-func (s *Server) handleConn(ctx context.Context, nConn net.Conn) {
+func (s *Server) handleConn(ctx context.Context, nConn net.Conn, release func()) {
+	// release, sınırlayıcıdaki yeri geri verir. Kapatmayla AYNI defer
+	// zincirinde: başarısız handshake'ler de yeri bırakmalı, yoksa
+	// tarayıcı trafiği bastion'ı zamanla max_conns'ta kilitler.
+	defer release()
 	defer nConn.Close()
 
-	scfg, err := s.serverConfig()
+	scfg, err := s.serverConfig(nConn)
 	if err != nil {
 		s.logger.Error("handleConn.serverConfig", "err", err)
 		return
+	}
+
+	// Handshake son tarihi. Kimliği doğrulanmamış bir istemcinin bizi
+	// meşgul edebileceği süre burada bitiyor.
+	if s.handshakeTimeout > 0 {
+		nConn.SetDeadline(time.Now().Add(s.handshakeTimeout))
 	}
 
 	sshConn, chans, reqs, err := ssh.NewServerConn(nConn, scfg)
@@ -160,6 +262,13 @@ func (s *Server) handleConn(ctx context.Context, nConn net.Conn) {
 		s.logger.Warn("handleConn.NewServerConn", "err", err)
 		return
 	}
+
+	// ⚠️ Son tarihi TEMİZLEMEK şart. net.Conn son tarihleri kalıcıdır ve
+	// x/crypto'nun okuma goroutine'i oturum boyunca okumaya devam eder:
+	// unutulursa HER oturum tam olarak handshake_timeout'ta ölür.
+	// Handshake testleri bunu göstermez, oturumu süreden uzun açık tutan
+	// bir test gösterir.
+	nConn.SetDeadline(time.Time{})
 
 	s.logger.Info("ssh handshake ok",
 		"user", sshConn.User(),
@@ -169,21 +278,60 @@ func (s *Server) handleConn(ctx context.Context, nConn net.Conn) {
 
 	go ssh.DiscardRequests(reqs)
 
+	// Kanal sayacı: bu kümedeki TEK kimlik doğrulama sonrası sınır.
+	// Her kabul edilen kanal bir hedef bağlantısı, bir .cast dosyası ve
+	// bir denetim satırı demek; bugün sayıyı sınırlayan tek şey
+	// istemcinin ne kadar hızlı istek gönderebildiğiydi.
+	var (
+		chanMu    sync.Mutex
+		chanCount int
+	)
+
 	for newChan := range chans {
-		go s.handleChannel(ctx, sshConn, newChan)
+		chanMu.Lock()
+		over := s.maxChannels > 0 && chanCount >= s.maxChannels
+		if !over {
+			chanCount++
+		}
+		chanMu.Unlock()
+
+		if over {
+			// Prohibited DEĞİL ResourceShortage: bu bir politika kararı
+			// değil kapasite sınırı, log da öyle demeli.
+			newChan.Reject(ssh.ResourceShortage, "too many channels")
+			s.logger.Warn("channel refused by limit",
+				"postern_user", sshConn.Permissions.Extensions["postern-user"],
+				"remote", sshConn.RemoteAddr(),
+				"limit", s.maxChannels)
+			continue
+		}
+
+		go func(nc ssh.NewChannel) {
+			defer func() {
+				chanMu.Lock()
+				chanCount--
+				chanMu.Unlock()
+			}()
+			s.handleChannel(ctx, sshConn, nc)
+		}(newChan)
 	}
 }
 
 // serverConfig builds the ssh.ServerConfig used for handshakes.
-func (s *Server) serverConfig() (*ssh.ServerConfig, error) {
+func (s *Server) serverConfig(nConn deadlineSetter) (*ssh.ServerConfig, error) {
 	cfg := &ssh.ServerConfig{
 		PublicKeyCallback: s.publicKeyCallback,
 		ServerVersion:     "SSH-2.0-postern",
+
+		// x/crypto'nun varsayılanı 6. Düşürüyoruz çünkü her deneme bir
+		// veritabanı sorgusu (UserByPublicKey) ve OOB yolunda bir
+		// bekleme daha demek.
+		MaxAuthTries: s.maxAuthTries,
 	}
 	if s.logins != nil {
 		// nil kaldıkça istemciye bu yöntem hiç sunulmaz — OIDC'siz
 		// kurulum eskisi gibi yalnızca public key konuşur.
-		cfg.KeyboardInteractiveCallback = s.keyboardInteractiveCallback
+		cfg.KeyboardInteractiveCallback = s.keyboardInteractiveCallbackFor(nConn)
 	}
 	cfg.AddHostKey(s.signer)
 	return cfg, nil

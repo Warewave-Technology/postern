@@ -788,8 +788,12 @@ değiştirecek. Kabaca kapsam:
   reddediliyor (`internal/sshd/channel.go`)
 - Agent forwarding — ✅ reddediliyor (request süzgeci)
 - `env` whitelist — ✅ bitti (`session.accept_env`, varsayılan LANG/LC_*)
-- Keepalive, yarı kapalı bağlantı, timeout'lar
-- Rate limiting, bağlantı sayısı sınırı
+- Keepalive, yarı kapalı bağlantı, timeout'lar — ✅ handshake son tarihi
+  (+ OOB uzatması), oturum boşta kalma ve mutlak ömür sınırları
+- Rate limiting, bağlantı sayısı sınırı — ✅ eşzamanlı bağlantı sınırı
+  (küresel + IP başına), kanal sınırı, bekleyen giriş kotası,
+  MaxAuthTries. İSTEK HIZI sınırı ölçülmeden eklenmedi: eşzamanlılık
+  sınırı tek kaynağı zaten dar bir bant genişliğine indiriyor
 - `go test -race` tüm pakette temiz — ✅
 - `gosec`, `govulncheck` CI'da — ✅ (`.github/workflows/ci.yml`, `make audit`)
   - govulncheck ilk koşuda 7 açık buldu: 6'sı standart kütüphanede

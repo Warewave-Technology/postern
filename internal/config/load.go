@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/goccy/go-yaml"
 )
@@ -94,6 +95,35 @@ func (c *Config) Validate() error {
 
 	if c.Recording.Dir == "" {
 		return fmt.Errorf("recording.dir is empty")
+	}
+
+	// Sınırlar: yalnızca ANLAMSIZ olanı reddet. Varsayılan atamak
+	// Validate'in işi değil — "yazılmadı" ile "sıfır yazıldı" ayrımı
+	// kullanan yerde çözülüyor (bkz. ListenConfig accessor'ları).
+	if c.Listen.HandshakeTimeout < 0 && c.Listen.HandshakeTimeout != -1 {
+		return fmt.Errorf("listen.handshake_timeout is negative (use -1 for unlimited)")
+	}
+	if c.Listen.HandshakeTimeout > 0 && c.Listen.HandshakeTimeout < 5*time.Second {
+		// 5 saniyeden kısa bir süre yavaş bir ağdaki meşru istemciyi de
+		// keser; sınırın amacı asılı kalanı atmak, yavaş olanı değil.
+		return fmt.Errorf("listen.handshake_timeout %s is too short (minimum 5s)", c.Listen.HandshakeTimeout)
+	}
+	if c.Listen.MaxConns > 0 && c.Listen.MaxConnsPerIP > c.Listen.MaxConns {
+		return fmt.Errorf("listen.max_conns_per_ip (%d) exceeds listen.max_conns (%d)",
+			c.Listen.MaxConnsPerIP, c.Listen.MaxConns)
+	}
+	if c.Session.IdleTimeout < 0 {
+		return fmt.Errorf("session.idle_timeout is negative")
+	}
+	if c.Session.MaxLifetime < 0 {
+		return fmt.Errorf("session.max_lifetime is negative")
+	}
+	if c.Session.IdleTimeout > 0 && c.Session.MaxLifetime > 0 &&
+		c.Session.MaxLifetime < c.Session.IdleTimeout {
+		// Ömür sınırı boşta kalma sınırından kısaysa ikincisi hiç
+		// tetiklenemez: sessizce ölü bir ayar olurdu.
+		return fmt.Errorf("session.max_lifetime (%s) is shorter than session.idle_timeout (%s)",
+			c.Session.MaxLifetime, c.Session.IdleTimeout)
 	}
 
 	// OOB girişi ya TAM açık ya tam kapalı. Yarım yapılandırma (issuer

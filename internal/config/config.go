@@ -7,6 +7,8 @@
 // API) değiştirilir. YAML'a kullanıcı yazmak diye bir şey yoktur.
 package config
 
+import "time"
+
 type Config struct {
 	Listen   ListenConfig   `yaml:"listen"`
 	HostKey  string         `yaml:"host_key"` // path to the bastion's own host private key
@@ -95,6 +97,89 @@ type DatabaseConfig struct {
 
 type ListenConfig struct {
 	Addr string `yaml:"addr"` // e.g. ":2222"
+
+	// --- Sınırlar ---
+	//
+	// Hepsinde 0 (yazılmamış) = varsayılan, -1 = BİLEREK sınırsız.
+	// Varsayılanlar burada değil kullanan yerde çözülüyor; Validate saf
+	// kalsın ve "yazılmadı" ile "sıfır yazıldı" ayrılabilsin diye.
+	//
+	// ⚠️ Bu sınırlar dağıtık bir saldırıyı DURDURMAZ. Yaptıkları şey
+	// kesintiyi bozulmaya çevirmek: bastion ölmek yerine yük atar.
+
+	// MaxConns, eşzamanlı SSH bağlantısı üst sınırı (varsayılan 256).
+	MaxConns int `yaml:"max_conns"`
+
+	// MaxConnsPerIP, tek kaynaktan eşzamanlı bağlantı (varsayılan 8).
+	//
+	// ⚠️ L4 yük dengeleyici ya da TCP vekil ARKASINDA kapatılmalı (-1):
+	// orada bütün kullanıcılar dengeleyicinin IP'siyle görünür ve bu
+	// sınır 9. kullanıcıda kesintiye döner. postern PROXY protokolü
+	// konuşmuyor.
+	MaxConnsPerIP int `yaml:"max_conns_per_ip"`
+
+	// HandshakeTimeout, kimlik doğrulanana kadar tanınan süre
+	// (varsayılan 30s).
+	//
+	// Kapattığı açık somut: SSH sürüm satırı bayt bayt okunuyor, yani
+	// saatte bir bayt gönderen bir istemci kimliğini hiç doğrulamadan
+	// bir goroutine ve bir dosya tanıtıcısı tutabiliyordu.
+	//
+	// Tarayıcı girişi (OOB) bu süreden UZUN sürer ve süre onay
+	// beklenirken ayrıca uzatılır — bkz. internal/sshd/limits.go.
+	// Yani buraya oobTimeout'tan kısa bir değer yazmak girişi bozmaz.
+	HandshakeTimeout time.Duration `yaml:"handshake_timeout"`
+
+	// MaxAuthTries, bağlantı başına kimlik doğrulama denemesi
+	// (varsayılan 4; x/crypto'nun kendi varsayılanı 6).
+	//
+	// ⚠️ Çok düşürmeyin: OpenSSH doğru anahtarı bulana kadar ajandaki
+	// TÜM anahtarları sırayla sunar, yani 5 anahtarı olan bir geliştirici
+	// 4'te "too many authentication failures" alır. Çözüm istemci
+	// tarafında IdentitiesOnly=yes.
+	MaxAuthTries int `yaml:"max_auth_tries"`
+
+	// MaxChannelsPerConn, bağlantı başına eşzamanlı oturum kanalı
+	// (varsayılan 10).
+	//
+	// Bu kümedeki TEK kimlik doğrulama SONRASI sınır: her kanal bir
+	// hedef bağlantısı, bir .cast dosyası ve bir denetim satırı demek.
+	MaxChannelsPerConn int `yaml:"max_channels_per_conn"`
+
+	// MaxPendingLogins, aynı anda onay bekleyen tarayıcı girişi
+	// (varsayılan 32).
+	MaxPendingLogins int `yaml:"max_pending_logins"`
+}
+
+// Sınırların çözülmüş değerleri. Varsayılanı burada vermek, "0 =
+// varsayılan" sözleşmesinin tek yerde durmasını sağlıyor.
+func resolveLimit(v, def int) int {
+	switch {
+	case v == 0:
+		return def
+	case v < 0:
+		return 0 // sınırsız
+	default:
+		return v
+	}
+}
+
+func (c ListenConfig) MaxConnsOrDefault() int      { return resolveLimit(c.MaxConns, 256) }
+func (c ListenConfig) MaxConnsPerIPOrDefault() int { return resolveLimit(c.MaxConnsPerIP, 8) }
+func (c ListenConfig) MaxAuthTriesOrDefault() int  { return resolveLimit(c.MaxAuthTries, 4) }
+func (c ListenConfig) MaxChannelsOrDefault() int   { return resolveLimit(c.MaxChannelsPerConn, 10) }
+func (c ListenConfig) MaxPendingLoginsOrDefault() int {
+	return resolveLimit(c.MaxPendingLogins, 32)
+}
+
+func (c ListenConfig) HandshakeTimeoutOrDefault() time.Duration {
+	if c.HandshakeTimeout == 0 {
+		return 30 * time.Second
+	}
+	if c.HandshakeTimeout < 0 {
+		return 0 // sınırsız
+	}
+	return c.HandshakeTimeout
 }
 
 // SessionConfig, oturum kanalının davranış sınırları.
@@ -111,6 +196,27 @@ type SessionConfig struct {
 	// NE ÇALIŞACAĞINI kullanıcının eline verir. Whitelist'in var olma
 	// sebebi tam olarak bu.
 	AcceptEnv []string `yaml:"accept_env"`
+
+	// IdleTimeout, iki yönde de hiç bayt akmayan oturumun kapatılma
+	// süresi. VARSAYILAN KAPALI (0).
+	//
+	// Kapalı olması bilinçli: "boşta" tanımı bayt akışıdır, tuş vuruşu
+	// değil. Bir saat süren `make -j` çıktı üretmediği anda ölmemeli.
+	// Makul görünen bir varsayılan koymak, o derlemeyi ortasından kesmek
+	// demek olurdu.
+	//
+	// ÖLÜ EŞE KARŞI DEĞİL: TCP keepalive onu zaten ~2,5 dakikada fark
+	// ediyor. Bunun gerekçesi denetim — üretim makinesinde unutulmuş
+	// root kabuğu.
+	IdleTimeout time.Duration `yaml:"idle_timeout"`
+
+	// MaxLifetime, oturumun mutlak ömrü. VARSAYILAN KAPALI (0).
+	//
+	// Gerekçesi somut: süreli rol atamaları (AssignRole expiresAt)
+	// oturum ORTASINDA yeniden denetlenmiyor. Süresi dolmadan bir dakika
+	// önce açılan bir oturum, bugün kendi yetkisinden sonsuza kadar uzun
+	// yaşıyor.
+	MaxLifetime time.Duration `yaml:"max_lifetime"`
 }
 
 type RecordingConfig struct {
