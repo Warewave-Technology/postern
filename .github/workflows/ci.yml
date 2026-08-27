@@ -77,6 +77,20 @@ jobs:
       - run: make sec
       - run: make vuln
 
+  # web/dist repoya commit'lenmiş bir derleme çıktısı (go:embed onu gömüyor,
+  # böylece Go tarafını derlemek Node istemiyor). Bedeli: kaynakla
+  # uyumsuz kalabilir. Bu iş onu yeniden kurup farkı olup olmadığına bakar.
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: make web-check
+
   # Derlenen bir ikili üretilebiliyor mu? Testler geçerken build'in
   # kırık olması mümkün (embed edilen web/dist gibi sebeplerle).
   build:

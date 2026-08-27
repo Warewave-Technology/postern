@@ -6,7 +6,7 @@ GO ?= go
 GOSEC_VERSION        ?= v2.29.0
 GOVULNCHECK_VERSION  ?= v1.7.0
 
-.PHONY: build test test-race test-short test-integration vet fmt lint sec vuln audit ci clean
+.PHONY: build test test-race test-short test-integration vet fmt lint sec vuln audit ci web web-check clean
 
 build:
 	$(GO) build -o bin/postern ./cmd/postern
@@ -34,6 +34,20 @@ vet:
 
 fmt:
 	gofmt -l -w .
+
+# Arayüzü kur. Çıktı (web/dist) REPOYA GİRER: go:embed onu derleme
+# zamanında gömüyor ve Go tarafını derlemek için Node kurulu olmasın
+# istiyoruz.
+web:
+	cd web && npm ci && npm run build
+
+# web/dist kaynağıyla uyumlu mu? Bu kontrol olmazsa web/src'i değiştirip
+# yeniden kurmayı unutan bir commit, gömülü arayüzü sessizce eskitir —
+# testler geçer, panel eski kodu gösterir.
+web-check: web
+	@test -z "$$(git status --porcelain web/dist)" || \
+		(echo "web/dist kaynakla uyumsuz: 'make web' çalıştırıp sonucu commit'le"; \
+		 git --no-pager diff --stat web/dist; exit 1)
 
 # gofmt bir şey değiştirecek mi? CI'da "değiştirdi" demek yerine düşmeli.
 lint:
