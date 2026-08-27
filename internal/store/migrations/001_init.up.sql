@@ -1,12 +1,12 @@
 -- 001_init: postern'in kalıcı şeması.
 --
--- Zaman alanları INTEGER: Unix saniyesi (UTC). SQLite'ın DATETIME'ı
--- aslında metin saklar ve karşılaştırmalarda sürprize açıktır; sayı
--- saklamak hem sıralamayı hem aritmetiği tartışmasız kılar.
+-- Zaman alanları BIGINT: Unix saniyesi (UTC). TIMESTAMPTZ daha "doğru"
+-- görünür ama Go tarafı baştan beri time.Unix ile çalışıyor ve tip
+-- değiştirmek taşımayı iki işe bölerdi. BIGINT, INTEGER değil: Unix
+-- saniyesi 2038'de int4'e sığmaz.
 --
--- ⚠️ FOREIGN KEY kısıtları burada TANIMLI ama SQLite bunları bağlantı
--- başına PRAGMA foreign_keys = ON denmedikçe UYGULAMAZ (sessizce yok
--- sayar). O pragma'yı store.Open kuruyor — bkz. store.go.
+-- FOREIGN KEY kısıtları PostgreSQL'de her zaman uygulanır — SQLite'taki
+-- gibi bağlantı başına açılması gereken bir şey değil.
 
 -- ⚠️ CHECK (x <> '') satırları NOT NULL'ın bıraktığı boşluğu kapatıyor:
 -- boş string NULL değildir, yani NOT NULL onu kabul eder. Kimlik taşıyan
@@ -21,7 +21,7 @@ CREATE TABLE users (
   -- Driver 1'in özü: herkes hedefe KENDİ hesabıyla düşer. Paylaşılan
   -- hesap yok, o yüzden NOT NULL.
   os_user    TEXT NOT NULL CHECK (os_user <> ''),
-  created_at INTEGER NOT NULL
+  created_at BIGINT NOT NULL
 );
 
 CREATE TABLE roles (
@@ -31,12 +31,12 @@ CREATE TABLE roles (
 
 CREATE TABLE targets (
   id       TEXT PRIMARY KEY,
-  -- COLLATE NOCASE sütunun VARSAYILAN karşılaştırması olur; ORDER BY,
-  -- WHERE ve UNIQUE üçü birden büyük/küçük harf ayrımını bırakır.
-  -- Sorgulara tek tek COLLATE serpiştirmekten farkı: unutulabilecek bir
-  -- yer kalmıyor. (SQLite'ın NOCASE'i yalnızca ASCII A-Z'yi katlar;
-  -- makine adları için yeterli.)
-  name     TEXT UNIQUE NOT NULL COLLATE NOCASE CHECK (name <> ''),
+  -- Harf duyarsızlık burada DEĞİL, 009'daki lower() ifade indeksinde.
+  -- PostgreSQL'de sütuna gömülü "harf duyarsız" bir collation yok
+  -- (CITEXT bir eklenti); karşılaştırma sorguda açıkça yazılıyor ve
+  -- benzersizliği o indeks uyguluyor. Buradaki düz UNIQUE, yazımı
+  -- birebir aynı iki satırı engeller — asıl kısıt 009'daki.
+  name     TEXT UNIQUE NOT NULL CHECK (name <> ''),
   host     TEXT NOT NULL CHECK (host <> ''),
   port     INTEGER NOT NULL CHECK (port BETWEEN 1 AND 65535),
   -- Hedefin beklenen host key'i. Boş bırakılamaz: InsecureIgnoreHostKey
@@ -73,9 +73,9 @@ CREATE TABLE sessions (
   -- diye. Bu tabloda NULL'a izin verilen TEK alan ended_at.
   src_ip         TEXT NOT NULL DEFAULT '',
   recording_path TEXT NOT NULL DEFAULT '',
-  started_at     INTEGER NOT NULL,
+  started_at     BIGINT NOT NULL,
   -- NULL = oturum hâlâ açık.
-  ended_at       INTEGER
+  ended_at       BIGINT
 );
 
 -- "Bu kullanıcı ne zaman nereye girdi" en sık sorulan denetim sorusu.

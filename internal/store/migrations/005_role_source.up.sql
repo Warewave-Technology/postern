@@ -10,12 +10,11 @@
 -- Süresi dolan satır SİLİNMEZ: denetim izi olarak kalır ("bu yetki vardı,
 -- doldu") ve sorgular tembel filtreyle görmezden gelir.
 
--- SQLite ALTER TABLE tek seferde tek sütun ekler.
 ALTER TABLE user_roles ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'
   CHECK (source IN ('sso', 'manual'));
 
 -- NULL = süresiz. Unix saniyesi (şemanın geri kalanıyla aynı biçim).
-ALTER TABLE user_roles ADD COLUMN expires_at INTEGER;
+ALTER TABLE user_roles ADD COLUMN expires_at BIGINT;
 
 -- "Bu kullanıcının SSO rollerini yenile" en sık çalışacak sorgu.
 CREATE INDEX user_roles_source_idx ON user_roles(user_id, source);

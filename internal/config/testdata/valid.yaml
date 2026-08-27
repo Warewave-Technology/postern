@@ -11,7 +11,7 @@ ca:
   key_file: keys/ca_ed25519
 
 database:
-   path: postern.db
+   dsn: postgres://postern:postern@localhost:5432/postern?sslmode=disable
 
 recording:
    dir: recordings

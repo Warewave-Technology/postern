@@ -8,18 +8,17 @@
 CREATE TABLE group_mappings (
   id TEXT PRIMARY KEY,
 
-  -- IdP'nin gönderdiği grup adı ya da LDAP DN'i. Büyük/küçük harf
-  -- duyarsız: AD grupları "Domain Admins" gibi karışık gelir ve aynı
-  -- grubun iki yazımı iki ayrı eşleme olmamalı (targets.name'deki
-  -- COLLATE NOCASE kararının aynısı).
-  external_group TEXT NOT NULL COLLATE NOCASE CHECK (external_group <> ''),
+  -- IdP'nin gönderdiği grup adı ya da LDAP DN'i. Harf duyarsız
+  -- karşılaştırılır (AD grupları "Domain Admins" gibi karışık gelir ve
+  -- aynı grubun iki yazımı iki ayrı eşleme olmamalı) — ama kısıt burada
+  -- değil, 009'daki lower() ifade indeksinde. targets.name ile aynı
+  -- karar.
+  external_group TEXT NOT NULL CHECK (external_group <> ''),
 
   role_id TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
 
-  created_at INTEGER NOT NULL,
-  created_by TEXT NOT NULL DEFAULT '',
-
-  UNIQUE (external_group, role_id)
+  created_at BIGINT NOT NULL,
+  created_by TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX group_mappings_group_idx ON group_mappings(external_group);
@@ -31,7 +30,7 @@ CREATE INDEX group_mappings_group_idx ON group_mappings(external_group);
 -- tablo yöneticiye "IdP bana şunları söylüyor, hangisini eşlemek
 -- istersin" listesini verir — eşleme kurmayı tahmin işi olmaktan çıkarır.
 CREATE TABLE unmapped_groups (
-  name TEXT PRIMARY KEY COLLATE NOCASE,
-  last_seen INTEGER NOT NULL,
+  name TEXT PRIMARY KEY,
+  last_seen BIGINT NOT NULL,
   seen_count INTEGER NOT NULL DEFAULT 1
 );

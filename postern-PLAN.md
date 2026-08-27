@@ -84,7 +84,7 @@ Kapsam kaymasının ilk işareti "bir de MySQL ekleyelim" cümlesidir.
 | SFTP | `github.com/pkg/sftp` | Subsystem relay için |
 | OIDC | `coreos/go-oidc` + `x/oauth2` | Standart, olgun |
 | TOTP | `pquerna/otp` | |
-| DB | `modernc.org/sqlite` | Saf Go, cgo yok |
+| DB | `github.com/jackc/pgx/v5` | PostgreSQL sürücüsü; S5.5’te `modernc.org/sqlite` yerine geçti |
 | Migration | `pressly/goose` | Basit, embed edilebilir |
 | Query | `sqlc` | Tip güvenli, kod üretimi |
 | HTTP | `go-chi/chi` | İnce, stdlib uyumlu |

@@ -129,7 +129,31 @@ func (s *Store) SchemaVersion(ctx context.Context) (int, error) {
 }
 
 func (s *Store) Migrate(ctx context.Context) error {
-	err := s.ensureMigrationsTable(ctx)
+	// Göç boyunca danışma kilidi tut.
+	//
+	// SQLite döneminde buna gerek yoktu: veritabanı tek bir dosyaydı ve
+	// aynı anda tek yazar olabiliyordu. PostgreSQL paylaşılan bir sunucu,
+	// yani "iki operatör aynı anda db migrate çalıştırır" artık mümkün.
+	// Kilitsiz hâlde ikisi de aynı sürümü eksik görür, ikisi de uygular
+	// ve biri PostgreSQL'in KENDİ kataloğunda çakışır:
+	//
+	//	duplicate key value violates unique constraint
+	//	"pg_type_typname_nsp_index" (SQLSTATE 23505)
+	//
+	// Operatöre hiçbir şey anlatmayan bir mesaj, ve arkasında yarım
+	// kalmış bir şema. (Ölçüldü: TestConcurrentMigrateIsSerialized
+	// kilit kaldırılınca 4 koşucudan 3'ünde bu hatayı veriyor.)
+	//
+	// Danışma kilidi tabloya değil, uygulamanın seçtiği bir sayıya
+	// takılır; şemadan bağımsız olduğu için ensureMigrationsTable'dan
+	// ÖNCE alınabiliyor — bu tablonun kendisi de yarışa açık.
+	unlock, err := s.lockForMigration(ctx)
+	if err != nil {
+		return fmt.Errorf("store.migrate.Migrate: %w", err)
+	}
+	defer unlock()
+
+	err = s.ensureMigrationsTable(ctx)
 	if err != nil {
 		return fmt.Errorf("store.migrate.Migrate: %w", err)
 	}
@@ -244,4 +268,43 @@ func (s *Store) tableExists(ctx context.Context, tableName string) (bool, error)
 	}
 
 	return count > 0, nil
+}
+
+// migrationLockID, göç danışma kilidinin anahtarı.
+//
+// Rastgele seçilmiş bir sabit: PostgreSQL danışma kilitleri tek bir
+// küresel ad alanı paylaşır, dolayısıyla aynı veritabanını kullanan başka
+// bir uygulamanın 1 ya da 42 gibi bir sayı seçme ihtimaline karşı sıra
+// dışı bir değer.
+const migrationLockID int64 = 0x504f5354 // "POST"
+
+// lockForMigration, göç kilidini alır ve bırakma fonksiyonunu döner.
+//
+// Kilit BAĞLANTI ömürlüdür (transaction değil): göçler ayrı
+// transaction'larda uygulanıyor ve kilidin hepsini kapsaması gerekiyor.
+// Bu yüzden havuzdan tek bir bağlantı ayrılıyor — havuzdaki başka bir
+// bağlantıda unlock çağırmak sessizce hiçbir şey yapmazdı.
+//
+// pg_advisory_lock BEKLER, hata vermez: eşzamanlı ikinci çalıştırma
+// düşmek yerine sırasını bekler ve sonra "uygulanacak göç yok" görür.
+func (s *Store) lockForMigration(ctx context.Context) (func(), error) {
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("acquire connection for migration lock: %w", err)
+	}
+
+	if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock($1);`, migrationLockID); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("acquire migration lock: %w", err)
+	}
+
+	return func() {
+		// Bağlantı kapanınca kilit zaten düşer; açıkça bırakmak
+		// bağlantının havuza SAĞLAM dönmesini sağlıyor.
+		unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+
+		conn.ExecContext(unlockCtx, `SELECT pg_advisory_unlock($1);`, migrationLockID)
+		conn.Close()
+	}, nil
 }

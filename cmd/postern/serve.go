@@ -36,7 +36,7 @@ func newServeCmd() *cobra.Command {
 
 			ctx := context.Background()
 
-			db, err := store.Open(ctx, cfg.Database.Path)
+			db, err := store.Open(ctx, cfg.Database.DSN)
 			if err != nil {
 				return err
 			}
@@ -62,7 +62,7 @@ func newServeCmd() *cobra.Command {
 
 			logger.Info("config loaded",
 				"listen", cfg.Listen.Addr,
-				"database", cfg.Database.Path,
+				"database", cfg.Database.DSN,
 			)
 
 			s, err := sshd.New(cfg, db, logger)

@@ -21,6 +21,7 @@ import (
 	"github.com/warewave/postern/internal/model"
 	"github.com/warewave/postern/internal/sshd"
 	"github.com/warewave/postern/internal/store"
+	"github.com/warewave/postern/internal/testdb"
 )
 
 // newTestCA, hem bastion'ın kullanacağı anahtar YOLUNU hem hedefin
@@ -100,7 +101,7 @@ func newBastionOpts(t *testing.T, caKeyPath string, skipSeed bool, targets ...mo
 		Listen:    config.ListenConfig{Addr: "127.0.0.1:0"},
 		HostKey:   hostKeyPath,
 		CA:        config.CAConfig{KeyFile: caKeyPath},
-		Database:  config.DatabaseConfig{Path: filepath.Join(t.TempDir(), "postern.db")},
+		Database:  config.DatabaseConfig{DSN: testdb.DSN(t)},
 		Recording: config.RecordingConfig{Dir: filepath.Join(t.TempDir(), "recordings")},
 	}
 
@@ -109,9 +110,9 @@ func newBastionOpts(t *testing.T, caKeyPath string, skipSeed bool, targets ...mo
 	// OSUser "postern": hedef konteynerdeki hesap; sertifikanın principal'ı
 	// ve SSH kullanıcı adı bu olacak.
 	if skipSeed {
-		db = seedTargetsOnly(t, cfg.Database.Path, targets)
+		db = seedTargetsOnly(t, cfg.Database.DSN, targets)
 	} else {
-		db = seedStore(t, cfg.Database.Path, targets, authorized)
+		db = seedStore(t, cfg.Database.DSN, targets, authorized)
 	}
 
 	srv, err = sshd.New(cfg, db, slog.New(slog.NewTextHandler(os.Stderr, nil)))
@@ -188,11 +189,11 @@ func TestHandshakeRejectsUnknownKey(t *testing.T) {
 // seedStore, "yigit" kullanıcısını (os_user: postern) verilen hedeflerin
 // hepsini kapsayan "ops" rolüyle tanıyan bir store kurar. FK sırası:
 // hedefler, rol, kullanıcı, bağlar.
-func seedStore(t *testing.T, dbPath string, targets []model.Target, authorizedKey string) *store.Store {
+func seedStore(t *testing.T, dbDSN string, targets []model.Target, authorizedKey string) *store.Store {
 	t.Helper()
 	ctx := context.Background()
 
-	db, err := store.Open(ctx, dbPath)
+	db, err := store.Open(ctx, dbDSN)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
@@ -234,11 +235,11 @@ func seedStore(t *testing.T, dbPath string, targets []model.Target, authorizedKe
 
 // seedTargetsOnly, yalnızca hedefleri yazar: kullanıcı, rol ve eşleme
 // testin kendi işi.
-func seedTargetsOnly(t *testing.T, dbPath string, targets []model.Target) *store.Store {
+func seedTargetsOnly(t *testing.T, dbDSN string, targets []model.Target) *store.Store {
 	t.Helper()
 	ctx := context.Background()
 
-	db, err := store.Open(ctx, dbPath)
+	db, err := store.Open(ctx, dbDSN)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}

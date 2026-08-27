@@ -66,7 +66,7 @@ func newTargetAddCmd() *cobra.Command {
 
 			ctx := context.Background()
 
-			db, err := store.Open(ctx, cfg.Database.Path)
+			db, err := store.Open(ctx, cfg.Database.DSN)
 			if err != nil {
 				return err
 			}
@@ -82,9 +82,9 @@ func newTargetAddCmd() *cobra.Command {
 				if terr != nil {
 					return terr
 				}
-				// Ad karşılaştırması bilerek yok: COLLATE NOCASE yüzünden
-				// "Web01" ile "web01" aynı hedef, ve saklanan kanonik ad
-				// zaten existing.Name'de.
+				// Ad karşılaştırması bilerek yok: hedef adı harf duyarsız
+				// olduğu için "Web01" ile "web01" aynı hedef, ve saklanan
+				// yazım zaten existing.Name'de.
 				if existing.Host != want.Host || existing.Port != want.Port || existing.HostKey != want.HostKey {
 					return fmt.Errorf("target %q exists with a different definition (host %s:%d); refusing to change it implicitly",
 						name, existing.Host, existing.Port)
@@ -139,7 +139,7 @@ func newTargetListCmd() *cobra.Command {
 
 			ctx := context.Background()
 
-			db, err := store.Open(ctx, cfg.Database.Path)
+			db, err := store.Open(ctx, cfg.Database.DSN)
 			if err != nil {
 				return err
 			}

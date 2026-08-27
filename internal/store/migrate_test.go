@@ -2,15 +2,13 @@ package store
 
 import (
 	"context"
-	"path/filepath"
+	"sync"
 	"testing"
+
+	"github.com/warewave/postern/internal/testdb"
 )
 
-// newTestStore, boş bir dosyada açılmış ve migrate edilmiş bir Store döner.
-//
-// Bellek içi (":memory:") DEĞİL, gerçek dosya: WAL ve busy_timeout gibi
-// pragma'ların davranışı bellekte farklıdır ve testin ürettiği güven
-// üretimdeki davranışa dayanmalı.
+// newTestStore, boş bir şemada açılmış ve migrate edilmiş bir Store döner.
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
 
@@ -22,10 +20,13 @@ func newTestStore(t *testing.T) *Store {
 }
 
 // newEmptyStore, açılmış ama HENÜZ migrate EDİLMEMİŞ bir Store döner.
+//
+// Her çağrı GERÇEK bir PostgreSQL üzerinde boş bir şema alır; ayrıntı
+// internal/testdb.
 func newEmptyStore(t *testing.T) *Store {
 	t.Helper()
 
-	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "postern.db"))
+	s, err := Open(context.Background(), testdb.DSN(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -38,11 +39,9 @@ func tableExists(t *testing.T, s *Store, name string) bool {
 	t.Helper()
 
 	var n int
-	err := s.db.QueryRowContext(context.Background(),
-		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, name,
-	).Scan(&n)
+	err := s.db.QueryRowContext(context.Background(), tableExistsQuery, name).Scan(&n)
 	if err != nil {
-		t.Fatalf("sqlite_master sorgusu: %v", err)
+		t.Fatalf("katalog sorgusu: %v", err)
 	}
 	return n > 0
 }
@@ -243,5 +242,80 @@ func TestPendingMigrations(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("rollback sonrası bekleyen = %d, beklenen 1", n)
+	}
+}
+
+// Aynı şemaya eşzamanlı iki Migrate çağrısı ikisi de başarılı bitmeli.
+//
+// PostgreSQL'e geçerken doğan yarış: SQLite tek dosyaydı ve aynı anda tek
+// yazar alırdı, PostgreSQL ise paylaşılan bir sunucu.
+//
+// Kilit kaldırılıp koşturuldu: 4 koşucudan 3'ü
+// "duplicate key value violates unique constraint
+// pg_type_typname_nsp_index" ile düşüyor — çakışma uygulamanın
+// tablolarında değil, PostgreSQL'in kendi kataloğunda oluyor.
+func TestConcurrentMigrateIsSerialized(t *testing.T) {
+	ctx := context.Background()
+	dsn := testdb.DSN(t)
+
+	const runners = 4
+
+	stores := make([]*Store, runners)
+	for i := range stores {
+		s, err := Open(ctx, dsn)
+		if err != nil {
+			t.Fatalf("Open %d: %v", i, err)
+		}
+		t.Cleanup(func() { s.Close() })
+		stores[i] = s
+	}
+
+	// Hepsi aynı anda başlasın: yarışı gerçekten kurmak için.
+	start := make(chan struct{})
+	errs := make(chan error, runners)
+
+	var wg sync.WaitGroup
+	for _, s := range stores {
+		wg.Add(1)
+		go func(s *Store) {
+			defer wg.Done()
+			<-start
+			errs <- s.Migrate(ctx)
+		}(s)
+	}
+
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		if err != nil {
+			t.Errorf("eşzamanlı Migrate hatası: %v", err)
+		}
+	}
+
+	// Şema tam kurulmuş olmalı, yarım değil.
+	version, err := stores[0].SchemaVersion(ctx)
+	if err != nil {
+		t.Fatalf("SchemaVersion: %v", err)
+	}
+	migs, err := loadMigrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := migs[len(migs)-1].version
+	if version != want {
+		t.Errorf("şema sürümü %d, beklenen %d", version, want)
+	}
+
+	// Ve göçler TEK KEZ kaydedilmiş olmalı: kilit çakışan uygulamayı
+	// engelledi mi, yoksa yalnızca hatayı mı yuttu?
+	var rows int
+	if err := stores[0].db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM schema_migrations;`).Scan(&rows); err != nil {
+		t.Fatalf("schema_migrations sayımı: %v", err)
+	}
+	if rows != len(migs) {
+		t.Errorf("schema_migrations'ta %d satır, beklenen %d (mükerrer uygulama)", rows, len(migs))
 	}
 }

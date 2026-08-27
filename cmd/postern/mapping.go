@@ -35,7 +35,7 @@ func openStore(configPath string) (*store.Store, context.Context, error) {
 		return nil, nil, err
 	}
 	ctx := context.Background()
-	db, err := store.Open(ctx, cfg.Database.Path)
+	db, err := store.Open(ctx, cfg.Database.DSN)
 	if err != nil {
 		return nil, nil, err
 	}

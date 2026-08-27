@@ -10,8 +10,11 @@
 -- farklı araç: orada satırı adlarla JOIN'liyorduk, burada adı doğrudan
 -- yazıyoruz çünkü aktör dış dünyadan da gelebilir: "cli".)
 CREATE TABLE admin_log (
-  id      INTEGER PRIMARY KEY AUTOINCREMENT,
-  at      INTEGER NOT NULL,
+  -- GENERATED ALWAYS AS IDENTITY, BIGSERIAL değil: ikisi de artan sayı
+  -- üretir ama ALWAYS olan sütuna ELLE yazmayı reddeder. Denetim
+  -- kaydında istediğimiz tam olarak bu — sıra numarası uydurulamasın.
+  id      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  at      BIGINT NOT NULL,
   -- Kim: web'de oturum sahibi kullanıcı adı; CLI'da işletim sistemi
   -- kullanıcısı (dosya erişimi = yetki modeli, aktör de o).
   actor   TEXT NOT NULL CHECK (actor <> ''),

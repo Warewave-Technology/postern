@@ -69,18 +69,27 @@ type CAConfig struct {
 	KeyFile string `yaml:"key_file"`
 }
 
-// DatabaseConfig, kalıcı durumun tutulduğu SQLite dosyası.
+// DatabaseConfig, kalıcı durumun tutulduğu PostgreSQL bağlantısı.
 //
 // S3'ten itibaren kullanıcılar, roller, hedefler ve oturum denetim kaydı
 // burada. Yönetimi paket doc'undaki sözleşmeye tabi: CLI ya da API,
 // config değil.
 type DatabaseConfig struct {
-	// Path, veritabanı dosyası. Dizini yoksa store.Open oluşturur.
+	// DSN, PostgreSQL bağlantı dizesi. İki biçim de kabul edilir:
 	//
-	// ⚠️ host_key ve ca.key_file gibi, göreli yazıldığında CONFIG
-	// DOSYASININ dizinine göre çözülür — süreci nereden başlattığına göre
-	// başka bir veritabanı açılmasın diye.
-	Path string `yaml:"path"`
+	//	postgres://postern:parola@db.local:5432/postern?sslmode=verify-full
+	//	host=db.local user=postern dbname=postern sslmode=verify-full
+	//
+	// sslmode yazılmamışsa store.Open "verify-full" varsayar. libpq'nun
+	// varsayılanı olan "prefer" TLS kurulamazsa düz metne SESSİZCE
+	// düşer; bir bastion'ın kimlik verisi için bu kabul edilemez.
+	//
+	// ⚠️ Bu dize PAROLA taşır. Config dosyasına yazmak yerine
+	// POSTERN_DATABASE_DSN ortam değişkenini kullanmak tercih edilir —
+	// dolu olduğunda buradaki değerin yerine geçer. Şemadaki diğer
+	// sırların aksine bu, veritabanının KENDİSİNE ulaşmak için gerekli
+	// olduğundan settings tablosuna konulamıyor.
+	DSN string `yaml:"dsn"`
 }
 
 type ListenConfig struct {

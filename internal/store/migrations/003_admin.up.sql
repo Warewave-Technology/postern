@@ -9,4 +9,7 @@
 -- hostundaki CLI değiştirir (user modify --admin). Web/API tarafı bayrağı
 -- OKUR, değiştiremez — kendini admin yapabilen bir admin paneli, panel
 -- ele geçirildiğinde kalıcı yetki demek olurdu.
-ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0;
+--
+-- BOOLEAN, 0/1 INTEGER değil: Go tarafı bunu bool olarak yazıyor ve
+-- PostgreSQL boolean parametresini integer sütuna kabul etmez.
+ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT FALSE;

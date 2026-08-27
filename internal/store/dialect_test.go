@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -10,65 +11,15 @@ import (
 	"github.com/warewave/postern/internal/model"
 )
 
-// newPostgresLikeStore, göçleri COLLATE NOCASE'i SÖKEREK uygular.
+// TestCaseInsensitive, harf duyarsız sayılan her yolu koşturur.
 //
-// Amaç: PostgreSQL'de kuracağımız şemanın aynısını SQLite üzerinde kurmak.
-// NOCASE gidince harf duyarsızlığı ARTIK SADECE sorgulardaki lower()'a
-// kalıyor — yani bu store üzerinde geçen bir test, sorgunun gerçekten
-// lehçe-nötr olduğunu ispatlar. Normal newTestStore ile aynı test,
-// lower() hiç yazılmasa da geçerdi.
-func newPostgresLikeStore(t *testing.T) *Store {
-	t.Helper()
-
-	s := newEmptyStore(t)
-	ctx := context.Background()
-
-	migs, err := loadMigrations()
-	if err != nil {
-		t.Fatalf("loadMigrations: %v", err)
-	}
-
-	for _, m := range migs {
-		// Yorumlar da atılıyor: SQLite CREATE TABLE metnini yorumlarıyla
-		// birlikte saklar ve şemadaki açıklamalarda "NOCASE" kelimesi
-		// geçiyor — aşağıdaki kontrol yanlış alarm vermesin.
-		stripped := strings.ReplaceAll(stripSQLComments(m.up), "COLLATE NOCASE", "")
-		if _, err := s.db.ExecContext(ctx, stripped); err != nil {
-			t.Fatalf("NOCASE'siz göç %s: %v", m.name, err)
-		}
-	}
-
-	// Sökme gerçekten oldu mu? Bu kontrol olmazsa, göç dosyalarındaki
-	// yazım değişince test sessizce NOCASE'li şemayı sınamaya döner.
-	var ddl string
-	if err := s.db.QueryRowContext(ctx,
-		`SELECT sql FROM sqlite_master WHERE type='table' AND name='targets';`).Scan(&ddl); err != nil {
-		t.Fatalf("şema okunamadı: %v", err)
-	}
-	if strings.Contains(strings.ToUpper(ddl), "NOCASE") {
-		t.Fatalf("NOCASE sökülemedi, test bir şey ispat etmiyor:\n%s", ddl)
-	}
-
-	return s
-}
-
-// stripSQLComments, satır sonu yorumlarını (--) atar.
-func stripSQLComments(sqlText string) string {
-	var b strings.Builder
-	for _, line := range strings.Split(sqlText, "\n") {
-		if i := strings.Index(line, "--"); i >= 0 {
-			line = line[:i]
-		}
-		b.WriteString(line)
-		b.WriteString("\n")
-	}
-	return b.String()
-}
-
-// TestCaseInsensitiveWithoutNOCASE, harf duyarsız sayılan her yolu
-// NOCASE'siz şemada koşturur.
-func TestCaseInsensitiveWithoutNOCASE(t *testing.T) {
-	s := newPostgresLikeStore(t)
+// SQLite döneminde bu testin ayrı bir kurulumu vardı: şema COLLATE
+// NOCASE taşıdığı için harf duyarsızlık sorgudan bağımsız çalışıyordu ve
+// eksik bir lower() görünmüyordu. PostgreSQL'de böyle bir örtü yok —
+// duyarsızlık YALNIZCA sorgulardaki lower() ve 009'daki ifade
+// indekslerinden geliyor, dolayısıyla düz kurulum yeterli kanıt.
+func TestCaseInsensitive(t *testing.T) {
+	s := newTestStore(t)
 	ctx := context.Background()
 
 	if _, err := s.CreateTarget(ctx, model.Target{
@@ -214,42 +165,130 @@ func TestCaseInsensitiveWithoutNOCASE(t *testing.T) {
 }
 
 // TestCIColumnsMatchesSchema, ciColumns listesinin şemayla aynı hizada
-// olduğunu doğrular: NOCASE işaretli her sütun listede olmalı.
+// olduğunu doğrular.
 //
-// Bu eşleşme kayarsa hata SQLite'ta görünmez — PostgreSQL'de sessizce
-// harf duyarlı olur. Bu yüzden şema tek doğruluk kaynağı sayılıyor.
+// Doğruluk kaynağı GÖÇ METNİ DEĞİL, canlı katalog: veritabanına "hangi
+// sütunlarda lower() ifade indeksi var" diye soruyor. Metin taramak
+// yazım değişikliğinde sessizce kör kalırdı; katalog ise indeksin
+// gerçekten kurulduğunu da ispatlıyor.
+//
+// Eşleşme kayarsa hata çalışırken görünmez — sorgu yine çalışır, yalnız
+// harf duyarlı olur. Bu yüzden ayrı bir test olarak duruyor.
 func TestCIColumnsMatchesSchema(t *testing.T) {
-	migs, err := loadMigrations()
+	s := newTestStore(t)
+
+	rows, err := s.db.QueryContext(context.Background(), `
+		SELECT tablename, indexdef
+		FROM pg_indexes
+		WHERE schemaname = current_schema()
+		  AND indexdef LIKE '%lower(%';`)
 	if err != nil {
-		t.Fatalf("loadMigrations: %v", err)
+		t.Fatalf("pg_indexes: %v", err)
 	}
+	defer rows.Close()
+
+	lowerCol := regexp.MustCompile(`lower\(\(?([a-z_]+)`)
 
 	found := map[string]bool{}
-	var table string
-	for _, m := range migs {
-		for _, line := range strings.Split(stripSQLComments(m.up), "\n") {
-			trimmed := strings.TrimSpace(line)
-			if strings.HasPrefix(strings.ToUpper(trimmed), "CREATE TABLE") {
-				table = strings.TrimSuffix(strings.Fields(trimmed)[2], "(")
-			}
-			if strings.Contains(trimmed, "COLLATE NOCASE") {
-				column := strings.Fields(trimmed)[0]
-				found[table+"."+column] = true
-			}
+	for rows.Next() {
+		var table, def string
+		if err := rows.Scan(&table, &def); err != nil {
+			t.Fatalf("scan: %v", err)
 		}
+		for _, m := range lowerCol.FindAllStringSubmatch(def, -1) {
+			found[table+"."+m[1]] = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows: %v", err)
 	}
 
 	if len(found) == 0 {
-		t.Fatal("şemada COLLATE NOCASE bulunamadı — tarayıcı bozulmuş olabilir")
+		t.Fatal("şemada lower() ifade indeksi bulunamadı — 009 uygulanmamış olabilir")
 	}
+
 	for col := range found {
 		if !ciColumns[col] {
-			t.Errorf("%s şemada NOCASE ama ciColumns'ta yok: PostgreSQL'de harf duyarlı olur", col)
+			t.Errorf("%s için lower() indeksi var ama ciColumns'ta yok: "+
+				"sorgular harf duyarlı gidiyor demektir", col)
 		}
 	}
 	for col := range ciColumns {
 		if !found[col] {
-			t.Errorf("%s ciColumns'ta ama şemada NOCASE değil: liste eskimiş", col)
+			t.Errorf("%s ciColumns'ta ama lower() indeksi yok: "+
+				"sorgular indeks kullanamaz ve kısıt uygulanmaz", col)
+		}
+	}
+}
+
+// dsn, sslmode belirtilmemişse doğrulanmış TLS'e zorlar.
+//
+// Neden test edilmeye değer: libpq'nun varsayılanı "prefer"dır ve TLS
+// kurulamazsa düz metne SESSİZCE düşer. Bu, bir bastion'ın kimlik ve
+// denetim trafiği için düşürme saldırısının ta kendisidir. Varsayılanı
+// değiştiren satır tek satır; testi olmazsa bir "sadeleştirme" sırasında
+// sessizce geri gelebilir.
+func TestDSNDefaultsToVerifyFull(t *testing.T) {
+	cases := []struct {
+		name  string
+		in    string
+		want  string
+		exact bool
+	}{
+		{
+			name: "sslmode yoksa verify-full eklenir",
+			in:   "postgres://u:p@db.local:5432/postern",
+			want: "sslmode=verify-full",
+		},
+		{
+			name: "acikca yazilan sslmode korunur",
+			in:   "postgres://u:p@db.local:5432/postern?sslmode=disable",
+			want: "sslmode=disable",
+		},
+		{
+			// Başka parametreler varken de eklenmeli — ayrıştırma
+			// "? var mı" diye bakan bir string işi değil.
+			name: "diger parametrelerle birlikte",
+			in:   "postgres://u:p@db.local:5432/postern?application_name=postern",
+			want: "sslmode=verify-full",
+		},
+		{
+			// Anahtar=değer biçimi URL değil; elle kurcalamak yerine
+			// olduğu gibi geçiyoruz (bkz. dsn doc'u).
+			name:  "anahtar=deger bicimi oldugu gibi gecer",
+			in:    "host=db.local user=postern dbname=postern",
+			want:  "host=db.local user=postern dbname=postern",
+			exact: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := dsn(tc.in)
+			if err != nil {
+				t.Fatalf("dsn(%q): %v", tc.in, err)
+			}
+			if tc.exact {
+				if got != tc.want {
+					t.Errorf("dsn(%q) = %q, beklenen %q", tc.in, got, tc.want)
+				}
+				return
+			}
+			if !strings.Contains(got, tc.want) {
+				t.Errorf("dsn(%q) = %q, %q içermeliydi", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// Boş bağlantı dizesi hata: sürücüye boş dize vermek libpq ortam
+// değişkenlerine (PGHOST, PGUSER...) düşmek demektir ve "hangi
+// veritabanına bağlandım" sorusunu ortama havale eder. Bir bastion için
+// bu belirsizlik kabul edilemez.
+func TestDSNRejectsEmpty(t *testing.T) {
+	for _, in := range []string{"", "   ", "\t\n"} {
+		if _, err := dsn(in); err == nil {
+			t.Errorf("dsn(%q) hata vermedi", in)
 		}
 	}
 }

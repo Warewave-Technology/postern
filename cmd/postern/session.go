@@ -43,7 +43,7 @@ func newSessionListCmd() *cobra.Command {
 
 			ctx := context.Background()
 
-			db, err := store.Open(ctx, cfg.Database.Path)
+			db, err := store.Open(ctx, cfg.Database.DSN)
 			if err != nil {
 				return err
 			}
@@ -127,7 +127,7 @@ func newSessionShowCmd() *cobra.Command {
 
 			ctx := context.Background()
 
-			db, err := store.Open(ctx, cfg.Database.Path)
+			db, err := store.Open(ctx, cfg.Database.DSN)
 			if err != nil {
 				return err
 			}

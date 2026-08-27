@@ -1,9 +1,9 @@
 // Package model holds postern's domain types.
 //
-// S2'de bu tipler config'den elle kuruluyor; S3'te SQLite'tan gelecekler
-// (plan S3.1'deki şema bu alanların birebir karşılığı). Kararları veren
-// kod model tiplerine baktığı için, kaynağın değişmesi policy'yi
-// etkilemeyecek.
+// S2'de bu tipler config'den elle kuruluyordu; S3'ten beri veritabanından
+// geliyorlar (şema bu alanların birebir karşılığı). Kararları veren kod
+// model tiplerine baktığı için, kaynağın değişmesi policy'yi etkilemedi —
+// motorun SQLite'tan PostgreSQL'e geçmesi de bu pakete dokunmadı.
 package model
 
 // User, bastion'da kimliği doğrulanmış kişi.

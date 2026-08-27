@@ -1,24 +1,26 @@
--- 009_case_insensitive_indexes: COLLATE NOCASE yerine lower() ifade indeksi.
+-- 009_case_insensitive_indexes: harf duyarsız kısıtlar ve aramalar.
 --
--- Neden: COLLATE NOCASE SQLite'a özgü. PostgreSQL'de karşılığı yok —
--- oradaki seçenekler CITEXT eklentisi ya da lower() ifade indeksi.
--- lower() İKİ MOTORDA DA çalışan tek seçenek olduğu için o seçildi;
--- böylece "hangi motorda hangi karşılaştırma" diye bir soru kalmıyor.
+-- Harf duyarsızlık sütun tanımına gömülü DEĞİL, ifade indeksinde.
+-- PostgreSQL'de sütuna gömülü seçenek CITEXT eklentisidir; eklenti
+-- gerektirmemesi ve karşılaştırmanın sorguda GÖRÜNÜR olması için
+-- lower() seçildi. Go tarafındaki karşılığı dialect.go'daki ciEq/
+-- ciOrder ve ciColumns listesi.
 --
--- Bu göç EKLEMELİ: SQLite'taki NOCASE sütun tanımları yerinde duruyor
--- (kaldırmak tablo yeniden inşası ister ve SQLite zaten gidiyor). İki
--- kısıt aynı anda geçerli ve aynı şeyi söylüyor. PostgreSQL şeması
--- NOCASE'siz yazılacak ve YALNIZCA aşağıdaki indeksler taşınacak.
---
--- Uyarı: lower() SQLite'ta yalnız ASCII A-Z'yi katlar, PostgreSQL'de ise
--- yerel ayara duyarlıdır. Makine adları ve grup adları ASCII olduğu için
--- fark pratikte ortaya çıkmıyor; Türkçe I/ı bu sütunlara girmiyor.
+-- Uyarı: lower() PostgreSQL'de veritabanının yerel ayarına duyarlıdır.
+-- Makine adları ve grup adları ASCII olduğu için pratikte fark
+-- çıkmıyor; Türkçe I/ı bu sütunlara girmiyor.
 
+-- targets.name: asıl benzersizlik kısıtı bu. 001'deki düz UNIQUE yalnız
+-- birebir aynı yazımı engeller, "Web01" ile "web01"i ayırmaz.
 CREATE UNIQUE INDEX targets_name_lower_idx ON targets (lower(name));
 
+-- Aynı grubun iki yazımı iki ayrı eşleme olmasın.
 CREATE UNIQUE INDEX group_mappings_group_role_lower_idx
   ON group_mappings (lower(external_group), role_id);
 
+-- RecordUnmappedGroups'un ON CONFLICT hedefi. Bu indeks olmadan upsert
+-- "no unique or exclusion constraint matching the ON CONFLICT
+-- specification" der.
 CREATE UNIQUE INDEX unmapped_groups_name_lower_idx
   ON unmapped_groups (lower(name));
 

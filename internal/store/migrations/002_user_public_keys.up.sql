@@ -21,7 +21,7 @@ CREATE TABLE user_public_keys (
   -- insan için: hangi cihazın anahtarı olduğunu söyler.
   comment  TEXT NOT NULL DEFAULT '',
 
-  added_at INTEGER NOT NULL
+  added_at BIGINT NOT NULL
 );
 
 -- "Bu kullanıcının anahtarlarını listele" için. Doğrulama yönündeki arama

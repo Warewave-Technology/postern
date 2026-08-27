@@ -29,6 +29,7 @@ import (
 	"github.com/warewave/postern/internal/ca"
 	"github.com/warewave/postern/internal/config"
 	"github.com/warewave/postern/internal/store"
+	"github.com/warewave/postern/internal/testdb"
 )
 
 // --- yardımcılar ---
@@ -85,13 +86,13 @@ func testConfig(t *testing.T) *config.Config {
 		Listen:    config.ListenConfig{Addr: "127.0.0.1:0"},
 		HostKey:   hostKeyPath,
 		CA:        config.CAConfig{KeyFile: testCAKey(t)},
-		Database:  config.DatabaseConfig{Path: filepath.Join(t.TempDir(), "postern.db")},
+		Database:  config.DatabaseConfig{DSN: testdb.DSN(t)},
 		Recording: config.RecordingConfig{Dir: filepath.Join(t.TempDir(), "recordings")},
 	}
 }
 
 // testStore, "yigit" kullanıcısını verilen anahtarlarla tanıyan gerçek bir
-// SQLite store kurar — auth.go anahtarları oradan okuyor.
+// store kurar — auth.go anahtarları oradan okuyor.
 //
 // Kimlik verisi artık config'te YAŞAMADIĞI için doğrudan store'a yazılır;
 // üretimde bu işi yetkili CLI komutları yapar (S3 sözleşmesi).
@@ -99,7 +100,7 @@ func testStore(t *testing.T, cfg *config.Config, authorizedKeys ...string) *stor
 	t.Helper()
 	ctx := context.Background()
 
-	db, err := store.Open(ctx, cfg.Database.Path)
+	db, err := store.Open(ctx, cfg.Database.DSN)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}

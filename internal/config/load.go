@@ -11,6 +11,13 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
+// DatabaseDSNEnv, database.dsn'i geçersiz kılan ortam değişkeni.
+//
+// Ayrı bir değişken olmasının sebebi işlemsel: bağlantı dizesi parola
+// taşır ve config dosyaları sürüm kontrolüne, yedeklere, hata ayıklama
+// paketlerine girer.
+const DatabaseDSNEnv = "POSTERN_DATABASE_DSN"
+
 // Load reads, parses and validates the config file at path.
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
@@ -38,12 +45,15 @@ func Load(path string) (*Config, error) {
 		cfg.CA.KeyFile = filepath.Join(base, cfg.CA.KeyFile)
 	}
 
-	if cfg.Database.Path != "" && !filepath.IsAbs(cfg.Database.Path) {
-		cfg.Database.Path = filepath.Join(base, cfg.Database.Path)
-	}
-
 	if cfg.SecretKeyFile != "" && !filepath.IsAbs(cfg.SecretKeyFile) {
 		cfg.SecretKeyFile = filepath.Join(base, cfg.SecretKeyFile)
+	}
+
+	// Ortam değişkeni config dosyasının ÜSTÜNE yazar. Sıra bu yönde:
+	// parolayı dosyada tutmamak istenen davranış, dolayısıyla ortamdan
+	// gelen değerin kazanması gerekiyor.
+	if env := os.Getenv(DatabaseDSNEnv); env != "" {
+		cfg.Database.DSN = env
 	}
 
 	err = cfg.Validate()
@@ -74,10 +84,11 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("ca.key_file is empty")
 	}
 
-	// Dosyanın VAR OLMASI aranmıyor, yolun verilmiş olması aranıyor:
-	// veritabanını ilk açılışta store.Open kendisi oluşturur.
-	if c.Database.Path == "" {
-		return fmt.Errorf("database.path is empty")
+	// Bağlanabilirlik BURADA sınanmıyor, yalnızca dizenin verilmiş
+	// olması: Validate saf bir fonksiyon ve ağ çağrısı yapmamalı.
+	// Bağlantı hatası store.Open'dan gelir.
+	if c.Database.DSN == "" {
+		return fmt.Errorf("database.dsn is empty (or set %s)", DatabaseDSNEnv)
 	}
 
 	if c.Recording.Dir == "" {

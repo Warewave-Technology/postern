@@ -8,8 +8,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -44,18 +42,31 @@ type Store struct {
 	box *secret.Box
 }
 
-func Open(ctx context.Context, path string) (*Store, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return nil, fmt.Errorf("store.Open: %w", err)
-	}
-
-	db, err := sql.Open(driverName, dsn(path))
+func Open(ctx context.Context, conn string) (*Store, error) {
+	connStr, err := dsn(conn)
 	if err != nil {
 		return nil, fmt.Errorf("store.Open: %w", err)
 	}
 
-	err = db.PingContext(ctx)
+	db, err := sql.Open(driverName, connStr)
 	if err != nil {
+		return nil, fmt.Errorf("store.Open: %w", err)
+	}
+
+	// Havuz ayarları. SQLite'ta anlamsızdı (tek dosya, tek yazar);
+	// PostgreSQL'de ayarlanmazsa database/sql sınırsız bağlantı açar ve
+	// sunucunun max_connections'ını tüketmek mümkün.
+	//
+	// 25/5, "bir bastion aynı anda kaç sorgu koşturur" sorusuna göre
+	// seçildi: iş yükü oturum açılış/kapanışları ve panel istekleri —
+	// uzun süren analitik sorgu yok.
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+	// Bağlantıları döndürmek, arada duran bir yük dengeleyicinin sessizce
+	// düşürdüğü bağlantılarla çalışmayı önler.
+	db.SetConnMaxLifetime(30 * time.Minute)
+
+	if err := db.PingContext(ctx); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("store.Open: %w", err)
 	}

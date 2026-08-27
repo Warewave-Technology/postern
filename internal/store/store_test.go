@@ -95,7 +95,7 @@ func TestCreateUserStoresEmail(t *testing.T) {
 
 	var email sql.NullString
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT email FROM users WHERE username = ?`, "yigit").Scan(&email); err != nil {
+		`SELECT email FROM users WHERE username = $1`, "yigit").Scan(&email); err != nil {
 		t.Fatal(err)
 	}
 
@@ -249,11 +249,11 @@ func TestTargetsSortedByName(t *testing.T) {
 
 	// Kasten alfabetik OLMAYAN sırada, kasten KARIŞIK harf düzeniyle.
 	//
-	// Zeta/App01 burada bilerek var: SQLite'ın varsayılan metin
-	// karşılaştırması bayt sırasıdır ve bütün büyük harfleri bütün küçük
-	// harflerden önce dizer ("Zeta" < "app01"). targets.name sütununda
-	// COLLATE NOCASE olmasaydı bu test düşerdi — sadece küçük harfli
-	// adlarla yazılmış bir test ise farkı hiç göremezdi.
+	// Zeta/App01 burada bilerek var: düz bir ORDER BY'ın sonucu
+	// veritabanının collation'ına bağlıdır ve C collation bütün büyük
+	// harfleri bütün küçük harflerden önce dizer ("Zeta" < "app01").
+	// Targets sorgusu lower() ile sıralamasaydı bu test düşerdi — sadece
+	// küçük harfli adlarla yazılmış bir test ise farkı hiç göremezdi.
 	for _, name := range []string{"web01", "App01", "db01", "Zeta"} {
 		if _, err := s.CreateTarget(ctx, model.Target{
 			Name: name, Host: "127.0.0.1", Port: 22, HostKey: testHostKey,
@@ -276,7 +276,8 @@ func TestTargetsSortedByName(t *testing.T) {
 	}
 }
 
-// Hedef adı büyük/küçük harf ayrımı gözetmez: sütun COLLATE NOCASE.
+// Hedef adı büyük/küçük harf ayrımı gözetmez: 009'daki lower() ifade
+// indeksi ve sorgulardaki lower() karşılaştırması.
 //
 // İki yönü de önemli. Arama tarafı kolaylık ("yigit:Web01" yazan kullanıcı
 // reddedilmesin); UNIQUE tarafı ise güvenlik: aynı makinenin "web01" ve
@@ -308,9 +309,13 @@ func TestTargetNameIsCaseInsensitive(t *testing.T) {
 	}
 }
 
-// SQLite, PRAGMA foreign_keys açılmadıkça REFERENCES satırlarını SESSİZCE
-// yok sayar. Bu test tam olarak o pragma'nın açık olup olmadığını sorar:
-// olmayan bir kullanıcıya rol veren satır kabul EDİLMEMELİ.
+// Olmayan bir kullanıcıya rol veren satır kabul EDİLMEMELİ.
+//
+// Testin geçmişi var: SQLite bağlantı başına PRAGMA foreign_keys açılmadan
+// REFERENCES satırlarını SESSİZCE yok sayardı ve bu test o pragma'nın
+// nöbetçisiydi. PostgreSQL'de kısıtlar her zaman uygulanır, ama test
+// duruyor — şemadaki REFERENCES satırlarının gerçekten yazıldığını
+// doğruluyor, ki bu motordan bağımsız bir sorudur.
 func TestForeignKeysAreEnforced(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
@@ -319,7 +324,7 @@ func TestForeignKeysAreEnforced(t *testing.T) {
 		`INSERT INTO user_roles (user_id, role_id) VALUES ('hayalet-kullanici', 'hayalet-rol')`)
 	if err == nil {
 		t.Fatal("var olmayan kullanıcı/rol'e referans veren satır kabul edildi — " +
-			"PRAGMA foreign_keys açık değil, şemadaki REFERENCES satırları etkisiz")
+			"user_roles'taki REFERENCES satırları eksik ya da etkisiz")
 	}
 }
 
@@ -710,7 +715,7 @@ func TestDeletingUserRemovesKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM users WHERE username = ?`, "yigit"); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM users WHERE username = $1`, "yigit"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1418,7 +1423,7 @@ func TestSettingsRoundTrip(t *testing.T) {
 	// Ham satır düz metni İÇERMEMELİ.
 	var raw string
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT value FROM settings WHERE key = ?`, "ldap.bind_password").Scan(&raw); err != nil {
+		`SELECT value FROM settings WHERE key = $1`, "ldap.bind_password").Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(raw, "çok-gizli") {
@@ -1495,7 +1500,7 @@ func TestSecretSettingsRequireKey(t *testing.T) {
 
 	// Şifreli satırı elle koy, sonra anahtarsız okumayı dene.
 	if _, err := s.db.ExecContext(ctx,
-		`INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 1, 0)`,
+		`INSERT INTO settings (key, value, encrypted, updated_at) VALUES ($1, $2, TRUE, 0)`,
 		"ldap.bind_password", "bWFzYWw="); err != nil {
 		t.Fatal(err)
 	}

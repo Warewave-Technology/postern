@@ -25,8 +25,7 @@ and RBAC storage (S3) are next. Not production-ready. The roadmap lives in
 - Decides access from roles and refuses by default, recording the reason
 - Pins every target's host key; `InsecureIgnoreHostKey` appears nowhere
 
-Still ahead: OIDC login, TOTP, SQLite-backed users and sessions, a web
-terminal, SFTP relay.
+Still ahead: TOTP and an SFTP relay.
 
 ## Setting up
 
@@ -53,21 +52,52 @@ yigit
 `test/integration/testdata/certtarget/Dockerfile` is the same setup as a
 runnable file, and is what the certificate tests run against.
 
-Then point a config at it (see `testdata/valid.yaml`) and run:
+postern keeps users, roles, targets and the session audit trail in
+PostgreSQL. Create a database and a role for it:
+
+```sql
+CREATE ROLE postern LOGIN PASSWORD 'choose-one';
+CREATE DATABASE postern OWNER postern;
+```
+
+Put the connection string in the config (see `testdata/valid.yaml`), or
+keep the password out of the file with `POSTERN_DATABASE_DSN` — it
+overrides `database.dsn` when set. If the string names no `sslmode`,
+postern uses `verify-full`: libpq's own default silently falls back to
+plaintext when TLS is unavailable, which is not a trade a bastion should
+make on your behalf.
+
+Create the schema, then start the server:
+
+```bash
+postern db migrate --config postern.yaml
+```
 
 ```bash
 postern serve --config postern.yaml
 ```
 
+`db migrate` takes a PostgreSQL advisory lock, so running it from two
+places at once is safe: the second waits and then finds nothing to do.
+
 ## Development
 
 ```bash
 make build          # → bin/postern
-make test           # unit tests
+make test           # unit tests; needs Docker (see below)
 make test-race      # the one that catches the interesting bugs
 make test-integration   # against real OpenSSH containers; needs Docker
 make vet
 ```
+
+**The unit tests need Docker too.** Anything touching the store runs
+against a real PostgreSQL started by testcontainers — one container per
+test binary, a separate schema per test. Testing the store against a fake
+would be testing the wrong thing: the bugs worth catching there (conflict
+targets, constraint violation codes, case-insensitive indexes) only show
+up on a real server. Without Docker those tests fail rather than skip, so
+that a green run always means the store was actually exercised. Use
+`go test -short ./...` to skip them deliberately.
 
 The integration tests build their own targets and generate their own keys —
 nothing under `testdata/keys/` is committed, so regenerate host and CA keys

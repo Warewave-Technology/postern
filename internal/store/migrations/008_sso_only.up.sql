@@ -6,7 +6,7 @@
 -- yalanlayan bir durum. Aynı boşluk yetkinin TAZELİĞİ için de geçerli:
 -- anahtarla giren kullanıcının rolleri senkronize edilmez.
 --
--- JIT ile doğan kullanıcılar sso_only=1 doğar. Elle oluşturulan servis
--- hesapları (otomasyon, CI) 0 kalır ve anahtarla girmeye devam eder —
+-- JIT ile doğan kullanıcılar sso_only=TRUE doğar. Elle oluşturulan servis
+-- hesapları (otomasyon, CI) FALSE kalır ve anahtarla girmeye devam eder —
 -- ki bu doğru davranış: onların IdP'de karşılığı yok.
-ALTER TABLE users ADD COLUMN sso_only INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN sso_only BOOLEAN NOT NULL DEFAULT FALSE;

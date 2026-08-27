@@ -138,7 +138,7 @@ func validConfig() Config {
 		Listen:   ListenConfig{Addr: ":2222"},
 		HostKey:  "testdata/keys/host_ed25519",
 		CA:       CAConfig{KeyFile: "testdata/keys/ca_ed25519"},
-		Database: DatabaseConfig{Path: "testdata/postern.db"},
+		Database: DatabaseConfig{DSN: "postgres://postern@localhost:5432/postern?sslmode=disable"},
 		// Dizinin var olması aranmıyor, dolu olması aranıyor: kayıt dizinini
 		// Store ilk oturumda kendisi açar (S1.8).
 		Recording: RecordingConfig{Dir: "testdata/recordings"},
@@ -162,10 +162,10 @@ func TestValidate(t *testing.T) {
 			// recording.dir boşken sunucu anlaşılmaz bir "mkdir :" hatasıyla
 			// ölüyordu. Config katmanında yakalanırsa operatör hangi alanı
 			// dolduracağını öğrenir.
-			name:        "database.path bos hata",
-			mutate:      func(c *Config) { c.Database.Path = "" },
+			name:        "database.dsn bos hata",
+			mutate:      func(c *Config) { c.Database.DSN = "" },
 			wantErr:     true,
-			errContains: "database.path",
+			errContains: "database.dsn",
 		},
 		{
 			name:        "recording.dir bos hata",
@@ -228,18 +228,16 @@ func TestLoadAbsolutePaths(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	absDB := filepath.Join(t.TempDir(), "postern.db")
-
 	content := fmt.Sprintf(`listen:
   addr: ":2222"
 host_key: %s
 ca:
   key_file: %s
 database:
-  path: %s
+  dsn: postgres://postern@localhost:5432/postern?sslmode=disable
 recording:
   dir: recordings
-`, absHost, absCA, absDB)
+`, absHost, absCA)
 
 	cfgPath := filepath.Join(t.TempDir(), "abs.yaml")
 	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
@@ -252,9 +250,6 @@ recording:
 	}
 	if cfg.CA.KeyFile != absCA {
 		t.Errorf("CA.KeyFile değişmiş: %q, beklenen %q", cfg.CA.KeyFile, absCA)
-	}
-	if cfg.Database.Path != absDB {
-		t.Errorf("Database.Path değişmiş: %q, beklenen %q", cfg.Database.Path, absDB)
 	}
 	if cfg.HostKey != absHost {
 		t.Errorf("HostKey değişmiş: %q, beklenen %q", cfg.HostKey, absHost)
@@ -331,5 +326,95 @@ func TestValidateTerminalGuards(t *testing.T) {
 				t.Fatalf("beklenmeyen hata: %v", err)
 			}
 		})
+	}
+}
+
+// writeConfigWithDSN, verilen dsn satırıyla geçerli bir config dosyası
+// yazar ve yolunu döner. Anahtar dosyaları gerçek olmalı: Load
+// varlıklarını sınıyor.
+func writeConfigWithDSN(t *testing.T, dsn string) string {
+	t.Helper()
+
+	absHost, err := filepath.Abs("testdata/keys/host_ed25519")
+	if err != nil {
+		t.Fatal(err)
+	}
+	absCA, err := filepath.Abs("testdata/keys/ca_ed25519")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	content := fmt.Sprintf(`listen:
+  addr: ":2222"
+host_key: %s
+ca:
+  key_file: %s
+database:
+  dsn: %s
+recording:
+  dir: recordings
+`, absHost, absCA, dsn)
+
+	cfgPath := filepath.Join(t.TempDir(), "postern.yaml")
+	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return cfgPath
+}
+
+// database.dsn bir DOSYA YOLU DEĞİL: göreli görünse bile config
+// dizinine göre çözülmemeli.
+//
+// Bu testin sebebi somut: SQLite döneminde bu alan gerçekten bir yoldu
+// ve Load onu filepath.Join'liyordu. O davranış geride kalırsa
+// "host=... user=..." biçimindeki bir bağlantı dizesi sessizce
+// bozulurdu.
+func TestLoadDoesNotResolveDSNAsPath(t *testing.T) {
+	const raw = "host=db.local user=postern dbname=postern sslmode=verify-full"
+
+	cfg, err := Load(writeConfigWithDSN(t, raw))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Database.DSN != raw {
+		t.Errorf("DSN değişmiş: %q, beklenen %q", cfg.Database.DSN, raw)
+	}
+}
+
+// POSTERN_DATABASE_DSN, config dosyasındaki değerin ÜSTÜNE yazar.
+//
+// Yön önemli: parolayı dosyada tutmamak istenen davranış olduğu için
+// ortamdan gelen kazanmalı. Ters yönde çalışsaydı ortam değişkeni
+// yalnızca alan boşken işe yarardı ve amacını kaçırırdı.
+func TestDatabaseDSNEnvOverridesFile(t *testing.T) {
+	cfgPath := writeConfigWithDSN(t,
+		"postgres://dosyadan@localhost:5432/postern?sslmode=disable")
+
+	const fromEnv = "postgres://ortamdan@db.local:5432/postern?sslmode=verify-full"
+	t.Setenv(DatabaseDSNEnv, fromEnv)
+
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Database.DSN != fromEnv {
+		t.Errorf("DSN = %q, ortamdan gelen %q bekleniyordu", cfg.Database.DSN, fromEnv)
+	}
+}
+
+// Ortam değişkeni BOŞSA dosyadaki değer korunmalı: boş bir değişken
+// "burayı sil" demek değil, "ayarlamadım" demek.
+func TestEmptyDatabaseDSNEnvKeepsFileValue(t *testing.T) {
+	const fromFile = "postgres://dosyadan@localhost:5432/postern?sslmode=disable"
+
+	cfgPath := writeConfigWithDSN(t, fromFile)
+	t.Setenv(DatabaseDSNEnv, "")
+
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Database.DSN != fromFile {
+		t.Errorf("DSN = %q, dosyadaki %q korunmalıydı", cfg.Database.DSN, fromFile)
 	}
 }

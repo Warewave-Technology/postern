@@ -2,33 +2,32 @@ package store
 
 // Veritabanı lehçesine bağımlı olan her şey burada toplanıyor.
 //
-// NEDEN: SQLite geçici bir motor; üretimde PostgreSQL kullanılacak. O gün
-// geldiğinde değişecek yerlerin dosyanın geneline dağılmış olması, taşımayı
-// "her satırı gözden geçir" işine çevirirdi. Burada toplandığında taşıma
-// bu dosyayı ve migrations/ klasörünü yeniden yazmaya iner.
-//
-// Sorguların kendisi zaten nötr tutuluyor: yer tutucular $1 biçiminde
-// (ikisi de kabul ediyor), harf duyarsız karşılaştırmalar lower() ile
-// açıkça yazılıyor, LIMIT koşullu kuruluyor.
+// Bir önceki turda burası SQLite'ı kapsıyordu; taşıma bu dosyayı ve
+// migrations/ klasörünü yeniden yazmaya indi — store.go'nun 1500 satırına
+// hiç dokunulmadı. Dosya, motorun bir gün yine değişebileceği varsayımıyla
+// duruyor.
 
 import (
 	"errors"
 	"fmt"
+	"net/url"
+	"strings"
 
-	// Sürücü: database/sql'e "sqlite" adıyla kendini kaydeder (yan etki)
-	// ve *sqlite.Error tipini hata sınıflandırması için verir.
-	// modernc.org/sqlite saf Go — cgo yok, -race ile çalışır, tek binary.
-	//
-	// PostgreSQL'e taşınırken DEĞİŞECEK TEK IMPORT bu olmalı.
-	"modernc.org/sqlite"
-	sqlitelib "modernc.org/sqlite/lib"
+	"github.com/jackc/pgx/v5/pgconn"
+
+	// Sürücü: database/sql'e "pgx" adıyla kendini kaydeder (yan etki) ve
+	// *pgconn.PgError tipini hata sınıflandırması için verir.
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
+
+// driverName, database/sql'e kayıtlı sürücü adı.
+const driverName = "pgx"
 
 // limitClause, "sınırsız" durumunu lehçeye uygun biçimde döner.
 //
-// SQLite'ta LIMIT -1 "sınırsız" demek; PostgreSQL'de böyle bir şey yok
-// (LIMIT ALL ya da cümlenin hiç olmaması gerekir). Sınırı sorgu METNİNDE
-// çözerek ikisinde de çalışan tek yol: sınırsızsa cümleyi hiç koyma.
+// PostgreSQL'de "sınırsız" diye bir LIMIT değeri yok (LIMIT ALL ya da
+// cümlenin hiç olmaması gerekir). Sınırı sorgu METNİNDE çözmek her iki
+// durumu da tek yoldan halleder: sınırsızsa cümleyi hiç koyma.
 func limitClause(limit int, placeholder string) string {
 	if limit <= 0 {
 		return ""
@@ -46,65 +45,93 @@ func limitArgs(limit int, base ...any) []any {
 
 // --- hata sınıflandırma ---
 //
-// PostgreSQL'e taşınırken burası SQLSTATE'lere çevrilecek:
-//   23505 unique_violation      → ErrConflict
-//   23503 foreign_key_violation → bağlama göre ErrNotFound / ErrConflict
-//   23514 check_violation       → doğrulama hatası
+// PostgreSQL ihlalleri SQLSTATE ile bildirir:
+//
+//	23505 unique_violation
+//	23503 foreign_key_violation
+//	23514 check_violation
+
+const (
+	sqlstateUniqueViolation     = "23505"
+	sqlstateForeignKeyViolation = "23503"
+)
+
+// pgCode, hatanın SQLSTATE'ini döner; PostgreSQL hatası değilse "".
+func pgCode(err error) string {
+	var e *pgconn.PgError
+	if !errors.As(err, &e) {
+		return ""
+	}
+	return e.Code
+}
 
 // isUniqueViolation, "bu kayıt zaten var" hatası mı?
+//
+// İfade indekslerini de kapsar: 009'daki lower() indekslerinin ihlali de
+// 23505 döner, sütun üzerindeki düz UNIQUE ile aynı kod.
 func isUniqueViolation(err error) bool {
-	var e *sqlite.Error
-	if !errors.As(err, &e) {
-		return false
-	}
-	code := e.Code()
-	return code == sqlitelib.SQLITE_CONSTRAINT_UNIQUE ||
-		code == sqlitelib.SQLITE_CONSTRAINT_PRIMARYKEY
+	return pgCode(err) == sqlstateUniqueViolation
 }
 
 // isForeignKeyViolation, "işaret ettiğin satır yok" hatası mı? (INSERT)
+//
+// ⚠️ isRestrictViolation ile AYNI SQLSTATE'e bakıyor — PostgreSQL ikisini
+// ayırmaz. Ayrım çağrının yönünden geliyor: DELETE yapan fonksiyonlar
+// önce isRestrictViolation'a soruyor (ve ErrConflict diyor), INSERT
+// yolundaki hata ise translateErr'e düşüyor (ve ErrNotFound diyor).
+// Yani iki fonksiyonun ayrı durmasının sebebi kod farkı değil, ÇAĞRI
+// YERİNİN taşıdığı bilgi. (SQLite'ta gerçekten iki ayrı koddu: 787 ve
+// RESTRICT için 1811.)
 func isForeignKeyViolation(err error) bool {
-	var e *sqlite.Error
-	if !errors.As(err, &e) {
-		return false
-	}
-	return e.Code() == sqlitelib.SQLITE_CONSTRAINT_FOREIGNKEY
+	return pgCode(err) == sqlstateForeignKeyViolation
 }
 
 // isRestrictViolation, "bu satıra hâlâ referans var" hatası mı? (DELETE)
-//
-// SQLite ON DELETE RESTRICT'i içeride tetikleyiciyle uyguladığı için
-// ihlali TRIGGER (1811) olarak raporlar; varsayılan NO ACTION ise
-// FOREIGNKEY (787) verir. PostgreSQL ikisini de 23503 der ve ayrımı
-// çağrının yönünden (INSERT mi DELETE mi) çıkarmak gerekecek.
 func isRestrictViolation(err error) bool {
-	var e *sqlite.Error
-	if !errors.As(err, &e) {
-		return false
-	}
-	code := e.Code()
-	return code == sqlitelib.SQLITE_CONSTRAINT_FOREIGNKEY ||
-		code == sqlitelib.SQLITE_CONSTRAINT_TRIGGER
+	return pgCode(err) == sqlstateForeignKeyViolation
 }
 
-// dsn, bağlantı dizesini kurar.
+// dsn, bağlantı dizesini hazırlar.
 //
-// PRAGMA'lar SQLite'a özgü: PostgreSQL'de foreign key her zaman zorunlu,
-// WAL kavramı yok, kilit bekleme sunucu tarafında.
-func dsn(path string) string {
-	return fmt.Sprintf("%s?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)", path)
-}
+// SQLite'takinin aksine burada bir dosya yolu değil, ağ üzerinden bir
+// sunucuya bağlantı var. Zorunlu tek müdahale: sslmode belirtilmemişse
+// VARSAYILANI KAPALI DEĞİL, doğrulanmış TLS yapmak.
+//
+// libpq'nun varsayılanı "prefer"dır: TLS'i dener, sunucu istemezse düz
+// metne SESSİZCE düşer. Bir bastion'ın kimlik ve denetim verisi için bu
+// kabul edilemez — düşürme saldırısı zaten tam olarak budur. Belirtmeyen
+// yapılandırma "verify-full" alır; gerçekten TLS istemeyen kurulum
+// (localhost, sidecar) bunu DSN'de AÇIKÇA yazmak zorunda.
+func dsn(conn string) (string, error) {
+	if strings.TrimSpace(conn) == "" {
+		return "", fmt.Errorf("empty connection string")
+	}
 
-// driverName, database/sql'e kayıtlı sürücü adı.
-const driverName = "sqlite"
+	// Anahtar=değer biçimi (host=... user=...) URL değil; olduğu gibi
+	// geçiyoruz. sslmode'u oradan da zorlamak metin biçimini elle
+	// kurcalamak demek ve o biçimi kullanan zaten pgx'e hâkim demektir.
+	if !strings.Contains(conn, "://") {
+		return conn, nil
+	}
+
+	u, err := url.Parse(conn)
+	if err != nil {
+		return "", fmt.Errorf("parse connection string: %w", err)
+	}
+
+	q := u.Query()
+	if q.Get("sslmode") == "" {
+		q.Set("sslmode", "verify-full")
+		u.RawQuery = q.Encode()
+	}
+	return u.String(), nil
+}
 
 // ciColumns, harf duyarsız karşılaştırılan sütunlar — şemadaki
 // 009_case_insensitive_indexes göçünün Go tarafındaki karşılığı.
 //
-// ⚠️ Şemaya harf duyarsız bir sütun eklenirse BURAYA da eklenmeli.
-// Unutulursa sorgu SQLite'ta (NOCASE sayesinde) çalışmaya devam eder ama
-// PostgreSQL'de sessizce harf duyarlı olur — yani hata değil, davranış
-// kayması. Bu yüzden liste tek yerde duruyor ve testi var.
+// ⚠️ Şemaya harf duyarsız bir sütun eklenirse BURAYA da eklenmeli;
+// TestCIColumnsMatchesSchema ikisinin aynı hizada kalmasını denetler.
 var ciColumns = map[string]bool{
 	"targets.name":                  true,
 	"group_mappings.external_group": true,
@@ -113,10 +140,9 @@ var ciColumns = map[string]bool{
 
 // ciEq, harf duyarsız eşitlik koşulu üretir.
 //
-// lower() İKİ motorda da var; COLLATE NOCASE yalnız SQLite'ta,
-// CITEXT yalnız PostgreSQL'de. Ortak payda lower() olduğu için
-// karşılaştırma sorgunun içinde açıkça duruyor — sütun tanımına
-// gömülü olmadığından motor değişince davranış değişmiyor.
+// PostgreSQL'de sütuna gömülü harf duyarsız collation yok (CITEXT bir
+// eklenti), o yüzden karşılaştırma sorguda AÇIKÇA duruyor. 009'daki
+// lower() ifade indeksleri bu koşulu indeksten karşılar.
 //
 // placeholder'ı da lower()'a sarıyoruz: aranan değerin büyük/küçük
 // yazımı çağırandan geliyor ve normalize edildiğine güvenemeyiz.
@@ -126,26 +152,20 @@ func ciEq(column, placeholder string) string {
 
 // ciOrder, harf duyarsız sıralama ifadesi üretir.
 //
-// Sıralama da lehçeye bağlı: PostgreSQL'de düz ORDER BY sonucu veritabanı
-// collation'ına göre değişir (C collation'da "Web01" < "app01"), SQLite'ta
-// ise sütunun COLLATE'ine göre. lower() ikisini de ortadan kaldırıyor.
+// Düz ORDER BY'ın sonucu veritabanının collation'ına göre değişir —
+// C collation'da "Web01" < "app01", en_US.UTF-8'de tersi. lower() bu
+// ortam bağımlılığını ortadan kaldırıyor.
 func ciOrder(column string) string {
 	return "lower(" + column + ")"
 }
 
 // tableExistsQuery, "bu adda bir tablo var mı" sorusunun SQL'i.
 //
-// Katalog sorgusu tamamen lehçeye bağlı ve ORTAK BİR YAZIMI YOK:
-// SQLite'ta sqlite_master, PostgreSQL'de information_schema.tables
-// (ya da pg_catalog.pg_class). Bu yüzden burada duruyor.
-//
-// PostgreSQL karşılığı:
-//
-//	SELECT COUNT(*) FROM information_schema.tables
-//	WHERE table_schema = current_schema() AND table_name = $1;
+// current_schema() bilerek: testler her koşuyu ayrı bir şemaya alıyor ve
+// sabit 'public' yazmak onları birbirine bağlardı.
 const tableExistsQuery = `
 	SELECT COUNT(*)
-	FROM sqlite_master
-	WHERE type = 'table'
-	  AND name = $1;
+	FROM information_schema.tables
+	WHERE table_schema = current_schema()
+	  AND table_name = $1;
 `
