@@ -111,6 +111,7 @@ func (s *Store) CreateUser(ctx context.Context, username, email, osUser string) 
 
 func (s *Store) User(ctx context.Context, username string) (model.User, error) {
 	var user model.User
+	// #nosec G202 -- birleştirilen parça sabit (dialect.go); değerler $N ile gidiyor
 	queryStr := `
 		SELECT u.username,
 	       u.os_user,
@@ -250,6 +251,7 @@ func (s *Store) Target(ctx context.Context, name string) (model.Target, error) {
 func (s *Store) Targets(ctx context.Context) ([]model.Target, error) {
 	var targets []model.Target
 
+	// #nosec G202 -- birleştirilen parça sabit (dialect.go); değerler $N ile gidiyor
 	queryStr := `
 		SELECT name, host, port, host_key
 		FROM targets
@@ -390,6 +392,7 @@ func (s *Store) LogAdmin(ctx context.Context, e AdminLogEntry) error {
 func (s *Store) AdminLog(ctx context.Context, limit int) ([]AdminLogEntry, error) {
 	// id ikincil sıralama: aynı saniyeye düşen kayıtlar (bir formda arka
 	// arkaya yapılan işlemler) deterministik ve ekleme sırasında kalsın.
+	// #nosec G202 -- birleştirilen parça sabit (dialect.go); değerler $N ile gidiyor
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT at, actor, via, action, entity, details
 		FROM admin_log
@@ -419,6 +422,7 @@ func (s *Store) AdminLog(ctx context.Context, limit int) ([]AdminLogEntry, error
 // Roles, tüm rolleri hedefleriyle, ada göre sıralı döner; hedefsiz rol
 // boş Targets ile gelir.
 func (s *Store) Roles(ctx context.Context) ([]model.Role, error) {
+	// #nosec G202 -- birleştirilen parça sabit (dialect.go); değerler $N ile gidiyor
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT r.name, t.name
 		FROM roles r
@@ -630,6 +634,7 @@ func (s *Store) RemoveGroupMapping(ctx context.Context, externalGroup, roleName 
 	}
 
 	res, err := s.db.ExecContext(ctx,
+		// #nosec G202 -- birleştirilen parça sabit (dialect.go); değerler $N ile gidiyor
 		`DELETE FROM group_mappings WHERE `+ciEq("external_group", "$1")+` AND role_id = $2;`,
 		externalGroup, roleID)
 	if err != nil {
@@ -647,6 +652,7 @@ func (s *Store) RemoveGroupMapping(ctx context.Context, externalGroup, roleName 
 
 // GroupMappings, tüm eşlemeleri grup adına göre sıralı döner.
 func (s *Store) GroupMappings(ctx context.Context) ([]GroupMapping, error) {
+	// #nosec G202 -- birleştirilen parça sabit (dialect.go); değerler $N ile gidiyor
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT gm.external_group, r.name, gm.created_at, gm.created_by
 		FROM group_mappings gm
@@ -683,6 +689,7 @@ func (s *Store) RolesForGroups(ctx context.Context, groups []string) (roles, unm
 	unmapped = make([]string, 0)
 
 	for _, g := range groups {
+		// #nosec G202 -- birleştirilen parça sabit (dialect.go); değerler $N ile gidiyor
 		rows, qerr := s.db.QueryContext(ctx, `
 			SELECT r.name
 			FROM group_mappings gm
@@ -749,6 +756,7 @@ type UnmappedGroup struct {
 
 // UnmappedGroups, eşlenmemiş grupları en çok görülenden aza doğru döner.
 func (s *Store) UnmappedGroups(ctx context.Context) ([]UnmappedGroup, error) {
+	// #nosec G202 -- birleştirilen parça sabit (dialect.go); değerler $N ile gidiyor
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT name, last_seen, seen_count
 		FROM unmapped_groups
@@ -1137,6 +1145,7 @@ func (s *Store) SetUserOSUser(ctx context.Context, username, osUser string) erro
 //
 // Hiç kullanıcı yoksa boş dilim, hata değil.
 func (s *Store) Users(ctx context.Context) ([]model.User, error) {
+	// #nosec G202 -- birleştirilen parça sabit (dialect.go); değerler $N ile gidiyor
 	queryStr := `
 		SELECT u.username,
 	       u.os_user,
@@ -1469,6 +1478,7 @@ func (s *Store) Session(ctx context.Context, id string) (model.Session, error) {
 func (s *Store) Sessions(ctx context.Context, username string, limit int) ([]model.Session, error) {
 	var sessions []model.Session
 
+	// #nosec G202 -- birleştirilen parça sabit (dialect.go); değerler $N ile gidiyor
 	queryStr := `
 		SELECT s.id,
 	       u.username,

@@ -29,6 +29,7 @@ func Init(path string) (*CA, error) {
 		return nil, fmt.Errorf("ca.Init: %w", err)
 	}
 
+	// #nosec G304 -- yol config'teki ca.key_file; operatör girdisi
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("ca.Init: %w", err)
@@ -62,6 +63,7 @@ func Load(path string) (*CA, error) {
 		return nil, fmt.Errorf("ca.Load: permissions %#o are too open, path: %s", filePerm, path)
 	}
 
+	// #nosec G304 -- yol config'teki ca.key_file; operatör girdisi
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("ca.Load: %w", err)

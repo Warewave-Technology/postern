@@ -20,6 +20,7 @@ const DatabaseDSNEnv = "POSTERN_DATABASE_DSN"
 
 // Load reads, parses and validates the config file at path.
 func Load(path string) (*Config, error) {
+	// #nosec G304 -- yol --config bayrağından gelir; operatör girdisi
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("config %s: %w", path, err)

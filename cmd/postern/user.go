@@ -69,6 +69,7 @@ func newUserAddCmd() *cobra.Command {
 			}
 			keys := make([]parsedKey, 0, len(keyFiles))
 			for _, path := range keyFiles {
+				// #nosec G304 -- yol CLI bayrağından gelir; komutu çalıştıran zaten host'ta
 				data, err := os.ReadFile(path)
 				if err != nil {
 					return fmt.Errorf("key file: %w", err)

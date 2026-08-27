@@ -188,9 +188,12 @@ func parseString(payload []byte) (string, []byte, bool) {
 	n := uint32(payload[0])<<24 | uint32(payload[1])<<16 |
 		uint32(payload[2])<<8 | uint32(payload[3])
 
-	// int'e çevirmeden önce sınır: 32-bit platformda uint32 taşabilir.
-	if uint64(n) > uint64(len(payload)-4) {
+	// Karşılaştırmanın iki tarafı da genişletiliyor: n uint32, len(body)
+	// negatif olamayan bir int. n'i int'e daraltmak 32-bit platformda
+	// taşardı; uint64 ikisini de kayıpsız alıyor.
+	body := payload[4:]
+	if uint64(n) > uint64(len(body)) {
 		return "", nil, false
 	}
-	return string(payload[4 : 4+n]), payload[4+n:], true
+	return string(body[:n]), body[n:], true
 }

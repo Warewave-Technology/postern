@@ -135,13 +135,16 @@ func (s *Server) completeWebLogin(w http.ResponseWriter, r *http.Request, state,
 		return
 	}
 
+	// #nosec G124 -- Secure koşullu: bkz. Server.SetExternalURL
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   r.TLS != nil,
+		// Secure, dış adresin şemasından geliyor; r.TLS ters vekil
+		// arkasında yalan söyler (bkz. Server.SetExternalURL).
+		Secure: s.secureCookies || r.TLS != nil,
 	})
 
 	log.Info("web login", "user", u.Name)
@@ -154,15 +157,20 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(sessionCookie); err == nil {
 		s.webSessions.Destroy(c.Value)
 	}
-	clearSessionCookie(w)
+	s.clearSessionCookie(w)
 	// Form gönderimi tarayıcı navigasyonu: kullanıcıyı login ekranına döndür.
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-func clearSessionCookie(w http.ResponseWriter) {
+func (s *Server) clearSessionCookie(w http.ResponseWriter) {
+	// Silme çerezi de kurulum çerezinin özniteliklerini taşımalı:
+	// tarayıcılar Secure'lu bir çerezi Secure'suz bir Set-Cookie ile
+	// güvenilir biçimde silmez.
+	// #nosec G124 -- Secure koşullu: dış adres http:// ise (localhost kurulumu) çerez Secure olamaz, yoksa hiç gönderilmez
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: "", Path: "/", MaxAge: -1,
 		HttpOnly: true, SameSite: http.SameSiteLaxMode,
+		Secure: s.secureCookies,
 	})
 }
 
@@ -174,7 +182,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		// Oturum var ama kullanıcı yok: oturum açıkken silinmiş. Oturumu
 		// da düşür — sahipsiz token'ın yaşamaya devam etmesi için sebep yok.
 		if errors.Is(err, store.ErrNotFound) {
-			clearSessionCookie(w)
+			s.clearSessionCookie(w)
 			writeErr(w, http.StatusUnauthorized, "unauthenticated")
 			return
 		}
@@ -224,7 +232,7 @@ func (s *Server) requireSession(next http.Handler) http.Handler {
 		username, err := s.webSessions.Resolve(c.Value)
 		if err != nil {
 			// Bayat cookie her istekte 401 üretmesin: temizle.
-			clearSessionCookie(w)
+			s.clearSessionCookie(w)
 			writeErr(w, http.StatusUnauthorized, "unauthenticated")
 			return
 		}

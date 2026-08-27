@@ -15,8 +15,9 @@ import (
 
 // Ayar anahtarları. Noktalı ad alanı settings tablosunun sözleşmesi.
 const (
-	KeyURL            = "ldap.url"
-	KeyBindDN         = "ldap.bind_dn"
+	KeyURL    = "ldap.url"
+	KeyBindDN = "ldap.bind_dn"
+	// #nosec G101 -- kimlik bilgisi değil, settings tablosunun ANAHTAR adı
 	KeyBindPassword   = "ldap.bind_password"
 	KeyUserBase       = "ldap.user_base"
 	KeyUserFilter     = "ldap.user_filter"

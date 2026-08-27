@@ -8,6 +8,7 @@ import (
 	"html"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/warewave/postern/internal/auth"
 	"github.com/warewave/postern/internal/proxy"
@@ -41,6 +42,22 @@ type Server struct {
 	// demektir ve rota HİÇ bağlanmaz — kapalı özellik, kapalı yüzey.
 	proxyDeps   *proxy.Deps
 	externalURL string
+
+	// secureCookies, oturum çerezine Secure bayrağının konup
+	// konmayacağı. SetExternalURL kuruyor.
+	secureCookies bool
+}
+
+// SetExternalURL, kullanıcının tarayıcısından görülen kök adresi verir.
+//
+// Çerezin Secure bayrağı BURADAN türetiliyor, r.TLS'ten değil: postern
+// TLS'i sonlandıran bir ters vekilin arkasındaysa r.TLS nil olur ama
+// bağlantı HTTPS'tir. r.TLS'e bakan kod o kurulumda oturum çerezini
+// Secure'suz yazar — yani düz metin bir isteğe iliştirilebilir hâle
+// getirir. Dış adresin şeması dağıtımın gerçeğini söyleyen tek kaynak.
+func (s *Server) SetExternalURL(raw string) {
+	s.externalURL = raw
+	s.secureCookies = strings.HasPrefix(strings.ToLower(raw), "https://")
 }
 
 // UseGroupSource, grup kaynağını değiştirir (LDAP için).
@@ -60,7 +77,7 @@ func (s *Server) UseGroupSource(src auth.GroupSource) {
 // rotası var olmaz (404), yalnızca yetkisiz olmaz.
 func (s *Server) EnableTerminal(deps proxy.Deps, externalURL string) {
 	s.proxyDeps = &deps
-	s.externalURL = externalURL
+	s.SetExternalURL(externalURL)
 }
 
 func New(o *auth.OIDC, logins *auth.Logins, db *store.Store, logger *slog.Logger) *Server {

@@ -119,8 +119,27 @@ make build          # → bin/postern
 make test           # unit tests; needs Docker (see below)
 make test-race      # the one that catches the interesting bugs
 make test-integration   # against real OpenSSH containers; needs Docker
-make vet
+make lint vet
+make audit          # gosec + govulncheck
+make ci             # everything CI runs, in the same order
 ```
+
+`make ci` is what `.github/workflows/ci.yml` runs, so a green run locally
+means a green run there. CI additionally re-runs `govulncheck` weekly:
+its input changes without the code changing, and a vulnerability
+published on a quiet Tuesday should not wait for the next commit.
+
+`make sec` excludes gosec's G104 (unhandled errors), because all 22 hits
+are `Close()`/`Reject()` in cleanup paths where there is nothing to do
+with the error. Every other rule stays on, and the remaining false
+positives are marked in the code one at a time with `#nosec <rule> --
+reason` — so a genuine finding tomorrow is not silenced by yesterday's
+blanket.
+
+The Go version lives in `go.mod` and CI reads it from there. Keep it
+current: six of the seven vulnerabilities `govulncheck` first reported
+here were standard-library issues, fixed by moving from 1.26.5 to
+1.26.6.
 
 **The unit tests need Docker too.** Anything touching the store runs
 against a real PostgreSQL started by testcontainers — one container per

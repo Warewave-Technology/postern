@@ -53,6 +53,7 @@ func Init(path string) (*Box, error) {
 		return nil, fmt.Errorf("secret.Init: %w", err)
 	}
 
+	// #nosec G304 -- yol config'ten, yani operatörden gelir; uzak kullanıcı girdisi değil
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("secret.Init: %w", err)
@@ -80,6 +81,7 @@ func Load(path string) (*Box, error) {
 		return nil, fmt.Errorf("secret.Load: %s is group/world readable (%04o); chmod 600 it", path, perm)
 	}
 
+	// #nosec G304 -- yol config'ten, yani operatörden gelir; uzak kullanıcı girdisi değil
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("secret.Load: %w", err)

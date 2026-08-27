@@ -46,6 +46,7 @@ func newTargetAddCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Önce doğrula: bozuk host key, hedef yaratılmadan yakalanmalı.
 			// İlk bağlantıda "handshake failed" kovalamak pahalı.
+			// #nosec G304 -- yol CLI bayrağından gelir; komutu çalıştıran zaten host'ta
 			data, err := os.ReadFile(hostKeyFile)
 			if err != nil {
 				return fmt.Errorf("host key file: %w", err)

@@ -790,8 +790,14 @@ değiştirecek. Kabaca kapsam:
 - `env` whitelist — ✅ bitti (`session.accept_env`, varsayılan LANG/LC_*)
 - Keepalive, yarı kapalı bağlantı, timeout'lar
 - Rate limiting, bağlantı sayısı sınırı
-- `go test -race` tüm pakette temiz
-- `gosec`, `govulncheck` CI'da
+- `go test -race` tüm pakette temiz — ✅
+- `gosec`, `govulncheck` CI'da — ✅ (`.github/workflows/ci.yml`, `make audit`)
+  - govulncheck ilk koşuda 7 açık buldu: 6'sı standart kütüphanede
+    (go 1.26.5 → 1.26.6), 1'i testcontainers'ın bağımlılığında
+  - gosec 47 bulgu verdi; gerçek olanlar düzeltildi (HTTP
+    ReadHeaderTimeout, ters vekil arkasında Secure çerez, saat 1970
+    öncesindeyse sertifika imzalamayı reddetme), kalanlar tek tek
+    gerekçelendirildi
 - Fuzz: `ParseUsername`, request payload parser'ları
 - Harici güvenlik incelemesi (mümkünse)
 

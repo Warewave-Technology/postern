@@ -42,6 +42,7 @@ func (s *Store) Create(sessionID string) (*os.File, string, error) {
 		return nil, "", fmt.Errorf("record.store.Create: %w", err)
 	}
 
+	// #nosec G304 -- sessionID yukarıda ^[a-zA-Z0-9_-]+$ ile doğrulandı: traversal yok
 	f, err := os.OpenFile(fullPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, "", fmt.Errorf("record.store.Create: %w", err)

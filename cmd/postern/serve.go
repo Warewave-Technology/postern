@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -111,6 +112,9 @@ func newServeCmd() *cobra.Command {
 
 				webAPI := httpapi.New(oidcClient, logins, db, logger)
 				webAPI.UseGroupSource(groupSwitch)
+				// Terminal açık olmasa da gerekli: oturum çerezinin
+				// Secure bayrağı bu adresin şemasından türüyor.
+				webAPI.SetExternalURL(cfg.HTTP.ExternalURL)
 
 				// Web terminali yalnızca açıkça istendiğinde: rota bile
 				// kurulmaz. Bağımlılıklar sshd'ninkilerle AYNI — iki kapı
@@ -123,6 +127,21 @@ func newServeCmd() *cobra.Command {
 				api := &http.Server{
 					Addr:    cfg.HTTP.Addr,
 					Handler: webAPI.Handler(),
+
+					// Başlıkları okumak için üst sınır. Yoksa açık
+					// bırakılan bir bağlantı başlık göndermeden sonsuza
+					// kadar bir goroutine tutar (Slowloris).
+					ReadHeaderTimeout: 10 * time.Second,
+
+					// Boştaki keep-alive bağlantısının ömrü.
+					IdleTimeout: 2 * time.Minute,
+
+					// ⚠️ ReadTimeout ve WriteTimeout BİLEREK YOK: web
+					// terminali bağlantıyı WebSocket'e devralıyor ve
+					// oturum saatlerce açık kalabilir. Bütün isteği
+					// kapsayan bir süre sınırı o oturumları ortasından
+					// keserdi. Slowloris'e karşı koruyan zaten
+					// ReadHeaderTimeout.
 				}
 				go func() {
 					logger.Info("http listener started", "addr", cfg.HTTP.Addr)

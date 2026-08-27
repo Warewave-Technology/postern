@@ -1,0 +1,90 @@
+# postern CI.
+#
+# Go sürümü go.mod'dan okunuyor (go-version-file): sürümü iki yerde
+# tutmak, birini güncelleyip diğerini unutmanın kolay yolu. go.mod'daki
+# sürüm ayrıca bir GÜVENLİK kararı — standart kütüphane açıkları oradan
+# kapanıyor, bkz. `make vuln`.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # govulncheck'in girdisi zamanla değişir: kod değişmeden yeni bir açık
+  # yayımlanabilir. Haftalık koşu onu commit beklemeden yakalar.
+  schedule:
+    - cron: "17 6 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Hızlı geri bildirim: biçim ve vet saniyeler içinde döner, testleri
+  # beklemeden "gofmt unutmuşsun" demek için ayrı iş.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: make lint
+      - run: make vet
+
+  # ⚠️ Docker gerektirir: store testleri gerçek PostgreSQL'e karşı koşuyor
+  # (internal/testdb). ubuntu-latest runner'ında Docker hazır geliyor.
+  # -short ile atlamak MÜMKÜN ama CI'da BİLEREK yapılmıyor: yeşil bir
+  # koşu, deponun gerçekten sınandığı anlamına gelmeli.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: make test-race
+
+  # Entegrasyon ayrı iş: Keycloak, OpenLDAP ve sertifika hedefi
+  # konteynerleri kalkıyor, ~5 dakika sürüyor. Birim testlerin geri
+  # bildirimini bu sürenin arkasına koymamak için ayrıldı.
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: make test-integration
+
+  # gosec + govulncheck. Ayrı iş çünkü testlerden bağımsız düşebilir ve
+  # düştüğünde sebebi tek bakışta görünmeli.
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: make sec
+      - run: make vuln
+
+  # Derlenen bir ikili üretilebiliyor mu? Testler geçerken build'in
+  # kırık olması mümkün (embed edilen web/dist gibi sebeplerle).
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: make build

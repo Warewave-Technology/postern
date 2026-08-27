@@ -1,5 +1,8 @@
 # Derleme çıktıları
 /bin/
+# `go build` çıktıyı modül adıyla çalışma dizinine bırakır; Makefile
+# bin/ altına yazıyor ama elle koşulan bir go build bunu üretir.
+/postern
 
 # Oturum kayıtları
 /recordings/

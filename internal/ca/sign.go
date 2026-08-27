@@ -46,6 +46,16 @@ func (c *CA) Sign(req CertRequest) (*ssh.Certificate, error) {
 	validAfter := time.Now().Add(-timeShiftSec)
 	validBefore := validAfter.Add(req.ValidFor)
 
+	// Sertifika alanları uint64. Saati 1970 öncesine kurulmuş bir
+	// makinede Unix() negatif döner ve dönüşüm sarmalayarak devasa bir
+	// sayı üretir: sertifika "hiçbir zaman geçerli olmayan" bir şeye
+	// dönüşür ve hata mesajı hedefte "certificate is not yet valid"
+	// olarak çıkar — sebebi bastion'ın saati olduğu hâlde.
+	// Burada durdurmak, o teşhisi imkânsız arayışı baştan kesiyor.
+	if validAfter.Unix() < 0 || validBefore.Unix() < 0 {
+		return nil, fmt.Errorf("ca.Sign: system clock is before 1970; refusing to sign")
+	}
+
 	serial, err := generateRandomSerial64()
 	if err != nil {
 		return nil, fmt.Errorf("ca.Sign: %w", err)
@@ -59,9 +69,11 @@ func (c *CA) Sign(req CertRequest) (*ssh.Certificate, error) {
 	}
 
 	cert := ssh.Certificate{
-		Key:             req.PublicKey,
-		CertType:        ssh.UserCert,
-		ValidAfter:      uint64(validAfter.Unix()),
+		Key:      req.PublicKey,
+		CertType: ssh.UserCert,
+		// #nosec G115 -- yukarıdaki kontrol negatif Unix zamanını zaten eledi
+		ValidAfter: uint64(validAfter.Unix()),
+		// #nosec G115 -- yukarıdaki kontrol negatif Unix zamanını zaten eledi
 		ValidBefore:     uint64(validBefore.Unix()),
 		ValidPrincipals: req.Principals,
 		Serial:          serial,
