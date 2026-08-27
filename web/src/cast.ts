@@ -138,3 +138,44 @@ export function formatDuration(seconds: number): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
 }
+
+/**
+ * parseResize, bir "r" olayının verisini ("120x30") boyuta çevirir.
+ *
+ * Geçersizse null: kayda saldırganın yazdırdığı bir değer olabilir ve
+ * oynatıcıyı ona göre boyutlandırmak, incelemeyi yapan kişinin ekranını
+ * saldırgana ayarlatmak demek olurdu. Üst sınır pty'nin kendi sınırı.
+ */
+export function parseResize(data: string): { cols: number; rows: number } | null {
+  const m = /^(\d+)x(\d+)$/.exec(data);
+  if (!m) return null;
+
+  const cols = Number(m[1]);
+  const rows = Number(m[2]);
+  if (!Number.isInteger(cols) || !Number.isInteger(rows)) return null;
+  if (cols < 1 || rows < 1 || cols > 1000 || rows > 1000) return null;
+
+  return { cols, rows };
+}
+
+/**
+ * initialSize, kaydın GERÇEK açılış boyutunu bulur.
+ *
+ * ⚠️ Başlıktaki boyuta güvenilemez: kaydedici başlığı oturum açılırken
+ * yazıyor, pty-req ise ondan SONRA geliyor — yani başlık her zaman
+ * 80x24 diyor. İlk "r" olayı gerçek boyutu taşıyor ve başlıktan önce
+ * gelmiş sayılmalı, yoksa panel her oturumu 80 sütun gösterir ve
+ * incelemeyi yapan kişi olan biteni göremez.
+ */
+export function initialSize(
+  header: CastHeader,
+  events: CastEvent[],
+): { cols: number; rows: number } {
+  for (const e of events) {
+    if (e.kind !== "r") continue;
+    const size = parseResize(e.data);
+    if (size) return size;
+    break; // ilk "r" bozuksa başlığa düş
+  }
+  return { cols: header.width || 80, rows: header.height || 24 };
+}

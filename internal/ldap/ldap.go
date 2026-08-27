@@ -89,10 +89,31 @@ func New(cfg Config) (*Source, error) {
 		return nil, fmt.Errorf("ldap.New: user_filter must contain %%s for the username")
 	}
 
-	// Düz LDAP yalnızca loopback'te: servis hesabı parolası ağdan
-	// geçiyor. terminal_enabled'ın HTTPS kuralının kardeşi.
-	if strings.HasPrefix(cfg.URL, "ldap://") && !isLoopback(cfg.URL) {
-		return nil, fmt.Errorf("ldap.New: plain ldap:// is only allowed for loopback; use ldaps:// (got %q)", cfg.URL)
+	// ŞİFRESİZ TAŞIMA yalnızca loopback'te: servis hesabı parolası
+	// ağdan geçiyor. terminal_enabled'ın HTTPS kuralının kardeşi.
+	//
+	// ⚠️ KONTROL BEYAZ LİSTE, KARA LİSTE DEĞİL.
+	//
+	// Eskiden yalnızca küçük harfli "ldap://" önekine bakıyordu ve URL
+	// şemaları BÜYÜK/KÜÇÜK HARF DUYARSIZDIR (RFC 3986). "LDAP://" ya da
+	// "lDaP://" yazmak kontrolü tamamen atlıyor, go-ldap ise şemayı
+	// normalize edip bağlantıyı kuruyordu — yani dizin servis hesabının
+	// parolası ağa düz metin çıkıyordu. Aynı boşluk "ldapi://" (unix
+	// soketi) ve "cldap://" için de vardı.
+	//
+	// Beyaz liste bu sınıfı kapatıyor: tanımadığımız bir şema geçmez.
+	scheme, _, _ := strings.Cut(cfg.URL, "://")
+	switch strings.ToLower(scheme) {
+	case "ldaps":
+		// TLS: her yerde serbest.
+	case "ldap":
+		if !isLoopback(cfg.URL) {
+			return nil, fmt.Errorf("ldap.New: plain ldap:// is only allowed for loopback; "+
+				"use ldaps:// (got %q)", cfg.URL)
+		}
+	default:
+		return nil, fmt.Errorf("ldap.New: unsupported url scheme %q; use ldaps:// "+
+			"(or ldap:// on loopback)", scheme)
 	}
 
 	if cfg.GroupNameFrom == "" {
@@ -105,13 +126,31 @@ func New(cfg Config) (*Source, error) {
 	return &Source{cfg: cfg}, nil
 }
 
+// isLoopback, adresin yerel makineyi gösterip göstermediğini söyler.
+//
+// Ayrıştırılamayan bir URL loopback SAYILMAZ: belirsizlik şifresiz
+// taşımaya izin vermenin gerekçesi olamaz.
 func isLoopback(rawURL string) bool {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return false
 	}
-	h := u.Hostname()
-	return h == "localhost" || h == "127.0.0.1" || h == "::1"
+
+	h := strings.ToLower(u.Hostname())
+	if h == "localhost" {
+		return true
+	}
+
+	// ⚠️ Metin karşılaştırması yetmez: "127.0.0.1" kadar "127.1",
+	// "0177.0.0.1" ve "::ffff:127.0.0.1" de loopback'tir ve hiçbiri
+	// eski listeye uymuyordu — ama tersi daha önemli: eski liste
+	// yalnızca ÜÇ yazımı tanıdığı için "127.000.000.001" gibi geçerli
+	// bir loopback adresi REDDEDİLİYORDU. net.IP ikisini de doğru
+	// cevaplıyor.
+	if ip := net.ParseIP(h); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
 }
 
 // connect, dizine bağlanır ve servis hesabıyla bind eder.

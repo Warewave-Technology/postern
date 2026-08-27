@@ -3,7 +3,6 @@
 package httpapi
 
 import (
-	"errors"
 	"fmt"
 	"html"
 	"log/slog"
@@ -105,11 +104,12 @@ func (s *Server) Handler() http.Handler {
 	// Kimlik akışları (oturumsuz erişilir).
 	mux.HandleFunc("GET /auth/login", s.handleWebLogin)
 	mux.HandleFunc("GET /auth/callback", s.handleCallback)
-	mux.HandleFunc("POST /auth/confirm", s.handleConfirm)
-	mux.HandleFunc("POST /auth/logout", s.handleLogout)
+	// Çıkış da same-origin: siteler arası bir POST kurbanı sessizce
+	// oturumdan atıyordu. Etkisi düşük ama bedeli sıfır.
+	mux.Handle("POST /auth/logout", s.sameOrigin(http.HandlerFunc(s.handleLogout)))
 
 	// API: oturum ister.
-	mux.Handle("GET /api/me", s.requireSession(http.HandlerFunc(s.handleMe)))
+	mux.Handle("GET /api/me", noStore(s.requireSession(http.HandlerFunc(s.handleMe))))
 
 	// Yönetim: oturum + admin + same-origin (admin.go, federation.go).
 	s.registerAdminRoutes(mux)
@@ -218,71 +218,55 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// state kayıtlı bir denemenin base64url değeri — yine de kaçırıyoruz:
-	// "bu değer güvenli" bilgisi bu satırın üç dosya ötesinde ve yarın
-	// değişebilir; kaçırma ise bedava.
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, confirmPageHTML, html.EscapeString(state))
-}
-
-// handleConfirm, kullanıcının güvenlik kodunu doğrulayan uç:
-// form alanları state + code (terminaldeki UserCode).
-func (s *Server) handleConfirm(w http.ResponseWriter, r *http.Request) {
-	log := s.logger.With("remote", r.RemoteAddr)
-
-	state, code := r.FormValue("state"), r.FormValue("code")
-	if state == "" || code == "" {
-		http.Error(w, "missing state or code", http.StatusBadRequest)
+	// ⚠️ KODU BURADA GÖSTERİYORUZ, BURADA SORMUYORUZ.
+	//
+	// Kurbanın gördüğü sayfa artık üç şeyi birden söylüyor: SSH
+	// bağlantısının NEREDEN geldiği, kimin adına açılacağı, ve kodun
+	// TERMİNALE yazılacağı. Eskiden sayfa yalnızca "terminaldeki kodu
+	// yaz" diyordu; kurbanın kendi başlatmadığı bir girişi ayırt
+	// etmesinin hiçbir yolu yoktu.
+	code, source, ok := s.logins.Challenge(state)
+	if !ok {
+		log.Warn("oidc callback for finished attempt")
+		http.Error(w, "unknown or expired login attempt", http.StatusNotFound)
 		return
 	}
 
-	if err := s.logins.Confirm(state, code); err != nil {
-		// Yanlış kod ile bilinmeyen deneme aynı sayfayı görür (dışarıya
-		// ayrım yok) ama log'da ayrışırlar: biri güvenlik olayı, diğeri
-		// bayat bir sekme.
-		if errors.Is(err, auth.ErrLoginDenied) {
-			log.Warn("oob login rejected", "error", err)
-		} else {
-			log.Warn("oob confirm for unknown attempt", "error", err)
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusForbidden)
-		fmt.Fprint(w, deniedPageHTML)
-		return
-	}
+	log.Info("oob login parked; verification code shown to browser",
+		"user", id.Username, "ssh_source", source)
 
-	log.Info("oob login approved")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprint(w, okPageHTML)
+	fmt.Fprintf(w, confirmPageHTML,
+		html.EscapeString(source),
+		html.EscapeString(id.Username),
+		html.EscapeString(code))
 }
 
 // Sayfalar bilerek gösterişsiz: sunum öğrenme konusu değil. İçlerindeki
 // %s yerleri fmt.Fprintf ile doldurulur.
 
+// Sıra: SSH kaynağı, kimlik, sonra kod.
 const confirmPageHTML = `<!doctype html>
-<meta charset="utf-8"><title>postern — confirm login</title>
-<body style="font-family:system-ui;max-width:28rem;margin:4rem auto">
-<h2>Almost there</h2>
-<p>Type the security code shown in your terminal to approve this SSH login.</p>
-<form method="post" action="/auth/confirm">
-  <input type="hidden" name="state" value="%s">
-  <input name="code" autofocus autocomplete="off" placeholder="ABCD-EFGH"
-         style="font-size:1.4rem;letter-spacing:.2em;width:100%%">
-  <button style="margin-top:1rem;font-size:1rem">Approve login</button>
-</form>
-`
+<meta charset="utf-8"><title>postern — verify this SSH login</title>
+<body style="font-family:system-ui;max-width:34rem;margin:3rem auto;line-height:1.5">
+<h2>An SSH login is waiting for you</h2>
 
-const okPageHTML = `<!doctype html>
-<meta charset="utf-8"><title>postern — approved</title>
-<body style="font-family:system-ui;max-width:28rem;margin:4rem auto">
-<h2>Login approved ✓</h2>
-<p>You can return to your terminal.</p>
-`
+<p style="background:#fdf3e2;border:1px solid #8a5a00;color:#8a5a00;
+          padding:.75rem 1rem;border-radius:6px">
+<strong>Did you start this?</strong> A connection from
+<code style="font-size:1.05em">%s</code> is asking to sign in as
+<strong>%s</strong>. If that was not you, close this page and tell your
+administrator — someone may be trying to use your account.
+</p>
 
-const deniedPageHTML = `<!doctype html>
-<meta charset="utf-8"><title>postern — denied</title>
-<body style="font-family:system-ui;max-width:28rem;margin:4rem auto">
-<h2>Login denied</h2>
-<p>The code did not match. This attempt is now void — start a new SSH
-connection and try again.</p>
+<p>If it was you, type this verification code into the terminal that is
+waiting:</p>
+
+<p style="font-size:2rem;letter-spacing:.25em;font-family:ui-monospace,monospace;
+          text-align:center;padding:1rem;background:#f2f2f2;border-radius:6px">%s</p>
+
+<p style="color:#5a5a5a;font-size:.9rem">
+postern will never ask you to send this code to anyone. It is only ever
+typed into a terminal you are sitting at.
+</p>
 `

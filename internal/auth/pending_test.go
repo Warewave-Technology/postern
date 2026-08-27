@@ -21,11 +21,11 @@ func testLogins() *Logins { return NewLogins(testOIDC()) }
 func TestOOBStartLinkAndCode(t *testing.T) {
 	l := testLogins()
 
-	a, err := l.Start()
+	a, err := l.Start("10.0.0.1:2222")
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	b, err := l.Start()
+	b, err := l.Start("10.0.0.1:2222")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestOOBStartLinkAndCode(t *testing.T) {
 func TestOOBHappyPath(t *testing.T) {
 	l := testLogins()
 
-	a, err := l.Start()
+	a, err := l.Start("10.0.0.1:2222")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestOOBHappyPath(t *testing.T) {
 func TestOOBWaitTimesOutCleanly(t *testing.T) {
 	l := testLogins()
 
-	a, err := l.Start()
+	a, err := l.Start("10.0.0.1:2222")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestOOBWaitTimesOutCleanly(t *testing.T) {
 func TestOOBWrongCodeBurnsTheAttempt(t *testing.T) {
 	l := testLogins()
 
-	a, err := l.Start()
+	a, err := l.Start("10.0.0.1:2222")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestOOBWrongCodeBurnsTheAttempt(t *testing.T) {
 func TestOOBParkIsSingleUse(t *testing.T) {
 	l := testLogins()
 
-	a, err := l.Start()
+	a, err := l.Start("10.0.0.1:2222")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestOOBParkIsSingleUse(t *testing.T) {
 func TestOOBConfirmBeforeParkRejected(t *testing.T) {
 	l := testLogins()
 
-	a, err := l.Start()
+	a, err := l.Start("10.0.0.1:2222")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,21 +215,21 @@ func TestMaxPendingRefusesThenReleases(t *testing.T) {
 	l := NewLogins(testOIDC())
 	l.SetMaxPending(2)
 
-	a1, err := l.Start()
+	a1, err := l.Start("10.0.0.1:2222")
 	if err != nil {
 		t.Fatalf("ilk deneme: %v", err)
 	}
-	if _, err := l.Start(); err != nil {
+	if _, err := l.Start("10.0.0.1:2222"); err != nil {
 		t.Fatalf("ikinci deneme: %v", err)
 	}
 
-	if _, err := l.Start(); !errors.Is(err, ErrTooManyPending) {
+	if _, err := l.Start("10.0.0.1:2222"); !errors.Is(err, ErrTooManyPending) {
 		t.Errorf("üçüncü deneme = %v, ErrTooManyPending bekleniyordu", err)
 	}
 
 	l.Drop(a1)
 
-	if _, err := l.Start(); err != nil {
+	if _, err := l.Start("10.0.0.1:2222"); err != nil {
 		t.Errorf("yer açıldıktan sonra hâlâ reddediyor: %v", err)
 	}
 }
@@ -239,8 +239,88 @@ func TestMaxPendingZeroIsUnlimited(t *testing.T) {
 	l := NewLogins(testOIDC())
 
 	for i := 0; i < 50; i++ {
-		if _, err := l.Start(); err != nil {
+		if _, err := l.Start("10.0.0.1:2222"); err != nil {
 			t.Fatalf("%d. deneme reddedildi: %v", i, err)
 		}
+	}
+}
+
+// Kod, kimlik PARK EDİLMEDEN tarayıcıya verilmemeli.
+//
+// ⚠️ Bu, device-code phishing düzeltmesinin bel kemiği. state'i bilen
+// tek kişi denemeyi BAŞLATAN kişidir — yani saldırgan. Kod park
+// edilmeden servis edilseydi, saldırgan Challenge'ı kendisi çağırıp
+// kodu alır ve yön değişikliği hiçbir işe yaramazdı.
+func TestChallengeIsNotServedBeforePark(t *testing.T) {
+	l := NewLogins(testOIDC())
+
+	a, err := l.Start("203.0.113.7:52344")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, ok := l.Challenge(a.State()); ok {
+		t.Fatal("KOD PARK EDİLMEDEN VERİLDİ — saldırgan kodu kendisi çekebilir")
+	}
+
+	if err := l.Park(a.State(), Identity{Username: "yigit"}); err != nil {
+		t.Fatal(err)
+	}
+
+	code, source, ok := l.Challenge(a.State())
+	if !ok {
+		t.Fatal("park edildikten sonra kod verilmedi")
+	}
+	if code != a.UserCode {
+		t.Errorf("kod = %q, beklenen %q", code, a.UserCode)
+	}
+	// Kaynak adres kurbana gösterilecek: "bunu ben başlatmadım"
+	// diyebilmesinin tek somut dayanağı.
+	if source != "203.0.113.7:52344" {
+		t.Errorf("kaynak = %q, SSH bağlantısının adresi olmalıydı", source)
+	}
+}
+
+// Tarayıcı bitirmeden gelen kod denemeyi YAKMAMALI: kullanıcı erken
+// ENTER'a basmış olabilir ve baştan başlamaya zorlanmamalı.
+func TestEarlyConfirmDoesNotBurnTheAttempt(t *testing.T) {
+	l := NewLogins(testOIDC())
+
+	a, err := l.Start("10.0.0.1:2222")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := l.Confirm(a.State(), "ne-olursa"); !errors.Is(err, ErrNotReady) {
+		t.Fatalf("erken onay = %v, ErrNotReady bekleniyordu", err)
+	}
+
+	// Deneme hâlâ yaşıyor olmalı.
+	if err := l.Park(a.State(), Identity{Username: "yigit"}); err != nil {
+		t.Fatalf("erken onay denemeyi yakmış: %v", err)
+	}
+	if err := l.Confirm(a.State(), a.UserCode); err != nil {
+		t.Errorf("doğru kod reddedildi: %v", err)
+	}
+}
+
+// Yanlış kod denemeyi YAKMALI: kaba kuvvet tek atışlık olmalı.
+func TestWrongConfirmBurnsTheAttempt(t *testing.T) {
+	l := NewLogins(testOIDC())
+
+	a, err := l.Start("10.0.0.1:2222")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Park(a.State(), Identity{Username: "yigit"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := l.Confirm(a.State(), "YANLIS-KOD"); !errors.Is(err, ErrLoginDenied) {
+		t.Fatalf("yanlış kod = %v, ErrLoginDenied bekleniyordu", err)
+	}
+	// Artık doğru kod bile kabul edilmemeli.
+	if err := l.Confirm(a.State(), a.UserCode); err == nil {
+		t.Error("yanlış koddan sonra doğru kod kabul edildi — deneme yanmamış")
 	}
 }

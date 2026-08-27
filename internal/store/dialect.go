@@ -107,16 +107,39 @@ func dsn(conn string) (string, error) {
 		return "", fmt.Errorf("empty connection string")
 	}
 
-	// Anahtar=değer biçimi (host=... user=...) URL değil; olduğu gibi
-	// geçiyoruz. sslmode'u oradan da zorlamak metin biçimini elle
-	// kurcalamak demek ve o biçimi kullanan zaten pgx'e hâkim demektir.
+	// Anahtar=değer biçimi (host=... user=...).
+	//
+	// ⚠️ ESKİDEN OLDUĞU GİBİ GEÇİYORDU ve bu, fonksiyonun var olma
+	// sebebini o biçim için tamamen boşa çıkarıyordu: sslmode
+	// yazılmamışsa libpq varsayılanı "prefer" uygulanır ve TLS
+	// kurulamazsa bağlantı SESSİZCE düz metne düşer. Yani "verify-full
+	// varsayılanı" yalnızca URL biçiminde geçerliydi ve iki eşdeğer
+	// yapılandırma biçimi farklı güvenlik seviyesi veriyordu.
+	//
+	// Metni elle kurcalamak yerine REDDEDİYORUZ: bu biçimde sslmode'u
+	// doğru yere eklemek alıntılama kurallarını (tek tırnak, kaçış)
+	// yeniden uygulamak demek ve sessizce yanlış yapmaktansa
+	// operatörden açıkça yazmasını istemek daha güvenli.
 	if !strings.Contains(conn, "://") {
+		if !hasKeywordSSLMode(conn) {
+			return "", fmt.Errorf("keyword/value connection string does not set sslmode; " +
+				"add sslmode=verify-full (libpq defaults to 'prefer', which falls back to plaintext)")
+		}
 		return conn, nil
 	}
 
 	u, err := url.Parse(conn)
 	if err != nil {
-		return "", fmt.Errorf("parse connection string: %w", err)
+		// ⚠️ err SARILMIYOR ve bu bilinçli: url.Parse'ın döndürdüğü
+		// *url.Error, ayrıştıramadığı DİZENİN TAMAMINI taşır — yani
+		// veritabanı PAROLASINI. Bu hata açılışta stderr'e düşüyor,
+		// oradan journald'a, log toplayıcıya, CI çıktısına ve destek
+		// paketine gidiyor. (Ölçüldü: parolayı hata metninde gördük.)
+		//
+		// Mesaj yine de eyleme dönüştürülebilir olmalı, o yüzden
+		// sorunun SINIFINI söylüyoruz, girdiyi değil.
+		return "", fmt.Errorf("connection string is not a valid URL " +
+			"(check for stray control characters or spaces)")
 	}
 
 	// ⚠️ u.Query() DEĞİL url.ParseQuery: ilki ayrıştırma hatasını YUTAR
@@ -128,7 +151,11 @@ func dsn(conn string) (string, error) {
 	// sessizce yeniden yazmak yerine reddediyoruz.
 	q, err := url.ParseQuery(u.RawQuery)
 	if err != nil {
-		return "", fmt.Errorf("parse connection string query: %w", err)
+		// Sorgu dizesi de sır taşıyabilir: libpq "?password=..." kabul
+		// ediyor. Yukarıdakiyle aynı sebeple altta yatan hata metni
+		// aktarılmıyor.
+		return "", fmt.Errorf("connection string query is malformed " +
+			"(check %% escapes; ';' is not a valid separator)")
 	}
 
 	// Anahtar VAR ama değeri boş: "sslmode=" yazan bir yapılandırma
@@ -221,3 +248,29 @@ const tableExistsQuery = `
 // kilitleri küreseldir), o yüzden farklı olmalı ve ikisi de sıra dışı
 // değerler.
 const syncLockID int64 = 0x53594e43 // "SYNC"
+
+// hasKeywordSSLMode, anahtar=değer biçiminde sslmode yazılmış mı?
+//
+// Tam ayrıştırma yapmıyoruz — amaç "yazılmış mı" sorusuna cevap vermek,
+// değeri yorumlamak değil. Sözcük sınırı aranıyor ki "xsslmode=" ya da
+// bir parola içindeki "sslmode=" metni yanlış pozitif üretmesin.
+func hasKeywordSSLMode(conn string) bool {
+	for i := 0; i+len("sslmode") <= len(conn); i++ {
+		if conn[i:i+len("sslmode")] != "sslmode" {
+			continue
+		}
+		// Öncesi ya dizenin başı ya boşluk olmalı.
+		if i > 0 && conn[i-1] != ' ' && conn[i-1] != '\t' {
+			continue
+		}
+		// Sonrasında (boşlukları atlayarak) '=' gelmeli.
+		j := i + len("sslmode")
+		for j < len(conn) && (conn[j] == ' ' || conn[j] == '\t') {
+			j++
+		}
+		if j < len(conn) && conn[j] == '=' {
+			return true
+		}
+	}
+	return false
+}

@@ -53,6 +53,10 @@ type Writer struct {
 	closed   bool
 	firstErr error
 
+	// onFailure, ilk yazma hatasında BİR KEZ çağrılır. Oturumu kapatan
+	// taraf burada; ayrıntı OnFailure'ın doküman yorumunda.
+	onFailure func(error)
+
 	out stream // kind: "o"
 	in  stream // kind: "i"
 }
@@ -198,18 +202,54 @@ func (w *Writer) Close() (err error) {
 	return nil
 }
 
+// OnFailure, kayıt yazımı ilk kez başarısız olduğunda çağrılacak
+// fonksiyonu kurar.
+//
+// ⚠️ NEDEN VAR: bu kanca eklenene kadar oturum ortasındaki yazma
+// hataları YUTULUYORDU — akış devam ediyor, oturum kayıtsız sürüyor ve
+// hatanın tek izi kapanışta bir log satırı oluyordu. Açılışta "kayıt
+// açılamazsa oturum reddedilir" (proxy.Open ErrUnavailable döner)
+// denirken, açıldıktan sonra aynı arıza sessizce kabul ediliyordu:
+// politika yarım uygulanıyordu.
+//
+// Bir saldırgan diski doldurarak ya da kayıt dosyasını kaldırarak
+// KENDİ oturumunu ve o an açık DİĞER oturumları kayıtsız hâle
+// getirebiliyordu — ürünü kayıt olan bir sistemde bu, denetimi
+// kapatmanın yolu demek.
+//
+// Dinlemeye başlamadan ÖNCE çağrılmalı.
+func (w *Writer) OnFailure(fn func(error)) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.onFailure = fn
+}
+
+// noteFailure, ilk hatayı saklar ve kancayı BİR KEZ tetikler.
+func (w *Writer) noteFailure(err error) {
+	if err == nil {
+		return
+	}
+
+	w.mu.Lock()
+	first := w.firstErr == nil
+	if first {
+		w.firstErr = err
+	}
+	fn := w.onFailure
+	w.mu.Unlock()
+
+	// Kanca kilit DIŞINDA çağrılıyor: oturumu kapatan bir geri çağrı,
+	// kapanış yolunda tekrar bu Writer'a uğrayabilir ve kilit kendini
+	// bekler.
+	if first && fn != nil {
+		fn(err)
+	}
+}
+
 // OutputStream returns an io.Writer recording everything as "o" events.
 func (w *Writer) OutputStream() io.Writer {
 	return writerFunc(func(p []byte) (int, error) {
-		err := w.Output(p)
-
-		w.mu.Lock()
-		defer w.mu.Unlock()
-
-		if err != nil && w.firstErr == nil {
-			w.firstErr = err
-		}
-
+		w.noteFailure(w.Output(p))
 		return len(p), nil
 	})
 }
@@ -217,15 +257,7 @@ func (w *Writer) OutputStream() io.Writer {
 // InputStream is the "i" counterpart of OutputStream.
 func (w *Writer) InputStream() io.Writer {
 	return writerFunc(func(p []byte) (int, error) {
-		err := w.Input(p)
-
-		w.mu.Lock()
-		defer w.mu.Unlock()
-
-		if err != nil && w.firstErr == nil {
-			w.firstErr = err
-		}
-
+		w.noteFailure(w.Input(p))
 		return len(p), nil
 	})
 }

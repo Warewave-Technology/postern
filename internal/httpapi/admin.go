@@ -21,7 +21,7 @@ import (
 
 func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	admin := func(h http.HandlerFunc) http.Handler {
-		return s.requireSession(s.requireAdmin(s.sameOrigin(h)))
+		return noStore(s.requireSession(s.requireAdmin(s.sameOrigin(h))))
 	}
 
 	mux.Handle("GET /api/admin/users", admin(s.adminListUsers))
@@ -83,6 +83,22 @@ func (s *Server) sameOrigin(next http.Handler) http.Handler {
 			writeErr(w, http.StatusForbidden, "cross-site request rejected")
 			return
 		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// noStore, cevabın önbelleğe ALINMAMASINI söyler.
+//
+// ⚠️ NEDEN: admin cevapları kullanıcı listesini, rolleri, hedefleri ve
+// denetim kaydını taşıyor. Hiçbir önbellek yönergesi yokken bir ara
+// vekil ya da tarayıcı önbelleği bunları saklayabiliyor; paylaşılan bir
+// makinede "geri" tuşu ya da bir vekilin diskinde kalan kopya, oturumu
+// kapatmış bir yöneticinin verisini bir sonrakine gösterebilir.
+func noStore(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
+		h.Set("Pragma", "no-cache")
 		next.ServeHTTP(w, r)
 	})
 }

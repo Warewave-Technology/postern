@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/warewave/postern/internal/auth"
@@ -65,7 +66,7 @@ func (s *Server) keyboardInteractiveCallbackFor(nConn deadlineSetter) func(
 
 func (s *Server) keyboardInteractive(nConn deadlineSetter, conn ssh.ConnMetadata,
 	client ssh.KeyboardInteractiveChallenge) (*ssh.Permissions, error) {
-	a, err := s.logins.Start()
+	a, err := s.logins.Start(conn.RemoteAddr().String())
 	if err != nil {
 		// Kota dolması bir arıza DEĞİL, uygulanan bir sınır. Log'da
 		// ayrışsın ki operatör "IdP bozuldu" ile "yük altındayız"ı
@@ -96,13 +97,59 @@ func (s *Server) keyboardInteractive(nConn deadlineSetter, conn ssh.ConnMetadata
 	// MaxPendingLogins bu yolu ayrıca sınırlıyor.
 	extendDeadline(nConn, s.oobTimeout+oobDeadlineSlack, s.logger)
 
+	// ⚠️ KOD TERMİNALDE GÖSTERİLMİYOR, TERMİNALDEN SORULUYOR.
+	//
+	// Yönün gerekçesi auth.Attempt.UserCode'un doküman yorumunda: eski
+	// yönde saldırgan kodu kendi terminalinde görüp linkle birlikte
+	// kurbana yolluyordu ve kurbanın tek tıkı saldırgana kurbanın
+	// kimliğiyle oturum açıyordu. Bu yönde kod yalnızca kurbanın
+	// tarayıcısında beliriyor.
+	//
 	// Challenge'ın hatası "istemci gitti" demektir: linki hiç görmemiş
-	// olabilir. Wait'e girip tarayıcı onayı beklemek, terk edilmiş bir
-	// handshake goroutine'ini s.oobTimeout boyunca yaşatmak olurdu.
-	if _, err := client("", "postern login\n\n  "+a.URL+"\n\n  security code: "+
-		a.UserCode+"\n\nOpen the link, sign in, and type the code.",
-		nil, nil); err != nil {
-		return nil, fmt.Errorf("auth.keyboardInteractiveCallback[%s]: challenge: %w", conn.RemoteAddr(), err)
+	// olabilir. Beklemeye girip tarayıcı onayı beklemek, terk edilmiş
+	// bir handshake goroutine'ini s.oobTimeout boyunca yaşatmak olurdu.
+	instruction := "postern login\n\n  " + a.URL +
+		"\n\nOpen the link and sign in. Your browser will then show a\n" +
+		"verification code — type it here.\n"
+
+	// Kullanıcıya birkaç deneme hakkı: tarayıcı tarafı bitmeden ENTER'a
+	// basmak yaygın ve denemeyi yakmamalı.
+	const maxCodeAttempts = 3
+
+	for attempt := 0; ; attempt++ {
+		answers, cerr := client("", instruction,
+			[]string{"Verification code: "}, []bool{true})
+		if cerr != nil {
+			return nil, fmt.Errorf("auth.keyboardInteractiveCallback[%s]: challenge: %w", conn.RemoteAddr(), cerr)
+		}
+		if len(answers) != 1 {
+			return nil, fmt.Errorf("auth.keyboardInteractiveCallback[%s]: no answer", conn.RemoteAddr())
+		}
+
+		err := s.logins.Confirm(a.State(), strings.TrimSpace(answers[0]))
+		switch {
+		case err == nil:
+			// Kod doğru; kimlik teslim edildi, aşağıdaki Wait onu
+			// hemen alacak.
+
+		case errors.Is(err, auth.ErrNotReady):
+			if attempt+1 >= maxCodeAttempts {
+				s.logger.Warn("oob login abandoned: browser never completed",
+					"remote", conn.RemoteAddr())
+				return nil, fmt.Errorf("auth.keyboardInteractiveCallback[%s]: %w",
+					conn.RemoteAddr(), err)
+			}
+			instruction = "Finish signing in in your browser first, then type the\n" +
+				"verification code it shows.\n"
+			continue
+
+		default:
+			// Yanlış kod denemeyi yaktı; tekrar sormanın anlamı yok.
+			s.logger.Warn("oob login denied", "remote", conn.RemoteAddr(), "error", err)
+			return nil, fmt.Errorf("auth.keyboardInteractiveCallback[%s]: %w",
+				conn.RemoteAddr(), err)
+		}
+		break
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), s.oobTimeout)
@@ -160,6 +207,8 @@ func (s *Server) resolveIdentity(ctx context.Context, id auth.Identity) (model.U
 			Username: id.Username,
 			Email:    id.Email,
 			Groups:   groups,
+			Issuer:   id.Issuer,
+			Subject:  id.Subject,
 		})
 		if err == nil {
 			return u, nil

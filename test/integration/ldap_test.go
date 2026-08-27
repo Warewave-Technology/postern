@@ -260,6 +260,9 @@ func TestLDAPGroupsDriveProvisioning(t *testing.T) {
 		Username: ldapUser,
 		Email:    "yigit@warewave.io",
 		Groups:   groups,
+		// Kimlik (issuer, subject) ile bağlanıyor (göç 011).
+		Issuer:  "https://idp.test",
+		Subject: "sub-" + ldapUser,
 	})
 	if err != nil {
 		t.Fatalf("ProvisionUser: %v", err)

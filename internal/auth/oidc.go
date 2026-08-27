@@ -77,7 +77,15 @@ type OIDC struct {
 // S3.3 bunu postern kullanıcısına e-posta üzerinden bağlayacak
 // (users.email — o sütun ilk günden bunun için vardı).
 type Identity struct {
-	// Subject, sağlayıcının değişmez kullanıcı kimliği ("sub").
+	// Issuer ve Subject BİRLİKTE kimliğin KALICI anahtarıdır ("iss" +
+	// "sub"). OIDC'de sub sağlayıcı içinde yeniden atanmaz.
+	//
+	// ⚠️ EŞLEŞTİRME BUNLARLA YAPILIR, Username ile DEĞİL. Username
+	// preferred_username claim'inden geliyor ve birçok sağlayıcıda
+	// kullanıcının kendi değiştirebildiği bir alan; onunla eşleştirmek,
+	// adını değiştirebilen herkese var olan bir postern hesabını
+	// (is_admin bayrağı dahil) devretmek demekti.
+	Issuer  string
 	Subject string
 
 	// Email, eşleştirmede kullanılacak adres. yalnızca email_verified
@@ -211,6 +219,7 @@ func (o *OIDC) VerifyIDToken(ctx context.Context, raw, expectedNonce string) (Id
 		return identity, fmt.Errorf("auth.VerifyIDToken: %w", err)
 	}
 
+	identity.Issuer = idToken.Issuer
 	identity.Subject = idToken.Subject
 	identity.Username = c.PreferredUsername
 

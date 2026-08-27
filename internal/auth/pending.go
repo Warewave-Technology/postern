@@ -25,6 +25,10 @@ var (
 	// olmadı, süresi doldu ya da çoktan sonuçlandı).
 	ErrUnknownAttempt = errors.New("auth: unknown login attempt")
 
+	// ErrNotReady: kod girildi ama tarayıcı tarafı henüz tamamlanmadı.
+	// Denemeyi YAKMAZ — kullanıcı tekrar deneyebilir.
+	ErrNotReady = errors.New("auth: browser sign-in is not finished yet")
+
 	// ErrTooManyPending: aynı anda çok fazla giriş onay bekliyor.
 	//
 	// Kuyruğa almak yerine REDDETMEK, varsayılan-reddet kuralının
@@ -66,12 +70,29 @@ type Attempt struct {
 	// URL, kullanıcının tarayıcıda açacağı adres (AuthRequest.URL).
 	URL string
 
-	// UserCode, terminale basılan güvenlik kodu. Tarayıcıdaki onay formuna
-	// AYNEN yazılmalı. Varlık sebebi: saldırgan KENDİ login linkini kurbana
-	// yollarsa, kurban girişi tamamlar ve saldırganın bekleyen SSH oturumu
-	// kurbanın kimliğiyle onaylanırdı. Kod, terminali göreni tarayıcıda
-	// onaylayana bağlar — linki gören değil, TERMİNALİ gören onaylayabilir.
+	// UserCode, TARAYICIDA gösterilen ve TERMİNALE yazılan doğrulama kodu.
+	//
+	// ⚠️ YÖN ÖNEMLİ ve bir güvenlik açığının düzeltilmesidir. Eskiden
+	// ters yöndeydi: kod terminale basılıyor, tarayıcıya yazılıyordu.
+	// O düzenin savunduğunu sandığı saldırı şuydu — saldırgan kendi
+	// giriş linkini kurbana yollar, kurban tamamlar, saldırganın
+	// bekleyen SSH oturumu kurbanın kimliğiyle açılır. Ama kod bunu
+	// ENGELLEMİYORDU: terminali gören zaten SALDIRGANIN KENDİSİ, yani
+	// kodu da o biliyordu ve linkle birlikte kurbana yolluyordu.
+	// (Ölçüldü: TestAttackOOBDeviceCodePhishing saldırıyı uçtan uca
+	// gerçekleştiriyordu.)
+	//
+	// Ters yönde saldırganın kodu YOK: kod yalnızca kurbanın tarayıcı
+	// ekranında beliriyor. Saldırının işlemesi için kurbanın kodu
+	// okuyup saldırgana GÖNDERMESİ gerekiyor — tek tıklık bir onay
+	// yerine, insanların alarma geçtiği bir istek. Microsoft'un push
+	// bildirimlerine "numara eşleştirme" eklemesinin sebebiyle aynı.
 	UserCode string
+
+	// SourceAddr, SSH bağlantısının geldiği adres. Tarayıcıda
+	// GÖSTERİLİYOR: kurbanın "bunu ben başlatmadım" diyebilmesinin tek
+	// somut dayanağı bu.
+	SourceAddr string
 
 	state  string      // haritadaki anahtarım — Drop bunsuz beni bulamaz
 	req    AuthRequest // Lookup bunu verecek (Exchange'e lazım)
@@ -104,7 +125,11 @@ func (l *Logins) SetMaxPending(n int) {
 	l.maxPending = n
 }
 
-func (l *Logins) Start() (*Attempt, error) {
+// Start, yeni bir tarayıcı giriş denemesi açar.
+//
+// sourceAddr, SSH bağlantısının kaynak adresi; onay sayfasında
+// gösteriliyor.
+func (l *Logins) Start(sourceAddr string) (*Attempt, error) {
 	// Sınır kontrolü İLK: kotayı aşan bir denemede OIDC durumu üretmenin
 	// ve kod hesaplamanın anlamı yok.
 	l.mu.Lock()
@@ -126,12 +151,13 @@ func (l *Logins) Start() (*Attempt, error) {
 	}
 
 	a := &Attempt{
-		URL:      req.URL,
-		UserCode: code,
-		state:    req.State, // haritanın anahtarı — URL'den sökmek yok, elimizde zaten
-		req:      req,
-		logins:   l,
-		result:   make(chan waitResult, 1), // ⚠️ tamponu 1 — unutulursa her şey kilitlenir
+		URL:        req.URL,
+		UserCode:   code,
+		SourceAddr: sourceAddr,
+		state:      req.State, // haritanın anahtarı — URL'den sökmek yok, elimizde zaten
+		req:        req,
+		logins:     l,
+		result:     make(chan waitResult, 1), // ⚠️ tamponu 1 — unutulursa her şey kilitlenir
 	}
 
 	l.mu.Lock()
@@ -180,16 +206,30 @@ func (l *Logins) Park(state string, id Identity) error {
 	return nil
 }
 
+// Confirm, terminalden gelen kodu doğrular ve kimliği teslim eder.
+//
+// ⚠️ ÇAĞIRAN ARTIK SSH TARAFI. Eskiden tarayıcı çağırıyordu; yön
+// değişikliğinin gerekçesi UserCode'un doküman yorumunda.
 func (l *Logins) Confirm(state, userCode string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	a, ok := l.byState[state]
-	if !ok || a.parked == nil {
+	if !ok {
 		return ErrUnknownAttempt
 	}
 
+	// Tarayıcı henüz giriş yapmadıysa bu bir HATA DEĞİL, sıra sorunu:
+	// kullanıcı kodu göremeden yazmış olamaz, ama boş ENTER'a basmış
+	// olabilir. Denemeyi YAKMIYORUZ — yakmak, kullanıcıyı baştan
+	// başlamaya zorlardı.
+	if a.parked == nil {
+		return ErrNotReady
+	}
+
 	if subtle.ConstantTimeCompare([]byte(userCode), []byte(a.UserCode)) != 1 {
+		// Yanlış kod denemeyi YAKAR: kaba kuvvet denemesi tek atışlık
+		// olmalı.
 		l.finish(a, waitResult{err: ErrLoginDenied})
 		return ErrLoginDenied
 	}
@@ -198,6 +238,37 @@ func (l *Logins) Confirm(state, userCode string) error {
 
 	return nil
 }
+
+// Parked, tarayıcının girişi tamamlayıp kimliği park edip etmediğini
+// söyler.
+func (l *Logins) Parked(state string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	a, ok := l.byState[state]
+	return ok && a.parked != nil
+}
+
+// Challenge, tarayıcıda gösterilecek kodu ve SSH kaynağını döner.
+//
+// Kod yalnızca kimlik PARK EDİLDİKTEN sonra veriliyor: aksi hâlde
+// state'i bilen herkes (yani denemeyi başlatan saldırgan) kodu
+// doğrudan çekebilirdi ve yön değişikliği hiçbir işe yaramazdı.
+func (l *Logins) Challenge(state string) (code, sourceAddr string, ok bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	a, found := l.byState[state]
+	if !found || a.parked == nil || a.done {
+		return "", "", false
+	}
+	return a.UserCode, a.SourceAddr, true
+}
+
+// State, denemenin anahtarı. SSH tarafı Confirm'e vermek için istiyor;
+// alanın kendisi dışa kapalı kalıyor ki kimse haritayı elle
+// kurcalamasın.
+func (a *Attempt) State() string { return a.state }
 
 func (a *Attempt) Wait(ctx context.Context) (Identity, error) {
 	defer a.logins.Drop(a)

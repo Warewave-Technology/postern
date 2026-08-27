@@ -790,6 +790,49 @@ type ProvisionRequest struct {
 	Email    string
 	// Groups, IdP'nin bildirdiği ham grup adları.
 	Groups []string
+
+	// Issuer ve Subject, IdP kimliğinin KALICI anahtarı (OIDC "iss" ve
+	// "sub"). Username DEĞİL bunlar eşleştirme anahtarıdır: username
+	// birçok sağlayıcıda değiştirilebilir ve geri dönüştürülebilir.
+	// Boş bırakılırsa eşleştirme yapılamaz ve ProvisionUser reddeder.
+	Issuer  string
+	Subject string
+}
+
+// UserByIdPSubject, (issuer, subject) çiftine bağlı kullanıcıyı döner.
+func (s *Store) UserByIdPSubject(ctx context.Context, issuer, subject string) (model.User, error) {
+	var username string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT username FROM users WHERE idp_issuer = $1 AND idp_subject = $2;`,
+		issuer, subject).Scan(&username)
+	if err != nil {
+		return model.User{}, translateErr("store.UserByIdPSubject", err)
+	}
+	return s.User(ctx, username)
+}
+
+// BindIdPSubject, bir postern hesabını bir IdP kimliğine bağlar.
+//
+// SADECE HENÜZ BAĞLI DEĞİLSE: WHERE koşulu idp_subject IS NULL. Var
+// olan bir bağı sessizce değiştirmek, tam olarak önlemeye çalıştığımız
+// devralmayı geri getirirdi. Zaten bağlıysa ErrConflict.
+func (s *Store) BindIdPSubject(ctx context.Context, username, issuer, subject string) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE users SET idp_issuer = $1, idp_subject = $2
+		WHERE username = $3 AND idp_subject IS NULL;`, issuer, subject, username)
+	if err != nil {
+		return translateErr("store.BindIdPSubject", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return translateErr("store.BindIdPSubject", err)
+	}
+	if n == 0 {
+		// Ya kullanıcı yok ya da BAŞKA bir kimliğe bağlı. İkisi de
+		// "buradan devam etme" demek.
+		return fmt.Errorf("store.BindIdPSubject[%s]: %w", username, ErrConflict)
+	}
+	return nil
 }
 
 // ProvisionUser, IdP kimliğinden kullanıcıyı oluşturur/günceller ve SSO
@@ -817,10 +860,66 @@ func (s *Store) ProvisionUser(ctx context.Context, req ProvisionRequest) (model.
 		}
 	}
 
+	// ⚠️ EŞLEŞTİRME ÖNCE (issuer, subject) İLE.
+	//
+	// Bu sıra bir güvenlik açığının düzeltilmesidir. Eskiden yalnızca
+	// username ile eşleştiriliyordu ve username preferred_username
+	// claim'inden geliyor — birçok sağlayıcıda kullanıcının kendi
+	// değiştirebildiği bir alan. Adını var olan bir postern kullanıcısı
+	// yapan herkes o hesabı rolleriyle ve is_admin bayrağıyla
+	// devralıyordu.
+	if req.Issuer == "" || req.Subject == "" {
+		return model.User{}, fmt.Errorf(
+			"store.ProvisionUser[%s]: identity carries no issuer/subject: %w",
+			req.Username, ErrAccessDenied)
+	}
+
+	bound, berr := s.UserByIdPSubject(ctx, req.Issuer, req.Subject)
+	if berr != nil && !errors.Is(berr, ErrNotFound) {
+		return model.User{}, berr
+	}
+	if berr == nil {
+		// Bu IdP kimliği zaten bir hesaba bağlı. Kullanıcı adı IdP'de
+		// değişmiş olabilir — sorun değil, aynı kişi. Rolleri tazele ve
+		// O hesabı dön.
+		if serr := s.SyncRoles(ctx, bound.Name, roles); serr != nil {
+			return model.User{}, serr
+		}
+		return s.User(ctx, bound.Name)
+	}
+
 	existing, err := s.User(ctx, req.Username)
 	switch {
 	case err == nil:
-		// Var olan kullanıcı: e-posta değişmiş olabilir, güncelle.
+		// Ad eşleşiyor ama bu IdP kimliği bağlı değil.
+		//
+		// Hesap BAŞKA bir kimliğe bağlıysa BindIdPSubject reddeder —
+		// devralma denemesi tam olarak budur ve sessiz kalmamalı.
+		if berr := s.BindIdPSubject(ctx, req.Username, req.Issuer, req.Subject); berr != nil {
+			return model.User{}, fmt.Errorf(
+				"store.ProvisionUser[%s]: account is bound to a different identity: %w",
+				req.Username, ErrAccessDenied)
+		}
+
+		// ⚠️ İLK BAĞLAMA (TOFU) DENETLENEBİLİR OLMALI.
+		//
+		// CLI ile açılmış ve SSO'ya hiç girmemiş bir hesabı, adı
+		// eşleşen İLK IdP kimliği sahipleniyor. Onboarding'in çalışması
+		// için gerekli ama aynı zamanda kalan tek devralma penceresi:
+		// yalnızca anahtarla giren bir admin hesabı, o ada sahip ilk
+		// token tarafından alınabilir. Sessiz kalırsa kimse fark etmez.
+		if lerr := s.LogAdmin(ctx, AdminLogEntry{
+			Actor: "system", Via: "sso", Action: "user.idp_bind",
+			Entity: req.Username,
+			Details: fmt.Sprintf("first sign-in bound this account to issuer %s subject %s",
+				req.Issuer, req.Subject),
+		}); lerr != nil {
+			// Denetim satırı yazılamıyorsa bağlamayı da yapmış olmayı
+			// istemeyiz — ama bağlama zaten oldu. En azından hatayı
+			// yukarı taşı: izlenemeyen bir sahiplenme sessiz kalmasın.
+			return model.User{}, fmt.Errorf("store.ProvisionUser[%s]: audit: %w", req.Username, lerr)
+		}
+
 		if req.Email != "" && !strings.EqualFold(req.Email, existing.Name) {
 			if serr := s.SetUserEmail(ctx, req.Username, req.Email); serr != nil &&
 				!errors.Is(serr, ErrConflict) {
@@ -832,8 +931,32 @@ func (s *Store) ProvisionUser(ctx context.Context, req ProvisionRequest) (model.
 		if len(roles) == 0 {
 			return model.User{}, fmt.Errorf("store.ProvisionUser[%s]: %w", req.Username, ErrAccessDenied)
 		}
+
+		// ⚠️ OTOMATİK olarak ayrıcalıklı bir hesap adı üretme.
+		//
+		// JIT sağlamada os_user, IdP'nin preferred_username claim'inden
+		// AYNEN alınıyor. Adını "postgres" ya da "backup" yapabilen bir
+		// IdP kimliği, o hesabın adına sertifika istenmesine yol açar.
+		//
+		// Kontrol BURADA, policy'de değil: bir operatörün BİLEREK
+		// "postgres" hesabına erişim vermesi meşru bir iş akışı (DBA
+		// erişimi) ve `user modify --os-user` ile hâlâ mümkün. Yasak
+		// olan, kimsenin karar vermediği OTOMATİK yol.
+		//
+		// Derinlik katmanı, tek savunma değil: asıl kapı hedefin
+		// AuthorizedPrincipalsFile'ı ve postern onun yetkilendirmediği
+		// bir principal'ı kullandıramaz.
+		if reservedOSUsers[req.Username] {
+			return model.User{}, fmt.Errorf(
+				"store.ProvisionUser[%s]: refusing to auto-provision a reserved system account name; "+
+					"create the account explicitly with a different os-user: %w",
+				req.Username, ErrAccessDenied)
+		}
 		if _, cerr := s.CreateUser(ctx, req.Username, req.Email, req.Username); cerr != nil {
 			return model.User{}, cerr
+		}
+		if berr := s.BindIdPSubject(ctx, req.Username, req.Issuer, req.Subject); berr != nil {
+			return model.User{}, berr
 		}
 		// JIT kullanıcılar SSO'ya bağlı doğar: anahtarla giriş yapamaz,
 		// yani IdP'de kapatılınca erişimi gerçekten biter.
@@ -1552,4 +1675,21 @@ func translateErr(op string, err error) error {
 	}
 
 	return fmt.Errorf("%s: %w", op, err)
+}
+
+// reservedOSUsers, JIT sağlamanın OTOMATİK üretmeyeceği hesap adları.
+//
+// Hemen her Linux dağıtımında UID < 1000 ile gelen hesaplar. Hedefin
+// UID'lerini bilemediğimiz için ad üzerinden gidiyoruz. Gerekçe
+// ProvisionUser'daki kullanım yerinde.
+var reservedOSUsers = map[string]bool{
+	"root": true, "daemon": true, "bin": true, "sys": true, "sync": true,
+	"games": true, "man": true, "lp": true, "mail": true, "news": true,
+	"uucp": true, "proxy": true, "backup": true, "list": true, "irc": true,
+	"nobody": true, "systemd-network": true, "systemd-resolve": true,
+	"messagebus": true, "syslog": true, "tss": true, "landscape": true,
+	"pollinate": true, "sshd": true, "postgres": true, "mysql": true,
+	"redis": true, "nginx": true, "www-data": true, "docker": true,
+	"adm": true, "wheel": true, "sudo": true, "operator": true,
+	"halt": true, "shutdown": true, "ftp": true, "ntp": true, "dbus": true,
 }

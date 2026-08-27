@@ -7,6 +7,7 @@ package httpapi
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -93,13 +94,65 @@ func (s *Server) handleWebLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.webLogins.begin(req)
+
+	// ⚠️ STATE'İ BAŞLATAN TARAYICIYA BAĞLA.
+	//
+	// Kapatılan açık (giriş CSRF / oturum sabitleme): saldırgan
+	// /auth/login çağırıp kendi state'ini alıyor, sonra kurbanın
+	// tarayıcısını o state ile callback'e sürüklüyordu. Kurban
+	// SALDIRGANIN kimliğiyle oturum açmış oluyor ve bundan sonra
+	// yaptığı her şey saldırganın hesabına yazılıyordu — bir bastion
+	// panelinde bu, kurbanın işlemlerinin denetim kaydında yanlış
+	// kişiye atfedilmesi demek.
+	//
+	// SameSite=Lax bilinçli: IdP'den geri dönüş üst düzey bir
+	// gezinmedir ve Strict çerezi orada göndermez, yani giriş hiç
+	// çalışmazdı.
+	// #nosec G124 -- Secure koşullu: bkz. Server.SetExternalURL
+	http.SetCookie(w, &http.Cookie{
+		Name:     loginStateCookie,
+		Value:    req.State,
+		Path:     "/auth/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   s.secureCookies,
+		MaxAge:   int(webPendingTTL / time.Second),
+	})
+
 	http.Redirect(w, r, req.URL, http.StatusFound)
+}
+
+// loginStateCookie, web giriş akışının state'ini tarayıcıya bağlayan
+// çerez.
+const loginStateCookie = "postern_login"
+
+// clearLoginStateCookie, tek kullanımlık state çerezini düşürür.
+func (s *Server) clearLoginStateCookie(w http.ResponseWriter) {
+	// #nosec G124 -- Secure koşullu: bkz. Server.SetExternalURL
+	http.SetCookie(w, &http.Cookie{
+		Name: loginStateCookie, Value: "", Path: "/auth/", MaxAge: -1,
+		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: s.secureCookies,
+	})
 }
 
 // completeWebLogin, callback'in WEB koluna düşen yarısı: handleCallback
 // state'i OOB kaydında bulamayınca buraya gelir.
 func (s *Server) completeWebLogin(w http.ResponseWriter, r *http.Request, state, code string) {
 	log := s.logger.With("remote", r.RemoteAddr)
+
+	// ⚠️ Bu akışı BAŞLATAN tarayıcı mı geri döndü?
+	//
+	// OOB akışında böyle bir kontrol YOK ve olmamalı: orada tarayıcının
+	// akışı başlatmamış olması tasarımın kendisi. Web akışında ise
+	// başlatan ile dönen aynı tarayıcı olmalı.
+	c, cerr := r.Cookie(loginStateCookie)
+	if cerr != nil || subtle.ConstantTimeCompare([]byte(c.Value), []byte(state)) != 1 {
+		log.Warn("web callback state does not match the browser that started it")
+		s.clearLoginStateCookie(w)
+		http.Error(w, "login session mismatch; start again", http.StatusForbidden)
+		return
+	}
+	s.clearLoginStateCookie(w)
 
 	req, ok := s.webLogins.take(state)
 	if !ok {
@@ -287,6 +340,8 @@ func (s *Server) resolveIdentity(ctx context.Context, log *slog.Logger, id auth.
 			Username: id.Username,
 			Email:    id.Email,
 			Groups:   groups,
+			Issuer:   id.Issuer,
+			Subject:  id.Subject,
 		})
 		switch {
 		case err == nil:

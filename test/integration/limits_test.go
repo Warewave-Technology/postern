@@ -33,11 +33,11 @@ func TestOOBLoginSurvivesShortHandshakeTimeout(t *testing.T) {
 
 	sshAddr, _, hostPub, db := oobBastion(t, 60*time.Second)
 
-	client, err := kiClient(sshAddr, hostPub, func(loginURL, userCode string) error {
+	client, err := kiClient(sshAddr, hostPub, func(loginURL string) (string, error) {
 		// Handshake süresinden UZUN bekle: uzatma yoksa sunucu tam
 		// burada bağlantıyı düşürür.
 		time.Sleep(8 * time.Second)
-		return approveInBrowser(loginURL, userCode)
+		return browserSignInForCode(loginURL)
 	})
 	if err != nil {
 		t.Fatalf("kısa handshake süresiyle OOB girişi düştü: %v "+
@@ -215,3 +215,89 @@ func TestIdleSessionIsClosedAndRecorded(t *testing.T) {
 }
 
 var _ = net.Dial
+
+// ⚠️ İSTEMCİ KAYBOLURSA OTURUM SIZMAMALI.
+//
+// Kapatılan sızıntı: oturum bağlamı sunucu bağlamından türüyordu, yani
+// istemci ortadan kaybolduğunda (ağ koptu, süreç öldürüldü) ve hedef de
+// sessizse hiçbir şey oturumu bitirmiyordu. Broker'ın beklediği üç
+// goroutine de HEDEFTEN okuyor; hedef susarsa üçü de asılı kalır.
+//
+// Kalıcı olarak sızan şeyler: hedefe açık bir SSH bağlantısı, açık bir
+// .cast dosya tanıtıcısı ve sessions tablosunda ended_at'i NULL kalan
+// bir satır — denetim kaydı "bu oturum hâlâ açık" demeye devam ediyordu.
+// Her yeni bağlantı bir tane daha ekliyordu.
+func TestVanishedClientDoesNotLeakTheSession(t *testing.T) {
+	caKeyPath, caPub := newTestCA(t)
+	tgt := startCertTarget(t, caPub)
+	tc := tgt.target()
+	tc.Name = "web01"
+
+	// Sınırların HİÇBİRİ açık değil: sızıntının kapanması onlara
+	// bağlıysa varsayılan kurulum korunmasız demektir.
+	srv, hostPub, signer, db := newBastionOpts(t, caKeyPath, false, tc)
+	addr := startBastion(t, srv)
+
+	client, err := ssh.Dial("tcp", addr, &ssh.ClientConfig{
+		User:            "yigit:web01",
+		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
+		HostKeyCallback: ssh.FixedHostKey(hostPub),
+		Timeout:         10 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+
+	sess, err := client.NewSession()
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	// ⚠️ TAMAMEN SESSİZ bir hedef gerekiyor: pty'li bir kabuk komut
+	// istemi basar, ölü istemciye yazma başarısız olur ve oturum
+	// kendiliğinden kapanır — yani sızıntı hiç tetiklenmez. `sleep`
+	// hiçbir şey yazmıyor, exit-status da göndermiyor; broker'ın
+	// beklediği üç goroutine de hedeften okuduğu için üçü birden
+	// asılı kalır.
+	if err := sess.Start("sleep 300"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// Oturumun denetim satırı açılsın.
+	var id string
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		rows, err := db.Sessions(context.Background(), "", 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) == 1 {
+			id = rows[0].ID
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if id == "" {
+		t.Fatal("oturum hiç açılmadı")
+	}
+
+	// İSTEMCİ KAYBOLUYOR: nazik bir kapanış değil, alttaki TCP
+	// bağlantısını düşürüyoruz — ağın kopmasının karşılığı.
+	if err := client.Close(); err != nil {
+		t.Logf("close: %v", err)
+	}
+
+	// Denetim satırı kapanmalı.
+	deadline = time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		rows, err := db.Sessions(context.Background(), "", 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) == 1 && !rows[0].Open() {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Error("istemci gitti ama oturum 'çalışıyor' kaldı — " +
+		"hedef bağlantısı, kayıt dosyası ve denetim satırı sızıyor")
+}

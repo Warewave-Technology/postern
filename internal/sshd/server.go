@@ -105,6 +105,24 @@ func (s *Server) EnableOOB(logins *auth.Logins, timeout time.Duration) {
 
 // New prepares the server.
 func New(cfg *config.Config, db *store.Store, logger *slog.Logger) (*Server, error) {
+	// ⚠️ İZİN KONTROLÜ OKUMADAN ÖNCE.
+	//
+	// Host özel anahtarı, bastion'ın kendi kimliği: onu ele geçiren
+	// biri bastion'ı taklit edip kullanıcıların oturumlarını araya
+	// girerek toplayabilir (istemciler host key'i pinliyor, ama
+	// çalınan anahtar o pini de sağlar). CA anahtarı ve mühür anahtarı
+	// için bu kontrol vardı, host anahtarı için YOKTU — grup/dünya
+	// okunabilir bir dosya sessizce kabul ediliyordu.
+	info, err := os.Stat(cfg.HostKey)
+	if err != nil {
+		return nil, fmt.Errorf("sshd.New: %w", err)
+	}
+	if perm := info.Mode().Perm(); perm&0o077 != 0 {
+		return nil, fmt.Errorf("sshd.New: host key %s is group/world readable (%04o); chmod 600 it",
+			cfg.HostKey, perm)
+	}
+
+	// #nosec G304 -- yol config'teki host_key; operatör girdisi
 	data, err := os.ReadFile(cfg.HostKey)
 	if err != nil {
 		return nil, fmt.Errorf("sshd.New: %w", err)
@@ -282,6 +300,25 @@ func (s *Server) handleConn(ctx context.Context, nConn net.Conn, release func())
 		"remote", sshConn.RemoteAddr(),
 	)
 
+	// ⚠️ OTURUMLAR BAĞLANTIYA BAĞLANIYOR.
+	//
+	// Kapatılan sızıntı: oturum bağlamı sunucu bağlamından türüyordu,
+	// yani istemci ortadan kaybolduğunda (ağ koptu, istemci öldürüldü)
+	// ve hedef de sessizse hiçbir şey oturumu bitirmiyordu. Broker'ın
+	// beklediği üç goroutine de HEDEFTEN okuyor; hedef susuyorsa
+	// üçü de asılı kalıyordu.
+	//
+	// Kalıcı olarak sızan şeyler: hedefe açık bir SSH+TCP bağlantısı
+	// (kullanıcının sertifika principal'ıyla), açık bir .cast dosya
+	// tanıtıcısı (kapanmadığı için tamponlanan kuyruk hiç yazılmıyor)
+	// ve sessions tablosunda ended_at'i NULL kalan bir satır — yani
+	// denetim kaydı "bu oturum hâlâ açık" demeye devam ediyordu.
+	//
+	// Aşağıdaki döngü bağlantı ölünce biter; connCancel de o an bu
+	// bağlantının bütün oturumlarını kapatır.
+	connCtx, connCancel := context.WithCancelCause(ctx)
+	defer connCancel(errConnectionClosed)
+
 	go ssh.DiscardRequests(reqs)
 
 	// Kanal sayacı: bu kümedeki TEK kimlik doğrulama sonrası sınır.
@@ -318,7 +355,7 @@ func (s *Server) handleConn(ctx context.Context, nConn net.Conn, release func())
 				chanCount--
 				chanMu.Unlock()
 			}()
-			s.handleChannel(ctx, sshConn, nc)
+			s.handleChannel(connCtx, sshConn, nc)
 		}(newChan)
 	}
 }
@@ -342,3 +379,7 @@ func (s *Server) serverConfig(nConn deadlineSetter) (*ssh.ServerConfig, error) {
 	cfg.AddHostKey(s.signer)
 	return cfg, nil
 }
+
+// errConnectionClosed, istemci bağlantısı bittiğinde oturumları
+// kapatan sebep.
+var errConnectionClosed = errors.New("sshd: client connection closed")

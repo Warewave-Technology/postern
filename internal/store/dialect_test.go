@@ -254,10 +254,11 @@ func TestDSNDefaultsToVerifyFull(t *testing.T) {
 		},
 		{
 			// Anahtar=değer biçimi URL değil; elle kurcalamak yerine
-			// olduğu gibi geçiyoruz (bkz. dsn doc'u).
+			// olduğu gibi geçiyoruz — ama sslmode YAZILMIŞ olmalı
+			// (bkz. TestKeywordDSNMustStateSSLMode).
 			name:  "anahtar=deger bicimi oldugu gibi gecer",
-			in:    "host=db.local user=postern dbname=postern",
-			want:  "host=db.local user=postern dbname=postern",
+			in:    "host=db.local user=postern dbname=postern sslmode=verify-full",
+			want:  "host=db.local user=postern dbname=postern sslmode=verify-full",
 			exact: true,
 		},
 	}
@@ -289,6 +290,83 @@ func TestDSNRejectsEmpty(t *testing.T) {
 	for _, in := range []string{"", "   ", "\t\n"} {
 		if _, err := dsn(in); err == nil {
 			t.Errorf("dsn(%q) hata vermedi", in)
+		}
+	}
+}
+
+// Bağlantı dizesi hataları PAROLAYI TAŞIMAMALI.
+//
+// Ölçülmüş bir sızıntının regresyon testi: url.Parse'ın döndürdüğü
+// *url.Error, ayrıştıramadığı dizenin TAMAMINI taşıyor ve bu hata
+// açılışta stderr'e düşüyor — oradan journald'a, log toplayıcıya, CI
+// çıktısına ve destek paketine. Veritabanı parolası postern'in
+// yetkilendirme ve denetim verisinin tamamına doğrudan erişim demek:
+// onunla users.is_admin yazılabilir, yani panelin CLI-only admin kuralı
+// tamamen atlanır.
+func TestDSNErrorsDoNotLeakThePassword(t *testing.T) {
+	const secret = "s3cret-p4ss"
+
+	bad := map[string]string{
+		"bozuk kacis sorguda": "postgres://postern:" + secret + "@db.local:5432/postern?x=%zz",
+		"kontrol karakteri":   "postgres://postern:" + secret + "@host\x7f/db",
+		"noktali virgul":      "postgres://postern:" + secret + "@db.local/postern?a=1;b=2",
+		"bozuk yuzde":         "postgres://postern:" + secret + "@db.local/postern?%",
+	}
+
+	for name, conn := range bad {
+		t.Run(name, func(t *testing.T) {
+			out, err := dsn(conn)
+			if err == nil {
+				// Reddetmemesi de kabul — ama o zaman ÇIKTI sızdırmamalı.
+				if strings.Contains(out, secret) {
+					t.Errorf("çıktı parolayı taşıyor: %q", out)
+				}
+				return
+			}
+			if strings.Contains(err.Error(), secret) {
+				t.Errorf("PAROLA HATA METNİNDE SIZDI: %v", err)
+			}
+			// Mesaj yine de işe yaramalı: sebebini söylemeyen bir hata,
+			// operatörü yapılandırmayı tahmin etmeye zorlar.
+			if len(err.Error()) < 20 {
+				t.Errorf("hata mesajı teşhis için fazla kısa: %q", err)
+			}
+		})
+	}
+}
+
+// ⚠️ İKİ YAPILANDIRMA BİÇİMİ AYNI GÜVENLİK SEVİYESİNİ VERMELİ.
+//
+// Kapatılan boşluk: anahtar=değer biçimi ("host=... user=...") olduğu
+// gibi geçiriliyordu, yani sslmode yazılmamışsa libpq varsayılanı
+// "prefer" uygulanıyordu — TLS kurulamazsa bağlantı SESSİZCE düz metne
+// düşer. dsn'in var olma sebebi tam olarak bunu önlemekti ve bu biçimde
+// hiç uygulanmıyordu.
+func TestKeywordDSNMustStateSSLMode(t *testing.T) {
+	refused := []string{
+		"host=db.local user=postern dbname=postern",
+		"host=db.local user=postern password=xsslmode=hile", // sözcük sınırı
+		"  host=db.local  ",
+	}
+	for _, conn := range refused {
+		if out, err := dsn(conn); err == nil {
+			t.Errorf("sslmode'suz anahtar=değer kabul edildi: %q -> %q", conn, out)
+		}
+	}
+
+	accepted := []string{
+		"host=db.local user=postern sslmode=verify-full",
+		"sslmode=require host=db.local",
+		"host=db.local sslmode = disable", // boşluklu yazım da sayılır
+	}
+	for _, conn := range accepted {
+		out, err := dsn(conn)
+		if err != nil {
+			t.Errorf("sslmode'lu anahtar=değer reddedildi: %q -> %v", conn, err)
+			continue
+		}
+		if out != conn {
+			t.Errorf("anahtar=değer biçimi değiştirilmiş: %q -> %q", conn, out)
 		}
 	}
 }

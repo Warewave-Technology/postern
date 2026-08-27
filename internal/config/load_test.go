@@ -418,3 +418,46 @@ func TestEmptyDatabaseDSNEnvKeepsFileValue(t *testing.T) {
 		t.Errorf("DSN = %q, dosyadaki %q korunmalıydı", cfg.Database.DSN, fromFile)
 	}
 }
+
+// ⚠️ YAPILANDIRMA HATALARI SIR SIZDIRMAMALI.
+//
+// Ölçülmüş bir sızıntının regresyon testi: goccy/go-yaml ayrıştırma
+// hatasına KAYNAK SATIRLARINI ekliyor ve config'in kaynak satırlarında
+// veritabanı parolası ile OIDC istemci sırrı var. Bu hata açılışta
+// stderr'e düşüyor — oradan journald'a, log toplayıcıya, CI çıktısına
+// ve destek paketine.
+func TestConfigErrorsDoNotEchoSecrets(t *testing.T) {
+	const (
+		dbPassword   = "SUPER-SECRET-PW"
+		clientSecret = "OIDC-CLIENT-SECRET-XYZ"
+	)
+
+	content := `listen:
+  addr: ":2222"
+database:
+  dsn: postgres://postern:` + dbPassword + `@db/postern?sslmode=disable
+oidc:
+  client_secret: ` + clientSecret + `
+bozuk: [
+`
+	p := filepath.Join(t.TempDir(), "c.yaml")
+	if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Load(p)
+	if err == nil {
+		t.Fatal("bozuk YAML kabul edildi")
+	}
+
+	for _, secret := range []string{dbPassword, clientSecret} {
+		if strings.Contains(err.Error(), secret) {
+			t.Errorf("SIR HATA METNİNDE SIZDI (%s):\n%v", secret, err)
+		}
+	}
+
+	// Mesaj yine de teşhis edilebilir olmalı: dosya adı geçmeli.
+	if !strings.Contains(err.Error(), "c.yaml") {
+		t.Errorf("hata dosyayı adlandırmıyor: %v", err)
+	}
+}

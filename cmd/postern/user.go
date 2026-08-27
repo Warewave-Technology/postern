@@ -113,6 +113,10 @@ func newUserAddCmd() *cobra.Command {
 			case err != nil:
 				return err
 			default:
+				if aerr := auditCLI(ctx, db, "user.create", name,
+					fmt.Sprintf("os-user %s", osUser)); aerr != nil {
+					return aerr
+				}
 				fmt.Fprintf(out, "user %q created\n", name)
 			}
 
@@ -123,6 +127,10 @@ func newUserAddCmd() *cobra.Command {
 					}
 					return err
 				}
+				if aerr := auditCLI(ctx, db, "user.role_assign", name,
+					"assigned role "+role); aerr != nil {
+					return aerr
+				}
 				fmt.Fprintf(out, "  role %q assigned\n", role)
 			}
 
@@ -132,6 +140,11 @@ func newUserAddCmd() *cobra.Command {
 						return fmt.Errorf("key %s belongs to another user — a key can only identify one person", k.path)
 					}
 					return err
+				}
+				// Anahtarın KENDİSİ loglanmıyor — yorumu yeterli ve
+				// blob denetim kaydını gereksiz büyütür.
+				if aerr := auditCLI(ctx, db, "user.key_add", name, k.comment); aerr != nil {
+					return aerr
 				}
 				fmt.Fprintf(out, "  key %s added\n", k.path)
 			}
@@ -281,6 +294,13 @@ func newUserModifyCmd() *cobra.Command {
 				if err := db.SetUserAdmin(ctx, name, admin); err != nil {
 					return err
 				}
+				// ⚠️ Bu, sistemdeki en ayrıcalıklı işlem ve tasarım onu
+				// bilerek yalnızca CLI'ya emanet ediyor. İz bırakmaması
+				// düşünülemez.
+				if err := auditCLI(ctx, db, "user.admin", name,
+					fmt.Sprintf("admin set to %v", admin)); err != nil {
+					return err
+				}
 				fmt.Fprintf(out, "user %q: admin set to %v\n", name, admin)
 			}
 
@@ -291,6 +311,10 @@ func newUserModifyCmd() *cobra.Command {
 				// "yetkisi otomatik iptal edilebilir" demek, yani bu da
 				// admin bayrağı gibi yalnızca host'tan verilmeli.
 				if err := db.SetUserSSOOnly(ctx, name, ssoOnly); err != nil {
+					return err
+				}
+				if err := auditCLI(ctx, db, "user.sso_only", name,
+					fmt.Sprintf("sso-only set to %v", ssoOnly)); err != nil {
 					return err
 				}
 				fmt.Fprintf(out, "user %q: sso-only set to %v", name, ssoOnly)

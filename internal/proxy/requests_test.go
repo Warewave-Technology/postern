@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"github.com/warewave/postern/internal/record"
 	"log/slog"
 	"strings"
 	"testing"
@@ -271,5 +272,70 @@ func TestAllowedRequestIsForwarded(t *testing.T) {
 	got := dst.sentRequests()
 	if len(got) != 1 || got[0].name != "pty-req" {
 		t.Errorf("iletilen request'ler = %+v, [pty-req] bekleniyordu", got)
+	}
+}
+
+// ⚠️ exec KOMUTU kayda düşmeli.
+//
+// Kapatılan boşluk: `exec` istekleri hedefe geçiyor ama komut satırı
+// hiçbir yere yazılmıyordu. `ssh user:target@bastion 'rm -rf /veri'`
+// çalışıyor, kısa çıktısı kayda düşüyor ama KOMUTUN KENDİSİ ne
+// kayıtta, ne sessions tablosunda, ne logda görünüyordu. Bu, subsystem
+// engelinin gerekçesiyle aynı boşluk — orada kapatıp burada açık
+// bırakmak tutarsızdı.
+func TestExecCommandIsRecorded(t *testing.T) {
+	var sink memCloser
+
+	w, err := record.NewWriter(&sink, 80, 24, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	b := &Broker{rec: w, logger: testLogger()}
+	b.recordIntent(&ssh.Request{
+		Type:    "exec",
+		Payload: ssh.Marshal(ExecRequest{Command: "cat /etc/shadow"}),
+	})
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	got := sink.String()
+	if !strings.Contains(got, "cat /etc/shadow") {
+		t.Errorf("komut kayda düşmedi:\n%s", got)
+	}
+}
+
+// Ayrıştırılamayan bir exec de SESSİZ geçmemeli: denetim kaydı
+// "burada bir exec vardı" demeli.
+func TestUnparsableExecIsStillRecorded(t *testing.T) {
+	var sink memCloser
+
+	w, err := record.NewWriter(&sink, 80, 24, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	b := &Broker{rec: w, logger: testLogger()}
+	b.recordIntent(&ssh.Request{Type: "exec", Payload: []byte{0xff, 0xff}})
+	w.Close()
+
+	if !strings.Contains(sink.String(), "exec") {
+		t.Errorf("ayrıştırılamayan exec kayda hiç düşmedi:\n%s", sink.String())
+	}
+}
+
+// shell de kayda düşmeli: oturumun ne için açıldığı ilk satırda
+// görünsün.
+func TestShellIntentIsRecorded(t *testing.T) {
+	var sink memCloser
+
+	w, _ := record.NewWriter(&sink, 80, 24, nil)
+	b := &Broker{rec: w, logger: testLogger()}
+	b.recordIntent(&ssh.Request{Type: "shell"})
+	w.Close()
+
+	if !strings.Contains(sink.String(), "shell") {
+		t.Errorf("shell kayda düşmedi:\n%s", sink.String())
 	}
 }

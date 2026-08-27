@@ -183,6 +183,7 @@ func (b *Broker) relayRequests(dst ssh.Channel, src <-chan *ssh.Request, dir dir
 
 		if observe {
 			b.recordResize(req)
+			b.recordIntent(req)
 		}
 
 		if req.WantReply {
@@ -288,4 +289,55 @@ func (b *Broker) clampDim(v uint32) int {
 		return maxTerminalDim
 	}
 	return int(v)
+}
+
+// recordIntent, oturumun NE YAPMAK İSTEDİĞİNİ kayda ve loga yazar.
+//
+// ⚠️ NEDEN VAR: `exec` istekleri hedefe geçiyor ama komut satırı
+// HİÇBİR YERE yazılmıyordu. `ssh user:target@bastion 'komut'` çalışıyor,
+// çıktısı kayda düşüyor ama KOMUTUN KENDİSİ ne kayıtta ne sessions
+// tablosunda ne logda görünüyordu — kısa çıktılı bir komut (dosya
+// silme, kullanıcı ekleme) fiilen boş bir transkript bırakıyordu.
+//
+// Bu, `subsystem`in engellenme gerekçesiyle AYNI boşluk: "denetlenemeyen
+// kanal". Orada kapatıp burada açık bırakmak tutarsızdı.
+//
+// Komut kayda "o" olayı olarak DEĞİL, ayrı bir satır olarak yazılamıyor
+// (asciicast v2'de üç olay tipi var), o yüzden oynatıcının göstereceği
+// akışa bir başlık satırı olarak giriyor ve ayrıca Warn ile loglanıyor.
+func (b *Broker) recordIntent(req *ssh.Request) {
+	var line string
+
+	switch req.Type {
+	case "exec":
+		p, err := ParseExec(req.Payload)
+		if err != nil {
+			b.logger.Error("exec parse error", "error", err)
+			// Ayrıştıramadığımız bir komutu SESSİZ geçmiyoruz: denetim
+			// kaydı "burada bir exec vardı" demeli.
+			line = "postern: exec (unparsable command)"
+			b.logger.Warn("session exec", "command", "<unparsable>")
+		} else {
+			line = "postern: exec " + p.Command
+			b.logger.Warn("session exec", "command", p.Command)
+		}
+
+	case "shell":
+		line = "postern: shell"
+
+	case "signal":
+		line = "postern: signal"
+
+	default:
+		return
+	}
+
+	if b.rec == nil {
+		return
+	}
+	// Kayda çıktı akışının başına düşüyor: oynatan kişi oturumun ne
+	// için açıldığını ilk satırda görüyor.
+	if _, err := b.rec.OutputStream().Write([]byte("\r\n\x1b[2m" + line + "\x1b[0m\r\n")); err != nil {
+		b.logger.Error("intent record failed", "error", err)
+	}
 }

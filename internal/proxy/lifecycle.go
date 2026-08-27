@@ -38,6 +38,10 @@ var (
 	ErrIdleTimeout = errors.New("proxy: session idle timeout")
 	ErrMaxLifetime = errors.New("proxy: session max lifetime")
 
+	// ErrRecordingFailed: kayıt yazımı oturum ortasında bozuldu.
+	// Oturum KAPATILIR — kayıtsız oturum yok.
+	ErrRecordingFailed = errors.New("proxy: recording failed")
+
 	// ErrUnavailable: hedefe ulaşılamadı, kayıt açılamadı, veritabanı
 	// erişilemiyor. Kullanıcının suçu değil; birinin müdahale etmesi
 	// gerekir. Çağıran "connection failed" / HTTP 503 der.
@@ -238,6 +242,36 @@ func (s *Session) Run(ctx context.Context, down ssh.Channel, downR <-chan *ssh.R
 	ctx, guard, stop := bound(ctx, s.deps.IdleTimeout, s.deps.MaxLifetime)
 	defer stop()
 
+	// ⚠️ KAYIT BOZULURSA OTURUM BİTER.
+	//
+	// Açılışta politika zaten buydu (kayıt açılamazsa proxy.Open
+	// ErrUnavailable döner). Oturum ORTASINDA aynı arıza sessizce
+	// yutuluyordu: akış devam ediyor, oturum kayıtsız sürüyordu. Yani
+	// "kayıtsız oturum yok" kuralı yarım uygulanıyordu ve diski
+	// doldurabilen bir kullanıcı denetimi fiilen kapatabiliyordu.
+	recFailed := make(chan error, 1)
+	if s.rec != nil {
+		s.rec.OnFailure(func(err error) {
+			select {
+			case recFailed <- err:
+			default:
+			}
+		})
+	}
+
+	recCtx, recCancel := context.WithCancelCause(ctx)
+	defer recCancel(nil)
+	ctx = recCtx
+
+	go func() {
+		select {
+		case err := <-recFailed:
+			s.Log.Error("session closed: recording failed mid-session", "error", err)
+			recCancel(ErrRecordingFailed)
+		case <-recCtx.Done():
+		}
+	}()
+
 	b := New(down, downR, s.up, s.upR, s.rec, s.deps.RecordInput, s.deps.Requests, s.deps.Logger)
 	b.idle = guard
 
@@ -254,6 +288,8 @@ func (s *Session) Run(ctx context.Context, down ssh.Channel, downR <-chan *ssh.R
 			fields = append(fields, "closed_by", "idle_timeout")
 		case errors.Is(cause, ErrMaxLifetime):
 			fields = append(fields, "closed_by", "max_lifetime")
+		case errors.Is(cause, ErrRecordingFailed):
+			fields = append(fields, "closed_by", "recording_failed")
 		}
 	}
 	s.Log.Info("session ended", fields...)

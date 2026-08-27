@@ -19,7 +19,7 @@ import (
 
 func (s *Server) registerFederationRoutes(mux *http.ServeMux) {
 	admin := func(h http.HandlerFunc) http.Handler {
-		return s.requireSession(s.requireAdmin(s.sameOrigin(h)))
+		return noStore(s.requireSession(s.requireAdmin(s.sameOrigin(h))))
 	}
 
 	mux.Handle("GET /api/admin/mappings", admin(s.adminListMappings))

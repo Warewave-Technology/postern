@@ -99,6 +99,11 @@ func TestAdminAPIEndToEnd(t *testing.T) {
 	}
 	wantActions := map[string]bool{"target.create": false, "role.create": false, "role.grant": false, "user.create": false}
 	for _, e := range entries {
+		// Giriş anında yazılan kimlik-bağlama satırı bu testin konusu
+		// değil: onu sistem yazıyor (via=sso), yönetici değil.
+		if e.Action == "user.idp_bind" {
+			continue
+		}
 		if e.Actor != "yigit" || e.Via != "web" {
 			t.Errorf("defter kaydında aktör/kapı yanlış: %+v", e)
 		}

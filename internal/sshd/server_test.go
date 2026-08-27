@@ -15,6 +15,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/pem"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -279,3 +280,35 @@ func TestServeStopsOnContextCancel(t *testing.T) {
 type nopDeadline struct{}
 
 func (nopDeadline) SetDeadline(time.Time) error { return nil }
+
+// ⚠️ Grup/dünya okunabilir bir host anahtarı REDDEDİLMELİ.
+//
+// Host özel anahtarı bastion'ın kendi kimliği: onu ele geçiren biri
+// bastion'ı taklit edip kullanıcıların oturumlarını toplayabilir —
+// istemcilerin host key pinlemesi de çalınan anahtarı doğrular. CA
+// anahtarı ve mühür anahtarı için bu kontrol vardı, host anahtarı için
+// yoktu.
+func TestNewRefusesWorldReadableHostKey(t *testing.T) {
+	cfg := testConfigNoDB(t)
+
+	for _, mode := range []os.FileMode{0o644, 0o640, 0o604, 0o666} {
+		t.Run(fmt.Sprintf("%04o", mode), func(t *testing.T) {
+			if err := os.Chmod(cfg.HostKey, mode); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { os.Chmod(cfg.HostKey, 0o600) })
+
+			if _, err := New(cfg, nil, testLogger()); err == nil {
+				t.Errorf("%04o izinli host anahtarı kabul edildi", mode)
+			}
+		})
+	}
+
+	// 0600 kabul edilmeli.
+	if err := os.Chmod(cfg.HostKey, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(cfg, nil, testLogger()); err != nil {
+		t.Errorf("0600 izinli host anahtarı reddedildi: %v", err)
+	}
+}

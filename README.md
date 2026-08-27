@@ -84,6 +84,34 @@ session:
 
 An empty list relays nothing; omitting the key keeps the default.
 
+### Who you are, and how postern knows
+
+An OIDC identity is joined to a postern account by `(iss, sub)`, not by
+`preferred_username`. That distinction is the whole point: `sub` is
+stable and never reassigned, while `preferred_username` is editable by
+the user themselves in Keycloak, Auth0 and most brokered setups. Joining
+on the name meant anyone who could set their username to `yigit.basalma`
+inherited that account — its roles, its `os_user`, and its `is_admin`
+flag, routing straight around the rule that only the host CLI grants
+admin. It also happened with no attacker at all, the first time an
+organisation recycled a departed employee's login name.
+
+An account that is already bound to one identity refuses a second. An
+account with no binding yet — one the CLI created — is claimed by the
+first matching sign-in and that claim is written to the audit log, since
+it is the one moment the door is open.
+
+Browser login for SSH shows the verification code **in the browser** and
+asks for it **in the terminal**. The obvious arrangement is the other way
+round, and it was, and it did not work: the attacker starts the SSH
+connection, so the attacker's own terminal prints the code, and sending
+a victim "click this link and type ABCD-EFGH" was enough to get an SSH
+session as them. Reversing it means the code exists only on the victim's
+screen, so the attack now needs them to read it back — the ask people
+actually notice. The page also names the source address of the waiting
+connection and says postern will never ask for the code to be sent
+anywhere.
+
 ### Keeping authorization fresh
 
 Group membership was resolved only at login, so a user deleted in the

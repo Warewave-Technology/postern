@@ -28,7 +28,7 @@ func TestRecordingIsServedToAdmins(t *testing.T) {
 	}
 
 	// --- oturumu SSH üzerinden aç ve tanınabilir bir çıktı üret ---
-	client, err := kiClient(sshAddr, hostPub, approveInBrowser)
+	client, err := kiClient(sshAddr, hostPub, browserSignInForCode)
 	if err != nil {
 		t.Fatalf("OOB girişi: %v", err)
 	}

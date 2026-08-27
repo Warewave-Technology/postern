@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { CastError, compress, duration, formatDuration, parseCast } from "./cast";
+import {
+  CastError, compress, duration, formatDuration, initialSize, parseCast, parseResize,
+} from "./cast";
 
 describe("parseCast", () => {
   const header = '{"version":2,"width":120,"height":30,"timestamp":1}';
@@ -106,4 +108,54 @@ describe("duration", () => {
   it("bos kayit sifir", () => expect(duration([])).toBe(0));
   it("son olayin zamani", () =>
     expect(duration([{ time: 1, kind: "o", data: "" }, { time: 9, kind: "o", data: "" }])).toBe(9));
+});
+
+describe("parseResize", () => {
+  it("gecerli boyutu okur", () => {
+    expect(parseResize("120x30")).toEqual({ cols: 120, rows: 30 });
+  });
+
+  // ⚠️ Kayda yazılan boyut, kaydı üreten KULLANICIDAN geliyor.
+  // Oynatıcıyı ona göre boyutlandırmak, incelemeyi yapan kişinin
+  // ekranını denetlenen kişiye ayarlatmak olurdu.
+  it.each([
+    ["negatif", "-1x-1"],
+    ["sifir", "0x0"],
+    ["asiri buyuk", "4294967295x4294967295"],
+    ["bicim disi", "abcxdef"],
+    ["bos", ""],
+    ["fazladan alan", "80x24x10"],
+    ["bosluklu", " 80x24 "],
+  ])("%s degeri reddedilir", (_n, data) => {
+    expect(parseResize(data)).toBeNull();
+  });
+});
+
+describe("initialSize", () => {
+  const header = { version: 2, width: 80, height: 24 };
+
+  // ⚠️ Başlıktaki boyut HER ZAMAN 80x24: kaydedici başlığı oturum
+  // açılırken yazıyor, pty-req ondan sonra geliyor. Oynatıcı ilk "r"
+  // olayına bakmazsa her kaydı 80 sütun gösterir ve incelemeyi yapan
+  // kişi olan biteni göremez.
+  it("ilk r olayindaki gercek boyutu kullanir", () => {
+    const size = initialSize(header, [
+      { time: 0.1, kind: "r", data: "203x54" },
+      { time: 0.2, kind: "o", data: "x" },
+    ]);
+    expect(size).toEqual({ cols: 203, rows: 54 });
+  });
+
+  it("r olayi yoksa basliga duser", () => {
+    expect(initialSize(header, [{ time: 0, kind: "o", data: "x" }]))
+      .toEqual({ cols: 80, rows: 24 });
+  });
+
+  it("ilk r olayi bozuksa basliga duser", () => {
+    const size = initialSize(header, [
+      { time: 0.1, kind: "r", data: "4294967295x4294967295" },
+      { time: 0.2, kind: "r", data: "100x40" },
+    ]);
+    expect(size).toEqual({ cols: 80, rows: 24 });
+  });
 });

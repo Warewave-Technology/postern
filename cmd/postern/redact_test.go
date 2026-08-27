@@ -46,3 +46,16 @@ func TestRedactDSNHidesUnparseableFormats(t *testing.T) {
 		t.Errorf("anahtar=değer biçimi = %q, tamamen gizlenmeliydi", got)
 	}
 }
+
+// ⚠️ cliActor BOŞ DÖNMEMELİ.
+//
+// Denetim satırının aktörü bu: boş kalırsa admin_log'daki CHECK
+// (actor <> ”) yüzünden yazma DÜŞER — yani `user modify --admin` gibi
+// en ayrıcalıklı işlem, denetim satırı yazılamadığı için tamamen
+// başarısız olur. os/user.Current() konteynerlerde ve bazı statik
+// derlemelerde hata verebiliyor, o yüzden yedek şart.
+func TestCLIActorIsNeverEmpty(t *testing.T) {
+	if got := cliActor(); got == "" {
+		t.Error("cliActor boş döndü — denetim satırı yazılamaz")
+	}
+}

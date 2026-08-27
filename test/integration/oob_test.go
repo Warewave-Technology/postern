@@ -106,27 +106,34 @@ func oobBastionOpts(t *testing.T, oobTimeout time.Duration, terminal bool, fresh
 	return startBastion(t, srv), external, pub, db
 }
 
-// approveInBrowser, bir insanın yapacağını yapar: linki açar, Keycloak'a
+// browserSignInForCode, bir insanın yapacağını yapar: linki açar, Keycloak'a
 // girer, yönlendirmeyi postern'in callback'ine kadar TAKİP eder (driveLogin
 // redirect'te duruyordu — orada sunucu yoktu, burada var), gelen onay
 // formundaki state ile güvenlik kodunu /auth/confirm'e gönderir.
-func approveInBrowser(loginURL, userCode string) error {
+// browserSignInForCode, KURBANIN/kullanıcının tarayıcıda yaptığı şeyi
+// yapar ve onay sayfasında GÖSTERİLEN doğrulama kodunu döner.
+//
+// ⚠️ YÖN: kod artık terminalde değil TARAYICIDA beliriyor ve terminale
+// yazılıyor. Sebebi internal/auth/pending.go'daki UserCode yorumunda:
+// eski yönde saldırgan kodu kendi terminalinde görüp linkle birlikte
+// kurbana yolluyordu.
+func browserSignInForCode(loginURL string) (string, error) {
 	jar, err := cookiejar.New(nil)
 	if err != nil {
-		return err
+		return "", err
 	}
 	client := &http.Client{Jar: jar}
 
 	resp, err := client.Get(loginURL)
 	if err != nil {
-		return fmt.Errorf("login sayfası: %w", err)
+		return "", fmt.Errorf("login sayfası: %w", err)
 	}
 	page, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 
 	m := regexp.MustCompile(`<form[^>]+action="([^"]+)"`).FindSubmatch(page)
 	if m == nil {
-		return fmt.Errorf("login formu bulunamadı; sayfa: %.500s", page)
+		return "", fmt.Errorf("login formu bulunamadı; sayfa: %.500s", page)
 	}
 
 	resp, err = client.PostForm(html.UnescapeString(string(m[1])), url.Values{
@@ -134,65 +141,53 @@ func approveInBrowser(loginURL, userCode string) error {
 		"password": {kcPassword},
 	})
 	if err != nil {
-		return fmt.Errorf("login POST: %w", err)
+		return "", fmt.Errorf("login POST: %w", err)
 	}
 	confirmPage, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("callback %d döndü; sayfa: %.500s", resp.StatusCode, confirmPage)
+		return "", fmt.Errorf("callback %d döndü; sayfa: %.500s", resp.StatusCode, confirmPage)
 	}
 
-	sm := regexp.MustCompile(`name="state"\s+value="([^"]+)"`).FindSubmatch(confirmPage)
-	if sm == nil {
-		return fmt.Errorf("onay formunda state yok; sayfa: %.500s", confirmPage)
+	// Kod, sayfada büyük punto ile gösteriliyor.
+	cm := regexp.MustCompile(`(?s)letter-spacing:\.25em[^>]*>([A-Z0-9-]+)<`).FindSubmatch(confirmPage)
+	if cm == nil {
+		return "", fmt.Errorf("onay sayfasında kod yok; sayfa: %.700s", confirmPage)
 	}
-
-	// Onayın kökü, son isteğin VARDIĞI sunucu — yönlendirme zinciri
-	// nereye getirdiyse form oraya gider.
-	confirmURL := resp.Request.URL.ResolveReference(&url.URL{Path: "/auth/confirm"})
-	resp, err = client.PostForm(confirmURL.String(), url.Values{
-		"state": {string(sm[1])},
-		"code":  {userCode},
-	})
-	if err != nil {
-		return fmt.Errorf("confirm POST: %w", err)
-	}
-	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("confirm %d döndü; sayfa: %.300s", resp.StatusCode, body)
-	}
-	return nil
+	return string(cm[1]), nil
 }
 
 // kiClient, YALNIZCA keyboard-interactive sunan bir SSH istemcisi kurar;
 // sunucunun instruction'ından link ile kodu söker, approve'a verir.
 // Anahtar yok: bu istemcinin girebilmesinin tek yolu tarayıcı onayı.
-func kiClient(sshAddr string, hostPub ssh.PublicKey, approve func(loginURL, userCode string) error) (*ssh.Client, error) {
+func kiClient(sshAddr string, hostPub ssh.PublicKey, approve func(loginURL string) (string, error)) (*ssh.Client, error) {
 	ki := func(name, instruction string, questions []string, echos []bool) ([]string, error) {
-		if len(questions) > 0 {
-			// Soru beklemiyoruz; gelirse boş cevaplar yeterli.
-			return make([]string, len(questions)), nil
-		}
-		if instruction == "" {
+		um := regexp.MustCompile(`https?://\S+`).FindString(instruction)
+		if um == "" {
+			if len(questions) > 0 {
+				return make([]string, len(questions)), nil
+			}
 			return nil, nil // bazı sunucular önce boş tur atar
 		}
-		um := regexp.MustCompile(`https?://\S+`).FindString(instruction)
-		cm := regexp.MustCompile(`(?i)security code:\s*(\S+)`).FindStringSubmatch(instruction)
-		if um == "" || cm == nil {
-			return nil, fmt.Errorf("instruction'da link/kod yok:\n%s", instruction)
-		}
-		if err := approve(um, cm[1]); err != nil {
+
+		// Tarayıcı adımı: giriş yap ve sayfada GÖSTERİLEN kodu al.
+		code, err := approve(um)
+		if err != nil {
 			return nil, err
 		}
-		return nil, nil
+		if len(questions) == 0 {
+			return nil, nil
+		}
+		answers := make([]string, len(questions))
+		answers[0] = code
+		return answers, nil
 	}
 
 	return ssh.Dial("tcp", sshAddr, &ssh.ClientConfig{
 		User:            "yigit:web01",
 		Auth:            []ssh.AuthMethod{ssh.KeyboardInteractive(ki)},
 		HostKeyCallback: ssh.FixedHostKey(hostPub),
-		Timeout:         60 * time.Second,
+		Timeout:         90 * time.Second,
 	})
 }
 
@@ -201,7 +196,7 @@ func kiClient(sshAddr string, hostPub ssh.PublicKey, approve func(loginURL, user
 func TestOOBLoginEndToEnd(t *testing.T) {
 	sshAddr, _, hostPub, db := oobBastion(t, 0)
 
-	client, err := kiClient(sshAddr, hostPub, approveInBrowser)
+	client, err := kiClient(sshAddr, hostPub, browserSignInForCode)
 	if err != nil {
 		t.Fatalf("OOB girişi başarısız: %v", err)
 	}
@@ -234,17 +229,18 @@ func TestOOBLoginEndToEnd(t *testing.T) {
 }
 
 // --- adım 2: yanlış kod ---
-
+//
+// Saldırı modeli DEĞİŞTİ ve daha güçlü: artık linki ele geçiren değil,
+// linki ÜRETEN saldırgan modelleniyor. Kod tarayıcıda gösterildiği için
+// saldırganın elinde yok; uydurması gerekiyor.
 func TestOOBLoginRejectsWrongCode(t *testing.T) {
 	sshAddr, _, hostPub, _ := oobBastion(t, 0)
 
-	_, err := kiClient(sshAddr, hostPub, func(loginURL, userCode string) error {
-		// Saldırı modeli: linki ele geçiren, TERMİNALİ göremeyen biri.
-		wrong := approveInBrowser(loginURL, "AAAA-AAAA")
-		if wrong == nil {
-			return fmt.Errorf("yanlış kod HTTP katmanında kabul edildi")
+	_, err := kiClient(sshAddr, hostPub, func(loginURL string) (string, error) {
+		if _, berr := browserSignInForCode(loginURL); berr != nil {
+			return "", berr
 		}
-		return nil // onay verilmedi; SSH tarafı reddetmeli
+		return "AAAA-AAAA", nil // tarayıcıdaki gerçek kod DEĞİL
 	})
 	if err == nil {
 		t.Fatal("yanlış kodla giriş başarılı oldu")
@@ -257,8 +253,10 @@ func TestOOBLoginTimesOutCleanly(t *testing.T) {
 	sshAddr, _, hostPub, _ := oobBastion(t, 3*time.Second)
 
 	start := time.Now()
-	_, err := kiClient(sshAddr, hostPub, func(loginURL, userCode string) error {
-		return nil // linki aldık ama tarayıcıda HİÇBİR ŞEY yapmıyoruz
+	_, err := kiClient(sshAddr, hostPub, func(loginURL string) (string, error) {
+		// Linki aldık ama tarayıcıda HİÇBİR ŞEY yapmıyoruz; kod da
+		// yok, dolayısıyla boş cevap veriyoruz ve süre dolmalı.
+		return "", nil
 	})
 	elapsed := time.Since(start)
 

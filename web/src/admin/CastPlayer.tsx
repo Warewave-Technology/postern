@@ -3,7 +3,10 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { ApiError, api, toMessage } from "../api";
 import { ErrorLine, WarnLine } from "./common";
-import { parseCast, compress, duration, formatDuration, type CastEvent } from "../cast";
+import {
+  parseCast, compress, duration, formatDuration, initialSize, parseResize,
+  type CastEvent,
+} from "../cast";
 
 // Oturum kaydı oynatıcı.
 //
@@ -52,10 +55,14 @@ export default function CastPlayer({ sessionId, onClose }: { sessionId: string; 
       .then((text) => {
         if (cancelled) return;
         const parsed = parseCast(text);
+        // "i" (girdi) olayları oynatılmıyor — kayıt varsayılan olarak
+        // girdiyi tutmuyor zaten. "r" (boyut) olayları TUTULUYOR:
+        // oynatıcı onları uygulamazsa her kayıt 80x24 görünür.
         const output = parsed.events.filter((e) => e.kind !== "i");
+        const size = initialSize(parsed.header, output);
         setCast({
-          cols: parsed.header.width || 80,
-          rows: parsed.header.height || 24,
+          cols: size.cols,
+          rows: size.rows,
           events: compress(output),
           total: duration(output),
           truncated: parsed.truncated,
@@ -120,7 +127,14 @@ export default function CastPlayer({ sessionId, onClose }: { sessionId: string; 
     term.reset();
     const startedFrom = at;
     for (; index < cast.events.length && cast.events[index].playAt < startedFrom; index++) {
-      if (cast.events[index].kind === "o") term.write(cast.events[index].data);
+      const e = cast.events[index];
+      if (e.kind === "o") term.write(e.data);
+      // Geri sarmada da boyut uygulanmalı: aksi hâlde ortadan
+      // başlayan oynatma yanlış genişlikte akar.
+      if (e.kind === "r") {
+        const size = parseResize(e.data);
+        if (size) term.resize(size.cols, size.rows);
+      }
     }
 
     const t0 = performance.now();
@@ -132,7 +146,21 @@ export default function CastPlayer({ sessionId, onClose }: { sessionId: string; 
       let wrote = "";
       while (index < cast.events.length && cast.events[index].playAt <= now) {
         const e = cast.events[index++];
-        if (e.kind === "o") wrote += e.data;
+        if (e.kind === "o") {
+          wrote += e.data;
+          continue;
+        }
+        if (e.kind === "r") {
+          // Boyut değişimi biriken çıktıdan SONRA uygulanmalı:
+          // yeni geometriye yazmak, eski geometride üretilmiş
+          // satırları yanlış sarardı.
+          if (wrote) {
+            term.write(wrote);
+            wrote = "";
+          }
+          const size = parseResize(e.data);
+          if (size) term.resize(size.cols, size.rows);
+        }
       }
       if (wrote) term.write(wrote);
 

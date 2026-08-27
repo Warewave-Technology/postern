@@ -31,7 +31,18 @@ func Load(path string) (*Config, error) {
 
 	err = yaml.UnmarshalWithOptions(data, &cfg, yaml.Strict())
 	if err != nil {
-		return nil, fmt.Errorf("config %s: %w", path, err)
+		// ⚠️ HATA METNİ OLDUĞU GİBİ AKTARILMIYOR.
+		//
+		// goccy/go-yaml, ayrıştırma hatasına KAYNAK SATIRLARINI
+		// ekliyor — ve config'in kaynak satırlarında veritabanı
+		// parolası (database.dsn) ile OIDC istemci sırrı var. Bu hata
+		// açılışta stderr'e düşüyor, oradan journald'a, log
+		// toplayıcıya ve destek paketine gidiyor. (Ölçüldü: iki sır da
+		// hata metninde göründü.)
+		//
+		// FormatError(inclSource=false) satır/sütun bilgisini ve
+		// sebebi koruyor, kaynağı atıyor — teşhis için yeterli.
+		return nil, fmt.Errorf("config %s: %s", path, yaml.FormatError(err, false, false))
 	}
 
 	base := filepath.Dir(path)

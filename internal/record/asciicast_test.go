@@ -459,3 +459,77 @@ func TestWriterStreamsSurviveWriteErrors(t *testing.T) {
 		t.Error("yazma hataları yutuldu ve Err() ile de bildirilmedi")
 	}
 }
+
+// failingWriter, ilk yazmadan sonra hep hata verir.
+type failingWriter struct {
+	writes int
+	err    error
+}
+
+func (f *failingWriter) Write(p []byte) (int, error) {
+	f.writes++
+	if f.writes > 1 { // ilk yazma başlık; sonrası düşsün
+		return 0, f.err
+	}
+	return len(p), nil
+}
+func (f *failingWriter) Close() error { return nil }
+
+// ⚠️ Kayıt yazımı bozulunca HABER VERİLMELİ.
+//
+// Bu kanca eklenene kadar hata yutuluyor, akış devam ediyor ve oturum
+// kayıtsız sürüyordu — hatanın tek izi kapanışta bir log satırıydı.
+// Açılışta "kayıt açılamazsa oturum yok" denirken oturum ortasında aynı
+// arıza sessizce kabul ediliyordu: bir saldırgan diski doldurarak
+// denetimi fiilen kapatabiliyordu.
+func TestWriterReportsMidSessionFailure(t *testing.T) {
+	sink := &failingWriter{err: errors.New("disk dolu")}
+
+	w, err := NewWriter(sink, 80, 24, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := make(chan error, 4)
+	w.OnFailure(func(e error) { got <- e })
+
+	// Akış yazmaya devam eder (io.Copy kırılmasın) ama kanca
+	// tetiklenmelidir.
+	if _, err := w.OutputStream().Write([]byte("merhaba")); err != nil {
+		t.Fatalf("OutputStream hatayı yukarı taşıdı: %v", err)
+	}
+
+	select {
+	case e := <-got:
+		if e == nil {
+			t.Error("kanca nil hata ile çağrıldı")
+		}
+	default:
+		t.Fatal("KAYIT BOZULDU AMA HABER VERİLMEDİ — oturum kayıtsız sürer")
+	}
+
+	// Kanca YALNIZCA BİR KEZ: her yazmada oturum kapatmaya çalışmak
+	// gürültü olurdu.
+	w.OutputStream().Write([]byte("devam"))
+	w.InputStream().Write([]byte("girdi"))
+	select {
+	case <-got:
+		t.Error("kanca birden fazla kez çağrıldı")
+	default:
+	}
+}
+
+// Kanca kurulmamışsa davranış değişmemeli.
+func TestWriterWithoutFailureHookStillReturnsFirstErr(t *testing.T) {
+	sink := &failingWriter{err: errors.New("disk dolu")}
+
+	w, err := NewWriter(sink, 80, 24, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.OutputStream().Write([]byte("merhaba"))
+
+	if w.Err() == nil {
+		t.Error("firstErr kaydedilmemiş")
+	}
+}

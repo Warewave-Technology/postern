@@ -60,6 +60,9 @@ func newRoleAddCmd() *cobra.Command {
 			case err != nil:
 				return err
 			default:
+				if aerr := auditCLI(ctx, db, "role.create", name, ""); aerr != nil {
+					return aerr
+				}
 				fmt.Fprintf(out, "role %q created\n", name)
 			}
 
@@ -69,6 +72,10 @@ func newRoleAddCmd() *cobra.Command {
 						return fmt.Errorf("target %q not found — register it with `postern target add`, then re-run this command (already-applied grants are kept)", target)
 					}
 					return err
+				}
+				if aerr := auditCLI(ctx, db, "role.grant", name,
+					"granted target "+target); aerr != nil {
+					return aerr
 				}
 				fmt.Fprintf(out, "  target %q granted\n", target)
 			}

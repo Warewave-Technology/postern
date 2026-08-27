@@ -1637,6 +1637,7 @@ func TestProvisionUserRequiresMappedGroup(t *testing.T) {
 	_, err := s.ProvisionUser(ctx, ProvisionRequest{
 		Username: "ayse.yilmaz", Email: "ayse@warewave.io",
 		Groups: []string{"hr", "marketing"},
+		Issuer: "https://idp.local", Subject: "sub-ayse",
 	})
 	if !errors.Is(err, ErrAccessDenied) {
 		t.Fatalf("eşleşmesiz sağlama: %v, beklenen ErrAccessDenied", err)
@@ -1653,6 +1654,7 @@ func TestProvisionUserRequiresMappedGroup(t *testing.T) {
 	u, err := s.ProvisionUser(ctx, ProvisionRequest{
 		Username: "yigit.basalma", Email: "yigit@warewave.io",
 		Groups: []string{"sysadmins", "hr"},
+		Issuer: "https://idp.local", Subject: "sub-yigit",
 	})
 	if err != nil {
 		t.Fatalf("ProvisionUser: %v", err)
@@ -1683,7 +1685,8 @@ func TestProvisionUserSyncsExistingUser(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := ProvisionRequest{Username: "yigit.basalma", Email: "yigit@warewave.io"}
+	req := ProvisionRequest{Username: "yigit.basalma", Email: "yigit@warewave.io",
+		Issuer: "https://idp.local", Subject: "sub-yigit"}
 
 	req.Groups = []string{"sysadmins", "dbteam"}
 	u, err := s.ProvisionUser(ctx, req)
@@ -1721,5 +1724,171 @@ func TestProvisionUserSyncsExistingUser(t *testing.T) {
 	}
 	if _, err := s.User(ctx, "yigit.basalma"); err != nil {
 		t.Error("var olan kullanıcı silinmiş — denetim kaydı sahipsiz kalır")
+	}
+}
+
+// ⚠️ HESAP DEVRALMA: adı çakışan İKİNCİ bir IdP kimliği, var olan bir
+// hesaba GİREMEMELİ.
+//
+// Kapatılan açık somut: eşleştirme yalnızca username ile yapılıyordu ve
+// username, preferred_username claim'inden geliyor — birçok
+// sağlayıcıda kullanıcının kendi değiştirebildiği bir alan. Adını
+// "yigit.basalma" yapan herkes o hesabı rolleriyle, os_user'ıyla ve
+// is_admin bayrağıyla devralıyordu; panelin "admin yalnızca CLI'dan"
+// kuralı bu yoldan tamamen atlanıyordu.
+//
+// Saldırgan olmadan da olurdu: ayrılan bir çalışanın kullanıcı adının
+// yeni birine verilmesi aynı devralmayı sessizce yapardı.
+func TestProvisionUserRefusesSubjectCollision(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedMappingFixtures(t, s)
+	if err := s.AddGroupMapping(ctx, "sysadmins", "ops", "yigit"); err != nil {
+		t.Fatal(err)
+	}
+
+	const issuer = "https://idp.local"
+
+	// Gerçek kullanıcı giriyor ve hesabı kimliğine bağlanıyor.
+	first, err := s.ProvisionUser(ctx, ProvisionRequest{
+		Username: "yigit.basalma", Email: "yigit@warewave.io",
+		Groups: []string{"sysadmins"}, Issuer: issuer, Subject: "sub-gercek",
+	})
+	if err != nil {
+		t.Fatalf("ilk giriş: %v", err)
+	}
+
+	// Yöneticiden gelen ayrıcalık: bu hesap CLI'dan admin yapılmış.
+	if err := s.SetUserAdmin(ctx, first.Name, true); err != nil {
+		t.Fatal(err)
+	}
+
+	// SALDIRGAN: IdP'de adını aynı yapmış, BAŞKA bir sub.
+	_, err = s.ProvisionUser(ctx, ProvisionRequest{
+		Username: "yigit.basalma", Email: "saldirgan@warewave.io",
+		Groups: []string{"sysadmins"}, Issuer: issuer, Subject: "sub-saldirgan",
+	})
+	if err == nil {
+		t.Fatal("HESAP DEVRALINDI: adı çakışan ikinci kimlik hesaba girdi")
+	}
+	if !errors.Is(err, ErrAccessDenied) {
+		t.Errorf("hata = %v, ErrAccessDenied bekleniyordu", err)
+	}
+
+	// Hesap dokunulmamış olmalı.
+	after, err := s.User(ctx, "yigit.basalma")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !after.Admin {
+		t.Error("devralma denemesi admin bayrağını düşürmüş")
+	}
+	// Saldırganın e-postası da yazılmamış olmalı: yazılsaydı
+	// e-posta yedek eşleştirme yolunu da ele geçirirdi.
+	var email string
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(email, '') FROM users WHERE username = $1;`,
+		"yigit.basalma").Scan(&email); err != nil {
+		t.Fatal(err)
+	}
+	if email != "yigit@warewave.io" {
+		t.Errorf("e-posta = %q, saldırganınki yazılmış", email)
+	}
+}
+
+// IdP'de kullanıcı adı DEĞİŞİRSE aynı kişi aynı hesaba girmeye devam
+// etmeli: eşleştirme sub ile yapılıyor, adla değil.
+func TestProvisionUserFollowsRenamedIdentity(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedMappingFixtures(t, s)
+	if err := s.AddGroupMapping(ctx, "sysadmins", "ops", "yigit"); err != nil {
+		t.Fatal(err)
+	}
+
+	const issuer, subject = "https://idp.local", "sub-sabit"
+
+	first, err := s.ProvisionUser(ctx, ProvisionRequest{
+		Username: "yigit.basalma", Groups: []string{"sysadmins"},
+		Issuer: issuer, Subject: subject,
+	})
+	if err != nil {
+		t.Fatalf("ilk giriş: %v", err)
+	}
+
+	// Aynı sub, YENİ kullanıcı adı (IdP'de evlenip soyadı değişmiş).
+	second, err := s.ProvisionUser(ctx, ProvisionRequest{
+		Username: "yigit.yeniadi", Groups: []string{"sysadmins"},
+		Issuer: issuer, Subject: subject,
+	})
+	if err != nil {
+		t.Fatalf("ad değişikliğinden sonra giriş: %v", err)
+	}
+	if second.Name != first.Name {
+		t.Errorf("kullanıcı = %q, aynı hesap (%q) beklenirdi — sub ile eşleşmeli",
+			second.Name, first.Name)
+	}
+}
+
+// Issuer/Subject taşımayan bir kimlik REDDEDİLMELİ: eşleştirme
+// anahtarı yoksa güvenli bir karar verilemez.
+func TestProvisionUserRefusesIdentityWithoutSubject(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedMappingFixtures(t, s)
+	if err := s.AddGroupMapping(ctx, "sysadmins", "ops", "yigit"); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, req := range []ProvisionRequest{
+		{Username: "a", Groups: []string{"sysadmins"}},
+		{Username: "b", Groups: []string{"sysadmins"}, Issuer: "https://idp.local"},
+		{Username: "c", Groups: []string{"sysadmins"}, Subject: "sub-x"},
+	} {
+		if _, err := s.ProvisionUser(ctx, req); !errors.Is(err, ErrAccessDenied) {
+			t.Errorf("%+v = %v, ErrAccessDenied bekleniyordu", req, err)
+		}
+	}
+}
+
+// ⚠️ JIT sağlama, AYRICALIKLI bir hesap adını otomatik üretmemeli.
+//
+// os_user, IdP'nin preferred_username claim'inden AYNEN alınıyor. Adını
+// "postgres" ya da "backup" yapabilen bir IdP kimliği, o hesabın adına
+// sertifika istenmesine yol açardı.
+//
+// Kontrol sağlamada, politika katmanında DEĞİL: bir operatörün bilerek
+// "postgres" hesabına erişim vermesi meşru bir iş akışı (DBA erişimi) ve
+// `user modify --os-user` ile hâlâ mümkün. Yasak olan, kimsenin karar
+// vermediği otomatik yol.
+func TestProvisionUserRefusesReservedAccountNames(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedMappingFixtures(t, s)
+	if err := s.AddGroupMapping(ctx, "sysadmins", "ops", "yigit"); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, name := range []string{"root", "postgres", "backup", "www-data", "nobody", "sshd"} {
+		t.Run(name, func(t *testing.T) {
+			_, err := s.ProvisionUser(ctx, ProvisionRequest{
+				Username: name, Groups: []string{"sysadmins"},
+				Issuer: "https://idp.local", Subject: "sub-" + name,
+			})
+			if !errors.Is(err, ErrAccessDenied) {
+				t.Errorf("%q otomatik olarak sağlandı: %v", name, err)
+			}
+			if _, uerr := s.User(ctx, name); !errors.Is(uerr, ErrNotFound) {
+				t.Errorf("%q kullanıcısı yine de oluşturulmuş", name)
+			}
+		})
+	}
+
+	// Sıradan bir ad etkilenmemeli.
+	if _, err := s.ProvisionUser(ctx, ProvisionRequest{
+		Username: "yigit.basalma", Groups: []string{"sysadmins"},
+		Issuer: "https://idp.local", Subject: "sub-normal",
+	}); err != nil {
+		t.Errorf("sıradan ad reddedildi: %v", err)
 	}
 }
