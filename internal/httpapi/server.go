@@ -10,6 +10,7 @@ import (
 	"net/http"
 
 	"github.com/warewave/postern/internal/auth"
+	"github.com/warewave/postern/internal/proxy"
 	"github.com/warewave/postern/internal/store"
 )
 
@@ -25,6 +26,19 @@ type Server struct {
 	store       *store.Store
 	webSessions *auth.WebSessions
 	webLogins   *webPending
+
+	// S4.3: web terminali. proxyDeps nil ise terminal yapılandırılmamış
+	// demektir ve rota HİÇ bağlanmaz — kapalı özellik, kapalı yüzey.
+	proxyDeps   *proxy.Deps
+	externalURL string
+}
+
+// EnableTerminal, web terminalini açar. serve yalnızca
+// http.terminal_enabled true iken çağırır; çağrılmazsa /api/terminal
+// rotası var olmaz (404), yalnızca yetkisiz olmaz.
+func (s *Server) EnableTerminal(deps proxy.Deps, externalURL string) {
+	s.proxyDeps = &deps
+	s.externalURL = externalURL
 }
 
 func New(o *auth.OIDC, logins *auth.Logins, db *store.Store, logger *slog.Logger) *Server {
@@ -54,6 +68,12 @@ func (s *Server) Handler() http.Handler {
 
 	// Yönetim: oturum + admin + same-origin (admin.go).
 	s.registerAdminRoutes(mux)
+
+	// Terminal: yalnızca yapılandırıldıysa. Kapalıyken rota yok — açık
+	// ama yetkisiz bir uç, kapalı bir uçtan daha büyük bir yüzeydir.
+	if s.proxyDeps != nil {
+		mux.Handle("GET /api/terminal/{target}", s.requireSession(http.HandlerFunc(s.handleTerminal)))
+	}
 
 	// Kalan her şey SPA: web/dist'ten statik dosyalar (S4.1 frontend).
 	mux.Handle("/", spaHandler())

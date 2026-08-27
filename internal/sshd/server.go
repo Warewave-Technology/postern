@@ -15,6 +15,7 @@ import (
 	"github.com/warewave/postern/internal/auth"
 	"github.com/warewave/postern/internal/ca"
 	"github.com/warewave/postern/internal/config"
+	"github.com/warewave/postern/internal/proxy"
 	"github.com/warewave/postern/internal/record"
 	"github.com/warewave/postern/internal/store"
 )
@@ -40,6 +41,20 @@ type Server struct {
 	// durumda çalışmaya devam eder (makineler/otomasyon).
 	logins     *auth.Logins
 	oobTimeout time.Duration
+}
+
+// ProxyDeps, oturum akışının ihtiyaç duyduğu altyapıyı döner.
+//
+// httpapi ile PAYLAŞILIR: web terminali ve SSH aynı store'u, aynı kayıt
+// dizinini ve aynı CA'yı kullanmalı — iki kapı, tek gerçek.
+func (s *Server) ProxyDeps() proxy.Deps {
+	return proxy.Deps{
+		Store:       s.db,
+		Records:     s.rStore,
+		Authority:   s.authority,
+		Logger:      s.logger,
+		RecordInput: s.cfg.Recording.RecordInput,
+	}
 }
 
 // EnableOOB, tarayıcı destekli girişi açar. serve, config'te oidc+http

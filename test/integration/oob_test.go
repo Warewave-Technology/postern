@@ -39,6 +39,17 @@ import (
 // portunu redirect olarak tanımalı (dinleyici Keycloak'tan önce).
 func oobBastion(t *testing.T, oobTimeout time.Duration) (sshAddr, apiURL string, hostPub ssh.PublicKey, db *store.Store) {
 	t.Helper()
+	return oobBastionOpts(t, oobTimeout, false)
+}
+
+// oobBastionWithTerminal, web terminali AÇIK düzenek (S4.3 testleri).
+func oobBastionWithTerminal(t *testing.T) (sshAddr, apiURL string, hostPub ssh.PublicKey, db *store.Store) {
+	t.Helper()
+	return oobBastionOpts(t, 0, true)
+}
+
+func oobBastionOpts(t *testing.T, oobTimeout time.Duration, terminal bool) (sshAddr, apiURL string, hostPub ssh.PublicKey, db *store.Store) {
+	t.Helper()
 
 	caKeyPath, caPub := newTestCA(t)
 	tgt := startCertTarget(t, caPub)
@@ -71,7 +82,13 @@ func oobBastion(t *testing.T, oobTimeout time.Duration) (sshAddr, apiURL string,
 	srv.EnableOOB(logins, oobTimeout)
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	api := &http.Server{Handler: httpapi.New(oidcClient, logins, db, logger).Handler()}
+	webAPI := httpapi.New(oidcClient, logins, db, logger)
+	if terminal {
+		// Terminal, sshd ile AYNI bağımlılıkları paylaşır — iki kapı,
+		// tek oturum akışı.
+		webAPI.EnableTerminal(srv.ProxyDeps(), external)
+	}
+	api := &http.Server{Handler: webAPI.Handler()}
 	go api.Serve(l)
 	t.Cleanup(func() { api.Shutdown(context.Background()) })
 

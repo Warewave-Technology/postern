@@ -4,6 +4,7 @@ import Users from "./admin/Users";
 import Targets from "./admin/Targets";
 import Roles from "./admin/Roles";
 import { AdminLog, Sessions } from "./admin/Audit";
+import Terminal from "./Terminal";
 
 // Rota kütüphanesi yok: beş sekmelik bir panel için useState yeter.
 // (S4.3'te terminal sayfası eklenince gerekirse gerçek router'a geçeriz.)
@@ -13,6 +14,8 @@ export default function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("home");
+  // Açık terminal hedefi; null ise terminal kapalı.
+  const [terminal, setTerminal] = useState<string | null>(null);
 
   useEffect(() => {
     api.me().then(setMe).catch(() => setMe(null)).finally(() => setLoading(false));
@@ -46,11 +49,27 @@ export default function App() {
         ))}
       </nav>
 
-      {tab === "home" && (
+      {tab === "home" && terminal && (
+        <Terminal target={terminal} onClose={() => setTerminal(null)} />
+      )}
+      {tab === "home" && !terminal && (
         <section>
           <h2>Your targets</h2>
           {me.targets.length === 0 ? <p>No targets granted.</p> : (
-            <ul>{me.targets.map((t) => <li key={t}>{t}</li>)}</ul>
+            <ul>
+              {me.targets.map((t) => (
+                <li key={t}>
+                  {t}{" "}
+                  {/* Terminal kapalıysa (sunucuda rota yok) bağlantı
+                      404 alır ve xterm "disconnected" yazar — düğmeyi
+                      gizlemek için /api/me'ye bayrak eklemek gerekirdi;
+                      şimdilik dürüst hata yeterli. */}
+                  <button onClick={() => setTerminal(t)} style={{ fontSize: "0.8rem" }}>
+                    open terminal
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
         </section>
       )}

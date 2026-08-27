@@ -260,3 +260,76 @@ recording:
 		t.Errorf("HostKey değişmiş: %q, beklenen %q", cfg.HostKey, absHost)
 	}
 }
+
+// terminal_enabled iki şarta bağlı: OIDC yapılandırması ve HTTPS.
+// İkisi de "sonra hallederiz" diye atlanabilecek türden olduğu için
+// açılışta reddediliyor.
+func TestValidateTerminalGuards(t *testing.T) {
+	withOIDC := func(c *Config) {
+		c.OIDC.IssuerURL = "https://idp.example/realms/postern"
+		c.OIDC.ClientID = "postern"
+		c.HTTP.Addr = ":8088"
+		c.HTTP.ExternalURL = "https://bastion.example:8088"
+	}
+
+	cases := []struct {
+		name        string
+		mutate      func(*Config)
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:        "oidc'siz terminal reddedilir",
+			mutate:      func(c *Config) { c.HTTP.TerminalEnabled = true },
+			wantErr:     true,
+			errContains: "terminal_enabled",
+		},
+		{
+			name: "duz http uzerinde terminal reddedilir",
+			mutate: func(c *Config) {
+				withOIDC(c)
+				c.HTTP.ExternalURL = "http://bastion.example:8088"
+				c.HTTP.TerminalEnabled = true
+			},
+			wantErr:     true,
+			errContains: "https",
+		},
+		{
+			// Yerel geliştirme: loopback'te düz HTTP serbest.
+			name: "loopback'te duz http gecer",
+			mutate: func(c *Config) {
+				withOIDC(c)
+				c.HTTP.ExternalURL = "http://127.0.0.1:8088"
+				c.HTTP.TerminalEnabled = true
+			},
+		},
+		{
+			name: "https ile terminal gecer",
+			mutate: func(c *Config) {
+				withOIDC(c)
+				c.HTTP.TerminalEnabled = true
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := validConfig()
+			tc.mutate(&cfg)
+			err := cfg.Validate()
+
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("hata bekleniyordu, nil geldi")
+				}
+				if !strings.Contains(err.Error(), tc.errContains) {
+					t.Fatalf("hata %q içermeli; gelen: %v", tc.errContains, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("beklenmeyen hata: %v", err)
+			}
+		})
+	}
+}

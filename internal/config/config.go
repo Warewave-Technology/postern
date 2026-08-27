@@ -31,6 +31,17 @@ type HTTPConfig struct {
 	// redirect_url bununla kurulur — Addr'dan türetilemez: bastion NAT/
 	// proxy arkasında olabilir, ":8088" dış dünyada bir anlam taşımaz.
 	ExternalURL string `yaml:"external_url"`
+
+	// TerminalEnabled, tarayıcıdaki web terminalini açar. VARSAYILAN
+	// KAPALI ve bu bilinçli bir güvenlik kararı: web terminali, SPA'daki
+	// herhangi bir XSS'i hedef makinede komut çalıştırma yetkisine
+	// çevirir. Bugün aynı XSS yalnızca API'yi kullanabilir — sınırlı bir
+	// zarar. Terminale ihtiyacı olmayan kurulum o yüzeyi hiç taşımasın;
+	// kod var diye kapı açık olmak zorunda değil.
+	//
+	// Açan kurulum için şartlar: HTTPS (external_url https), sıkı CSP
+	// (securityHeaders zaten kuruyor) ve WS upgrade'inde Origin kontrolü.
+	TerminalEnabled bool `yaml:"terminal_enabled"`
 }
 
 // OIDCConfig, kimlik sağlayıcısı. auth.OIDCConfig'e birebir taşınır.

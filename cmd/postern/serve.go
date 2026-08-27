@@ -74,9 +74,19 @@ func newServeCmd() *cobra.Command {
 				logins := auth.NewLogins(oidcClient)
 				s.EnableOOB(logins, 0)
 
+				webAPI := httpapi.New(oidcClient, logins, db, logger)
+
+				// Web terminali yalnızca açıkça istendiğinde: rota bile
+				// kurulmaz. Bağımlılıklar sshd'ninkilerle AYNI — iki kapı
+				// tek oturum akışını paylaşıyor (proxy.Open).
+				if cfg.HTTP.TerminalEnabled {
+					webAPI.EnableTerminal(s.ProxyDeps(), cfg.HTTP.ExternalURL)
+					logger.Info("web terminal enabled")
+				}
+
 				api := &http.Server{
 					Addr:    cfg.HTTP.Addr,
-					Handler: httpapi.New(oidcClient, logins, db, logger).Handler(),
+					Handler: webAPI.Handler(),
 				}
 				go func() {
 					logger.Info("http listener started", "addr", cfg.HTTP.Addr)

@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -102,7 +103,32 @@ func (c *Config) Validate() error {
 			strings.Join(present, ", "), strings.Join(missing, ", "))
 	}
 
+	// Terminal, OOB/web yapılandırması olmadan anlamsızdır: linkleri ve
+	// oturumu o katman kuruyor.
+	if c.HTTP.TerminalEnabled && !c.OOBEnabled() {
+		return fmt.Errorf("http.terminal_enabled requires the oidc and http sections")
+	}
+
+	// Terminal açıkken düz HTTP, oturum cookie'sini ve terminal trafiğini
+	// ağa açık bırakır. Loopback geliştirme için serbest; başka her adres
+	// için reddediyoruz — "sonra HTTPS ekleriz" diye açılan bir bastion
+	// öyle kalır.
+	if c.HTTP.TerminalEnabled && !isLoopbackURL(c.HTTP.ExternalURL) &&
+		!strings.HasPrefix(c.HTTP.ExternalURL, "https://") {
+		return fmt.Errorf("http.terminal_enabled requires an https external_url (got %q)", c.HTTP.ExternalURL)
+	}
+
 	return nil
+}
+
+// isLoopbackURL, adresin yerel geliştirme adresi olup olmadığını söyler.
+func isLoopbackURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
 // OOBEnabled, OIDC destekli tarayıcı girişinin yapılandırılıp
