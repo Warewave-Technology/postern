@@ -65,6 +65,22 @@ func newBastion(t *testing.T, caKeyPath string, targets ...model.Target) (srv *s
 	return newBastionOpts(t, caKeyPath, false, targets...)
 }
 
+// tuneConfig, bir sonraki newBastionOpts çağrısının config'ini değiştirir.
+// Testler t.Cleanup ile sıfırlar; paralel koşmadıkları için tek değişken
+// yeterli.
+var tuneConfig func(*config.Config)
+
+// withConfig, verilen ayarla bir sunucu kurar ve dinlemeye başlar.
+func withConfig(t *testing.T, caKeyPath string, tune func(*config.Config), targets ...model.Target) (addr string, hostPub ssh.PublicKey, clientSigner ssh.Signer) {
+	t.Helper()
+
+	tuneConfig = tune
+	t.Cleanup(func() { tuneConfig = nil })
+
+	srv, hostPub, clientSigner, _ := newBastionOpts(t, caKeyPath, false, targets...)
+	return startBastion(t, srv), hostPub, clientSigner
+}
+
 // newBastionOpts, skipSeed true ise kullanıcı/rol tohumlamaz — yalnızca
 // hedefleri yazar. JIT sağlama testleri kullanıcının YOKLUĞUNDAN başlar.
 func newBastionOpts(t *testing.T, caKeyPath string, skipSeed bool, targets ...model.Target) (srv *sshd.Server, hostPub ssh.PublicKey, clientSigner ssh.Signer, db *store.Store) {
@@ -113,6 +129,10 @@ func newBastionOpts(t *testing.T, caKeyPath string, skipSeed bool, targets ...mo
 		db = seedTargetsOnly(t, cfg.Database.DSN, targets)
 	} else {
 		db = seedStore(t, cfg.Database.DSN, targets, authorized)
+	}
+
+	if tuneConfig != nil {
+		tuneConfig(cfg)
 	}
 
 	srv, err = sshd.New(cfg, db, slog.New(slog.NewTextHandler(os.Stderr, nil)))

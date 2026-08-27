@@ -12,6 +12,7 @@ type Config struct {
 	HostKey  string         `yaml:"host_key"` // path to the bastion's own host private key
 	CA       CAConfig       `yaml:"ca"`
 	Database DatabaseConfig `yaml:"database"`
+	Session  SessionConfig  `yaml:"session"`
 
 	// SecretKeyFile, veritabanındaki şifreli ayarları açan ana anahtar
 	// (`postern secret init` üretir). Boş bırakılabilir: o zaman şifreli
@@ -94,6 +95,22 @@ type DatabaseConfig struct {
 
 type ListenConfig struct {
 	Addr string `yaml:"addr"` // e.g. ":2222"
+}
+
+// SessionConfig, oturum kanalının davranış sınırları.
+type SessionConfig struct {
+	// AcceptEnv, kullanıcıdan hedefe geçmesine izin verilen ortam
+	// değişkeni adları. Sondaki * joker: "LC_*" tüm LC_ ile
+	// başlayanları kapsar.
+	//
+	// Yazılmazsa varsayılan LANG ve LC_* (OpenSSH'ın yaygın AcceptEnv
+	// yapılandırmasıyla aynı). BOŞ LİSTE yazmak "hiçbiri" demek —
+	// "yazmamak" ile "boş yazmak" farklı şeyler.
+	//
+	// ⚠️ Buraya PATH, LD_PRELOAD, BASH_ENV gibi bir ad eklemek hedefte
+	// NE ÇALIŞACAĞINI kullanıcının eline verir. Whitelist'in var olma
+	// sebebi tam olarak bu.
+	AcceptEnv []string `yaml:"accept_env"`
 }
 
 type RecordingConfig struct {

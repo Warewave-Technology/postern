@@ -778,11 +778,16 @@ bağlantı kopunca SSH oturumu kapanıyor.
 Bu aşamayı şimdi detaylandırmıyorum — S1–S4'ten gelecek gerçek bilgi planı
 değiştirecek. Kabaca kapsam:
 
-- SFTP subsystem relay (`pkg/sftp`)
-- `scp` protokol modu
-- Port forwarding (`direct-tcpip`) — istenirse
-- Agent forwarding — **varsayılan kapalı bırakmayı düşün**
-- `env` whitelist
+- SFTP subsystem relay (`pkg/sftp`) — ⚠️ ÖLÇÜLDÜ: süzgeç yazılmadan önce
+  `subsystem sftp` uçtan uca ÇALIŞIYORDU ve transfer `.cast` dosyasına
+  ham ikili protokol olarak düşüyordu. Şimdi reddediliyor
+  (`internal/proxy/requests.go`). Açılması dosya seviyesinde denetime
+  bağlı — yoksa denetlenemez bir kanal geri gelir.
+- `scp` protokol modu — modern `scp` zaten SFTP kullanıyor, aynı iş
+- Port forwarding (`direct-tcpip`) — istenirse. Şu an kanal tipi
+  reddediliyor (`internal/sshd/channel.go`)
+- Agent forwarding — ✅ reddediliyor (request süzgeci)
+- `env` whitelist — ✅ bitti (`session.accept_env`, varsayılan LANG/LC_*)
 - Keepalive, yarı kapalı bağlantı, timeout'lar
 - Rate limiting, bağlantı sayısı sınırı
 - `go test -race` tüm pakette temiz

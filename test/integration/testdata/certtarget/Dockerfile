@@ -33,6 +33,7 @@ RUN printf '%s\n' \
     'PasswordAuthentication no' \
     'PermitRootLogin no' \
     'LogLevel VERBOSE' \
+    'AcceptEnv POSTERN_ALLOWED POSTERN_DENIED' \
     > /etc/ssh/sshd_config.d/postern.conf 2>/dev/null \
  || printf '%s\n' \
     'TrustedUserCAKeys /etc/ssh/postern_ca.pub' \
@@ -41,7 +42,13 @@ RUN printf '%s\n' \
     'PasswordAuthentication no' \
     'PermitRootLogin no' \
     'LogLevel VERBOSE' \
+    'AcceptEnv POSTERN_ALLOWED POSTERN_DENIED' \
     >> /etc/ssh/sshd_config
+
+# ⚠️ AcceptEnv yalnızca TEST için: postern'in env süzgecini HEDEFİN
+# süzgecinden ayırt edebilmek gerekiyor. OpenSSH varsayılanı hiçbir env
+# kabul etmez, dolayısıyla o hâlde "postern mi reddetti, hedef mi"
+# ayrılamıyor. Gerçek bir hedefte bu satır olmamalı.
 
 # "postern" OS kullanıcısına yalnızca "postern" principal'ı girebilir.
 RUN mkdir -p /etc/ssh/auth_principals \

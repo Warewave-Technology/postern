@@ -169,7 +169,7 @@ func TestBrokerRelaysData(t *testing.T) {
 	defer cancel()
 
 	done := make(chan error, 1)
-	go func() { done <- New(down, downR, up, upR, nil, false, testLogger()).Run(ctx) }()
+	go func() { done <- New(down, downR, up, upR, nil, false, RequestPolicy{}, testLogger()).Run(ctx) }()
 
 	mustWrite(t, feedDown, "ls -la\n")
 	waitForContent(t, up.dataW, "ls -la")
@@ -201,7 +201,9 @@ func TestBrokerForwardsExitStatusBeforeClosing(t *testing.T) {
 	upR := make(chan *ssh.Request)
 
 	done := make(chan error, 1)
-	go func() { done <- New(down, downR, up, upR, nil, false, testLogger()).Run(context.Background()) }()
+	go func() {
+		done <- New(down, downR, up, upR, nil, false, RequestPolicy{}, testLogger()).Run(context.Background())
+	}()
 
 	// Hedefin çıktısı bitti.
 	feedUp.Close()
@@ -322,7 +324,9 @@ func TestBrokerKeepsDownWritableWhileStderrFlows(t *testing.T) {
 	upR := make(chan *ssh.Request)
 
 	done := make(chan error, 1)
-	go func() { done <- New(down, downR, up, upR, nil, false, testLogger()).Run(context.Background()) }()
+	go func() {
+		done <- New(down, downR, up, upR, nil, false, RequestPolicy{}, testLogger()).Run(context.Background())
+	}()
 
 	// stdout bitti; stderr HÂLÂ açık.
 	feedUp.Close()
@@ -392,7 +396,7 @@ func TestBrokerTeesOutputNotInput(t *testing.T) {
 	defer cancel()
 
 	done := make(chan error, 1)
-	go func() { done <- New(down, downR, up, upR, rec, false, testLogger()).Run(ctx) }()
+	go func() { done <- New(down, downR, up, upR, rec, false, RequestPolicy{}, testLogger()).Run(ctx) }()
 
 	mustWrite(t, feedUp, "hedefin ciktisi\n")
 	waitForContent(t, down.dataW, "hedefin ciktisi")
@@ -434,7 +438,9 @@ func TestBrokerTeedInputKeepsHalfClose(t *testing.T) {
 	}
 
 	done := make(chan error, 1)
-	go func() { done <- New(down, downR, up, upR, rec, true, testLogger()).Run(context.Background()) }()
+	go func() {
+		done <- New(down, downR, up, upR, rec, true, RequestPolicy{}, testLogger()).Run(context.Background())
+	}()
 
 	mustWrite(t, feedDown, "girdi\n")
 	waitForContent(t, up.dataW, "girdi")

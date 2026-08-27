@@ -46,6 +46,11 @@ type Deps struct {
 	Authority   *ca.CA
 	Logger      *slog.Logger
 	RecordInput bool
+
+	// Requests, oturum kanalı request'lerinin süzgeci (requests.go).
+	// Sıfır değeri kullanılabilir: env whitelist'i varsayılana düşer,
+	// tip listeleri zaten sabit.
+	Requests RequestPolicy
 }
 
 // Request, açılacak oturumun kim/nereye bilgisi.
@@ -216,7 +221,7 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 // etmez — arayüz sözleşmesinin bütün faydası bu.
 func (s *Session) Run(ctx context.Context, down ssh.Channel, downR <-chan *ssh.Request) error {
 	s.Log.Info("session started", "os_user", s.OSUser)
-	err := New(down, downR, s.up, s.upR, s.rec, s.deps.RecordInput, s.deps.Logger).Run(ctx)
+	err := New(down, downR, s.up, s.upR, s.rec, s.deps.RecordInput, s.deps.Requests, s.deps.Logger).Run(ctx)
 	s.Log.Info("session ended", "os_user", s.OSUser, "duration", time.Since(s.start))
 	return err
 }

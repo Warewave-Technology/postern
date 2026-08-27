@@ -24,8 +24,40 @@ and RBAC storage (S3) are next. Not production-ready. The roadmap lives in
   `authorized_keys`
 - Decides access from roles and refuses by default, recording the reason
 - Pins every target's host key; `InsecureIgnoreHostKey` appears nowhere
+- Relays only the session requests it can account for, and logs the rest
 
 Still ahead: TOTP and an SFTP relay.
+
+### What crosses the bridge
+
+A session channel carries more than keystrokes, and postern forwards only
+the request types it can account for. Anything else is refused and logged
+— including types SSH gains after this was written, since the list is an
+allowlist rather than a blocklist.
+
+Refused today, and why:
+
+| Request | Why not |
+|---|---|
+| `subsystem` (`sftp`, `scp`) | Transfers would be recorded as raw protocol bytes in a terminal recording: unplayable, and no answer to "who took which file". The SFTP relay is a planned feature that needs per-file audit, not a side effect. |
+| `x11-req` | Opens a second channel that bypasses the bastion. |
+| `auth-agent-req@openssh.com` | Hands the user's private key to the target. A compromised target becomes a compromised key. |
+
+`env` is relayed only for names on an allowlist, `LANG` and `LC_*` by
+default. Variables like `PATH`, `LD_PRELOAD` and `BASH_ENV` change *what
+runs* on the target, which is not something a bastion should carry:
+
+```yaml
+session:
+  accept_env: ["LANG", "LC_*", "TZ"]
+```
+
+An empty list relays nothing; omitting the key keeps the default.
+
+This was not a theoretical gap. Before the filter existed, `sftp` worked
+end to end through postern, and the transfer landed in the `.cast` file
+as binary SFTP protocol under an `80x24` header that no terminal ever
+had.
 
 ## Setting up
 

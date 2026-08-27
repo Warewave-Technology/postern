@@ -17,6 +17,11 @@ ca:
 database:
    dsn: postgres://postern:postern@localhost:5432/postern?sslmode=disable
 
+session:
+   # Kullanıcıdan hedefe geçmesine izin verilen ortam değişkenleri.
+   # Yazılmazsa varsayılan: LANG, LC_*
+   # accept_env: ["LANG", "LC_*"]
+
 recording:
    dir: recordings
 

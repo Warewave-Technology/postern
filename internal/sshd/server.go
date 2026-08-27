@@ -62,6 +62,7 @@ func (s *Server) ProxyDeps() proxy.Deps {
 		Authority:   s.authority,
 		Logger:      s.logger,
 		RecordInput: s.cfg.Recording.RecordInput,
+		Requests:    proxy.RequestPolicy{AcceptEnv: s.cfg.Session.AcceptEnv},
 	}
 }
 

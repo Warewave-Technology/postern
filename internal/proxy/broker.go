@@ -37,6 +37,9 @@ type Broker struct {
 	// her şey girdidir — sudo parolası dahil.
 	recordInput bool
 
+	// policy, hangi request'lerin köprüden geçeceğini söyler (requests.go).
+	policy RequestPolicy
+
 	logger *slog.Logger
 }
 
@@ -44,8 +47,8 @@ type Broker struct {
 //
 // rec nil geçilebilir (kayıt kapalı). recordInput yalnızca config açıkça
 // istediğinde true olmalı.
-func New(down ssh.Channel, downR <-chan *ssh.Request, up ssh.Channel, upR <-chan *ssh.Request, rec *record.Writer, recordInput bool, logger *slog.Logger) *Broker {
-	return &Broker{down: down, downR: downR, up: up, upR: upR, rec: rec, recordInput: recordInput, logger: logger}
+func New(down ssh.Channel, downR <-chan *ssh.Request, up ssh.Channel, upR <-chan *ssh.Request, rec *record.Writer, recordInput bool, policy RequestPolicy, logger *slog.Logger) *Broker {
+	return &Broker{down: down, downR: downR, up: up, upR: upR, rec: rec, recordInput: recordInput, policy: policy, logger: logger}
 }
 
 // outputSink returns where target→user bytes should be written: the user's
@@ -117,9 +120,9 @@ func (b *Broker) Run(ctx context.Context) error {
 	go func() {
 		defer wg.Done()
 
-		b.relayRequests(b.down, b.upR, "upR->down", false)
+		b.relayRequests(b.down, b.upR, fromTarget, false)
 	}()
-	go b.relayRequests(b.up, b.downR, "downR->up", true)
+	go b.relayRequests(b.up, b.downR, fromClient, true)
 
 	go func() {
 		wg.Wait()
@@ -137,15 +140,40 @@ func (b *Broker) Run(ctx context.Context) error {
 	return nil
 }
 
-// relayRequests forwards every request from src to dst, answering the sender
-// when it asked for a reply.
-func (b *Broker) relayRequests(dst ssh.Channel, src <-chan *ssh.Request, direction string, observe bool) {
+// relayRequests forwards allowed requests from src to dst, answering the
+// sender when it asked for a reply.
+//
+// Reddedilen request HEDEFE HİÇ GİTMEZ ve gönderene başarısız cevap
+// döner — SSH'ta "hayır" demenin yolu bu. WantReply yoksa sessizce
+// düşer; gönderen zaten cevap beklemiyor.
+func (b *Broker) relayRequests(dst ssh.Channel, src <-chan *ssh.Request, dir direction, observe bool) {
 	for req := range src {
+		if ok, reason := b.policy.allow(dir, req); !ok {
+			// Warn seviyesi: bu bir teşhis satırı değil, denetim
+			// olayı. Operatör "kim sftp denedi" sorusunu buradan
+			// cevaplayacak.
+			b.logger.Warn("session request denied",
+				"direction", dir.String(),
+				"req.type", req.Type,
+				"reason", reason,
+			)
+
+			if req.WantReply {
+				if err := req.Reply(false, nil); err != nil {
+					b.logger.Debug("request denial reply failed",
+						"error", err,
+						"req.type", req.Type,
+					)
+				}
+			}
+			continue
+		}
+
 		res, err := forwardRequest(dst, req)
 		if err != nil {
 			b.logger.Debug("request forward failed",
 				"error", err,
-				"direction", direction,
+				"direction", dir.String(),
 				"req.type", req.Type,
 			)
 		}
@@ -159,7 +187,7 @@ func (b *Broker) relayRequests(dst ssh.Channel, src <-chan *ssh.Request, directi
 			if err != nil {
 				b.logger.Debug("request reply failed",
 					"error", err,
-					"direction", direction,
+					"direction", dir.String(),
 					"req.type", req.Type,
 				)
 			}
