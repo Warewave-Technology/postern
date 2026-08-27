@@ -91,6 +91,26 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: make web-check
 
+  # Fuzz kampanyası — YALNIZCA haftalık cron'da.
+  #
+  # PR kapısında değil: tohum korpusu zaten her `go test` koşusunda
+  # çalışıyor, yani test-race işi bütün hedefleri -race altında sınıyor.
+  # Kampanyanın kendisi süreli ve rastgele; onu PR kapısına koymak
+  # insanları kırmızıyı görmezden gelmeye alıştırır. -race olmadan
+  # koşuyor: yarış kapsamı tohum korpusundan geliyor, kampanyanın işi
+  # yeni girdi bulmak ve -race verimi yarıya düşürüyor.
+  fuzz:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: make fuzz FUZZTIME=120s
+
   # Derlenen bir ikili üretilebiliyor mu? Testler geçerken build'in
   # kırık olması mümkün (embed edilen web/dist gibi sebeplerle).
   build:

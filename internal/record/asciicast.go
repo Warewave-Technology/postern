@@ -7,8 +7,19 @@
 //	[2.143881,"i","ls\r"]
 //	[3.002100,"r","120x30"]
 //
-// Kayıt için terminal emülasyonu GEREKMEZ (Ek C.7): ham bayt akışını
-// saklıyoruz, emülasyonu oynatıcı yapıyor.
+// Kayıt için terminal emülasyonu GEREKMEZ (Ek C.7): bayt akışını
+// olduğu gibi saklıyoruz, emülasyonu oynatıcı yapıyor.
+//
+// ⚠️ SADAKATİN SINIRI: asciicast v2 veriyi JSON DİZESİ olarak saklar ve
+// JSON dizesi rastgele bayt tutamaz. encoding/json geçersiz her UTF-8
+// baytını U+FFFD (replacement character) ile değiştirir. Yani hedefte
+// `cat /bin/ls` çalıştıran bir oturum BİREBİR kaydedilmez.
+//
+// Bu formatın seçilmesinin bedeli ve bilerek kabul ediliyor: kayıtların
+// amacı bir insanın oturumu izlemesi, ikili veriyi yeniden üretmek
+// değil. Ama "ham baytları saklıyoruz" demek yanlış olurdu ve bir
+// olay incelemesinde yanlış beklenti üretirdi.
+// (Ölçüldü: TestWriterReplacesInvalidUTF8Bytes bu davranışı sabitliyor.)
 package record
 
 import (

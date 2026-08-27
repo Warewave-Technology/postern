@@ -220,7 +220,7 @@ func (b *Broker) recordResize(req *ssh.Request) {
 			return
 		}
 
-		err = b.rec.Resize(int(p.Columns), int(p.Rows))
+		err = b.rec.Resize(b.clampDim(p.Columns), b.clampDim(p.Rows))
 		if err != nil {
 			b.logger.Error("pty-req resize error",
 				"error", err,
@@ -240,7 +240,7 @@ func (b *Broker) recordResize(req *ssh.Request) {
 			return
 		}
 
-		err = b.rec.Resize(int(p.Columns), int(p.Rows))
+		err = b.rec.Resize(b.clampDim(p.Columns), b.clampDim(p.Rows))
 		if err != nil {
 			b.logger.Error("window-change resize error",
 				"error", err,
@@ -253,4 +253,39 @@ func (b *Broker) recordResize(req *ssh.Request) {
 	default:
 		return
 	}
+}
+
+// maxTerminalDim, kayda yazılabilecek en büyük terminal boyutu.
+//
+// 65535, pty'nin kendi sınırı: TIOCSWINSZ'in struct winsize alanları
+// 16 bit. Bundan büyük bir değer hedefte zaten temsil edilemez.
+const maxTerminalDim = 65535
+
+// clampDim, istemciden gelen terminal boyutunu kayda yazmadan önce
+// sınırlar.
+//
+// NEDEN: bu sınır yazılana kadar burada düz bir int(p.Columns) vardı ve
+// p.Columns istemciden gelen bir uint32'ydi. Kimliği doğrulanmış
+// herhangi bir kullanıcı cols=4294967295 gönderip KENDİ denetim
+// kaydına "4294967295x4294967295" yazdırabiliyordu — hiçbir terminalin
+// olamayacağı bir geometri. Oynatıcılar replay ızgarasını "r"
+// olaylarından boyutlandırdığı için, olayı inceleyen bir operatör
+// saldırganın zehirlediği oturumu oynatamıyordu. Ürünü kayıt olan bir
+// sistemde, denetlenen tarafın denetim dosyasına ne yazılacağını
+// seçebilmesi asıl kusurdur.
+//
+// ⚠️ İŞARET KONTROLÜ DEĞİL, MUTLAK SINIR: int(uint32(0xFFFFFFFF))
+// amd64'te 4294967295, 32 bitte -1'dir. "Negatif değilse tamam" diyen
+// bir kontrol CI'da (amd64) yeşil kalıp 32 bitte "-1x-1" üretirdi.
+//
+// Reddetmek yerine SINIRLAMAK: yeniden boyutlandırmanın OLDUĞU bilgisi
+// kaydın bir parçası ve onu düşürmek de bir kayıp. Sınıra takılan
+// değer ayrıca loglanıyor.
+func (b *Broker) clampDim(v uint32) int {
+	if v > maxTerminalDim {
+		b.logger.Warn("terminal dimension clamped for recording",
+			"value", v, "limit", maxTerminalDim)
+		return maxTerminalDim
+	}
+	return int(v)
 }

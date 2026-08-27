@@ -119,12 +119,57 @@ func dsn(conn string) (string, error) {
 		return "", fmt.Errorf("parse connection string: %w", err)
 	}
 
-	q := u.Query()
-	if q.Get("sslmode") == "" {
-		q.Set("sslmode", "verify-full")
-		u.RawQuery = q.Encode()
+	// ⚠️ u.Query() DEĞİL url.ParseQuery: ilki ayrıştırma hatasını YUTAR
+	// ve kısmi sonucu döner. Noktalı virgülle ayrılmış ya da kaçışı
+	// bozuk bir sorgu dizesinde bu, parametrelerin sessizce kaybolması
+	// ve operatörün yazdığı sslmode'un fark edilmeden değişmesi demekti.
+	// (Ölçüldü: "?sslmode=require;application_name=postern" girdisi
+	// "?sslmode=verify-full" çıktısına dönüşüyordu.) Bağlantı dizesini
+	// sessizce yeniden yazmak yerine reddediyoruz.
+	q, err := url.ParseQuery(u.RawQuery)
+	if err != nil {
+		return "", fmt.Errorf("parse connection string query: %w", err)
 	}
-	return u.String(), nil
+
+	// Anahtar VAR ama değeri boş: "sslmode=" yazan bir yapılandırma
+	// libpq varsayılanına (prefer) düşer, yani TLS kurulamazsa sessizce
+	// düz metne iner. Üstüne bir ikincisini eklemek de işe yaramaz —
+	// pgx ilkini okur. Sessizce düzeltmek yerine reddediyoruz.
+	if _, present := q["sslmode"]; present && q.Get("sslmode") == "" {
+		return "", fmt.Errorf("connection string has an empty sslmode " +
+			"(remove it to get verify-full, or state one explicitly)")
+	}
+
+	if q.Get("sslmode") != "" {
+		// ⚠️ ORİJİNAL METİN dönülüyor, u.String() değil.
+		//
+		// url.String() normalleştirme yapıyor ve host'suz bir URI'de
+		// "//"yi düşürüyor: "postgres://?host=db.internal&..." çıktıda
+		// "postgres:?host=..." oluyor. pgx parser'ı düz "postgres://"
+		// ÖNEKİNE bakarak seçtiği için iki karakterin düşmesi onu
+		// anahtar=değer parser'ına çeviriyor — ölçüldü: host yerel
+		// sokete, veritabanı boşa, kullanıcı süreç sahibine düşüyor ve
+		// TLS TAMAMEN KAYBOLUYOR. TLS düşürmesini önlemek için yazılmış
+		// fonksiyonun kendisi düşürmeye sebep oluyordu.
+		return conn, nil
+	}
+
+	// sslmode yok: orijinal metne EKLEYEREK ilerliyoruz, yeniden
+	// serileştirerek değil. Fragment varsa ondan önce giriyor.
+	base, fragment := conn, ""
+	if i := strings.IndexByte(conn, '#'); i >= 0 {
+		base, fragment = conn[:i], conn[i:]
+	}
+
+	// Ayırıcı METNE göre seçiliyor, u.RawQuery'ye göre değil: "?" ile
+	// biten bir URI'de sorgu VAR ama BOŞ, ve RawQuery'ye bakan kod
+	// oraya ikinci bir "?" koyardı. (Fuzz bunu buldu: "A://?")
+	sep := "?"
+	if strings.ContainsRune(base, '?') {
+		sep = "&"
+	}
+
+	return base + sep + "sslmode=verify-full" + fragment, nil
 }
 
 // ciColumns, harf duyarsız karşılaştırılan sütunlar — şemadaki

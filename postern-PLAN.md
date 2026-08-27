@@ -802,7 +802,12 @@ değiştirecek. Kabaca kapsam:
     ReadHeaderTimeout, ters vekil arkasında Secure çerez, saat 1970
     öncesindeyse sertifika imzalamayı reddetme), kalanlar tek tek
     gerekçelendirildi
-- Fuzz: `ParseUsername`, request payload parser'ları
+- Fuzz: `ParseUsername`, request payload parser'ları — ✅ 15 hedef
+  (`make fuzz`, haftalık cron). Hepsi ÖZELLİK doğruluyor, çökme değil:
+  x/crypto ile diferansiyel, kayıpsızlık, parça-bağımsızlık, kabul
+  kümesi kapsaması. Beş gerçek hata buldu — en ciddisi `dsn`'in host'suz
+  bir URI'de "//" düşürüp pgx'i anahtar=değer parser'ına çevirmesi ve
+  TLS'i tamamen kaybetmesiydi
 - Harici güvenlik incelemesi (mümkünse)
 
 ---

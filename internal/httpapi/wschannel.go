@@ -111,6 +111,10 @@ func newWSChannel(ctx context.Context, conn *websocket.Conn, onEOF func()) (*wsC
 	return c, c.reqs
 }
 
+// maxTerminalDim, tarayıcıdan kabul edilen en büyük terminal boyutu.
+// internal/proxy'deki sınırla AYNI olmalı: iki kapı, tek kural.
+const maxTerminalDim = 65535
+
 // handleControl, bir metin mesajını request'e çevirip kanala bırakır.
 // Tanınmayan mesajlar sessizce yok sayılır: istemci sürümü sunucudan
 // yeni olabilir ve bilinmeyen bir kontrol mesajı oturumu düşürmemeli.
@@ -119,7 +123,13 @@ func (c *wsChannel) handleControl(data []byte) {
 	if err := json.Unmarshal(data, &msg); err != nil || msg.Type != "resize" {
 		return
 	}
-	if msg.Cols == 0 || msg.Rows == 0 {
+	// Üst sınır alt sınır kadar gerekli: msg.Cols uint32 ve JSON
+	// negatifi reddeder ama 4294967295'i geçirir. O değer hem hedefte
+	// (TIOCSWINSZ 16 bitlik alanlar kullanır) hem kayıtta anlamsız.
+	// SSH kapısındaki karşılığı internal/proxy'deki maxTerminalDim —
+	// iki kapı aynı sınırı uygulamalı, yoksa ayrışırlar.
+	if msg.Cols == 0 || msg.Rows == 0 ||
+		msg.Cols > maxTerminalDim || msg.Rows > maxTerminalDim {
 		return
 	}
 

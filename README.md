@@ -197,6 +197,19 @@ positives are marked in the code one at a time with `#nosec <rule> --
 reason` — so a genuine finding tomorrow is not silenced by yesterday's
 blanket.
 
+`make fuzz` runs the fuzz campaign — 15 targets, one invocation each,
+since `-fuzz` takes exactly one target and one package. It is not in
+`make ci`: the seed corpora already run as ordinary tests on every
+`go test`, so `make test-race` exercises every target under the race
+detector, and a timed nondeterministic job on a PR gate only teaches
+people to ignore red. The campaign runs weekly in CI alongside
+`govulncheck`.
+
+Each target asserts a property, not the absence of a panic — differential
+agreement with a reference parser, losslessness, chunk invariance,
+accept-set containment. "It didn't crash" would have found none of the
+five defects these turned up.
+
 The Go version lives in `go.mod` and CI reads it from there. Keep it
 current: six of the seven vulnerabilities `govulncheck` first reported
 here were standard-library issues, fixed by moving from 1.26.5 to

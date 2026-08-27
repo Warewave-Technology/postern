@@ -6,7 +6,7 @@ GO ?= go
 GOSEC_VERSION        ?= v2.29.0
 GOVULNCHECK_VERSION  ?= v1.7.0
 
-.PHONY: build test test-race test-short test-integration vet fmt lint sec vuln audit ci web web-check clean
+.PHONY: build test test-race test-short test-integration vet fmt lint sec vuln fuzz audit ci web web-check clean
 
 build:
 	$(GO) build -o bin/postern ./cmd/postern
@@ -71,6 +71,42 @@ sec:
 # eyleme dönüştürülebilir.
 vuln:
 	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+
+# Fuzz kampanyası.
+#
+# -fuzz TEK bir hedef ve TEK bir paket alır, ./... biçimi yok — bu yüzden
+# liste elle yazılı. Listenin elle olması ayrıca ENVANTER: neyin
+# gerçekten fuzz'landığı burada görünüyor, joker bir desen gizlerdi.
+#
+# ⚠️ ci hedefine EKLENMEDİ. Tohum korpusu zaten her `go test` koşusunda
+# çalışıyor (yani test-race hepsini -race altında sınıyor); süreli ve
+# rastgele bir iş ise PR kapısında insanları kırmızıyı görmezden gelmeye
+# alıştırır. Kampanya haftalık cron'da.
+FUZZTIME ?= 60s
+
+FUZZ_TARGETS = \
+	internal/proxy:FuzzParseString \
+	internal/proxy:FuzzEnvRequestNoNameConfusion \
+	internal/proxy:FuzzPolicyDefaultDeny \
+	internal/proxy:FuzzParsePtyRoundTrip \
+	internal/proxy:FuzzRecordResize \
+	internal/record:FuzzWriterChunking \
+	internal/record:FuzzSplitIncompleteUTF8 \
+	internal/record:FuzzWriterStreamSeparation \
+	internal/sshd:FuzzParseUsername \
+	internal/policy:FuzzAuthorizeContract \
+	internal/policy:FuzzAuthorizeRolelessNeverAllowed \
+	internal/store:FuzzDSN \
+	internal/httpapi:FuzzHandleControl \
+	internal/httpapi:FuzzSameOriginURL \
+	internal/httpapi:FuzzSPAPath
+
+fuzz:
+	@for t in $(FUZZ_TARGETS); do \
+		pkg=$${t%%:*}; target=$${t##*:}; \
+		echo "=== $$pkg $$target ==="; \
+		$(GO) test -run=^$$ -fuzz=^$$target$$ -fuzztime=$(FUZZTIME) ./$$pkg || exit 1; \
+	done
 
 audit: sec vuln
 

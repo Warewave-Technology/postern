@@ -21,8 +21,14 @@ func spaHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
 		if p != "" {
-			if f, err := dist.Open(p); err == nil {
-				f.Close()
+			// Stat, Open değil: DİZİN de açılabiliyor ve dosya
+			// sunucusu ona üretilmiş bir dizin listesiyle cevap
+			// veriyordu. "/assets/" isteği ne bir dosya ne index.html
+			// döndürüyor, gömülü ağacı sayılabilir kılıyordu — bugün
+			// sızan bir şey yok (adlar zaten index.html'de geçiyor)
+			// ama yarın web/dist'e giren bir source map ya da artık,
+			// adını bilmeye gerek kalmadan bulunabilir olurdu.
+			if st, err := fs.Stat(dist, p); err == nil && !st.IsDir() {
 				files.ServeHTTP(w, r)
 				return
 			}

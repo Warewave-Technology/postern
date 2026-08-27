@@ -66,6 +66,13 @@ func (s *Server) handleChannel(ctx context.Context, sshConn *ssh.ServerConn, new
 	posternUser := sshConn.Permissions.Extensions["postern-user"]
 
 	// Bundan sonrası tek bir oturuma ait: kimlik ve hedef her satırda olsun.
+	//
+	// route.Target SALDIRGAN KONTROLÜNDE: ParseUsername bilerek kayıpsız
+	// ve satır sonu, NUL, ESC geçirebiliyor. Bunu loglamayı güvenli kılan
+	// şey slog'un TextHandler'ının alıntılaması — ölçüldü: 0x00-0x1f'in
+	// tamamı kaçışlanıyor, sahte bir log satırı enjekte edilemiyor ve
+	// satır bölünemiyor. Bağımlılık burada yazılı çünkü alıntılamayan
+	// bir handler'a geçmek bunu sessizce bozardı.
 	log = log.With("user", posternUser, "target", route.Target)
 
 	host, _, err := net.SplitHostPort(sshConn.RemoteAddr().String())
