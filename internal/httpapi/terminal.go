@@ -31,7 +31,18 @@ func (s *Server) handleTerminal(w http.ResponseWriter, r *http.Request) {
 	// saldırının tek savunması — admin API'sindeki sameOrigin'in WS
 	// karşılığı.
 	if !s.checkTerminalOrigin(r) {
-		log.Warn("terminal websocket from foreign origin", "origin", r.Header.Get("Origin"))
+		origin := r.Header.Get("Origin")
+		log.Warn("terminal websocket rejected on origin", "origin", origin)
+
+		// Mesaj sebebi AYIRIYOR: eksik başlık neredeyse her zaman
+		// araya giren bir vekilin onu düşürmesi demek ve o arıza
+		// aksi hâlde "terminal çalışmıyor" diye teşhis edilemez
+		// görünür.
+		if origin == "" {
+			writeErr(w, http.StatusForbidden,
+				"missing Origin header — a proxy in front of postern may be stripping it")
+			return
+		}
 		writeErr(w, http.StatusForbidden, "cross-site request rejected")
 		return
 	}
@@ -107,8 +118,23 @@ func (s *Server) handleTerminal(w http.ResponseWriter, r *http.Request) {
 // "kurbanın tarayıcısını kullandırmak" üzerine kurulu.
 func (s *Server) checkTerminalOrigin(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
+
+	// ⚠️ EKSİK ORIGIN ARTIK GEÇMİYOR.
+	//
+	// Eskiden yokluğunda true dönüyordu — güvenlik başlığının
+	// YOKLUĞUNDA açık kalmak, sonradan ısıran desenin ta kendisi.
+	//
+	// Tarayıcılar WebSocket el sıkışmasında Origin'i HER ZAMAN gönderir
+	// (siteler arası bir sayfa da onu bastıramaz; kontrolün dayandığı
+	// şey bu). Başlığın olmaması "istekte bulunan taraf tarayıcı değil"
+	// demek — ve bu uç yalnızca panelin kendi JS'i için var.
+	//
+	// Bu kontrolün savunduğu şey siteler arası WebSocket ele
+	// geçirmesidir; tarayıcı olmayan bir istemcinin buraya gelebilmesi
+	// için zaten oturum çerezini çalmış olması gerekir, o noktada
+	// Origin'in bir önemi kalmaz. Yani sıkı olmanın maliyeti yok.
 	if origin == "" {
-		return true
+		return false
 	}
 	return sameOriginURL(origin, s.externalURL)
 }

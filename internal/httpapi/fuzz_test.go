@@ -353,3 +353,33 @@ func FuzzSPAPath(f *testing.F) {
 		}
 	})
 }
+
+// ⚠️ EKSİK Origin BAŞLIĞI GEÇMEMELİ.
+//
+// Eskiden yokluğunda kontrol true dönüyordu — güvenlik başlığının
+// yokluğunda açık kalmak, sonradan ısıran desenin ta kendisi.
+// Tarayıcılar WebSocket el sıkışmasında Origin'i her zaman gönderir ve
+// siteler arası bir sayfa onu bastıramaz; kontrolün dayandığı şey bu.
+func TestTerminalOriginCheckRejectsMissingHeader(t *testing.T) {
+	s := &Server{externalURL: "https://postern.sirket.local"}
+
+	cases := map[string]bool{
+		"":                             false, // eksik: reddedilmeli
+		"https://postern.sirket.local": true,
+		"HTTPS://POSTERN.SIRKET.LOCAL": true,  // şema/host harf duyarsız
+		"http://postern.sirket.local":  false, // şema farklı
+		"https://evil.example":         false,
+		"null":                         false, // sandbox'lı iframe
+		"https://postern.sirket.local.evil.example": false,
+	}
+
+	for origin, want := range cases {
+		r := httptest.NewRequest("GET", "/api/terminal/web01", nil)
+		if origin != "" {
+			r.Header.Set("Origin", origin)
+		}
+		if got := s.checkTerminalOrigin(r); got != want {
+			t.Errorf("Origin %q = %v, beklenen %v", origin, got, want)
+		}
+	}
+}

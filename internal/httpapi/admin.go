@@ -8,6 +8,7 @@ package httpapi
 // yalnızca hosttaki CLI'dan değişir (user modify --admin).
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -147,7 +148,19 @@ func (s *Server) storeErr(w http.ResponseWriter, op string, err error) {
 // audit, başarılı bir değişikliği deftere yazar. Yazamamak isteği geri
 // almaz (iş çoktan oldu) ama sessiz de kalmaz: Error seviyesinde loglanır.
 func (s *Server) audit(r *http.Request, action, entity, details string) {
-	err := s.store.LogAdmin(r.Context(), store.AdminLogEntry{
+	// ⚠️ İSTEK BAĞLAMI KULLANILMIYOR.
+	//
+	// Denetim satırı, kaydettiği DEĞİŞİKLİK YAPILDIKTAN SONRA yazılıyor.
+	// r.Context() istemci bağlantıyı kestiği anda iptal oluyor, yani
+	// isteği yarıda bırakan bir istemci — sekmesini kapatan bir
+	// yönetici, ya da bunu bilerek yapan biri — değişikliği KALICI
+	// bırakıp izini SİLDİRİYORDU.
+	//
+	// WithoutCancel: değişiklik olduysa satırı da yazacağız.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)
+	defer cancel()
+
+	err := s.store.LogAdmin(ctx, store.AdminLogEntry{
 		Actor: sessionUser(r), Via: "web", Action: action, Entity: entity, Details: details,
 	})
 	if err != nil {

@@ -272,7 +272,14 @@ func (s *Session) Run(ctx context.Context, down ssh.Channel, downR <-chan *ssh.R
 		}
 	}()
 
-	b := New(down, downR, s.up, s.upR, s.rec, s.deps.RecordInput, s.deps.Requests, s.deps.Logger)
+	// ⚠️ Broker s.Log alıyor, deps.Logger DEĞİL.
+	//
+	// s.Log oturumun alanları bağlanmış hâli (user, target, session_id,
+	// record_path). Broker'ın yazdığı satırların en önemlisi "session
+	// request denied" — yani "kim sftp/x11/agent forwarding denedi"
+	// sorusunun cevabı. Ham logger'la o satırlar KİMİN olduğunu
+	// söylemiyordu ve denetim açısından işe yaramıyordu.
+	b := New(down, downR, s.up, s.upR, s.rec, s.deps.RecordInput, s.deps.Requests, s.Log)
 	b.idle = guard
 
 	err := b.Run(ctx)
