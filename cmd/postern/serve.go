@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/warewave/postern/internal/groupsync"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -36,7 +39,13 @@ func newServeCmd() *cobra.Command {
 				return err
 			}
 
-			ctx := context.Background()
+			// Sinyal bağlamı: ctx eskiden HİÇ iptal edilmiyordu, yani
+			// arka plan döngülerinin tanımlı bir duruşu yoktu ve
+			// aşağıdaki defer'daki api.Shutdown da hiç sırasını
+			// bulamıyordu.
+			ctx, stop := signal.NotifyContext(context.Background(),
+				os.Interrupt, syscall.SIGTERM)
+			defer stop()
 
 			db, err := store.Open(ctx, cfg.Database.DSN)
 			if err != nil {
@@ -139,6 +148,37 @@ func newServeCmd() *cobra.Command {
 				// depo — kayıtların yazıldığı yer ile okunduğu yer
 				// ayrışamaz.
 				webAPI.UseRecordings(s.Records())
+
+				// Periyodik dizin senkronizasyonu — YALNIZCA serve'de.
+				//
+				// Runner'ı burada kurmak, "CLI komutlarıyla değil
+				// sunucuyla başlar" kuralını bir gelenek olmaktan
+				// çıkarıp yapısal hâle getiriyor: diğer alt komutlar
+				// çıplak bir Store açıyor ve bu koda hiç ulaşamıyor.
+				if cfg.Sync.Enabled {
+					runner := groupsync.NewRunner(db,
+						func(c context.Context) (groupsync.Directory, error) {
+							// HER koşuda yeniden açılıyor: LDAP ayarı
+							// panelden değişebiliyor ve yakalanmış bir
+							// kaynak, çoktan değiştirilmiş bir dizine
+							// sorgu atmaya devam ederdi.
+							return ldap.SourceFromStore(c, db)
+						},
+						groupsync.Config{
+							Interval: cfg.Sync.IntervalOrDefault(),
+							Timeout:  cfg.Sync.TimeoutOrDefault(),
+							DryRun:   cfg.Sync.DryRun,
+							Limits: groupsync.Limits{
+								Grace:              cfg.Sync.GraceOrDefault(),
+								MaxZeroFraction:    cfg.Sync.MaxZeroFractionOrDefault(),
+								MinZeroFloor:       cfg.Sync.MinZeroFloorOrDefault(),
+								MaxUnknownFraction: cfg.Sync.MaxUnknownFractionOrDefault(),
+								MaxRevokePerRun:    cfg.Sync.MaxRevokePerRunOrDefault(),
+							},
+						}, logger)
+
+					go runner.Start(ctx)
+				}
 
 				// Web terminali yalnızca açıkça istendiğinde: rota bile
 				// kurulmaz. Bağımlılıklar sshd'ninkilerle AYNI — iki kapı

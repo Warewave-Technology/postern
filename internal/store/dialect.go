@@ -214,3 +214,10 @@ const tableExistsQuery = `
 	WHERE table_schema = current_schema()
 	  AND table_name = $1;
 `
+
+// syncLockID, dizin senkronizasyonu danışma kilidinin anahtarı.
+//
+// migrationLockID ile AYNI ad alanını paylaşıyor (PostgreSQL danışma
+// kilitleri küreseldir), o yüzden farklı olmalı ve ikisi de sıra dışı
+// değerler.
+const syncLockID int64 = 0x53594e43 // "SYNC"

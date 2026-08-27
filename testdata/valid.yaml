@@ -39,3 +39,19 @@ http:
 oidc:
    issuer_url: "http://127.0.0.1:8081/realms/postern"
    client_id: "postern"
+
+# Periyodik dizin senkronizasyonu. VARSAYILAN KAPALI.
+#
+# ⚠️ Açıldığında bu döngü OTOMATİK OLARAK YETKİ İPTAL EDER.
+# Önce dry_run: true ile bir süre koşturup `postern sync status`
+# çıktısına bakın.
+# sync:
+#   enabled: true
+#   interval: 15m
+#   grace: 1h            # dizinde bulunamadıktan sonra beklenen süre
+#   dry_run: false
+#   # patlama yarıçapı tavanları — aşılırsa koşu HİÇBİR ŞEY yapmadan iptal olur
+#   max_zero_fraction: 0.10
+#   min_zero_floor: 3
+#   max_unknown_fraction: 0.25
+#   max_revoke_per_run: 25

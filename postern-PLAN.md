@@ -808,6 +808,9 @@ değiştirecek. Kabaca kapsam:
   kümesi kapsaması. Beş gerçek hata buldu — en ciddisi `dsn`'in host'suz
   bir URI'de "//" düşürüp pgx'i anahtar=değer parser'ına çevirmesi ve
   TLS'i tamamen kaybetmesiydi
+- Periyodik dizin senkronizasyonu — ✅ üç değerli varlık sorusu, dizin
+  sondası, patlama yarıçapı tavanı, grace penceresi ve koşu geçmişi.
+  Kritik olan iptal etmek değil, KESİNTİDE iptal ETMEMEK
 - Harici güvenlik incelemesi (mümkünse)
 
 ---

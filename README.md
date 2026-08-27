@@ -84,6 +84,57 @@ session:
 
 An empty list relays nothing; omitting the key keeps the default.
 
+### Keeping authorization fresh
+
+Group membership was resolved only at login, so a user deleted in the
+directory kept their roles until they next tried to sign in — which,
+having been deleted, they never would. `sync.enabled` turns on a
+background pass that re-resolves them.
+
+This is the most dangerous feature in the codebase, because the naive
+version of it is catastrophic. `Groups` returns an empty list both for
+"this person is not in the directory" and for a directory that answers
+badly, and a loop that treats an empty list as "revoke" will, during an
+LDAP outage, revoke everyone in the company. So:
+
+- The directory answers a **three-valued** question. Only a search the
+  server answered successfully with zero entries counts as *absent*.
+  A bind failure, any LDAP result code — including `32 NoSuchObject`
+  from a mistyped base DN, which would otherwise make every user look
+  deleted — and an ambiguous multi-entry result all count as *unknown*,
+  and unknown users are never touched.
+- Before touching anything, a run **probes** the directory: a directory
+  returning no users at all is an outage or a restore in progress, never
+  a company where everyone left.
+- A **blast-radius ceiling** aborts the whole run rather than applying
+  it. Users who are absent and users who are present but suddenly map to
+  no roles are counted *together*, because a half-restored directory
+  produces the second, not the first — a guard watching only absences
+  would happily empty the company.
+- A **grace window** means a user must be missing across runs, not once.
+- Manually granted roles survive, and the report lists those users
+  separately: reading "revoked" and assuming access is gone would be the
+  easy mistake.
+
+Runs are recorded. An abort nobody sees is the same failure as no sync
+at all — the operator believes revocation is happening while the
+directory has been unreachable for a week — so `postern sync status`
+leads with the last successful run.
+
+```bash
+postern sync run --dry-run --config postern.yaml
+```
+
+Triggering a run is deliberately CLI-only. A panel button that starts a
+mass revocation is a lever a stolen admin session should not have, and
+the timer covers the legitimate case. Scope is `sso_only` users only, so
+service accounts and CI users are never revoked; `postern user modify
+--sso-only=true` opts someone in.
+
+An OIDC-claim-only deployment cannot be synchronised at all — a claim
+arrives only when someone logs in, so there is nothing to ask. `sync`
+requires a directory and says so at startup rather than pretending.
+
 ### Limits
 
 Nothing bounded the listener until recently: it accepted in an unbounded

@@ -15,6 +15,7 @@ type Config struct {
 	CA       CAConfig       `yaml:"ca"`
 	Database DatabaseConfig `yaml:"database"`
 	Session  SessionConfig  `yaml:"session"`
+	Sync     SyncConfig     `yaml:"sync"`
 
 	// SecretKeyFile, veritabanındaki şifreli ayarları açan ana anahtar
 	// (`postern secret init` üretir). Boş bırakılabilir: o zaman şifreli
@@ -225,4 +226,93 @@ type RecordingConfig struct {
 	// RecordInput defaults to false on purpose: keystrokes include
 	// passwords. See postern-PLAN.md S1.7, design note 4.
 	RecordInput bool `yaml:"record_input"`
+}
+
+// SyncConfig, periyodik dizin senkronizasyonu.
+//
+// ⚠️ VARSAYILAN KAPALI. Açıldığında bu döngü OTOMATİK OLARAK YETKİ
+// İPTAL EDER; yanlış yapılandırılmış bir dizin ya da fark edilmeyen bir
+// kesinti, kimsenin giremediği bir bastion demek.
+//
+// Tavanlar neden config'te, settings tablosunda değil: bunlar kimlik
+// verisi değil, otomatik toplu iptalin ÜST SINIRI. Onu yükseltebilmek
+// için host'a erişmek gerekmeli — admin bayrağının yalnızca CLI'dan
+// verilebilmesiyle aynı gerekçe. (LDAP'ın BAĞLANTI ayarları settings
+// tablosunda kalıyor; panelden düzenlenmesi gereken onlar.)
+type SyncConfig struct {
+	Enabled bool `yaml:"enabled"`
+
+	// Interval, koşular arası süre (varsayılan 15m).
+	Interval time.Duration `yaml:"interval"`
+
+	// Grace, kullanıcı dizinde bulunamadıktan sonra iptal için beklenen
+	// süre (varsayılan 1h). Kısa bir çoğaltma gecikmesi ya da bakım
+	// penceresi yetkileri silmesin diye.
+	Grace time.Duration `yaml:"grace"`
+
+	// Timeout, tek bir koşunun üst sınırı (varsayılan 5m).
+	Timeout time.Duration `yaml:"timeout"`
+
+	// --- patlama yarıçapı tavanları ---
+	//
+	// MaxZeroFraction ve MinZeroFloor BİRLİKTE aşılmalı: küçük
+	// kurumlarda oran tek kişiyle aşılır, büyüklerinde taban tek başına
+	// anlamsız kalır.
+	MaxZeroFraction    float64 `yaml:"max_zero_fraction"`    // varsayılan 0.10
+	MinZeroFloor       int     `yaml:"min_zero_floor"`       // varsayılan 3
+	MaxUnknownFraction float64 `yaml:"max_unknown_fraction"` // varsayılan 0.25
+	MaxRevokePerRun    int     `yaml:"max_revoke_per_run"`   // varsayılan 25
+
+	// DryRun, kararları hesaplar ve raporlar ama HİÇBİR ŞEY YAZMAZ.
+	// Açmadan önce bir süre bununla koşturmak doğru yol.
+	DryRun bool `yaml:"dry_run"`
+}
+
+func (c SyncConfig) IntervalOrDefault() time.Duration {
+	if c.Interval <= 0 {
+		return 15 * time.Minute
+	}
+	return c.Interval
+}
+
+func (c SyncConfig) GraceOrDefault() time.Duration {
+	if c.Grace <= 0 {
+		return time.Hour
+	}
+	return c.Grace
+}
+
+func (c SyncConfig) TimeoutOrDefault() time.Duration {
+	if c.Timeout <= 0 {
+		return 5 * time.Minute
+	}
+	return c.Timeout
+}
+
+func (c SyncConfig) MaxZeroFractionOrDefault() float64 {
+	if c.MaxZeroFraction <= 0 {
+		return 0.10
+	}
+	return c.MaxZeroFraction
+}
+
+func (c SyncConfig) MinZeroFloorOrDefault() int {
+	if c.MinZeroFloor <= 0 {
+		return 3
+	}
+	return c.MinZeroFloor
+}
+
+func (c SyncConfig) MaxUnknownFractionOrDefault() float64 {
+	if c.MaxUnknownFraction <= 0 {
+		return 0.25
+	}
+	return c.MaxUnknownFraction
+}
+
+func (c SyncConfig) MaxRevokePerRunOrDefault() int {
+	if c.MaxRevokePerRun <= 0 {
+		return 25
+	}
+	return c.MaxRevokePerRun
 }

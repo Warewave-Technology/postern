@@ -226,11 +226,11 @@ func newUserListCmd() *cobra.Command {
 // işin bilinçli kapısı. --email "" adresi siler.
 func newUserModifyCmd() *cobra.Command {
 	var configPath, name, osUser, email string
-	var admin bool
+	var admin, ssoOnly bool
 
 	cmd := &cobra.Command{
 		Use:   "modify",
-		Short: "Change a user's email, os-user or admin flag",
+		Short: "Change a user's email, os-user, admin or sso-only flag",
 		// ⚠️ NoArgs olmadan "--admin false" sessizce YANLIŞ çalışır:
 		// pflag boolean bayrağı --admin'i true yapar, "false" kelimesi
 		// pozisyonel argüman olarak yutulurdu. NoArgs bunu hataya çevirir
@@ -240,8 +240,9 @@ func newUserModifyCmd() *cobra.Command {
 			emailSet := cmd.Flags().Changed("email")
 			osUserSet := cmd.Flags().Changed("os-user")
 			adminSet := cmd.Flags().Changed("admin")
-			if !emailSet && !osUserSet && !adminSet {
-				return fmt.Errorf("nothing to change: pass --email, --os-user and/or --admin")
+			ssoOnlySet := cmd.Flags().Changed("sso-only")
+			if !emailSet && !osUserSet && !adminSet && !ssoOnlySet {
+				return fmt.Errorf("nothing to change: pass --email, --os-user, --admin and/or --sso-only")
 			}
 
 			cfg, err := config.Load(configPath)
@@ -283,6 +284,22 @@ func newUserModifyCmd() *cobra.Command {
 				fmt.Fprintf(out, "user %q: admin set to %v\n", name, admin)
 			}
 
+			if ssoOnlySet {
+				// sso_only iki şeye birden karar veriyor: public key
+				// kapısının kapalı olması VE kullanıcının periyodik
+				// dizin senkronizasyonunun kapsamına girmesi. İkincisi
+				// "yetkisi otomatik iptal edilebilir" demek, yani bu da
+				// admin bayrağı gibi yalnızca host'tan verilmeli.
+				if err := db.SetUserSSOOnly(ctx, name, ssoOnly); err != nil {
+					return err
+				}
+				fmt.Fprintf(out, "user %q: sso-only set to %v", name, ssoOnly)
+				if ssoOnly {
+					fmt.Fprint(out, " (public key login disabled; directory sync may revoke roles)")
+				}
+				fmt.Fprintln(out)
+			}
+
 			if osUserSet {
 				if err := db.SetUserOSUser(ctx, name, osUser); err != nil {
 					return err
@@ -301,6 +318,8 @@ func newUserModifyCmd() *cobra.Command {
 	cmd.Flags().StringVar(&email, "email", "", "yeni e-posta (boş = sil)")
 	cmd.Flags().StringVar(&osUser, "os-user", "", "hedeflerdeki yeni hesap")
 	cmd.Flags().BoolVar(&admin, "admin", false, "uygulama yönetim yetkisi — eşittirle yaz: --admin=true / --admin=false")
+	cmd.Flags().BoolVar(&ssoOnly, "sso-only", false,
+		"erişim yalnızca IdP üzerinden — eşittirle yaz: --sso-only=true / --sso-only=false")
 	_ = cmd.MarkFlagRequired("name")
 	return cmd
 }

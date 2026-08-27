@@ -118,6 +118,37 @@ func (c *Config) Validate() error {
 	if c.Session.MaxLifetime < 0 {
 		return fmt.Errorf("session.max_lifetime is negative")
 	}
+	// Senkronizasyon: yalnızca ANLAMSIZ olanı reddet.
+	if c.Sync.Enabled {
+		if !c.OOBEnabled() {
+			// Senkronizasyon LDAP'a bağlı ve LDAP ayarları OIDC'li
+			// kurulumla birlikte geliyor. OIDC'siz bir kurulumda döngü
+			// hiçbir zaman bir dizin bulamaz ve her koşuda "skipped"
+			// yazardı — açıkça reddetmek daha dürüst.
+			return fmt.Errorf("sync.enabled requires oidc and http to be configured")
+		}
+		if c.Sync.Interval < 0 || c.Sync.Grace < 0 || c.Sync.Timeout < 0 {
+			return fmt.Errorf("sync durations must not be negative")
+		}
+		if c.Sync.Interval > 0 && c.Sync.Interval < time.Minute {
+			return fmt.Errorf("sync.interval %s is too short (minimum 1m)", c.Sync.Interval)
+		}
+		if c.Sync.MaxZeroFraction < 0 || c.Sync.MaxZeroFraction > 1 {
+			return fmt.Errorf("sync.max_zero_fraction must be between 0 and 1")
+		}
+		if c.Sync.MaxUnknownFraction < 0 || c.Sync.MaxUnknownFraction > 1 {
+			return fmt.Errorf("sync.max_unknown_fraction must be between 0 and 1")
+		}
+		// Grace bir koşudan kısaysa hiçbir zaman "bekletme" yaşanmaz:
+		// kullanıcı ilk bulunamadığı koşunun ardından gelen ikinci
+		// koşuda iptal edilir. Bu, penceresiz çalışmak demek.
+		if c.Sync.GraceOrDefault() < c.Sync.IntervalOrDefault() {
+			return fmt.Errorf("sync.grace (%s) is shorter than sync.interval (%s); "+
+				"the grace window would never apply",
+				c.Sync.GraceOrDefault(), c.Sync.IntervalOrDefault())
+		}
+	}
+
 	if c.Session.IdleTimeout > 0 && c.Session.MaxLifetime > 0 &&
 		c.Session.MaxLifetime < c.Session.IdleTimeout {
 		// Ömür sınırı boşta kalma sınırından kısaysa ikincisi hiç
