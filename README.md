@@ -206,6 +206,22 @@ agent before the right one, so a developer with five keys hits the limit
 at four. This is the same tension OpenSSH resolves with its own default
 of 6; the fix on the client side is `IdentitiesOnly=yes`.
 
+**LDAP group scope.** `group_base` is required, and it applies to the
+`memberOf` path as well as the group-search path. Without it, group
+identity collapses to a bare CN matched across the whole directory:
+anyone who can create a group anywhere the bind account can see —
+self-service group creation, a delegated OU, a contractor subtree,
+another domain in the forest — could name it after a mapped role and
+receive it. Plain `ldap://` is refused off loopback, and the check is a
+scheme allowlist: it used to match the lowercase prefix only, so
+`LDAP://` sent the bind password over the wire in cleartext.
+
+**SSH transport.** Key exchanges, ciphers and MACs are pinned explicitly
+in both directions. x/crypto's defaults are chosen for compatibility and
+include `diffie-hellman-group14-sha1` and `hmac-sha1`; a bastion's
+transport is tuned to protect traffic to every machine behind it, not to
+accommodate clients that have not moved on.
+
 **Browser login outlives the handshake timeout.** Approval is awaited
 *inside* the handshake, so a flat deadline shorter than the approval
 window would break every OIDC login — as a mid-login disconnect that

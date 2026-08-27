@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/warewave/postern/internal/sshalg"
 	"log/slog"
 	"net"
 	"os"
@@ -370,6 +371,14 @@ func (s *Server) serverConfig(nConn deadlineSetter) (*ssh.ServerConfig, error) {
 		// veritabanı sorgusu (UserByPublicKey) ve OOB yolunda bir
 		// bekleme daha demek.
 		MaxAuthTries: s.maxAuthTries,
+
+		// Taşıma algoritmaları açıkça: varsayılanlar SHA-1 taşıyor
+		// (bkz. algorithms.go).
+		Config: ssh.Config{
+			KeyExchanges: sshalg.KeyExchanges,
+			Ciphers:      sshalg.Ciphers,
+			MACs:         sshalg.MACs,
+		},
 	}
 	if s.logins != nil {
 		// nil kaldıkça istemciye bu yöntem hiç sunulmaz — OIDC'siz

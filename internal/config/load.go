@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -197,13 +198,23 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("http.terminal_enabled requires the oidc and http sections")
 	}
 
-	// Terminal açıkken düz HTTP, oturum cookie'sini ve terminal trafiğini
-	// ağa açık bırakır. Loopback geliştirme için serbest; başka her adres
-	// için reddediyoruz — "sonra HTTPS ekleriz" diye açılan bir bastion
-	// öyle kalır.
-	if c.HTTP.TerminalEnabled && !isLoopbackURL(c.HTTP.ExternalURL) &&
-		!strings.HasPrefix(c.HTTP.ExternalURL, "https://") {
-		return fmt.Errorf("http.terminal_enabled requires an https external_url (got %q)", c.HTTP.ExternalURL)
+	// ⚠️ HTTPS KURALI TERMİNALE DEĞİL, WEB YÜZEYİNİN TAMAMINA BAĞLI.
+	//
+	// Kural eskiden yalnızca terminal_enabled iken uygulanıyordu. Ama
+	// terminal KAPALIYKEN de aynı kaynak üzerinden şunlar servis
+	// ediliyor: oturum çerezi, OIDC kod değişimi, admin API'si (kullanıcı
+	// ve rol yönetimi), denetim kaydı ve OTURUM KAYITLARININ TAMAMI.
+	// Düz HTTP'de bunların hepsi ağda açık gidiyor ve çerez de Secure
+	// olamıyor — yani panele giren herkesin oturumu, aynı ağdaki birine
+	// açık.
+	//
+	// Terminalin kapalı olması bu yüzeyi güvenli yapmıyor, yalnızca bir
+	// parçasını kaldırıyor.
+	if c.OOBEnabled() && !isLoopbackURL(c.HTTP.ExternalURL) &&
+		!strings.HasPrefix(strings.ToLower(c.HTTP.ExternalURL), "https://") {
+		return fmt.Errorf("http.external_url must be https (got %q) — the session "+
+			"cookie, the admin API and every session recording are served from it",
+			c.HTTP.ExternalURL)
 	}
 
 	return nil
@@ -215,8 +226,16 @@ func isLoopbackURL(raw string) bool {
 	if err != nil {
 		return false
 	}
-	host := u.Hostname()
-	return host == "localhost" || host == "127.0.0.1" || host == "::1"
+	host := strings.ToLower(u.Hostname())
+	if host == "localhost" {
+		return true
+	}
+	// net.IP: "127.0.0.1" kadar "127.1" ve "::ffff:127.0.0.1" de
+	// loopback'tir; üç yazımı elle listelemek hem eksik hem kırılgan.
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
 }
 
 // OOBEnabled, OIDC destekli tarayıcı girişinin yapılandırılıp

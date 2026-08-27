@@ -7,6 +7,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"fmt"
+	"github.com/warewave/postern/internal/sshalg"
 	"net"
 	"strconv"
 	"time"
@@ -95,6 +96,22 @@ func dialer(ctx context.Context, t model.Target, user string, signer ssh.Signer)
 		Auth:              []ssh.AuthMethod{ssh.PublicKeys(signer)},
 		HostKeyCallback:   cb,
 		HostKeyAlgorithms: algos,
+
+		// Taşıma algoritmaları GELEN yönle aynı: x/crypto'nun
+		// varsayılanları SHA-1 taşıyor ve iki yönden birini sıkı,
+		// diğerini gevşek bırakmak zinciri zayıf halkası kadar yapardı.
+		// Liste internal/sshd'de, gerekçesiyle birlikte.
+		Config: ssh.Config{
+			KeyExchanges: sshalg.KeyExchanges,
+			Ciphers:      sshalg.Ciphers,
+			MACs:         sshalg.MACs,
+		},
+
+		// ⚠️ Hedef el sıkışması için üst sınır. Yoksa asılı ya da
+		// düşmanca bir hedef, oturum goroutine'ini süresiz tutar —
+		// oturum daha kurulmadığı için session.idle_timeout da
+		// devreye giremez.
+		Timeout: dialTimeout,
 	}
 
 	addr := net.JoinHostPort(t.Host, strconv.Itoa(t.Port))
@@ -118,3 +135,15 @@ func dialer(ctx context.Context, t model.Target, user string, signer ssh.Signer)
 
 	return &Conn{client: client, target: t}, nil
 }
+
+// dialTimeout, hedefe bağlanma ve el sıkışma için üst sınır.
+//
+// ⚠️ Bu YOKKEN asılı ya da düşmanca bir hedef, oturum goroutine'ini
+// süresiz tutabiliyordu: ssh.NewClientConn sunucu bağlamı altında
+// çalışıyor ve session.idle_timeout henüz devrede değil (oturum daha
+// kurulmadı). Yani "hedef cevap vermiyor" durumu sessizce kaynak
+// tutmaya dönüşüyordu.
+//
+// 20 saniye: yavaş bir ağdaki meşru bir hedefe yetecek kadar uzun,
+// asılı kalanı tutmayacak kadar kısa.
+const dialTimeout = 20 * time.Second

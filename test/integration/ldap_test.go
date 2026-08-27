@@ -141,7 +141,10 @@ func TestLDAPGroupsByUserAttribute(t *testing.T) {
 	url := startOpenLDAP(t)
 
 	cfg := ldapConfig(url)
-	cfg.GroupBase, cfg.GroupFilter = "", ""
+	// GroupFilter kalkıyor (arama yolu kullanılmıyor) ama GroupBase
+	// DURUYOR: memberOf yolunda da grup kimliğini kapsamak için zorunlu
+	// — dizinin herhangi bir yerindeki bir grup rol veremesin.
+	cfg.GroupFilter = ""
 	cfg.GroupAttribute = "ou"
 
 	src, err := ldap.New(cfg)

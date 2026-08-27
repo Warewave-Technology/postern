@@ -85,6 +85,23 @@ func New(cfg Config) (*Source, error) {
 	if cfg.GroupAttribute == "" && (cfg.GroupBase == "" || cfg.GroupFilter == "") {
 		return nil, fmt.Errorf("ldap.New: either group_attribute or group_base+group_filter is required")
 	}
+
+	// ⚠️ group_base HER İKİ YOLDA DA ZORUNLU.
+	//
+	// Kapatılan yetki yükseltme: grup ARAMASI yolu zaten group_base ile
+	// sınırlıydı, ama memberOf (group_attribute) yolu dizinin HERHANGİ
+	// BİR YERİNDEKİ grubu alıp CN'ine indiriyordu. Yani dizinde bir yere
+	// grup açabilen (self-servis grup oluşturma, devredilmiş bir OU,
+	// yüklenici alt ağacı, ormandaki başka bir alan) herkes, adını
+	// eşlenmiş bir role denk getirerek O ROLÜ alabiliyordu — "grup
+	// açabilirim"den "o rolün hedeflerine SSH'layabilirim"e.
+	//
+	// Kapsamı zorunlu kılmak yapılandırmayı bir satır uzatıyor;
+	// alternatifi, grup kimliğinin dizinin tamamına açık olması.
+	if cfg.GroupBase == "" {
+		return nil, fmt.Errorf("ldap.New: group_base is required — it scopes which " +
+			"part of the directory may name a postern role")
+	}
 	if !strings.Contains(cfg.UserFilter, "%s") {
 		return nil, fmt.Errorf("ldap.New: user_filter must contain %%s for the username")
 	}
@@ -267,7 +284,13 @@ func (s *Source) findUser(conn *goldap.Conn, username string) (string, []string,
 	entry := res.Entries[0]
 	var groups []string
 	if s.cfg.GroupAttribute != "" {
-		groups = entry.GetAttributeValues(s.cfg.GroupAttribute)
+		// KAPSAM SÜZGECİ: yalnızca group_base ALTINDAKİ gruplar sayılır.
+		// Gerekçe New()'deki group_base kontrolünde.
+		for _, dn := range entry.GetAttributeValues(s.cfg.GroupAttribute) {
+			if underBase(dn, s.cfg.GroupBase) {
+				groups = append(groups, dn)
+			}
+		}
 	}
 	return entry.DN, groups, nil
 }
@@ -317,4 +340,37 @@ func (s *Source) normalize(value string) string {
 		return value
 	}
 	return dn.RDNs[0].Attributes[0].Value
+}
+
+// underBase, bir DN'in verilen tabanın ALTINDA olup olmadığını söyler.
+//
+// DN karşılaştırması harf duyarsız ve boşluklara toleranslı: dizinler
+// "ou=Groups, dc=Corp" ile "ou=groups,dc=corp"u aynı sayar, biz de
+// saymalıyız — aksi hâlde meşru bir grup kapsam dışı görünüp
+// kullanıcının erişimi sessizce kaybolur.
+//
+// Sonek karşılaştırması VİRGÜL SINIRINDA yapılıyor: "ou=x,dc=corp"
+// tabanı için "ou=evilx,dc=corp" ALTTA DEĞİLDİR ve düz strings.HasSuffix
+// onu kabul ederdi.
+func underBase(dn, base string) bool {
+	n := normalizeDN(dn)
+	b := normalizeDN(base)
+
+	if b == "" {
+		return false
+	}
+	if n == b {
+		return true
+	}
+	return strings.HasSuffix(n, ","+b)
+}
+
+// normalizeDN, DN'i karşılaştırılabilir hâle getirir: küçük harf ve
+// bileşen çevresindeki boşluklar atılmış.
+func normalizeDN(dn string) string {
+	parts := strings.Split(strings.ToLower(dn), ",")
+	for i, p := range parts {
+		parts[i] = strings.TrimSpace(p)
+	}
+	return strings.Join(parts, ",")
 }

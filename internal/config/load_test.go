@@ -461,3 +461,50 @@ bozuk: [
 		t.Errorf("hata dosyayı adlandırmıyor: %v", err)
 	}
 }
+
+// ⚠️ HTTPS kuralı TERMİNALE değil, WEB YÜZEYİNİN TAMAMINA bağlı olmalı.
+//
+// Kural eskiden yalnızca terminal_enabled iken uygulanıyordu. Ama
+// terminal kapalıyken de aynı kaynaktan oturum çerezi, OIDC kod
+// değişimi, admin API'si, denetim kaydı ve oturum kayıtlarının tamamı
+// servis ediliyor. Terminalin kapalı olması bu yüzeyi güvenli yapmıyor,
+// yalnızca bir parçasını kaldırıyor.
+func TestPlainHTTPExternalURLIsRefusedEvenWithoutTerminal(t *testing.T) {
+	base := func() Config {
+		c := validConfig()
+		c.OIDC = OIDCConfig{IssuerURL: "https://idp.local", ClientID: "postern"}
+		c.HTTP = HTTPConfig{Addr: ":8088", ExternalURL: "http://bastion.local"}
+		return c
+	}
+
+	t.Run("terminal KAPALI, duz http reddedilir", func(t *testing.T) {
+		c := base()
+		c.HTTP.TerminalEnabled = false
+		if err := c.Validate(); err == nil {
+			t.Error("terminal kapalıyken düz HTTP kabul edildi — oturum çerezi, " +
+				"admin API'si ve kayıtlar ağda açık gider")
+		}
+	})
+
+	t.Run("https kabul edilir", func(t *testing.T) {
+		c := base()
+		c.HTTP.ExternalURL = "https://bastion.local"
+		if err := c.Validate(); err != nil {
+			t.Errorf("https reddedildi: %v", err)
+		}
+	})
+
+	// ⚠️ "127.1" gibi kısaltmalar BİLEREK loopback sayılmıyor:
+	// net.ParseIP onları reddediyor ve bu kontrol düz HTTP'ye İZİN
+	// VERDİĞİ için katı olmak doğru yön. Naif bir eşleşme, aynı
+	// kısaltmaların SSRF filtrelerini atlatmasıyla aynı sınıf hatadır.
+	t.Run("loopback gelistirme icin serbest", func(t *testing.T) {
+		for _, u := range []string{"http://localhost:8088", "http://127.0.0.1:8088", "http://[::1]:8088"} {
+			c := base()
+			c.HTTP.ExternalURL = u
+			if err := c.Validate(); err != nil {
+				t.Errorf("loopback %q reddedildi: %v", u, err)
+			}
+		}
+	})
+}

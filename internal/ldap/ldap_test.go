@@ -14,7 +14,7 @@ import "testing"
 func TestNewRefusesUnencryptedTransportOffLoopback(t *testing.T) {
 	base := Config{
 		UserBase: "ou=people,dc=x", UserFilter: "(uid=%s)",
-		GroupAttribute: "memberOf",
+		GroupAttribute: "memberOf", GroupBase: "ou=groups,dc=x",
 	}
 
 	refused := []string{
@@ -54,5 +54,70 @@ func TestNewRefusesUnencryptedTransportOffLoopback(t *testing.T) {
 				t.Errorf("REDDEDİLDİ: %q — %v", u, err)
 			}
 		})
+	}
+}
+
+// ⚠️ Grup kimliği DİZİNİN TAMAMINA açık olmamalı.
+//
+// Kapatılan yetki yükseltme: memberOf yolu dizinin herhangi bir
+// yerindeki grubu alıp CN'ine indiriyordu. Dizinde bir yere grup
+// açabilen herkes (self-servis grup oluşturma, devredilmiş bir OU,
+// yüklenici alt ağacı) adını eşlenmiş bir role denk getirerek o rolü
+// alabiliyordu.
+func TestUnderBaseScopesGroupIdentity(t *testing.T) {
+	const base = "ou=groups,dc=corp,dc=local"
+
+	inside := []string{
+		"cn=sysadmins,ou=groups,dc=corp,dc=local",
+		"CN=SysAdmins,OU=Groups,DC=Corp,DC=Local",    // harf duyarsız
+		"cn=sysadmins, ou=groups, dc=corp, dc=local", // boşluklu
+		"cn=x,ou=nested,ou=groups,dc=corp,dc=local",  // daha derin
+		base, // tabanın kendisi
+	}
+	for _, dn := range inside {
+		if !underBase(dn, base) {
+			t.Errorf("kapsam İÇİNDEKİ grup dışarıda sayıldı: %q", dn)
+		}
+	}
+
+	outside := []string{
+		"cn=sysadmins,ou=contractors,dc=corp,dc=local",
+		"cn=sysadmins,dc=corp,dc=local",
+		"cn=sysadmins,ou=evilgroups,dc=corp,dc=local", // sonek tuzağı
+		"cn=sysadmins,ou=groups,dc=evil,dc=local",
+		"cn=sysadmins",
+		"",
+	}
+	for _, dn := range outside {
+		if underBase(dn, base) {
+			t.Errorf("KAPSAM DIŞINDAKİ grup içeride sayıldı: %q", dn)
+		}
+	}
+}
+
+// Boş bir taban hiçbir şeyi kapsamamalı: yapılandırma eksikse
+// varsayılan "her şey serbest" olamaz.
+func TestUnderBaseWithEmptyBaseMatchesNothing(t *testing.T) {
+	for _, dn := range []string{"cn=x,dc=corp", "", "dc=corp"} {
+		if underBase(dn, "") {
+			t.Errorf("boş tabanla %q kabul edildi", dn)
+		}
+	}
+}
+
+// group_base ARTIK ZORUNLU — her iki yolda da.
+func TestNewRequiresGroupBase(t *testing.T) {
+	cfg := Config{
+		URL: "ldaps://dc.corp.local", UserBase: "ou=people,dc=x",
+		UserFilter: "(uid=%s)", GroupAttribute: "memberOf",
+	}
+	if _, err := New(cfg); err == nil {
+		t.Error("group_base'siz memberOf yapılandırması kabul edildi — " +
+			"grup kimliği dizinin tamamına açık kalır")
+	}
+
+	cfg.GroupBase = "ou=groups,dc=x"
+	if _, err := New(cfg); err != nil {
+		t.Errorf("group_base'li yapılandırma reddedildi: %v", err)
 	}
 }
