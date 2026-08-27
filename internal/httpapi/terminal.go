@@ -7,7 +7,9 @@ package httpapi
 // aynı akıştan geçirir.
 
 import (
+	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -18,59 +20,100 @@ import (
 )
 
 // handleTerminal, tarayıcıya hedefte bir kabuk açar.
-//
-// TODO(yigit): implement.
-//
-// Sıra ve gerekçeleri:
-//
-//  1. ORIGIN KONTROLÜ — ilk satır. Tarayıcı WebSocket'e SameSite cookie
-//     kuralını uygulamaz ve CORS da WS'i kapsamaz: kötü niyetli bir
-//     sayfa, kurbanın cookie'siyle bu uca bağlanabilir ("cross-site
-//     WebSocket hijacking"). Kütüphanenin varsayılan kontrolü Host ile
-//     Origin'i karşılaştırır ama biz external_url'e göre AÇIKÇA
-//     doğruluyoruz — ters proxy arkasında Host aldatıcı olabilir.
-//     websocket.AcceptOptions.OriginPatterns ya da InsecureSkipVerify +
-//     kendi kontrolün; ikincisini seçersen kontrolü ATLAMA, yalnızca
-//     kütüphaneninkini kendi kontrolünle DEĞİŞTİR.
-//
-//  2. proxy.Open(r.Context(), s.proxyDeps, proxy.Request{
-//     Username: sessionUser(r), TargetName: r.PathValue("target"),
-//     SrcIP: <r.RemoteAddr'ın host kısmı>})
-//     ⚠️ Upgrade'DEN ÖNCE: yetki reddini düzgün bir HTTP durum koduyla
-//     söylemek, WS kurup sonra kapatmaktan iyidir — istemci sebebi görür.
-//     ErrAccessDenied → 403, ErrUnavailable → 503.
-//
-//  3. websocket.Accept → hata durumunda proxy oturumunu KAPAT (Close);
-//     yoksa denetim satırı "running" kalır ve hedef bağlantısı sızar.
-//
-//  4. down, downR := newWSChannel(ctx, conn); defer sess.Close(ctx)
-//     sess.Run(ctx, down, downR)
-//
-// ⚠️ ctx seçimi: r.Context() istek bitince iptal olur. WebSocket
-// yükseltmesinden sonra "istek" kavramı biter ama bağlantı yaşar —
-// oturumu r.Context()'e bağlarsan terminal ilk saniyede kapanabilir.
-// Bağlantının ömrüne bağlı bir ctx kur (context.WithoutCancel + kendi
-// iptalin ya da conn.CloseRead'in verdiği ctx).
 func (s *Server) handleTerminal(w http.ResponseWriter, r *http.Request) {
-	writeErr(w, http.StatusNotImplemented, "not implemented")
+	log := s.logger.With("remote", r.RemoteAddr, "user", sessionUser(r))
+
+	// 1. ORIGIN — her şeyden önce.
+	//
+	// Tarayıcı WebSocket'e SameSite cookie kuralını UYGULAMAZ ve CORS da
+	// WS'i kapsamaz: kötü niyetli bir sayfa, kurbanın cookie'siyle bu uca
+	// bağlanabilir ("cross-site WebSocket hijacking"). Bu kontrol o
+	// saldırının tek savunması — admin API'sindeki sameOrigin'in WS
+	// karşılığı.
+	if !s.checkTerminalOrigin(r) {
+		log.Warn("terminal websocket from foreign origin", "origin", r.Header.Get("Origin"))
+		writeErr(w, http.StatusForbidden, "cross-site request rejected")
+		return
+	}
+
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+
+	// 2. YETKİ — upgrade'DEN ÖNCE.
+	//
+	// Reddi düzgün bir HTTP durum koduyla söylemek, WS kurup sonra
+	// kapatmaktan iyidir: istemci sebebi görür, tarayıcı konsolunda
+	// anlamsız bir "connection closed" kalmaz.
+	sess, err := proxy.Open(r.Context(), *s.proxyDeps, proxy.Request{
+		Username:   sessionUser(r),
+		TargetName: r.PathValue("target"),
+		SrcIP:      host,
+	})
+	if err != nil {
+		if errors.Is(err, proxy.ErrAccessDenied) {
+			writeErr(w, http.StatusForbidden, "access denied")
+			return
+		}
+		writeErr(w, http.StatusServiceUnavailable, "session unavailable")
+		return
+	}
+
+	// 3. Upgrade. Origin kontrolünü kendimiz yaptığımız için
+	//    kütüphaneninkini kapatıyoruz — ATLAMIYORUZ, DEĞİŞTİRİYORUZ:
+	//    ters proxy arkasında Host aldatıcı olabilir, biz external_url'e
+	//    göre karşılaştırıyoruz.
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		InsecureSkipVerify: true,
+	})
+	if err != nil {
+		// Upgrade başarısız: oturumu KAPAT, yoksa denetim satırı
+		// "running" kalır ve hedef bağlantısı sızar.
+		sess.Log.Error("websocket upgrade failed", "error", err)
+		sess.Close(r.Context())
+		return
+	}
+
+	// 4. Oturumu sür.
+	//
+	// ⚠️ ctx seçimi: r.Context() istek bitince iptal olur. WebSocket
+	// yükseltmesinden sonra "istek" kavramı biter ama bağlantı yaşar —
+	// oturumu ona bağlarsak terminal ilk saniyede kapanabilir. Bu yüzden
+	// iptali bağlantının ömrüne bağlıyoruz.
+	ctx, cancel := context.WithCancel(context.WithoutCancel(r.Context()))
+	defer cancel()
+
+	// Bağlantı kapanınca ctx'i iptal et: broker'ın hedef tarafındaki
+	// akışları pty yüzünden kendiliğinden bitmez (wschannel.go'daki not).
+	down, downR := newWSChannel(ctx, conn, cancel)
+	defer sess.Close(ctx)
+
+	if err := sess.Run(ctx, down, downR); err != nil {
+		sess.Log.Error("session broker failed", "error", err)
+	}
+
+	// Broker döndü: kullanıcı çıktı ya da hedef kapattı. Bağlantıyı
+	// düzgün kapat ki tarayıcı "disconnected" yazabilsin.
+	_ = down.Close()
 }
 
 // checkTerminalOrigin, WS isteğinin bizim sayfamızdan geldiğini doğrular.
 //
-// TODO(yigit): implement.
-//
-// r.Header.Get("Origin") boşsa (tarayıcı olmayan istemci) ne yapacağına
-// karar ver ve gerekçeni yaz: tarayıcı SALDIRISINA karşı korunuyoruz,
-// curl ile bağlanan birinin zaten geçerli bir oturum cookie'si olması
-// gerekir — yani boş Origin'i reddetmek güvenlik eklemez ama hata
-// ayıklamayı zorlaştırır.
+// Origin başlığı YOKSA geçiriyoruz: tarayıcılar onu her WS isteğinde
+// gönderir, yani boş Origin tarayıcı dışı bir istemci demektir (curl,
+// test aracı). Onu reddetmek güvenlik EKLEMEZ — böyle bir istemcinin
+// zaten geçerli bir oturum cookie'si olması gerekir ve saldırı senaryosu
+// "kurbanın tarayıcısını kullandırmak" üzerine kurulu.
 func (s *Server) checkTerminalOrigin(r *http.Request) bool {
-	return false
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	return sameOriginURL(origin, s.externalURL)
 }
 
-// sameOriginURL, iki adresin şema+host+port olarak aynı olup olmadığını
-// söyler (hazır verildi: url karşılaştırmasının tuzakları öğrenme konusu
-// değil).
+// sameOriginURL, iki adresin şema+host olarak aynı olup olmadığını söyler.
 func sameOriginURL(a, b string) bool {
 	ua, err := url.Parse(a)
 	if err != nil {
@@ -82,5 +125,3 @@ func sameOriginURL(a, b string) bool {
 	}
 	return strings.EqualFold(ua.Scheme, ub.Scheme) && strings.EqualFold(ua.Host, ub.Host)
 }
-
-var _ = []any{websocket.Accept, proxy.Open, errors.Is}

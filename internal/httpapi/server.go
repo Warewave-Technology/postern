@@ -75,6 +75,13 @@ func (s *Server) Handler() http.Handler {
 		mux.Handle("GET /api/terminal/{target}", s.requireSession(http.HandlerFunc(s.handleTerminal)))
 	}
 
+	// /api altındaki eşleşmeyen yollar SPA'ya DÜŞMEZ: bir API isteğine
+	// index.html dönmek, istemciyi "200 ama beklediğim şey değil" ile baş
+	// başa bırakır. Kapalı bir özelliğin rotası burada dürüstçe 404 olur.
+	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+		writeErr(w, http.StatusNotFound, "not found")
+	})
+
 	// Kalan her şey SPA: web/dist'ten statik dosyalar (S4.1 frontend).
 	mux.Handle("/", spaHandler())
 

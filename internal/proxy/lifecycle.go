@@ -68,50 +68,145 @@ type Session struct {
 	// OSUser, policy'nin verdiği karar — çağıran log'a yazsın diye açık.
 	OSUser string
 
+	// Log, oturumun alanları bağlanmış logger'ı (user, target, session_id,
+	// record_path). Çağıran kendi olaylarını bununla yazsın ki satırlar
+	// aynı oturumda birleşsin.
+	Log *slog.Logger
+
 	deps Deps
-	log  *slog.Logger
 
 	conn *upstream.Conn
 	up   ssh.Channel
 	upR  <-chan *ssh.Request
 	rec  *record.Writer
 
-	start time.Time
+	start  time.Time
+	closed bool
 }
 
 // Open, yetkiyi denetler ve oturumu hedefe kadar kurar.
 //
 // Hata döndüğünde HİÇBİR ŞEY açık kalmaz: kısmi kurulum kendi içinde
-// temizlenir, çağıranın Close çağırmasına gerek yoktur (ve Session nil'dir).
-//
-// TODO(yigit): implement.
-//
-// Sıra channel.go'daki ile aynı — o kodu buraya taşıyorsun:
-//
-//  1. deps.Store.Target(ctx, req.TargetName) → ErrNotFound ise
-//     ErrAccessDenied ("böyle bir hedef yok" istemciye ayrıntı vermez),
-//     başka hata ise ErrUnavailable. Log'da AYRIŞSINLAR: Warn "target not
-//     found" / Error "target lookup failed".
-//  2. deps.Store.User(ctx, req.Username) → aynı ayrım.
-//  3. policy.Authorize(u, target, "") → !Allowed ise Warn "access denied
-//     by policy" + Reason, dönen hata ErrAccessDenied.
-//  4. upstream.DialWithCert → hata ErrUnavailable.
-//  5. conn.OpenSession() → hata ErrUnavailable. ⚠️ Buradan sonra hata
-//     yolunda conn.Close() ÇAĞIR: bağlantı açık kaldı.
-//  6. record.NewSessionID + deps.Records.Create + record.NewWriter →
-//     hata ErrUnavailable. Kayıt açılamazsa oturum AÇILMAZ (S1.8 kararı).
-//  7. deps.Store.StartSession → hata ErrUnavailable.
-//
-// Her hata yolunda o ana kadar açılanları geri sar. Go'da bunun temiz
-// yolu: başarı bayrağı + defer. Fonksiyonun başında
-//
-//	var opened bool
-//	defer func() { if !opened { /* temizle */ } }()
-//
-// ve en sonda opened = true. Böylece yedi ayrı hata dalına yedi ayrı
-// temizlik yazmazsın.
+// temizlenir ve dönen Session nil'dir — çağıranın Close çağırmasına
+// gerek yoktur.
 func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
-	return nil, fmt.Errorf("proxy.Open: not implemented")
+	log := deps.Logger.With("user", req.Username, "target", req.TargetName)
+
+	target, err := deps.Store.Target(ctx, req.TargetName)
+	if err != nil {
+		// Ret ile arıza AYRI olaylardır: birini diğerinin adıyla
+		// loglamak denetimi yanıltır (bkz. channel.go'daki aynı ayrım).
+		if errors.Is(err, store.ErrNotFound) {
+			log.Warn("target not found")
+			return nil, fmt.Errorf("proxy.Open: %w", ErrAccessDenied)
+		}
+		log.Error("target lookup failed", "error", err)
+		return nil, fmt.Errorf("proxy.Open: %w", ErrUnavailable)
+	}
+
+	u, err := deps.Store.User(ctx, req.Username)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			log.Warn("user not found")
+			return nil, fmt.Errorf("proxy.Open: %w", ErrAccessDenied)
+		}
+		log.Error("user lookup failed", "error", err)
+		return nil, fmt.Errorf("proxy.Open: %w", ErrUnavailable)
+	}
+
+	d := policy.Authorize(u, target, "")
+	if !d.Allowed {
+		// Reason politikanın kendi cümlesi; denetimde "neden reddedildi"
+		// sorusunun cevabı bu. İstemciye gitmez, yalnızca log'a.
+		log.Warn("access denied by policy", "reason", d.Reason)
+		return nil, fmt.Errorf("proxy.Open: %w", ErrAccessDenied)
+	}
+
+	// Buradan sonrası kaynak açıyor. Yedi ayrı hata dalına yedi ayrı
+	// temizlik yazmamak için tek bir geri sarma noktası: opened yalnızca
+	// en sonda true olur, o zamana kadar her erken dönüş buradan geçer.
+	var (
+		opened bool
+		conn   *upstream.Conn
+		rec    *record.Writer
+		id     string
+	)
+	defer func() {
+		if opened {
+			return
+		}
+		if rec != nil {
+			_ = rec.Close()
+		}
+		if conn != nil {
+			_ = conn.Close()
+		}
+		if id != "" {
+			// Denetim satırı yazıldıysa kapat: yarıda kalan kurulum
+			// sonsuza dek "running" bir kayıt bırakmamalı.
+			if err := deps.Store.EndSession(context.WithoutCancel(ctx), id, time.Now()); err != nil &&
+				!errors.Is(err, store.ErrNotFound) {
+				log.Error("end session failed", "error", err)
+			}
+		}
+	}()
+
+	conn, err = upstream.DialWithCert(ctx, target, upstream.Identity{
+		PosternUser: req.Username,
+		OSUser:      d.OSUser,
+	}, deps.Authority)
+	if err != nil {
+		log.Error("target dial failed", "error", err, "os_user", d.OSUser)
+		return nil, fmt.Errorf("proxy.Open: %w", ErrUnavailable)
+	}
+
+	up, upR, err := conn.OpenSession()
+	if err != nil {
+		log.Error("upstream session open failed", "error", err)
+		return nil, fmt.Errorf("proxy.Open: %w", ErrUnavailable)
+	}
+
+	id, err = record.NewSessionID()
+	if err != nil {
+		log.Error("session id generation failed", "error", err)
+		return nil, fmt.Errorf("proxy.Open: %w", ErrUnavailable)
+	}
+
+	f, path, err := deps.Records.Create(id)
+	if err != nil {
+		log.Error("recording file create failed", "error", err)
+		return nil, fmt.Errorf("proxy.Open: %w", ErrUnavailable)
+	}
+
+	// TERM pty-req ile gelir, yani başlık yazılırken henüz bilinmiyor.
+	// Boyut 80x24 varsayılanıyla başlar; broker pty-req'i görünce Resize
+	// ile düzeltir.
+	rec, err = record.NewWriter(f, 80, 24, nil)
+	if err != nil {
+		log.Error("recorder init failed", "error", err)
+		return nil, fmt.Errorf("proxy.Open: %w", ErrUnavailable)
+	}
+
+	log = log.With("session_id", id, "record_path", path)
+	start := time.Now()
+
+	err = deps.Store.StartSession(ctx, store.SessionStart{
+		ID: id, Username: req.Username, TargetName: target.Name,
+		OSUser: d.OSUser, SrcIP: req.SrcIP, StartedAt: start,
+		RecordingPath: path,
+	})
+	if err != nil {
+		log.Error("start session failed", "error", err)
+		// id set edildi ama satır yazılmadı: defer'daki EndSession
+		// ErrNotFound alıp sessizce geçecek (yukarıda öyle yazıldı).
+		return nil, fmt.Errorf("proxy.Open: %w", ErrUnavailable)
+	}
+
+	opened = true
+	return &Session{
+		ID: id, OSUser: d.OSUser, Log: log,
+		deps: deps, conn: conn, up: up, upR: upR, rec: rec, start: start,
+	}, nil
 }
 
 // Run, istemci kanalını hedefe bağlar ve oturum bitene kadar sürer.
@@ -119,28 +214,43 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 // down/downR istemci tarafı: SSH'ta kabul edilmiş ssh.Channel, web'de
 // WebSocket'i ssh.Channel gibi giydiren adaptör. Broker ikisini ayırt
 // etmez — arayüz sözleşmesinin bütün faydası bu.
-//
-// TODO(yigit): implement. (Tek satır: New(...).Run(ctx) — alanlar
-// Session'da hazır.)
 func (s *Session) Run(ctx context.Context, down ssh.Channel, downR <-chan *ssh.Request) error {
-	return fmt.Errorf("proxy.Session.Run: not implemented")
+	s.Log.Info("session started", "os_user", s.OSUser)
+	err := New(down, downR, s.up, s.upR, s.rec, s.deps.RecordInput, s.deps.Logger).Run(ctx)
+	s.Log.Info("session ended", "os_user", s.OSUser, "duration", time.Since(s.start))
+	return err
 }
 
 // Close, oturumu kapatır: kayıt dosyası, denetim satırı, hedef bağlantısı.
-//
-// TODO(yigit): implement.
-//
-// ⚠️ EndSession için context.WithoutCancel(ctx) — oturum bittiğinde asıl
-// ctx de iptal olur ve iptal edilmiş ctx ile yapılan kapanış denetim
-// satırını sonsuza dek "running" bırakır (channel.go'da öğrendiğimiz ders).
-//
-// ⚠️ rec.Err() ancak Close'dan SONRA anlamlıdır: yapışkan hata oturum
-// boyunca birikir. Bu satır olmazsa bozuk kayıt tamamen sessiz kalır.
-//
-// Close idempotent olmalı: Run hata verse de vermese de çağrılacak.
+// İkinci çağrı no-op — çağıran defer'la koyabilsin diye.
 func (s *Session) Close(ctx context.Context) {
+	if s == nil || s.closed {
+		return
+	}
+	s.closed = true
+
+	// Kayıt önce: Err() ancak Close'dan SONRA anlamlıdır — yapışkan hata
+	// oturum boyunca birikir ve adaptörler kayıt arızasını yutup oturumu
+	// yaşatır. Bu satır olmazsa bozuk kayıt tamamen sessiz kalır.
+	if cerr := s.rec.Close(); cerr != nil {
+		s.Log.Error("recording close failed", "error", cerr)
+	}
+	if rerr := s.rec.Err(); rerr != nil {
+		s.Log.Error("recording degraded, session not fully captured", "error", rerr)
+	}
+
+	// ⚠️ WithoutCancel: oturum bittiğinde çağıranın ctx'i de iptal olur.
+	// İptal edilmiş ctx ile yapılan kapanış, denetim satırını sonsuza dek
+	// "running" bırakır.
+	if serr := s.deps.Store.EndSession(context.WithoutCancel(ctx), s.ID, time.Now()); serr != nil {
+		s.Log.Error("end session failed", "error", serr)
+	}
+
+	if s.conn != nil {
+		_ = s.conn.Close()
+	}
 }
 
-// unused, taşıma bitene kadar import'ları canlı tutar.
-// TODO(yigit): Open'ı yazınca bu satırı sil.
-var _ = []any{model.Target{}, policy.Authorize, store.SessionStart{}, upstream.Identity{}, record.NewSessionID, ca.CA{}}
+// unusedModel, model paketini import listesinde tutar (Target tipi
+// store'dan geliyor ama okuyucu için burada anılması yararlı).
+var _ = model.Target{}

@@ -4,13 +4,8 @@ import (
 	"context"
 	"errors"
 	"net"
-	"time"
 
-	"github.com/warewave/postern/internal/policy"
 	"github.com/warewave/postern/internal/proxy"
-	"github.com/warewave/postern/internal/record"
-	"github.com/warewave/postern/internal/store"
-	"github.com/warewave/postern/internal/upstream"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -68,145 +63,47 @@ func (s *Server) handleChannel(ctx context.Context, sshConn *ssh.ServerConn, new
 		return
 	}
 
-	target, err := s.db.Target(ctx, route.Target)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			log.Warn("target not found", "target", route.Target, "error", err)
-			newChan.Reject(ssh.ConnectionFailed, "connection failed")
-			return
-		}
-		log.Error("target lookup failed", "target", route.Target, "error", err)
-		newChan.Reject(ssh.ConnectionFailed, "connection failed")
-		return
-	}
-
 	posternUser := sshConn.Permissions.Extensions["postern-user"]
 
 	// Bundan sonrası tek bir oturuma ait: kimlik ve hedef her satırda olsun.
-	log = log.With("user", posternUser, "target", target.Name)
+	log = log.With("user", posternUser, "target", route.Target)
 
-	u, err := s.db.User(ctx, posternUser)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			log.Warn("user not found")
-			newChan.Reject(ssh.ConnectionFailed, "access denied")
-			return
-		}
-		log.Error("user lookup failed", "error", err)
-		newChan.Reject(ssh.ConnectionFailed, "connection failed")
-		return
-	}
-
-	d := policy.Authorize(u, target, "")
-	if !d.Allowed {
-		// Reason politikanın kendi cümlesi; audit'te "neden reddedildi"
-		// sorusunun cevabı bu. İstemciye gitmez, yalnızca log'a.
-		log.Warn("access denied by policy", "reason", d.Reason)
-		newChan.Reject(ssh.ConnectionFailed, "access denied")
-		return
-	}
-
-	conn, err := upstream.DialWithCert(ctx, target, upstream.Identity{
-		PosternUser: posternUser,
-		OSUser:      d.OSUser,
-	}, s.authority)
-	if err != nil {
-		log.Error("target dial failed", "error", err, "os_user", d.OSUser)
-		newChan.Reject(ssh.ConnectionFailed, "connection failed")
-		return
-	}
-	defer conn.Close()
-
-	up, upR, err := conn.OpenSession()
-	if err != nil {
-		log.Error("upstream session open failed", "error", err)
-		newChan.Reject(ssh.ConnectionFailed, "connection failed")
-		return
-	}
-
-	id, err := record.NewSessionID()
-	if err != nil {
-		log.Error("session id generation failed", "error", err)
-		newChan.Reject(ssh.ConnectionFailed, "recording unavailable")
-		return
-	}
-
-	f, path, err := s.rStore.Create(id)
-	if err != nil {
-		log.Error("recording file create failed", "error", err)
-		newChan.Reject(ssh.ConnectionFailed, "recording unavailable")
-		return
-	}
-
-	// TERM pty-req ile gelir, yani başlık yazılırken henüz bilinmiyor: boş
-	// string yazmaktansa alanı hiç koymuyoruz (omitempty). Boyut da 80x24
-	// varsayılanıyla başlar, broker pty-req'i görünce Resize ile düzeltir.
-	rec, err := record.NewWriter(f, 80, 24, nil)
-	if err != nil {
-		log.Error("recorder init failed", "error", err)
-		newChan.Reject(ssh.ConnectionFailed, "recording unavailable")
-		return
-	}
-
-	// Kapanış ve kayıt sağlığı tek yerde. Err() ancak Close'dan SONRA
-	// anlamlıdır: yapışkan hata oturum boyunca birikir ve adaptörler kayıt
-	// arızasını yutup oturumu yaşatır — bu satır olmazsa bozuk kayıt tamamen
-	// sessiz kalır.
-	// id ve kayıt yolu artık biliniyor: oturumun geri kalanında her satırda
-	// bulunsunlar. S3'te bu üçlü (user, target, session_id) sessions
-	// tablosunun anahtarları olacak.
-	log = log.With("session_id", id, "record_path", path)
-
-	defer func() {
-		if cerr := rec.Close(); cerr != nil {
-			log.Error("recording close failed", "error", cerr)
-		}
-		if rerr := rec.Err(); rerr != nil {
-			log.Error("recording degraded, session not fully captured", "error", rerr)
-		}
-	}()
-
-	start := time.Now()
-
-	host, _, err := net.SplitHostPort(sshConn.Conn.RemoteAddr().String())
+	host, _, err := net.SplitHostPort(sshConn.RemoteAddr().String())
 	if err != nil {
 		log.Error("remote addr parse failed", "error", err)
 		newChan.Reject(ssh.ConnectionFailed, "session unavailable")
 		return
 	}
 
-	err = s.db.StartSession(ctx, store.SessionStart{
-		ID: id, Username: posternUser, TargetName: target.Name,
-		OSUser: d.OSUser, SrcIP: host, StartedAt: start,
-		RecordingPath: path,
+	// Yetki, bağlantı, kayıt ve denetim satırı: hepsi proxy.Open'da.
+	// Web terminali AYNI çağrıyı yapıyor — iki kapı, tek akış.
+	sess, err := proxy.Open(ctx, s.ProxyDeps(), proxy.Request{
+		Username:   posternUser,
+		TargetName: route.Target,
+		SrcIP:      host,
 	})
 	if err != nil {
-		log.Error("start session failed", "error", err)
-		newChan.Reject(ssh.ConnectionFailed, "session unavailable")
+		// Open olayı zaten kendi logladı; burada yalnızca istemciye ne
+		// söyleyeceğimize karar veriyoruz. Ret ile arıza ayrı cümleler:
+		// kullanıcı "yetkim yok" ile "sistem bozuk"u ayırt edebilmeli.
+		if errors.Is(err, proxy.ErrAccessDenied) {
+			newChan.Reject(ssh.ConnectionFailed, "access denied")
+			return
+		}
+		newChan.Reject(ssh.ConnectionFailed, "connection failed")
 		return
 	}
-	defer func() {
-		if serr := s.db.EndSession(context.WithoutCancel(ctx), id, time.Now()); serr != nil {
-			log.Error("end session failed", "error", serr)
-		}
-	}()
+	defer sess.Close(ctx)
 
 	down, downR, err := newChan.Accept()
 	if err != nil {
-		log.Error("channel accept failed", "error", err)
+		// Accept başarısız: defer'daki Close denetim satırını kapatır,
+		// kayıt sonsuza dek "running" kalmaz.
+		sess.Log.Error("channel accept failed", "error", err)
 		return
 	}
 
-	log.Info("session started", "os_user", d.OSUser)
-	err = proxy.New(down, downR, up, upR, rec, s.cfg.Recording.RecordInput, s.logger).Run(ctx)
-	if err != nil {
-		log.Error("session broker failed", "error", err)
+	if err := sess.Run(ctx, down, downR); err != nil {
+		sess.Log.Error("session broker failed", "error", err)
 	}
-
-	err = s.db.EndSession(context.WithoutCancel(ctx), id, time.Now())
-	if err != nil {
-		log.Error("end session failed", "error", err)
-	}
-
-	log.Info("session ended", "os_user", d.OSUser, "duration", time.Since(start))
 }
