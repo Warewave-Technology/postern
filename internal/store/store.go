@@ -280,17 +280,6 @@ func (s *Store) Targets(ctx context.Context) ([]model.Target, error) {
 // için sebep yok.
 //
 // Kullanıcı ya da rol yoksa ErrNotFound.
-//
-// TODO(yigit): expiresAt ve source='manual' ekle.
-//
-// İpucu: ON CONFLICT hedefi aynı kalıyor ((user_id, role_id)) ama artık
-// DO NOTHING değil DO UPDATE gerekiyor — expires_at ve source alanlarını
-// yaz. source'u güncellemek önemli: SSO'dan gelmiş bir rolü yönetici elle
-// onaylıyorsa artık ona ait olmalı ve sonraki senkronizasyonda silinmemeli.
-//
-// ⚠️ Sıfır time.Time'ı doğrudan Unix()'e verme: 1970 öncesi bir sayı
-// üretir ve "süresiz" yerine "çoktan doldu" anlamına gelir. NULL yazman
-// gerekiyor (sql.NullInt64).
 func (s *Store) AssignRole(ctx context.Context, username, roleName string, expiresAt time.Time) error {
 	userID, err := s.rowID(ctx, "store.AssignRole", "users", "username", username)
 	if err != nil {
@@ -559,23 +548,6 @@ func (s *Store) DeleteUser(ctx context.Context, username string) error {
 //
 // Her SSO girişinde çağrılır: gruptan çıkarılan kullanıcı yetkisini o an
 // kaybeder, yeni gruba eklenen o an kazanır.
-//
-// TODO(yigit): implement.
-//
-// Akış:
-//  1. Kullanıcının id'sini çöz (yoksa ErrNotFound).
-//  2. source='sso' satırlarını SİL — hepsini, tek sorguda.
-//  3. roleNames'teki her rol için satır ekle (source='sso').
-//     Bilinmeyen rol adı: ATLA, hata verme. Sebep: rol adları
-//     group_mappings'ten gelecek ve bir eşleme silinmiş olabilir; bir
-//     kullanıcının girişini yönetici hatası yüzünden reddetmek yanlış.
-//  4. ⚠️ Rol zaten source='manual' olarak varsa ON CONFLICT DO NOTHING:
-//     elle verilen yetki kazanır ve IdP'ye bağlı olmadan yaşamaya devam
-//     eder. "Elle verilen yetki elle alınır" kuralı.
-//
-// ⚠️ 2 ve 3 AYNI TRANSACTION'da olmalı. Ayrı yaparsan araya düşen bir
-// hata kullanıcıyı yetkisiz bırakır ve bir sonraki girişe kadar öyle
-// kalır — Migrate'te öğrendiğimiz dersin aynısı.
 func (s *Store) SyncRoles(ctx context.Context, username string, roleNames []string) error {
 	userID, err := s.rowID(ctx, "store.SyncRoles", "users", "username", username)
 	if err != nil {
@@ -915,12 +887,9 @@ func (s *Store) UseSecretBox(box *secret.Box) { s.box = box }
 
 // Setting, tek bir ayarı döner; şifreliyse çözer. Yoksa ErrNotFound.
 //
-// TODO(yigit): implement.
-//
-// encrypted=1 olan bir satır s.box nil iken okunmaya çalışılırsa AÇIK bir
-// hata ver ("secret key not configured") — boş string dönmek, sırrı
-// silinmiş gibi gösterir ve LDAP'ın parolasız bağlanmaya çalışmasına yol
-// açar.
+// Anahtar yapılandırılmamışken şifreli bir ayara dokunmak AÇIK hata
+// verir: boş string dönmek sırrı silinmiş gibi gösterir ve LDAP'ın
+// parolasız bağlanmaya çalışmasına yol açardı.
 func (s *Store) Setting(ctx context.Context, key string) (string, error) {
 	var value string
 	var encrypted bool
@@ -950,10 +919,8 @@ func (s *Store) Setting(ctx context.Context, key string) (string, error) {
 
 // SetSetting, ayarı yazar. encrypt=true ise değer mühürlenerek saklanır.
 //
-// TODO(yigit): implement. (UPSERT: aynı anahtar tekrar yazılabilmeli.)
-//
-// encrypt=true iken s.box nil ise REDDET — düz metin yazıp "şifreledim"
-// sanmak, bu paketin bütün amacını sessizce boşa çıkarır.
+// encrypt=true iken anahtar yoksa REDDEDİLİR — düz metin yazıp
+// "şifreledim" sanmak bu paketin bütün amacını sessizce boşa çıkarır.
 func (s *Store) SetSetting(ctx context.Context, key, value string, encrypt bool, actor string) error {
 	stored := value
 	if encrypt {
@@ -987,12 +954,8 @@ func (s *Store) SetSetting(ctx context.Context, key, value string, encrypt bool,
 // Settings, ada göre sıralı ayar listesi döner — ŞİFRELİ DEĞERLER
 // MASKELENMİŞ olarak.
 //
-// TODO(yigit): implement.
-//
-// ⚠️ Bu fonksiyonun çıktısı admin API'sine gidecek. Şifreli bir ayarın
-// değeri ASLA dönmemeli: sır yazılır ama okunmaz. Value alanına maske
-// koy (Secret=true ile birlikte), böylece arayüz "değer var ama
-// gösterilmiyor" ile "değer boş"u ayırt edebilir.
+// ⚠️ Bu fonksiyonun çıktısı admin API'sine gidiyor: şifreli bir ayarın
+// değeri ASLA dönmez, maskelenir. Sır yazılır ama okunmaz.
 func (s *Store) Settings(ctx context.Context) ([]SettingView, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT key, value, encrypted, updated_at, updated_by
