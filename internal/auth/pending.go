@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net"
 	"strings"
 	"sync"
 )
@@ -132,8 +133,31 @@ func (l *Logins) SetMaxPending(n int) {
 func (l *Logins) Start(sourceAddr string) (*Attempt, error) {
 	// Sınır kontrolü İLK: kotayı aşan bir denemede OIDC durumu üretmenin
 	// ve kod hesaplamanın anlamı yok.
+	//
+	// ⚠️ KOTA HEM KÜRESEL HEM KAYNAK BAŞINA.
+	//
+	// Küresel kota tek başına bir DoS aracıydı: GET tarafı kimlik
+	// doğrulaması gerektirmiyor ve tek bir saldırgan, bağlantı
+	// sınırının izin verdiği kadar (varsayılan IP başına 8) deneme
+	// açarak dört kaynaktan 32'lik kotayı doldurup TARAYICI GİRİŞİNİ
+	// HERKESE kapatabiliyordu.
+	//
+	// Kaynak başına pay, o saldırıyı saldırganın kendi payıyla
+	// sınırlıyor: meşru kullanıcılar başka adreslerden gelmeye devam
+	// ediyor.
 	l.mu.Lock()
 	over := l.maxPending > 0 && len(l.byState) >= l.maxPending
+	perSource := 0
+	if !over && l.maxPending > 0 {
+		for _, a := range l.byState {
+			if a.SourceAddr != "" && sameHost(a.SourceAddr, sourceAddr) {
+				perSource++
+			}
+		}
+		if perSource >= perSourceQuota(l.maxPending) {
+			over = true
+		}
+	}
 	l.mu.Unlock()
 
 	if over {
@@ -173,6 +197,34 @@ func (l *Logins) Start(sourceAddr string) (*Attempt, error) {
 	l.mu.Unlock()
 
 	return a, nil
+}
+
+// perSourceQuota, tek bir kaynağın alabileceği en fazla bekleyen giriş.
+//
+// Küresel kotanın dörtte biri, en az bir: bir saldırgan kotanın
+// tamamını tutamaz, tek kullanıcılı küçük kurulumlar da çalışmaya
+// devam eder.
+func perSourceQuota(max int) int {
+	if q := max / 4; q > 0 {
+		return q
+	}
+	return 1
+}
+
+// sameHost, iki adresin AYNI KAYNAKTAN gelip gelmediğini söyler.
+//
+// Port yok sayılıyor: her bağlantının portu farklı, karşılaştırmaya
+// katmak kaynak başına kotayı tamamen etkisiz kılardı.
+func sameHost(a, b string) bool {
+	ha, _, err := net.SplitHostPort(a)
+	if err != nil {
+		ha = a
+	}
+	hb, _, err := net.SplitHostPort(b)
+	if err != nil {
+		hb = b
+	}
+	return ha == hb
 }
 
 func (l *Logins) Lookup(state string) (AuthRequest, bool) {

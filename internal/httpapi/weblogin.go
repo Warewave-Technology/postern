@@ -44,6 +44,19 @@ type webPending struct {
 	byState map[string]pendingWebLogin
 }
 
+// maxWebPending, aynı anda bekleyebilecek web giriş denemesi.
+//
+// ⚠️ NEDEN VAR: GET /auth/login KİMLİK DOĞRULAMASIZ ve her çağrı
+// haritaya bir kayıt ekliyordu. Sınırsız bir harita, bir isteğin bellek
+// ayırmasına yol açan bir uç demek; üstelik her çağrı haritanın
+// TAMAMINI kilit altında tarıyordu, yani maliyet kayıt sayısıyla
+// karesel büyüyordu.
+//
+// Sınıra ulaşıldığında EN ESKİSİ düşürülüyor, yeni deneme reddedilmiyor:
+// tersi, saldırganın haritayı doldurup meşru girişleri kapatması
+// demek olurdu — kotayı bir DoS aracına çevirirdi.
+const maxWebPending = 512
+
 type pendingWebLogin struct {
 	req       auth.AuthRequest
 	expiresAt time.Time
@@ -64,6 +77,24 @@ func (p *webPending) begin(req auth.AuthRequest) {
 			delete(p.byState, state)
 		}
 	}
+
+	// Süpürme yetmediyse (hepsi taze) EN ESKİSİNİ düşür.
+	//
+	// Reddetmek yerine düşürmek bilinçli: kimlik doğrulamasız bir uçta
+	// kotayı reddetmeye bağlamak, saldırganın haritayı doldurup meşru
+	// girişleri kapatmasına izin vermek olurdu. Düşürülen deneme
+	// yalnızca yarım kalmış bir giriş; sahibi yeniden başlatabilir.
+	for len(p.byState) >= maxWebPending {
+		var oldestState string
+		var oldest time.Time
+		for state, pend := range p.byState {
+			if oldestState == "" || pend.expiresAt.Before(oldest) {
+				oldestState, oldest = state, pend.expiresAt
+			}
+		}
+		delete(p.byState, oldestState)
+	}
+
 	p.byState[req.State] = pendingWebLogin{req: req, expiresAt: now.Add(webPendingTTL)}
 }
 

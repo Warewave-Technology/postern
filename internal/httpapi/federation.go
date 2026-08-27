@@ -156,6 +156,38 @@ func (s *Server) adminSetSetting(w http.ResponseWriter, r *http.Request) {
 	// düşüremesin.
 	isSecret := ldap.SecretKeys[in.Key]
 
+	// ⚠️ HEDEF DEĞİŞİRSE KİMLİK BİLGİSİ DÜŞER.
+	//
+	// Kapatılan sızıntı: panel admini ldap.url'i kendi kontrolündeki bir
+	// sunucuya çevirip "test bağlantısı"na basıyordu; postern o sunucuya
+	// SAKLANAN bind parolasıyla bağlanıyor ve parolayı düz metin olarak
+	// saldırgana veriyordu. Parolanın mühürlenmesinin ve panelde
+	// maskelenmesinin tüm amacı — "admin bile okuyamaz" — bu yolla boşa
+	// çıkıyordu.
+	//
+	// Kural basit ve anlaşılır: nereye bağlanacağını değiştiriyorsan
+	// kimlik bilgisini yeniden gireceksin. Bunu ATOMİK yapmak gerekiyor
+	// — önce parolayı düşürüp sonra URL'i yazmak, arada kalan bir
+	// koşuda bağlantıyı parolasız bırakırdı; sıra bu yüzden tersine.
+	if in.Key == ldapURLKey {
+		current, err := s.store.Setting(r.Context(), ldapURLKey)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			s.storeErr(w, "settings.set", err)
+			return
+		}
+		if current != "" && current != in.Value {
+			if derr := s.store.DeleteSetting(r.Context(), ldapBindPasswordKey); derr != nil &&
+				!errors.Is(derr, store.ErrNotFound) {
+				s.storeErr(w, "settings.set", derr)
+				return
+			}
+			s.logger.Warn("ldap url changed; stored bind password dropped",
+				"actor", sessionUser(r), "from", current, "to", in.Value)
+			s.audit(r, "settings.ldap_url_changed", ldapURLKey,
+				"bind password cleared because the directory address changed")
+		}
+	}
+
 	if err := s.store.SetSetting(r.Context(), in.Key, in.Value, isSecret, sessionUser(r)); err != nil {
 		// Anahtar yapılandırılmamışken sır yazmak: kullanıcıya ne
 		// yapacağını söyle.
@@ -273,3 +305,11 @@ var knownSettingKeys = map[string]bool{
 }
 
 var _ = store.SettingView{}
+
+// LDAP ayar anahtarları — ldap paketindeki adların tek yerde tutulan
+// kopyaları, yazım hatası derlemede yakalansın diye.
+// #nosec G101 -- kimlik bilgisi değil, settings tablosunun ANAHTAR adları
+const (
+	ldapURLKey          = "ldap.url"
+	ldapBindPasswordKey = "ldap.bind_password"
+)

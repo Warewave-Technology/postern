@@ -10,6 +10,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 	"testing"
@@ -215,21 +216,24 @@ func TestMaxPendingRefusesThenReleases(t *testing.T) {
 	l := NewLogins(testOIDC())
 	l.SetMaxPending(2)
 
+	// FARKLI kaynaklar: sınanan şey KÜRESEL kota. Aynı adresten
+	// gelseler kaynak başına pay devreye girerdi (bkz.
+	// TestPerSourceQuotaLimitsOneAttacker).
 	a1, err := l.Start("10.0.0.1:2222")
 	if err != nil {
 		t.Fatalf("ilk deneme: %v", err)
 	}
-	if _, err := l.Start("10.0.0.1:2222"); err != nil {
+	if _, err := l.Start("10.0.0.2:2222"); err != nil {
 		t.Fatalf("ikinci deneme: %v", err)
 	}
 
-	if _, err := l.Start("10.0.0.1:2222"); !errors.Is(err, ErrTooManyPending) {
+	if _, err := l.Start("10.0.0.3:2222"); !errors.Is(err, ErrTooManyPending) {
 		t.Errorf("üçüncü deneme = %v, ErrTooManyPending bekleniyordu", err)
 	}
 
 	l.Drop(a1)
 
-	if _, err := l.Start("10.0.0.1:2222"); err != nil {
+	if _, err := l.Start("10.0.0.3:2222"); err != nil {
 		t.Errorf("yer açıldıktan sonra hâlâ reddediyor: %v", err)
 	}
 }
@@ -239,7 +243,7 @@ func TestMaxPendingZeroIsUnlimited(t *testing.T) {
 	l := NewLogins(testOIDC())
 
 	for i := 0; i < 50; i++ {
-		if _, err := l.Start("10.0.0.1:2222"); err != nil {
+		if _, err := l.Start(fmt.Sprintf("10.0.0.%d:2222", i)); err != nil {
 			t.Fatalf("%d. deneme reddedildi: %v", i, err)
 		}
 	}
@@ -322,5 +326,47 @@ func TestWrongConfirmBurnsTheAttempt(t *testing.T) {
 	// Artık doğru kod bile kabul edilmemeli.
 	if err := l.Confirm(a.State(), a.UserCode); err == nil {
 		t.Error("yanlış koddan sonra doğru kod kabul edildi — deneme yanmamış")
+	}
+}
+
+// ⚠️ Tek bir kaynak, tarayıcı girişini HERKESE kapatamamalı.
+//
+// Kapatılan DoS: kota yalnızca küreseldi ve GET tarafı kimlik
+// doğrulaması istemiyor. Bağlantı sınırının izin verdiği kadar deneme
+// açan bir saldırgan (varsayılan IP başına 8), dört kaynaktan 32'lik
+// kotayı doldurup SSO kapısını kapatabiliyordu.
+func TestPerSourceQuotaLimitsOneAttacker(t *testing.T) {
+	l := NewLogins(testOIDC())
+	l.SetMaxPending(8) // kaynak başına pay: 2
+
+	// Saldırgan payını doldurur.
+	for i := 0; i < 2; i++ {
+		if _, err := l.Start("203.0.113.7:1000"); err != nil {
+			t.Fatalf("saldırganın %d. denemesi: %v", i, err)
+		}
+	}
+	if _, err := l.Start("203.0.113.7:1001"); !errors.Is(err, ErrTooManyPending) {
+		t.Errorf("saldırgan payını aştı: %v", err)
+	}
+
+	// MEŞRU kullanıcı başka bir adresten hâlâ girebilmeli.
+	if _, err := l.Start("10.0.0.5:2000"); err != nil {
+		t.Errorf("başka kaynaktan meşru giriş engellendi: %v", err)
+	}
+}
+
+// Küresel kota da yerinde durmalı.
+func TestGlobalQuotaStillApplies(t *testing.T) {
+	l := NewLogins(testOIDC())
+	l.SetMaxPending(4) // kaynak başına 1
+
+	for i := 0; i < 4; i++ {
+		src := fmt.Sprintf("10.0.0.%d:1000", i)
+		if _, err := l.Start(src); err != nil {
+			t.Fatalf("%d. deneme: %v", i, err)
+		}
+	}
+	if _, err := l.Start("10.0.0.99:1000"); !errors.Is(err, ErrTooManyPending) {
+		t.Errorf("küresel kota aşıldı: %v", err)
 	}
 }

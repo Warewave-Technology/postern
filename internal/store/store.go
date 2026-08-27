@@ -1008,6 +1008,27 @@ func (s *Store) UseSecretBox(box *secret.Box) { s.box = box }
 // Anahtar yapılandırılmamışken şifreli bir ayara dokunmak AÇIK hata
 // verir: boş string dönmek sırrı silinmiş gibi gösterir ve LDAP'ın
 // parolasız bağlanmaya çalışmasına yol açardı.
+// DeleteSetting, bir ayarı siler. Yoksa ErrNotFound.
+//
+// Sır düşürmek için var: LDAP adresi değişince saklanan bind parolası
+// düşürülüyor (bkz. httpapi.adminSetSetting). Değeri boşa çekmek yerine
+// SATIRI silmek gerekiyor — boş bir değer "ayarlanmış ama boş" demek ve
+// LoadConfig onu farklı yorumluyor.
+func (s *Store) DeleteSetting(ctx context.Context, key string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM settings WHERE key = $1;`, key)
+	if err != nil {
+		return translateErr("store.DeleteSetting", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return translateErr("store.DeleteSetting", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("store.DeleteSetting[%s]: %w", key, ErrNotFound)
+	}
+	return nil
+}
+
 func (s *Store) Setting(ctx context.Context, key string) (string, error) {
 	var value string
 	var encrypted bool

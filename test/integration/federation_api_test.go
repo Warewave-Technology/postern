@@ -9,8 +9,11 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"github.com/warewave/postern/internal/secret"
 	"net/http"
 	"net/http/cookiejar"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -174,3 +177,62 @@ func TestFederationAPIForbidsNonAdmins(t *testing.T) {
 }
 
 var _ = json.Marshal
+
+// ⚠️ LDAP ADRESİ DEĞİŞİRSE SAKLANAN BIND PAROLASI DÜŞMELİ.
+//
+// Kapatılan sızıntı: panel admini ldap.url'i kendi kontrolündeki bir
+// sunucuya çeviriyor, "test bağlantısı"na basıyor ve postern o sunucuya
+// SAKLANAN parolayla bağlanıyordu — parolayı düz metin olarak saldırgana
+// vererek. Parolanın mühürlenmesinin ve panelde maskelenmesinin tüm
+// amacı ("admin bile okuyamaz") bu yolla boşa çıkıyordu.
+func TestChangingLDAPURLDropsTheStoredBindPassword(t *testing.T) {
+	_, apiURL, _, db := oobBastion(t, 0)
+
+	if err := db.SetUserAdmin(context.Background(), "yigit", true); err != nil {
+		t.Fatal(err)
+	}
+
+	// Sır saklamak için mühür anahtarı gerekiyor: üretimde
+	// `postern secret init` kuruyor, testte burada.
+	box, err := secret.Init(filepath.Join(t.TempDir(), "secret.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.UseSecretBox(box)
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
+	browserSignIn(t, client, apiURL)
+
+	set := func(key, value string) {
+		t.Helper()
+		body := fmt.Sprintf(`{"key":%q,"value":%q}`, key, value)
+		if status, out := adminReq(t, client, "PUT", apiURL+"/api/admin/settings", body); status != 200 {
+			t.Fatalf("%s yazılamadı: %d %s", key, status, out)
+		}
+	}
+
+	set("ldap.url", "ldaps://dc.sirket.local")
+	set("ldap.bind_password", "COK-GIZLI-PAROLA")
+
+	// Parola gerçekten saklandı mı?
+	if v, err := db.Setting(context.Background(), "ldap.bind_password"); err != nil || v == "" {
+		t.Fatalf("parola saklanmadı: %q %v", v, err)
+	}
+
+	// SALDIRI: adresi saldırganın sunucusuna çevir.
+	set("ldap.url", "ldaps://saldirgan.example.com")
+
+	if _, err := db.Setting(context.Background(), "ldap.bind_password"); err == nil {
+		t.Error("ADRES DEĞİŞTİ AMA PAROLA DURUYOR — " +
+			"bir sonraki 'test' onu saldırganın sunucusuna gönderir")
+	}
+
+	// Aynı adresi yeniden yazmak parolayı DÜŞÜRMEMELİ: gereksiz yere
+	// yeniden girmek zorunda bırakmak operatörü yorar.
+	set("ldap.bind_password", "YENI-PAROLA")
+	set("ldap.url", "ldaps://saldirgan.example.com")
+	if _, err := db.Setting(context.Background(), "ldap.bind_password"); err != nil {
+		t.Error("aynı adres yeniden yazılınca parola gereksiz yere düştü")
+	}
+}
