@@ -1,7 +1,16 @@
 // Backend ile sözleşme — şekiller internal/httpapi/admin.go'daki girdi
 // şekilleriyle birebir. Değişecekse İKİSİ birlikte değişir.
 
-export type Me = { name: string; os_user: string; admin: boolean; targets: string[] };
+export type Me = {
+  name: string;
+  os_user: string;
+  admin: boolean;
+  targets: string[];
+  // Sunucuda terminal rotası kurulu mu. Kurulu değilse panel düğmeyi
+  // hiç göstermez: olmayan bir kapıyı sunup 404 aldırmak, kullanıcıya
+  // özelliğin BOZUK olduğunu düşündürür.
+  terminal_enabled: boolean;
+};
 export type User = { name: string; os_user: string; admin: boolean; roles: string[]; keys: number };
 export type Role = { name: string; targets: string[] };
 export type Target = { name: string; host: string; port: number; fingerprint: string };
@@ -32,6 +41,26 @@ export type LogEntry = {
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
+}
+
+/**
+ * toMessage, herhangi bir hatayı GÖSTERİLEBİLİR bir metne çevirir.
+ *
+ * ⚠️ Boş dönemez, ve sebebi bir hata değil bir GÜVENLİK özelliği:
+ * ErrorLine boş mesajda hiçbir şey çizmiyor, dolayısıyla Error olmayan
+ * bir reddediş (bir dize, undefined) BAŞARISIZ bir silme işlemini
+ * başarılı olmuş gibi gösteriyordu. Bir bastion'ın yetkilendirme
+ * ekranında sessizce başarısız olan bir iptal, olabilecek en kötü
+ * arızadır.
+ */
+export function toMessage(e: unknown): string {
+  if (e instanceof ApiError) return e.message || `request failed (${e.status})`;
+  // fetch ağ hatasında TypeError atar ve mesajı ("Failed to fetch")
+  // kullanıcıya hiçbir şey anlatmaz.
+  if (e instanceof TypeError) return "could not reach postern — check your connection";
+  if (e instanceof Error) return e.message || "request failed";
+  const s = String(e);
+  return s && s !== "undefined" && s !== "null" ? s : "request failed";
 }
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {

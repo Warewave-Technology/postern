@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
@@ -12,4 +13,16 @@ export default defineConfig({
     },
   },
   build: { outDir: "dist" },
+
+  // Testler jsdom'da koşuyor: gerçek bir tarayıcı değil ama bu
+  // paketteki iddiaların hepsi DOM ve durum makinesi hakkında —
+  // "yükleniyor ile boş ayrı ekranlar mı", "hata temizleniyor mu",
+  // "yıkıcı işlem onay istiyor mu". Bunlar için tarayıcı gerekmiyor
+  // ve gerektirmek testleri koşulmaz hâle getirirdi.
+  test: {
+    environment: "jsdom",
+    setupFiles: ["./src/test/setup.ts"],
+    globals: true,
+    css: true,
+  },
 });

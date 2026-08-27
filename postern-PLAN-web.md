@@ -239,7 +239,7 @@ yeterince spesifik değilmiş demektir — o bilgi de değerli.
 
 ---
 
-## W4 — Oturumlar ve kayıt oynatıcı (S3 sonu, 1 hafta)
+## W4 — Oturumlar ve kayıt oynatıcı (S3 sonu, 1 hafta) — ✅
 
 **Dosyalar:** `web/src/pages/Sessions.tsx`, `web/src/pages/SessionDetail.tsx`,
 `web/src/components/CastPlayer.tsx`

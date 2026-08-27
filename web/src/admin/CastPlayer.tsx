@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { api } from "../api";
+import { ApiError, api, toMessage } from "../api";
+import { ErrorLine, WarnLine } from "./common";
 import { parseCast, compress, duration, formatDuration, type CastEvent } from "../cast";
 
 // Oturum kaydı oynatıcı.
@@ -30,6 +31,10 @@ export default function CastPlayer({ sessionId, onClose }: { sessionId: string; 
 
   const [cast, setCast] = useState<Loaded | null>(null);
   const [error, setError] = useState("");
+  // missing, "kayıt yok"u "istek düştü"den AYIRIR: ilki oturumun bir
+  // olgusu, ikincisi panelin arızası. Aynı kırmızı satırda göstermek,
+  // operatöre olmayan bir arızayı aratır.
+  const [missing, setMissing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
@@ -40,6 +45,7 @@ export default function CastPlayer({ sessionId, onClose }: { sessionId: string; 
     let cancelled = false;
     setLoading(true);
     setError("");
+    setMissing(false);
 
     api
       .sessionRecording(sessionId)
@@ -56,7 +62,18 @@ export default function CastPlayer({ sessionId, onClose }: { sessionId: string; 
         });
       })
       .catch((e: unknown) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+        if (cancelled) return;
+        // 404'ün gövdesi JSON değil, dolayısıyla elimize yalnız
+        // "Not Found" geçiyor — bu, kaydın neden yokluğunu izlemeye
+        // gelen kişiye hiçbir şey anlatmıyor.
+        if (e instanceof ApiError && e.status === 404) {
+          setMissing(true);
+          return;
+        }
+        // toMessage üzerinden: Error olmayan bir reddediş boş mesaj
+        // bırakıyor, boş mesajda ErrorLine hiçbir şey çizmiyor ve
+        // yüklenemeyen bir kayıt boş bir oynatıcı gibi görünüyordu.
+        setError(toMessage(e));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -142,27 +159,39 @@ export default function CastPlayer({ sessionId, onClose }: { sessionId: string; 
   };
 
   return (
-    <section style={{ border: "1px solid #ccc", padding: 12, marginBottom: 16 }}>
-      <header style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
-        <strong>session {sessionId}</strong>
-        <span style={{ flex: 1 }} />
-        <button onClick={onClose}>close</button>
+    <section className="panel" aria-label={`recording of session ${sessionId}`}>
+      <header className="panel-header">
+        <strong>
+          session <code>{sessionId}</code>
+        </strong>
+        <span className="spacer" />
+        <button onClick={onClose} aria-label={`close the recording of session ${sessionId}`}>
+          close
+        </button>
       </header>
 
-      {loading && <p>loading recording…</p>}
-      {error && <p style={{ color: "crimson" }}>{error}</p>}
+      {loading && <p className="state">Loading recording…</p>}
+      <ErrorLine msg={error} />
+      {missing && (
+        <WarnLine msg="postern has no recording for this session — either recording was switched off while it ran, or the file has since been removed from the recordings directory." />
+      )}
 
       {cast && (
         <>
           {cast.truncated && (
-            <p style={{ color: "#a60" }}>
-              This session is still running — the recording ends where it had been written.
-            </p>
+            <WarnLine msg="This session is still running — the recording ends where it had been written." />
           )}
 
-          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
-            <button onClick={() => setPlaying((p) => !p)}>{playing ? "pause" : "play"}</button>
-            <button onClick={() => seek(0)}>restart</button>
+          <div className="player-controls">
+            <button
+              onClick={() => setPlaying((p) => !p)}
+              aria-label={playing ? "pause playback" : "play the recording"}
+            >
+              {playing ? "pause" : "play"}
+            </button>
+            <button onClick={() => seek(0)} aria-label="restart from the beginning">
+              restart
+            </button>
 
             <input
               type="range"
@@ -171,15 +200,14 @@ export default function CastPlayer({ sessionId, onClose }: { sessionId: string; 
               step={0.1}
               value={at}
               onChange={(e) => seek(Number(e.target.value))}
-              style={{ flex: 1, minWidth: 120 }}
               aria-label="playback position"
             />
-            <span style={{ fontVariantNumeric: "tabular-nums" }}>
+            <span className="player-time">
               {formatDuration(at)} / {formatDuration(cast.total)}
             </span>
 
             <label>
-              speed{" "}
+              speed
               <select value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>
                 {SPEEDS.map((s) => (
                   <option key={s} value={s}>
@@ -190,9 +218,9 @@ export default function CastPlayer({ sessionId, onClose }: { sessionId: string; 
             </label>
           </div>
 
-          <div ref={hostRef} style={{ background: "#111", padding: 8 }} />
+          <div ref={hostRef} className="terminal-host" />
 
-          <p style={{ fontSize: 12, color: "#666", marginTop: 8 }}>
+          <p className="muted small">
             Idle gaps longer than two seconds are shortened. Keystrokes are not shown —
             recordings do not capture input by default.
           </p>

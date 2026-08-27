@@ -89,6 +89,7 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
+      - run: make web-test
       - run: make web-check
 
   # Fuzz kampanyası — YALNIZCA haftalık cron'da.

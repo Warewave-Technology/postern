@@ -210,6 +210,12 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		"os_user": u.OSUser,
 		"admin":   u.Admin,
 		"targets": targets,
+
+		// Terminal rotası yalnızca EnableTerminal çağrıldıysa var.
+		// Panel bunu bilmezse kapanmamış bir kapı sunar: düğmeye basan
+		// kullanıcı 404 alır ve ekranda "[disconnected]" görür — yani
+		// olmayan bir özelliğin bozuk olduğunu sanır.
+		"terminal_enabled": s.proxyDeps != nil,
 	})
 }
 

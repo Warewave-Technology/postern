@@ -278,6 +278,13 @@ positives are marked in the code one at a time with `#nosec <rule> --
 reason` — so a genuine finding tomorrow is not silenced by yesterday's
 blanket.
 
+`make web-test` runs the panel's own tests (vitest + jsdom). They pin the
+things that were quietly wrong rather than merely ugly: that a loading
+list is not rendered as an empty one, that a failed delete cannot render
+a blank error and pass for a success, that a 403 does not reload the page
+into a loop, and that a 500 during sign-in shows "postern is unreachable"
+instead of sending you back to the identity provider that cannot help.
+
 `make fuzz` runs the fuzz campaign — 15 targets, one invocation each,
 since `-fuzz` takes exactly one target and one package. It is not in
 `make ci`: the seed corpora already run as ordinary tests on every

@@ -6,7 +6,7 @@ GO ?= go
 GOSEC_VERSION        ?= v2.29.0
 GOVULNCHECK_VERSION  ?= v1.7.0
 
-.PHONY: build test test-race test-short test-integration vet fmt lint sec vuln fuzz audit ci web web-check clean
+.PHONY: build test test-race test-short test-integration vet fmt lint sec vuln fuzz audit ci web web-test web-check clean
 
 build:
 	$(GO) build -o bin/postern ./cmd/postern
@@ -40,6 +40,14 @@ fmt:
 # istiyoruz.
 web:
 	cd web && npm ci && npm run build
+
+# Arayüz testleri (vitest + jsdom).
+#
+# ⚠️ npm bağımlılıklarını ne gosec ne govulncheck tarıyor; test
+# bağımlılıkları da öyle. Bu yüzden liste dar tutuldu ve yeni bir paket
+# eklemek bilinçli bir karar olmalı.
+web-test:
+	cd web && npm ci && npm test
 
 # web/dist kaynağıyla uyumlu mu? Bu kontrol olmazsa web/src'i değiştirip
 # yeniden kurmayı unutan bir commit, gömülü arayüzü sessizce eskitir —

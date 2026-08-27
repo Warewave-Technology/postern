@@ -140,7 +140,19 @@ func (s *Server) Handler() http.Handler {
 // sonucu: script YALNIZCA kendi origin'imizden. Vite build'i harici
 // script/inline script üretmiyor; bu başlık, SPA'ya sızacak bir XSS'in
 // dışarıdan kod yükleyip oturumu silaha çevirmesini zorlaştıran kat.
-// style-src'taki 'unsafe-inline' React'in style={{}} nitelikleri için.
+// style-src'taki 'unsafe-inline' HÂLÂ AÇIK ve sebebi artık React değil.
+//
+// Panelde satır içi stil KALMADI — ölçüldü, çalışan sayfada style
+// niteliği taşıyan sıfır öğe var ve index.html'deki <style> bloğu da
+// styles.css'e taşındı. Yani izni düşürmenin önündeki tek engel
+// xterm.js: DOM renderer'ı çalışma zamanında belgeye <style> enjekte
+// ediyor.
+//
+// Düşürmeden ÖNCE ölçülmesi gereken: üretim derlemesi, bu başlıkla
+// servis edilen gerçek bir sunucu, ve AÇILMIŞ bir terminal. Bunu
+// ölçmeden kaldırmak, yerelde (CSP'siz Vite dev sunucusu) her şey
+// çalışırken üretimde terminali sessizce bozmak olurdu — tam olarak
+// kaçınılması gereken arıza biçimi.
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
