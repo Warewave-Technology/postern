@@ -61,6 +61,13 @@ func testServerWithDB(t *testing.T, caKeyPath string, targets ...model.Target) (
 // dinlemeden önce EnableOOB çağırması gerekenler için ayrık.
 func newBastion(t *testing.T, caKeyPath string, targets ...model.Target) (srv *sshd.Server, hostPub ssh.PublicKey, clientSigner ssh.Signer, db *store.Store) {
 	t.Helper()
+	return newBastionOpts(t, caKeyPath, false, targets...)
+}
+
+// newBastionOpts, skipSeed true ise kullanıcı/rol tohumlamaz — yalnızca
+// hedefleri yazar. JIT sağlama testleri kullanıcının YOKLUĞUNDAN başlar.
+func newBastionOpts(t *testing.T, caKeyPath string, skipSeed bool, targets ...model.Target) (srv *sshd.Server, hostPub ssh.PublicKey, clientSigner ssh.Signer, db *store.Store) {
+	t.Helper()
 
 	_, hostPriv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -101,7 +108,11 @@ func newBastion(t *testing.T, caKeyPath string, targets ...model.Target) (srv *s
 	// hedefler doğrudan store'a yazılır — üretimde bu işi yetkili CLI yapar.
 	// OSUser "postern": hedef konteynerdeki hesap; sertifikanın principal'ı
 	// ve SSH kullanıcı adı bu olacak.
-	db = seedStore(t, cfg.Database.Path, targets, authorized)
+	if skipSeed {
+		db = seedTargetsOnly(t, cfg.Database.Path, targets)
+	} else {
+		db = seedStore(t, cfg.Database.Path, targets, authorized)
+	}
 
 	srv, err = sshd.New(cfg, db, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	if err != nil {
@@ -217,6 +228,29 @@ func seedStore(t *testing.T, dbPath string, targets []model.Target, authorizedKe
 	}
 	if err := db.AddPublicKey(ctx, "yigit", pub.Marshal(), comment); err != nil {
 		t.Fatalf("AddPublicKey: %v", err)
+	}
+	return db
+}
+
+// seedTargetsOnly, yalnızca hedefleri yazar: kullanıcı, rol ve eşleme
+// testin kendi işi.
+func seedTargetsOnly(t *testing.T, dbPath string, targets []model.Target) *store.Store {
+	t.Helper()
+	ctx := context.Background()
+
+	db, err := store.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	for _, tgt := range targets {
+		if _, err := db.CreateTarget(ctx, tgt); err != nil {
+			t.Fatalf("CreateTarget(%s): %v", tgt.Name, err)
+		}
 	}
 	return db
 }

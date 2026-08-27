@@ -29,5 +29,6 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newUserCmd())
 	root.AddCommand(newTargetCmd())
 	root.AddCommand(newRoleCmd())
+	root.AddCommand(newMappingCmd())
 	return root
 }

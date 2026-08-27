@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/warewave/postern/internal/auth"
+	"github.com/warewave/postern/internal/model"
 	"github.com/warewave/postern/internal/store"
 	"golang.org/x/crypto/ssh"
 )
@@ -23,6 +25,17 @@ func (s *Server) publicKeyCallback(conn ssh.ConnMetadata, key ssh.PublicKey) (*s
 			return nil, fmt.Errorf("auth.publicKeyCallback[%s][%s]: access denied", conn.RemoteAddr(), ssh.FingerprintSHA256(key))
 		}
 		return nil, fmt.Errorf("auth.publicKeyCallback[%s]: %w", conn.RemoteAddr(), err)
+	}
+
+	// SSO'ya bağlı kullanıcı anahtarla giremez.
+	//
+	// İki şeyi birden korur: IdP'de kapatılan hesabın erişimi GERÇEKTEN
+	// biter (anahtar kapısı IdP'ye bakmıyordu), ve yetki tazeliği korunur
+	// (roller yalnızca SSO girişinde senkronize ediliyor).
+	if u.SSOOnly {
+		s.logger.Warn("public key rejected for sso-only user",
+			"user", u.Name, "remote", conn.RemoteAddr().String())
+		return nil, fmt.Errorf("auth.publicKeyCallback[%s]: user %s is sso-only: access denied", conn.RemoteAddr(), u.Name)
 	}
 
 	return &ssh.Permissions{
@@ -71,26 +84,18 @@ func (s *Server) keyboardInteractiveCallback(conn ssh.ConnMetadata,
 		return nil, fmt.Errorf("auth.keyboardInteractiveCallback[%s]: %s: %w", conn.RemoteAddr(), event, err)
 	}
 
-	if id.Email == "" {
-		// err burada NİL — kendi mesajı olmak zorunda. Doğrulanmamış
-		// e-posta Identity'ye hiç binmediği için bu dal "IdP e-postayı
-		// doğrulamamış" demek: eşleştirilecek kimlik yok.
-		return nil, fmt.Errorf("auth.keyboardInteractiveCallback[%s]: identity has no verified email", conn.RemoteAddr())
-	}
-
 	// Wait'in ctx'i giriş beklemek için biçilmişti ve işi bitti; sorgu
 	// için taze, kısa bir süre. Background kullanmak da olurdu ama asılı
 	// bir veritabanı bu goroutine'i sonsuza dek tutardı.
 	qctx, qcancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer qcancel()
 
-	u, err := s.db.UserByEmail(qctx, id.Email)
+	// Kimlik çözümü web ile AYNI yoldan: JIT sağlama, sonra e-posta
+	// eşleştirmesine düşüş. İki kapı, tek kural — ayrı yazsaydık
+	// "grubu eşlenmemiş kullanıcı" SSH'tan girebilir, web'den giremez
+	// gibi bir ayrışma doğardı.
+	u, err := s.resolveIdentity(qctx, id)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			// "IdP'de hesap var" ≠ "postern'de hesap var". Ret; arıza değil.
-			return nil, fmt.Errorf("auth.keyboardInteractiveCallback[%s]: no postern user for verified email: access denied", conn.RemoteAddr())
-		}
-		// Arıza: zincir korunur, log gerçek sebebi görür.
 		return nil, fmt.Errorf("auth.keyboardInteractiveCallback[%s]: %w", conn.RemoteAddr(), err)
 	}
 
@@ -99,4 +104,45 @@ func (s *Server) keyboardInteractiveCallback(conn ssh.ConnMetadata,
 			"postern-user": u.Name,
 		},
 	}, nil
+}
+
+// resolveIdentity, doğrulanmış OIDC kimliğini postern kullanıcısına
+// çevirir — httpapi'deki aynı adlı yardımcının SSH tarafındaki eşi.
+//
+// Sıra: kullanıcı adı varsa JIT sağlama (gruplar → roller, gerekirse
+// kullanıcıyı oluştur), yoksa doğrulanmış e-postayla eşleştirme.
+func (s *Server) resolveIdentity(ctx context.Context, id auth.Identity) (model.User, error) {
+	if id.Username != "" {
+		u, err := s.db.ProvisionUser(ctx, store.ProvisionRequest{
+			Username: id.Username,
+			Email:    id.Email,
+			Groups:   id.Groups,
+		})
+		if err == nil {
+			return u, nil
+		}
+		if errors.Is(err, store.ErrAccessDenied) {
+			s.logger.Warn("oob login denied: no mapped groups",
+				"idp_user", id.Username, "groups", len(id.Groups))
+			return model.User{}, fmt.Errorf("access denied")
+		}
+		s.logger.Error("oob provisioning failed", "idp_user", id.Username, "error", err)
+		return model.User{}, err
+	}
+
+	if id.Email == "" {
+		// Doğrulanmamış e-posta Identity'ye hiç binmiyor; bu dal "IdP ne
+		// kullanıcı adı ne doğrulanmış e-posta verdi" demek.
+		return model.User{}, fmt.Errorf("identity has neither username nor verified email")
+	}
+
+	u, err := s.db.UserByEmail(ctx, id.Email)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			// "IdP'de hesap var" ≠ "postern'de hesap var".
+			return model.User{}, fmt.Errorf("no postern user for verified email: access denied")
+		}
+		return model.User{}, err
+	}
+	return u, nil
 }

@@ -179,3 +179,34 @@ func TestWebSessionCookieIsHttpOnly(t *testing.T) {
 }
 
 const sessionCookieName = "postern_session"
+
+// browserSignInExpectingDenial, giriş zincirini sürer ama sonunda 403
+// bekler: IdP kimliği doğruladı, postern erişimi reddetti.
+func browserSignInExpectingDenial(t *testing.T, client *http.Client, apiURL string) {
+	t.Helper()
+
+	resp, err := client.Get(apiURL + "/auth/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	m := regexp.MustCompile(`<form[^>]+action="([^"]+)"`).FindSubmatch(page)
+	if m == nil {
+		t.Fatalf("IdP login formu yok; sayfa: %.500s", page)
+	}
+	resp, err = client.PostForm(html.UnescapeString(string(m[1])), url.Values{
+		"username": {kcUser},
+		"password": {kcPassword},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("callback zinciri %d ile bitti, beklenen 403; sayfa: %.300s", resp.StatusCode, body)
+	}
+}

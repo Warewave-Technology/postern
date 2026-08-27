@@ -12,7 +12,22 @@
       ],
       "attributes": {
         "pkce.code.challenge.method": "S256"
-      }
+      },
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "claim.name": "groups"
+          }
+        }
+      ]
     },
     {
       "clientId": "postern-short",
@@ -24,7 +39,22 @@
       ],
       "attributes": {
         "access.token.lifespan": "3"
-      }
+      },
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "claim.name": "groups"
+          }
+        }
+      ]
     }
   ],
   "users": [
@@ -42,7 +72,11 @@
       ],
       "firstName": "Yigit",
       "lastName": "Basalma",
-      "requiredActions": []
+      "requiredActions": [],
+      "groups": [
+        "/sysadmins",
+        "/hr"
+      ]
     },
     {
       "username": "suheda",
@@ -58,7 +92,21 @@
       ],
       "firstName": "Suheda",
       "lastName": "Test",
-      "requiredActions": []
+      "requiredActions": [],
+      "groups": [
+        "/developers"
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "name": "sysadmins"
+    },
+    {
+      "name": "developers"
+    },
+    {
+      "name": "hr"
     }
   ]
 }

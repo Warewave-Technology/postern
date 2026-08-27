@@ -8,12 +8,14 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"sort"
 	"sync"
 	"time"
 
 	"github.com/warewave/postern/internal/auth"
+	"github.com/warewave/postern/internal/model"
 	"github.com/warewave/postern/internal/store"
 )
 
@@ -116,21 +118,12 @@ func (s *Server) completeWebLogin(w http.ResponseWriter, r *http.Request, state,
 		return
 	}
 
-	if id.Email == "" {
-		log.Warn("web login without verified email")
-		http.Error(w, "identity has no verified email", http.StatusForbidden)
-		return
-	}
-
-	u, err := s.store.UserByEmail(r.Context(), id.Email)
+	u, err := s.resolveIdentity(r.Context(), log, id)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			// "IdP'de hesap var" ≠ "postern'de hesap var" (OOB'deki kural).
-			log.Warn("web login for unknown postern user")
+		if errors.Is(err, store.ErrAccessDenied) || errors.Is(err, store.ErrNotFound) {
 			http.Error(w, "access denied", http.StatusForbidden)
 			return
 		}
-		log.Error("web login user lookup failed", "error", err)
 		http.Error(w, "login failed", http.StatusInternalServerError)
 		return
 	}
@@ -246,4 +239,58 @@ func (s *Server) requireSession(next http.Handler) http.Handler {
 func sessionUser(r *http.Request) string {
 	name, _ := r.Context().Value(ctxUser).(string)
 	return name
+}
+
+// resolveIdentity, doğrulanmış OIDC kimliğini postern kullanıcısına
+// çevirir — gerekirse JIT olarak oluşturarak.
+//
+// SIRA ÖNEMLİ:
+//
+//  1. Kullanıcı adı varsa JIT sağlama denenir (ProvisionUser): grupları
+//     rollere eşlenir, kullanıcı yoksa oluşturulur, SSO rolleri her
+//     girişte yenilenir.
+//  2. Kullanıcı adı yoksa (IdP preferred_username vermiyorsa) eski yola
+//     düşülür: doğrulanmış e-postayla eşleştirme. Bu, JIT'ten önce elle
+//     oluşturulmuş kullanıcıların çalışmaya devam etmesini sağlar.
+//
+// İkisi de başarısızsa erişim yok — ve sebep log'da ayrışır.
+func (s *Server) resolveIdentity(ctx context.Context, log *slog.Logger, id auth.Identity) (model.User, error) {
+	if id.Username != "" {
+		u, err := s.store.ProvisionUser(ctx, store.ProvisionRequest{
+			Username: id.Username,
+			Email:    id.Email,
+			Groups:   id.Groups,
+		})
+		switch {
+		case err == nil:
+			return u, nil
+		case errors.Is(err, store.ErrAccessDenied):
+			// Kimlik geçerli ama hiçbir grubu role eşleşmiyor. Bu bir
+			// yapılandırma boşluğu olabilir: eşlenmemiş gruplar teşhis
+			// tablosunda, yönetici panelden görecek.
+			log.Warn("login denied: no mapped groups",
+				"idp_user", id.Username, "groups", len(id.Groups))
+			return model.User{}, err
+		default:
+			log.Error("provisioning failed", "idp_user", id.Username, "error", err)
+			return model.User{}, err
+		}
+	}
+
+	// preferred_username yoksa e-posta eşleştirmesine düş.
+	if id.Email == "" {
+		log.Warn("login denied: identity has neither username nor verified email")
+		return model.User{}, store.ErrAccessDenied
+	}
+
+	u, err := s.store.UserByEmail(ctx, id.Email)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			log.Warn("login denied: no postern user for verified email")
+			return model.User{}, err
+		}
+		log.Error("user lookup failed", "error", err)
+		return model.User{}, err
+	}
+	return u, nil
 }

@@ -22,6 +22,14 @@ type User struct {
 	// Roles, kişinin sahip olduğu roller. Hedef erişimi rollerden gelir.
 	Roles []Role
 
+	// SSOOnly true ise bu kullanıcı YALNIZCA kimlik sağlayıcı üzerinden
+	// girebilir; public key ile girişi reddedilir.
+	//
+	// IdP'den otomatik oluşan (JIT) kullanıcılar böyle doğar: erişimleri
+	// IdP'de kapatılınca gerçekten bitsin ve rolleri her girişte
+	// tazelensin diye. Elle oluşturulan servis hesapları false kalır.
+	SSOOnly bool
+
 	// Admin, uygulama YÖNETİM yetkisi (kullanıcı/rol/hedef değiştirme,
 	// web'deki yönetim sayfaları). Hedef erişimiyle ilgisi yok: admin
 	// olmayan biri terminale girebilir, admin olan biri rolü yoksa hiçbir

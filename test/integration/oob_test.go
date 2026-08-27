@@ -48,7 +48,14 @@ func oobBastionWithTerminal(t *testing.T) (sshAddr, apiURL string, hostPub ssh.P
 	return oobBastionOpts(t, 0, true)
 }
 
-func oobBastionOpts(t *testing.T, oobTimeout time.Duration, terminal bool) (sshAddr, apiURL string, hostPub ssh.PublicKey, db *store.Store) {
+// oobBastionFresh, kullanıcı/rol TOHUMLANMAMIŞ düzenek: JIT sağlama
+// testleri kullanıcının yokluğundan başlamak zorunda.
+func oobBastionFresh(t *testing.T) (sshAddr, apiURL string, hostPub ssh.PublicKey, db *store.Store) {
+	t.Helper()
+	return oobBastionOpts(t, 0, false, true)
+}
+
+func oobBastionOpts(t *testing.T, oobTimeout time.Duration, terminal bool, fresh ...bool) (sshAddr, apiURL string, hostPub ssh.PublicKey, db *store.Store) {
 	t.Helper()
 
 	caKeyPath, caPub := newTestCA(t)
@@ -77,7 +84,8 @@ func oobBastionOpts(t *testing.T, oobTimeout time.Duration, terminal bool) (sshA
 
 	// Bastion önce kurulur: httpapi ile AYNI store'u paylaşmalılar
 	// (web /api uçları da aynı veritabanını okuyacak).
-	srv, pub, _, db := newBastion(t, caKeyPath, tc)
+	skipSeed := len(fresh) > 0 && fresh[0]
+	srv, pub, _, db := newBastionOpts(t, caKeyPath, skipSeed, tc)
 	// Dinlemeye başlamadan ÖNCE: EnableOOB kilitsiz alanlara yazıyor.
 	srv.EnableOOB(logins, oobTimeout)
 

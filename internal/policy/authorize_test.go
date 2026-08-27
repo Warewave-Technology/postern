@@ -206,3 +206,39 @@ func TestAuthorizeDefaultsToDeny(t *testing.T) {
 		t.Fatal("boş kullanıcı/hedef için izin verildi — varsayılan deny ihlali")
 	}
 }
+
+// S5.2: IdP'den gelen kullanıcı adları "isim.soyisim" biçiminde.
+// Nokta desteklenmeli; ASCII dışı ve büyük harf reddedilmeli.
+func TestOSUserNameAcceptsDottedIdPNames(t *testing.T) {
+	target := model.Target{Name: "web01"}
+	roles := []model.Role{{Name: "ops", Targets: []string{"web01"}}}
+
+	cases := []struct {
+		osUser string
+		allow  bool
+		why    string
+	}{
+		{"yigit.basalma", true, "IdP'nin ürettiği tipik biçim"},
+		{"ali", true, "tek parça ad"},
+		{"deploy_bot", true, "servis hesabı"},
+		{"a.b.c", true, "birden fazla nokta zararsız"},
+		{"Yigit.Basalma", false, "büyük harf: normalize edilmeden gelmemeli"},
+		{"şeyma.çelik", false, "ASCII dışı: hedefteki useradd reddeder"},
+		{".gizli", false, "nokta ile başlayan ad"},
+		{"-rf", false, "tire ile başlayan ad bayrak sanılabilir"},
+		{"ali soyad", false, "boşluk"},
+		{"ali;rm", false, "kabuk metakarakteri"},
+		{"", false, "boş"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.osUser, func(t *testing.T) {
+			u := model.User{Name: "x", OSUser: tc.osUser, Roles: roles}
+			d := Authorize(u, target, "")
+			if d.Allowed != tc.allow {
+				t.Fatalf("Allowed = %v, beklenen %v (%s); reason: %s",
+					d.Allowed, tc.allow, tc.why, d.Reason)
+			}
+		})
+	}
+}

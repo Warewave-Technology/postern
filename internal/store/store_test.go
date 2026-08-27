@@ -1503,3 +1503,218 @@ func TestSecretSettingsRequireKey(t *testing.T) {
 		t.Fatal("anahtarsız şifreli okuma boş/başarılı döndü — sır silinmiş gibi görünür")
 	}
 }
+
+// ---------------------------------------------------------------------
+// S5.2: grup eşlemeleri ve JIT sağlama
+// ---------------------------------------------------------------------
+
+func seedMappingFixtures(t *testing.T, s *Store) {
+	t.Helper()
+	ctx := context.Background()
+
+	for _, r := range []string{"ops", "dba"} {
+		if _, err := s.CreateRole(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.CreateTarget(ctx, model.Target{
+		Name: "web01", Host: "h", Port: 22, HostKey: testHostKey,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.GrantTarget(ctx, "ops", "web01"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGroupMappingRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedMappingFixtures(t, s)
+
+	if err := s.AddGroupMapping(ctx, "sysadmins", "ops", "yigit"); err != nil {
+		t.Fatalf("AddGroupMapping: %v", err)
+	}
+	// Bir grup birden fazla rol verebilir.
+	if err := s.AddGroupMapping(ctx, "sysadmins", "dba", "yigit"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.AddGroupMapping(ctx, "sysadmins", "ops", "yigit"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("aynı eşleme ikinci kez: %v, beklenen ErrConflict", err)
+	}
+	if err := s.AddGroupMapping(ctx, "x", "yok-boyle-rol", "yigit"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("bilinmeyen rol: %v, beklenen ErrNotFound", err)
+	}
+
+	list, err := s.GroupMappings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 || list[0].Role != "dba" || list[1].Role != "ops" {
+		t.Fatalf("eşlemeler = %+v", list)
+	}
+
+	// AD grupları karışık harfle gelir; aynı grubun iki yazımı iki ayrı
+	// eşleme olmamalı.
+	roles, unmapped, err := s.RolesForGroups(ctx, []string{"SysAdmins"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(roles) != 2 || len(unmapped) != 0 {
+		t.Fatalf("büyük/küçük harf duyarlılığı: roller=%v eşlenmeyen=%v", roles, unmapped)
+	}
+
+	if err := s.RemoveGroupMapping(ctx, "sysadmins", "dba"); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ := s.GroupMappings(ctx); len(list) != 1 {
+		t.Fatalf("eşleme silinmedi: %+v", list)
+	}
+	if err := s.RemoveGroupMapping(ctx, "sysadmins", "dba"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("olmayan eşleme silindi: %v", err)
+	}
+}
+
+// Eşlenmemiş gruplar teşhis için kaydedilmeli — Warpgate'in "claim
+// geliyor ama hiçbir yerde iz yok" sorununun çözümü.
+func TestUnmappedGroupsAreRecorded(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedMappingFixtures(t, s)
+
+	if err := s.AddGroupMapping(ctx, "sysadmins", "ops", "yigit"); err != nil {
+		t.Fatal(err)
+	}
+
+	roles, unmapped, err := s.RolesForGroups(ctx, []string{"sysadmins", "developers", "hr"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(roles) != 1 || roles[0] != "ops" {
+		t.Fatalf("roller = %v", roles)
+	}
+	if len(unmapped) != 2 || unmapped[0] != "developers" || unmapped[1] != "hr" {
+		t.Fatalf("eşlenmeyenler = %v", unmapped)
+	}
+
+	if err := s.RecordUnmappedGroups(ctx, unmapped); err != nil {
+		t.Fatal(err)
+	}
+	// İkinci kez görülünce sayaç artmalı, satır çoğalmamalı.
+	if err := s.RecordUnmappedGroups(ctx, []string{"hr"}); err != nil {
+		t.Fatal(err)
+	}
+
+	list, err := s.UnmappedGroups(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("%d eşlenmemiş grup, beklenen 2: %+v", len(list), list)
+	}
+	// En çok görülen önce.
+	if list[0].Name != "hr" || list[0].SeenCount != 2 {
+		t.Errorf("sıralama/sayaç yanlış: %+v", list)
+	}
+}
+
+// JIT sağlamanın çekirdek sözleşmesi: eşleşme yoksa kullanıcı YOK.
+func TestProvisionUserRequiresMappedGroup(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedMappingFixtures(t, s)
+	if err := s.AddGroupMapping(ctx, "sysadmins", "ops", "yigit"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Hiçbir grubu eşleşmiyor: kullanıcı oluşturulmamalı.
+	_, err := s.ProvisionUser(ctx, ProvisionRequest{
+		Username: "ayse.yilmaz", Email: "ayse@warewave.io",
+		Groups: []string{"hr", "marketing"},
+	})
+	if !errors.Is(err, ErrAccessDenied) {
+		t.Fatalf("eşleşmesiz sağlama: %v, beklenen ErrAccessDenied", err)
+	}
+	if _, err := s.User(ctx, "ayse.yilmaz"); !errors.Is(err, ErrNotFound) {
+		t.Fatal("eşleşmesi olmayan kullanıcı yine de oluşturulmuş")
+	}
+	// Ama denemesi teşhis tablosuna düşmüş olmalı.
+	if list, _ := s.UnmappedGroups(ctx); len(list) != 2 {
+		t.Errorf("eşlenmemiş gruplar kaydedilmemiş: %+v", list)
+	}
+
+	// Eşleşiyor: kullanıcı oluşur, os_user = username, sso_only doğar.
+	u, err := s.ProvisionUser(ctx, ProvisionRequest{
+		Username: "yigit.basalma", Email: "yigit@warewave.io",
+		Groups: []string{"sysadmins", "hr"},
+	})
+	if err != nil {
+		t.Fatalf("ProvisionUser: %v", err)
+	}
+	if u.Name != "yigit.basalma" || u.OSUser != "yigit.basalma" {
+		t.Errorf("kullanıcı = %+v — os_user IdP kullanıcı adı olmalı", u)
+	}
+	if !u.SSOOnly {
+		t.Error("JIT kullanıcı sso_only doğmamış — anahtarla girebilir, IdP'de kapatılınca erişimi bitmez")
+	}
+	if len(u.Roles) != 1 || u.Roles[0].Name != "ops" {
+		t.Errorf("roller = %+v, beklenen [ops]", u.Roles)
+	}
+	if len(u.Roles[0].Targets) != 1 || u.Roles[0].Targets[0] != "web01" {
+		t.Errorf("rolün hedefleri = %v", u.Roles[0].Targets)
+	}
+}
+
+// Var olan kullanıcı: gruptan çıkarılınca erişim biter ama kayıt kalır.
+func TestProvisionUserSyncsExistingUser(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedMappingFixtures(t, s)
+	if err := s.AddGroupMapping(ctx, "sysadmins", "ops", "yigit"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddGroupMapping(ctx, "dbteam", "dba", "yigit"); err != nil {
+		t.Fatal(err)
+	}
+
+	req := ProvisionRequest{Username: "yigit.basalma", Email: "yigit@warewave.io"}
+
+	req.Groups = []string{"sysadmins", "dbteam"}
+	u, err := s.ProvisionUser(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(u.Roles) != 2 {
+		t.Fatalf("roller = %+v, beklenen 2", u.Roles)
+	}
+
+	// Yönetici elle bir rol daha verdi.
+	if err := s.AssignRole(ctx, "yigit.basalma", "dba", time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+
+	// IdP'de dbteam'den çıkarıldı: SSO rolü gider, elle atanan KALIR.
+	req.Groups = []string{"sysadmins"}
+	u, err = s.ProvisionUser(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := roleNames(u); len(got) != 2 || got[0] != "dba" || got[1] != "ops" {
+		t.Fatalf("roller = %v, beklenen [dba ops] — elle atama kaybolmuş olabilir", got)
+	}
+
+	// Bütün gruplardan çıkarıldı: kullanıcı SİLİNMEZ (denetim), SSO
+	// rolleri temizlenir.
+	req.Groups = nil
+	u, err = s.ProvisionUser(ctx, req)
+	if err != nil {
+		t.Fatalf("var olan kullanıcı eşleşmesiz kalınca hata verdi: %v", err)
+	}
+	if got := roleNames(u); len(got) != 1 || got[0] != "dba" {
+		t.Fatalf("roller = %v, beklenen [dba]", got)
+	}
+	if _, err := s.User(ctx, "yigit.basalma"); err != nil {
+		t.Error("var olan kullanıcı silinmiş — denetim kaydı sahipsiz kalır")
+	}
+}

@@ -46,7 +46,19 @@ type OIDCConfig struct {
 	// RedirectURL, sağlayıcının code'u geri getireceği adres. Sağlayıcı
 	// tarafında kayıtlı olanla birebir aynı olmalı.
 	RedirectURL string
+
+	// GroupsClaim, grup adlarını taşıyan claim. Boşsa "groups".
+	//
+	// YAPILANDIRILABİLİR olması bilinçli: Warpgate'in sabit
+	// "warpgate_roles" adı, insanların gruplarını "groups" claim'ine
+	// koyup hiçbir eşleşme görmemesinin ve sebebini bulamamasının
+	// kaynağı (issue #1283). Her IdP farklı ad kullanır: Keycloak
+	// "groups", Entra "roles", bazı kurulumlar "memberOf".
+	GroupsClaim string
 }
+
+// defaultGroupsClaim, GroupsClaim boş bırakıldığında kullanılan ad.
+const defaultGroupsClaim = "groups"
 
 // OIDC, tek bir sağlayıcıya karşı giriş akışı yürütür.
 //
@@ -71,6 +83,15 @@ type Identity struct {
 	// true ise doldurulur — doğrulanmamış e-posta, sahibi olmayan bir
 	// iddiadır ve kimlik eşleştirmesinde kullanılamaz.
 	Email string
+
+	// Username, IdP'nin verdiği kullanıcı adı (preferred_username).
+	// JIT sağlamada hem postern kullanıcı adı hem hedeflerdeki hesap adı
+	// olacak — kurumsal ortamda "isim.soyisim".
+	Username string
+
+	// Groups, IdP'nin bildirdiği grup adları. Hangi claim'den okunacağı
+	// yapılandırılabilir (OIDCConfig.GroupsClaim).
+	Groups []string
 }
 
 // AuthRequest, TEK bir giriş denemesinin durumu.
@@ -181,18 +202,28 @@ func (o *OIDC) VerifyIDToken(ctx context.Context, raw, expectedNonce string) (Id
 	}
 
 	var c struct {
-		Email         string `json:"email"`
-		EmailVerified bool   `json:"email_verified"`
+		Email             string `json:"email"`
+		EmailVerified     bool   `json:"email_verified"`
+		PreferredUsername string `json:"preferred_username"`
 	}
 	if err := idToken.Claims(&c); err != nil {
 		return identity, fmt.Errorf("auth.VerifyIDToken: %w", err)
 	}
 
 	identity.Subject = idToken.Subject
+	identity.Username = c.PreferredUsername
 
 	if c.EmailVerified {
 		identity.Email = c.Email
 	}
+
+	// Gruplar yapılandırılmış claim'den okunuyor: adı sabit olmadığı
+	// için ham claim haritasına bakıp ilgili anahtarı çıkarıyoruz.
+	groups, err := extractGroups(idToken, o.groupsClaim())
+	if err != nil {
+		return identity, fmt.Errorf("auth.VerifyIDToken: %w", err)
+	}
+	identity.Groups = groups
 
 	return identity, nil
 }
@@ -203,4 +234,48 @@ func newID() (string, error) {
 		return "", fmt.Errorf("auth.newID: %w", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// groupsClaim, yapılandırılmış claim adını ya da varsayılanı döner.
+func (o *OIDC) groupsClaim() string {
+	if o.cfg.GroupsClaim != "" {
+		return o.cfg.GroupsClaim
+	}
+	return defaultGroupsClaim
+}
+
+// extractGroups, ID token'daki grup claim'ini string dizisine çevirir.
+//
+// Claim'in YOKLUĞU hata değil: kullanıcı hiçbir grupta olmayabilir ya da
+// gruplar UserInfo'dan gelebilir. Ama VARSA ve beklenmedik bir tipteyse
+// hata veriyoruz — sessizce boş liste dönmek, yöneticinin "eşleme neden
+// çalışmıyor" sorusunu cevapsız bırakan tam olarak o davranış.
+func extractGroups(idToken *oidc.IDToken, claim string) ([]string, error) {
+	var raw map[string]any
+	if err := idToken.Claims(&raw); err != nil {
+		return nil, err
+	}
+
+	value, ok := raw[claim]
+	if !ok || value == nil {
+		return nil, nil
+	}
+
+	switch v := value.(type) {
+	case []any:
+		groups := make([]string, 0, len(v))
+		for _, item := range v {
+			s, ok := item.(string)
+			if !ok {
+				return nil, fmt.Errorf("claim %q contains a non-string element", claim)
+			}
+			groups = append(groups, s)
+		}
+		return groups, nil
+	case string:
+		// Bazı sağlayıcılar tek grubu düz string olarak gönderir.
+		return []string{v}, nil
+	default:
+		return nil, fmt.Errorf("claim %q is neither a string nor a list of strings", claim)
+	}
 }

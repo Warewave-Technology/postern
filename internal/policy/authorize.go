@@ -9,7 +9,21 @@ import (
 	"github.com/warewave/postern/internal/model"
 )
 
-var osUserNamePatternRegex = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
+// osUserNamePatternRegex, hedefte hesap adı olarak kabul ettiğimiz biçim.
+//
+// Nokta S5.2'de eklendi: kimlik sağlayıcıdan gelen kullanıcı adları
+// kurumsal ortamda "isim.soyisim" biçiminde ve hedeflerdeki hesap adları
+// da odur. Nokta olmadan bu tasarımın varsaydığı her kullanıcı reddedilirdi.
+//
+// Dışarıda kalanlar bilinçli: büyük harf (Linux hesapları geleneksel
+// olarak küçük harf ve büyük/küçük karışımı "Web01/web01" sınıfından
+// karışıklık üretir), Türkçe ve diğer ASCII dışı harfler (hedefteki
+// useradd çoğu dağıtımda reddeder), boşluk ve kabuk metakarakterleri.
+//
+// İlk karakterin harf ya da alt çizgi olması şart: nokta ya da tire ile
+// başlayan adlar hem useradd'de sorun çıkarır hem komut satırında
+// bayrak sanılabilir.
+var osUserNamePatternRegex = regexp.MustCompile(`^[a-z_][a-z0-9_.-]{0,31}$`)
 
 type Decision struct {
 	Allowed bool
