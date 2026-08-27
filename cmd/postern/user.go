@@ -228,7 +228,12 @@ func newUserModifyCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "modify",
-		Short: "Change a user's email or os-user",
+		Short: "Change a user's email, os-user or admin flag",
+		// ⚠️ NoArgs olmadan "--admin false" sessizce YANLIŞ çalışır:
+		// pflag boolean bayrağı --admin'i true yapar, "false" kelimesi
+		// pozisyonel argüman olarak yutulurdu. NoArgs bunu hataya çevirir
+		// ve kullanıcı --admin=false yazmayı öğrenir.
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			emailSet := cmd.Flags().Changed("email")
 			osUserSet := cmd.Flags().Changed("os-user")
@@ -293,7 +298,7 @@ func newUserModifyCmd() *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "postern kullanıcı adı (zorunlu)")
 	cmd.Flags().StringVar(&email, "email", "", "yeni e-posta (boş = sil)")
 	cmd.Flags().StringVar(&osUser, "os-user", "", "hedeflerdeki yeni hesap")
-	cmd.Flags().BoolVar(&admin, "admin", false, "uygulama yönetim yetkisi (true/false)")
+	cmd.Flags().BoolVar(&admin, "admin", false, "uygulama yönetim yetkisi — eşittirle yaz: --admin=true / --admin=false")
 	_ = cmd.MarkFlagRequired("name")
 	return cmd
 }

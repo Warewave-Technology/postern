@@ -115,7 +115,10 @@ func (s *Server) storeErr(w http.ResponseWriter, op string, err error) {
 	case errors.Is(err, store.ErrNotFound):
 		writeErr(w, http.StatusNotFound, "not found")
 	case errors.Is(err, store.ErrConflict):
-		writeErr(w, http.StatusConflict, "conflict: "+err.Error())
+		// İç zincir (store.X: ... : store: already exists) gövdeye
+		// GİTMEZ; ayrıntı log'a, çağırana olayın adı.
+		s.logger.Warn("admin api conflict", "op", op, "error", err)
+		writeErr(w, http.StatusConflict, "already exists")
 	default:
 		s.logger.Error("admin api store error", "op", op, "error", err)
 		writeErr(w, http.StatusInternalServerError, "internal error")
@@ -252,6 +255,13 @@ func (s *Server) adminPatchUser(w http.ResponseWriter, r *http.Request) {
 func (s *Server) adminDeleteUser(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if err := s.store.DeleteUser(r.Context(), name); err != nil {
+		if errors.Is(err, store.ErrConflict) {
+			// Denetim kaydı olan varlık silinmez: sebebini açıkça söyle,
+			// yoksa "already exists" kullanıcıyı yanlış yere bakmaya iter.
+			s.logger.Warn("admin delete refused", "entity", name, "error", err)
+			writeErr(w, http.StatusConflict, "user has recorded sessions and cannot be deleted; revoke keys and roles instead")
+			return
+		}
 		s.storeErr(w, "user.delete", err)
 		return
 	}
@@ -382,6 +392,13 @@ func (s *Server) adminCreateRole(w http.ResponseWriter, r *http.Request) {
 func (s *Server) adminDeleteRole(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if err := s.store.DeleteRole(r.Context(), name); err != nil {
+		if errors.Is(err, store.ErrConflict) {
+			// Denetim kaydı olan varlık silinmez: sebebini açıkça söyle,
+			// yoksa "already exists" kullanıcıyı yanlış yere bakmaya iter.
+			s.logger.Warn("admin delete refused", "entity", name, "error", err)
+			writeErr(w, http.StatusConflict, "role is still referenced and cannot be deleted")
+			return
+		}
 		s.storeErr(w, "role.delete", err)
 		return
 	}
@@ -483,6 +500,13 @@ func (s *Server) adminCreateTarget(w http.ResponseWriter, r *http.Request) {
 func (s *Server) adminDeleteTarget(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if err := s.store.DeleteTarget(r.Context(), name); err != nil {
+		if errors.Is(err, store.ErrConflict) {
+			// Denetim kaydı olan varlık silinmez: sebebini açıkça söyle,
+			// yoksa "already exists" kullanıcıyı yanlış yere bakmaya iter.
+			s.logger.Warn("admin delete refused", "entity", name, "error", err)
+			writeErr(w, http.StatusConflict, "target has recorded sessions and cannot be deleted")
+			return
+		}
 		s.storeErr(w, "target.delete", err)
 		return
 	}

@@ -1,10 +1,24 @@
 import { useEffect, useState } from "react";
+import { ApiError } from "../api";
 
 // Liste + hata + yenileme üçlüsü her sayfada aynı; tek kancada topla.
 export function useList<T>(load: () => Promise<T[]>) {
   const [items, setItems] = useState<T[]>([]);
   const [error, setError] = useState("");
-  const refresh = () => load().then(setItems).catch((e) => setError(String(e.message ?? e)));
+  const refresh = () =>
+    load()
+      .then(setItems)
+      .catch((e) => {
+        // 403 = yetki oturum AÇIKKEN alındı (bayrak her istekte
+        // sunucuda okunuyor). Elimizdeki kimlik bayat; sayfayı yenile ki
+        // arayüz de gerçeği göstersin — "admin" etiketiyle boş tablo
+        // arasında kalan kullanıcı ne olduğunu anlamaz.
+        if (e instanceof ApiError && e.status === 403) {
+          window.location.reload();
+          return;
+        }
+        setError(String(e.message ?? e));
+      });
   useEffect(() => { refresh(); }, []);
   return { items, error, refresh, setError };
 }
