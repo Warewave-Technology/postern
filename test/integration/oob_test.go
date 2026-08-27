@@ -37,7 +37,7 @@ import (
 // callback dinleyicisi → Keycloak → bastion. Sıralamanın iki kısıtı var:
 // hedef, bastion'la AYNI CA'ya güvenmeli (CA önce), ve Keycloak callback
 // portunu redirect olarak tanımalı (dinleyici Keycloak'tan önce).
-func oobBastion(t *testing.T, oobTimeout time.Duration) (sshAddr string, hostPub ssh.PublicKey, db *store.Store) {
+func oobBastion(t *testing.T, oobTimeout time.Duration) (sshAddr, apiURL string, hostPub ssh.PublicKey, db *store.Store) {
 	t.Helper()
 
 	caKeyPath, caPub := newTestCA(t)
@@ -64,16 +64,18 @@ func oobBastion(t *testing.T, oobTimeout time.Duration) (sshAddr string, hostPub
 	}
 	logins := auth.NewLogins(oidcClient)
 
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	api := &http.Server{Handler: httpapi.New(oidcClient, logins, logger).Handler()}
-	go api.Serve(l)
-	t.Cleanup(func() { api.Shutdown(context.Background()) })
-
+	// Bastion önce kurulur: httpapi ile AYNI store'u paylaşmalılar
+	// (web /api uçları da aynı veritabanını okuyacak).
 	srv, pub, _, db := newBastion(t, caKeyPath, tc)
 	// Dinlemeye başlamadan ÖNCE: EnableOOB kilitsiz alanlara yazıyor.
 	srv.EnableOOB(logins, oobTimeout)
 
-	return startBastion(t, srv), pub, db
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	api := &http.Server{Handler: httpapi.New(oidcClient, logins, db, logger).Handler()}
+	go api.Serve(l)
+	t.Cleanup(func() { api.Shutdown(context.Background()) })
+
+	return startBastion(t, srv), external, pub, db
 }
 
 // approveInBrowser, bir insanın yapacağını yapar: linki açar, Keycloak'a
@@ -169,7 +171,7 @@ func kiClient(sshAddr string, hostPub ssh.PublicKey, approve func(loginURL, user
 // --- adım 1: mutlu yol ---
 
 func TestOOBLoginEndToEnd(t *testing.T) {
-	sshAddr, hostPub, db := oobBastion(t, 0)
+	sshAddr, _, hostPub, db := oobBastion(t, 0)
 
 	client, err := kiClient(sshAddr, hostPub, approveInBrowser)
 	if err != nil {
@@ -206,7 +208,7 @@ func TestOOBLoginEndToEnd(t *testing.T) {
 // --- adım 2: yanlış kod ---
 
 func TestOOBLoginRejectsWrongCode(t *testing.T) {
-	sshAddr, hostPub, _ := oobBastion(t, 0)
+	sshAddr, _, hostPub, _ := oobBastion(t, 0)
 
 	_, err := kiClient(sshAddr, hostPub, func(loginURL, userCode string) error {
 		// Saldırı modeli: linki ele geçiren, TERMİNALİ göremeyen biri.
@@ -224,7 +226,7 @@ func TestOOBLoginRejectsWrongCode(t *testing.T) {
 // --- adım 3: timeout temiz kapanıyor ---
 
 func TestOOBLoginTimesOutCleanly(t *testing.T) {
-	sshAddr, hostPub, _ := oobBastion(t, 3*time.Second)
+	sshAddr, _, hostPub, _ := oobBastion(t, 3*time.Second)
 
 	start := time.Now()
 	_, err := kiClient(sshAddr, hostPub, func(loginURL, userCode string) error {

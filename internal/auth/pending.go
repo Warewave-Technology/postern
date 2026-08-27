@@ -93,11 +93,11 @@ func (l *Logins) Start() (*Attempt, error) {
 	}
 
 	a := &Attempt{
-		URL:      req.URL,                  // Begin kurdu
-		UserCode: code,                     // newCode üretti
-		state:    req.State,                // haritanın anahtarı — URL'den sökmek yok, elimizde zaten
-		req:      req,                      // Lookup bunu verecek
-		logins:   l,                        // Wait'in defer'lı Drop'u için
+		URL:      req.URL,
+		UserCode: code,
+		state:    req.State, // haritanın anahtarı — URL'den sökmek yok, elimizde zaten
+		req:      req,
+		logins:   l,
 		result:   make(chan waitResult, 1), // ⚠️ tamponu 1 — unutulursa her şey kilitlenir
 	}
 

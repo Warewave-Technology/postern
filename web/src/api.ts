@@ -1,0 +1,67 @@
+// Backend ile sözleşme — şekiller internal/httpapi/admin.go'daki girdi
+// şekilleriyle birebir. Değişecekse İKİSİ birlikte değişir.
+
+export type Me = { name: string; os_user: string; admin: boolean; targets: string[] };
+export type User = { name: string; os_user: string; admin: boolean; roles: string[]; keys: number };
+export type Role = { name: string; targets: string[] };
+export type Target = { name: string; host: string; port: number; fingerprint: string };
+export type Session = {
+  id: string; user: string; target: string; os_user: string;
+  src_ip: string; started_at: string; ended_at: string | null;
+};
+export type LogEntry = {
+  at: string; actor: string; via: string; action: string; entity: string; details: string;
+};
+
+export class ApiError extends Error {
+  constructor(public status: number, message: string) { super(message); }
+}
+
+async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const r = await fetch(path, {
+    method,
+    headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (!r.ok) {
+    let msg = r.statusText;
+    try { msg = (await r.json()).error ?? msg; } catch { /* gövde JSON değilse statusText kalır */ }
+    throw new ApiError(r.status, msg);
+  }
+  return r.status === 204 ? (undefined as T) : r.json();
+}
+
+export const api = {
+  me: () => req<Me>("GET", "/api/me"),
+
+  users: () => req<User[]>("GET", "/api/admin/users"),
+  createUser: (u: { name: string; os_user: string; email?: string; roles?: string[] }) =>
+    req<void>("POST", "/api/admin/users", u),
+  patchUser: (name: string, p: { email?: string; os_user?: string }) =>
+    req<void>("PATCH", `/api/admin/users/${encodeURIComponent(name)}`, p),
+  deleteUser: (name: string) => req<void>("DELETE", `/api/admin/users/${encodeURIComponent(name)}`),
+  assignRole: (user: string, role: string) =>
+    req<void>("POST", `/api/admin/users/${encodeURIComponent(user)}/roles`, { role }),
+  revokeRole: (user: string, role: string) =>
+    req<void>("DELETE", `/api/admin/users/${encodeURIComponent(user)}/roles/${encodeURIComponent(role)}`),
+  addKey: (user: string, authorized_key: string) =>
+    req<void>("POST", `/api/admin/users/${encodeURIComponent(user)}/keys`, { authorized_key }),
+  removeKey: (user: string, authorized_key: string) =>
+    req<void>("POST", `/api/admin/users/${encodeURIComponent(user)}/keys/remove`, { authorized_key }),
+
+  roles: () => req<Role[]>("GET", "/api/admin/roles"),
+  createRole: (r: { name: string; targets?: string[] }) => req<void>("POST", "/api/admin/roles", r),
+  deleteRole: (name: string) => req<void>("DELETE", `/api/admin/roles/${encodeURIComponent(name)}`),
+  grantTarget: (role: string, target: string) =>
+    req<void>("POST", `/api/admin/roles/${encodeURIComponent(role)}/targets`, { target }),
+  revokeTarget: (role: string, target: string) =>
+    req<void>("DELETE", `/api/admin/roles/${encodeURIComponent(role)}/targets/${encodeURIComponent(target)}`),
+
+  targets: () => req<Target[]>("GET", "/api/admin/targets"),
+  createTarget: (t: { name: string; host: string; port?: number; host_key: string }) =>
+    req<void>("POST", "/api/admin/targets", t),
+  deleteTarget: (name: string) => req<void>("DELETE", `/api/admin/targets/${encodeURIComponent(name)}`),
+
+  sessions: () => req<Session[]>("GET", "/api/admin/sessions"),
+  adminLog: () => req<LogEntry[]>("GET", "/api/admin/log"),
+};

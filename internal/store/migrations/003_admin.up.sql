@@ -1,0 +1,12 @@
+-- 003_admin: uygulama yönetim yetkisi.
+--
+-- is_admin, ROL değil SÜTUN: roller hedef-erişim yetkisidir ve öyle
+-- kalmalı. "admin" adında sihirli bir rol aramak, o adla rol açan herkesi
+-- farkında olmadan yetki dağıtır yapardı. Sütun ise tek anlamlıdır ve
+-- user list çıktısında tek bakışta denetlenir.
+--
+-- Yetki modeli (S3 sözleşmesinin devamı): bu bayrağı yalnızca bastion
+-- hostundaki CLI değiştirir (user modify --admin). Web/API tarafı bayrağı
+-- OKUR, değiştiremez — kendini admin yapabilen bir admin paneli, panel
+-- ele geçirildiğinde kalıcı yetki demek olurdu.
+ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0;

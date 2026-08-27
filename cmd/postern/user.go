@@ -180,7 +180,7 @@ func newUserListCmd() *cobra.Command {
 			}
 
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "NAME\tOS USER\tROLES\tKEYS")
+			fmt.Fprintln(w, "NAME\tOS USER\tADMIN\tROLES\tKEYS")
 
 			for _, u := range users {
 				roleNames := make([]string, 0, len(u.Roles))
@@ -199,7 +199,11 @@ func newUserListCmd() *cobra.Command {
 					return err
 				}
 
-				fmt.Fprintf(w, "%s\t%s\t%s\t%d\n", u.Name, u.OSUser, rolesCol, len(keys))
+				adminCol := "-"
+				if u.Admin {
+					adminCol = "yes"
+				}
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\n", u.Name, u.OSUser, adminCol, rolesCol, len(keys))
 			}
 
 			return w.Flush()
@@ -220,6 +224,7 @@ func newUserListCmd() *cobra.Command {
 // işin bilinçli kapısı. --email "" adresi siler.
 func newUserModifyCmd() *cobra.Command {
 	var configPath, name, osUser, email string
+	var admin bool
 
 	cmd := &cobra.Command{
 		Use:   "modify",
@@ -227,8 +232,9 @@ func newUserModifyCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			emailSet := cmd.Flags().Changed("email")
 			osUserSet := cmd.Flags().Changed("os-user")
-			if !emailSet && !osUserSet {
-				return fmt.Errorf("nothing to change: pass --email and/or --os-user")
+			adminSet := cmd.Flags().Changed("admin")
+			if !emailSet && !osUserSet && !adminSet {
+				return fmt.Errorf("nothing to change: pass --email, --os-user and/or --admin")
 			}
 
 			cfg, err := config.Load(configPath)
@@ -260,6 +266,16 @@ func newUserModifyCmd() *cobra.Command {
 				}
 			}
 
+			if adminSet {
+				// Admin bayrağını YALNIZCA bu CLI değiştirir: web/API
+				// tarafı okur ama yazamaz — kendini admin yapabilen bir
+				// panel, ele geçirildiğinde kalıcı yetki olurdu.
+				if err := db.SetUserAdmin(ctx, name, admin); err != nil {
+					return err
+				}
+				fmt.Fprintf(out, "user %q: admin set to %v\n", name, admin)
+			}
+
 			if osUserSet {
 				if err := db.SetUserOSUser(ctx, name, osUser); err != nil {
 					return err
@@ -277,6 +293,7 @@ func newUserModifyCmd() *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "postern kullanıcı adı (zorunlu)")
 	cmd.Flags().StringVar(&email, "email", "", "yeni e-posta (boş = sil)")
 	cmd.Flags().StringVar(&osUser, "os-user", "", "hedeflerdeki yeni hesap")
+	cmd.Flags().BoolVar(&admin, "admin", false, "uygulama yönetim yetkisi (true/false)")
 	_ = cmd.MarkFlagRequired("name")
 	return cmd
 }

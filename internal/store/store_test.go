@@ -915,3 +915,274 @@ func TestSetUserOSUser(t *testing.T) {
 		t.Fatalf("bilinmeyen kullanıcı: %v, beklenen ErrNotFound", err)
 	}
 }
+
+// Admin bayrağı iki yerden akmalı: SetUserAdmin yazar, kullanıcıyı dönen
+// HER yol (User, Users, UserByEmail, UserByPublicKey → hepsi User'dan
+// geçiyor) okur. Sorgu ve Scan'e u.is_admin eklemek gerekiyor.
+func TestUserAdminFlag(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	if _, err := s.CreateUser(ctx, "yigit", "yigit@warewave.io", "yigit"); err != nil {
+		t.Fatal(err)
+	}
+
+	u, err := s.User(ctx, "yigit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Admin {
+		t.Fatal("yeni kullanıcı admin DOĞMAMALI — yetki açıkça verilir")
+	}
+
+	if err := s.SetUserAdmin(ctx, "yigit", true); err != nil {
+		t.Fatalf("SetUserAdmin: %v", err)
+	}
+
+	u, err = s.User(ctx, "yigit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !u.Admin {
+		t.Fatal("User Admin=false döndü — sorgu is_admin'i taşımıyor olabilir")
+	}
+	if got, err := s.UserByEmail(ctx, "yigit@warewave.io"); err != nil || !got.Admin {
+		t.Fatalf("UserByEmail admin taşımıyor: %+v, %v", got, err)
+	}
+
+	users, err := s.Users(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(users) != 1 || !users[0].Admin {
+		t.Fatalf("Users admin taşımıyor: %+v", users)
+	}
+
+	// Geri alma da çalışmalı: yetki kalıcı damga değil.
+	if err := s.SetUserAdmin(ctx, "yigit", false); err != nil {
+		t.Fatal(err)
+	}
+	if u, _ := s.User(ctx, "yigit"); u.Admin {
+		t.Fatal("admin geri alınamadı")
+	}
+
+	if err := s.SetUserAdmin(ctx, "yok-boyle-biri", true); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("bilinmeyen kullanıcı: %v, beklenen ErrNotFound", err)
+	}
+}
+
+// ---------------------------------------------------------------------
+// S4.2: yönetim
+// ---------------------------------------------------------------------
+
+func TestAdminLogRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	base := time.Now().Truncate(time.Second)
+	for i, e := range []AdminLogEntry{
+		{At: base.Add(-2 * time.Hour), Actor: "yigit", Via: "web", Action: "user.create", Entity: "ayse"},
+		{At: base.Add(-1 * time.Hour), Actor: "root", Via: "cli", Action: "role.grant", Entity: "ops", Details: "granted target web01"},
+	} {
+		if err := s.LogAdmin(ctx, e); err != nil {
+			t.Fatalf("LogAdmin[%d]: %v", i, err)
+		}
+	}
+
+	got, err := s.AdminLog(ctx, 0)
+	if err != nil {
+		t.Fatalf("AdminLog: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("%d kayıt, beklenen 2", len(got))
+	}
+	// Yeniden eskiye.
+	if got[0].Action != "role.grant" || got[1].Action != "user.create" {
+		t.Errorf("sıralama yanlış: %+v", got)
+	}
+	if got[0].Details != "granted target web01" || got[0].Via != "cli" {
+		t.Errorf("alanlar kaybolmuş: %+v", got[0])
+	}
+	if !got[1].At.Equal(base.Add(-2 * time.Hour)) {
+		t.Errorf("At = %v", got[1].At)
+	}
+
+	if one, _ := s.AdminLog(ctx, 1); len(one) != 1 || one[0].Action != "role.grant" {
+		t.Errorf("limit=1 en yenisini vermedi: %+v", one)
+	}
+
+	// Sıfır At: damgalanmalı, 1970 yazılmamalı.
+	if err := s.LogAdmin(ctx, AdminLogEntry{Actor: "yigit", Via: "web", Action: "x", Entity: "y"}); err != nil {
+		t.Fatal(err)
+	}
+	all, _ := s.AdminLog(ctx, 0)
+	if all[0].At.Before(base.Add(-time.Minute)) {
+		t.Errorf("sıfır At damgalanmamış: %v", all[0].At)
+	}
+}
+
+func TestRolesListing(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	for _, r := range []string{"ops", "bos-rol", "dba"} {
+		if _, err := s.CreateRole(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.CreateTarget(ctx, model.Target{Name: "web01", Host: "h", Port: 22, HostKey: testHostKey}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.GrantTarget(ctx, "ops", "web01"); err != nil {
+		t.Fatal(err)
+	}
+
+	roles, err := s.Roles(ctx)
+	if err != nil {
+		t.Fatalf("Roles: %v", err)
+	}
+	if len(roles) != 3 {
+		t.Fatalf("%d rol, beklenen 3: %+v", len(roles), roles)
+	}
+	for i, want := range []string{"bos-rol", "dba", "ops"} {
+		if roles[i].Name != want {
+			t.Errorf("roles[%d] = %q, beklenen %q", i, roles[i].Name, want)
+		}
+	}
+	byName := map[string][]string{}
+	for _, r := range roles {
+		byName[r.Name] = r.Targets
+	}
+	if len(byName["ops"]) != 1 || byName["ops"][0] != "web01" {
+		t.Errorf("ops hedefleri = %v", byName["ops"])
+	}
+	// Hedefsiz rol hayalet hedefle gelmemeli (LEFT JOIN dersi).
+	if len(byName["bos-rol"]) != 0 {
+		t.Errorf("bos-rol hedefleri = %v, beklenen boş", byName["bos-rol"])
+	}
+}
+
+func TestRevokes(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	if _, err := s.CreateUser(ctx, "yigit", "", "yigit"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateRole(ctx, "ops"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateTarget(ctx, model.Target{Name: "web01", Host: "h", Port: 22, HostKey: testHostKey}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AssignRole(ctx, "yigit", "ops"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.GrantTarget(ctx, "ops", "web01"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.RevokeRole(ctx, "yigit", "ops"); err != nil {
+		t.Fatalf("RevokeRole: %v", err)
+	}
+	if u, _ := s.User(ctx, "yigit"); len(u.Roles) != 0 {
+		t.Errorf("rol geri alınamadı: %+v", u.Roles)
+	}
+	// Zaten yok: sessiz no-op (AssignRole'un aynası).
+	if err := s.RevokeRole(ctx, "yigit", "ops"); err != nil {
+		t.Errorf("ikinci revoke hata verdi: %v", err)
+	}
+	// Bilinmeyen taraflar: ErrNotFound.
+	if err := s.RevokeRole(ctx, "yok", "ops"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("bilinmeyen kullanıcı: %v", err)
+	}
+
+	if err := s.RevokeTarget(ctx, "ops", "web01"); err != nil {
+		t.Fatalf("RevokeTarget: %v", err)
+	}
+	roles, _ := s.Roles(ctx)
+	if len(roles) != 1 || len(roles[0].Targets) != 0 {
+		t.Errorf("hedef geri alınamadı: %+v", roles)
+	}
+}
+
+func TestRemovePublicKey(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	for _, n := range []string{"yigit", "ayse"} {
+		if _, err := s.CreateUser(ctx, n, "", n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	blob := testKeyBlob(t, 1)
+	if err := s.AddPublicKey(ctx, "yigit", blob, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// Başkasının anahtarını "benimkiymiş gibi" silmek sessiz başarı OLMAMALI.
+	if err := s.RemovePublicKey(ctx, "ayse", blob); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("başkasının anahtarı: %v, beklenen ErrNotFound", err)
+	}
+	if _, err := s.UserByPublicKey(ctx, blob); err != nil {
+		t.Fatal("anahtar yanlışlıkla silinmiş")
+	}
+
+	if err := s.RemovePublicKey(ctx, "yigit", blob); err != nil {
+		t.Fatalf("RemovePublicKey: %v", err)
+	}
+	if _, err := s.UserByPublicKey(ctx, blob); !errors.Is(err, ErrNotFound) {
+		t.Fatal("anahtar hâlâ giriş yapabilir — silinmemiş")
+	}
+}
+
+func TestDeletes(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedSession(t, s)
+
+	// Denetim kaydı olan varlık silinemez: kayıt aç, silmeyi dene.
+	if err := s.StartSession(ctx, SessionStart{
+		ID: "s1", Username: "yigit", TargetName: "web01", OSUser: "yigit", StartedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.DeleteUser(ctx, "yigit"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("oturumlu kullanıcı silindi/yanlış hata: %v — 787 DELETE'te 'hâlâ referans var' demek", err)
+	}
+	if err := s.DeleteTarget(ctx, "web01"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("oturumlu hedef silindi/yanlış hata: %v", err)
+	}
+
+	// Kaydı olmayanlar silinebilir; bağları CASCADE ile gider.
+	if _, err := s.CreateRole(ctx, "gecici"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.GrantTarget(ctx, "gecici", "web01"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteRole(ctx, "gecici"); err != nil {
+		t.Fatalf("DeleteRole: %v", err)
+	}
+	if roles, _ := s.Roles(ctx); len(roles) != 0 { // tek rol "gecici"ydi
+		t.Errorf("rol silinemedi: %+v", roles)
+	}
+
+	if _, err := s.CreateUser(ctx, "gecici-user", "", "gecici"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddPublicKey(ctx, "gecici-user", testKeyBlob(t, 9), ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteUser(ctx, "gecici-user"); err != nil {
+		t.Fatalf("DeleteUser: %v", err)
+	}
+	if _, err := s.UserByPublicKey(ctx, testKeyBlob(t, 9)); !errors.Is(err, ErrNotFound) {
+		t.Fatal("silinen kullanıcının anahtarı hâlâ tanınıyor")
+	}
+
+	if err := s.DeleteUser(ctx, "hic-yok"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("bilinmeyen kullanıcı: %v", err)
+	}
+}

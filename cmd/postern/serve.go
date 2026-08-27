@@ -76,7 +76,7 @@ func newServeCmd() *cobra.Command {
 
 				api := &http.Server{
 					Addr:    cfg.HTTP.Addr,
-					Handler: httpapi.New(oidcClient, logins, logger).Handler(),
+					Handler: httpapi.New(oidcClient, logins, db, logger).Handler(),
 				}
 				go func() {
 					logger.Info("http listener started", "addr", cfg.HTTP.Addr)

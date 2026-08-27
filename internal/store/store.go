@@ -94,6 +94,7 @@ func (s *Store) User(ctx context.Context, username string) (model.User, error) {
 	queryStr := `
 		SELECT u.username,
 	       u.os_user,
+	       u.is_admin,
 	       r.name AS role_name,
 	       t.name AS target_name
 		FROM users u
@@ -117,9 +118,10 @@ func (s *Store) User(ctx context.Context, username string) (model.User, error) {
 
 	for rows.Next() {
 		var scannedName, scannedOSUser string
+		var scannedAdmin bool
 		var rawRole, rawTarget sql.NullString
 
-		if err := rows.Scan(&scannedName, &scannedOSUser, &rawRole, &rawTarget); err != nil {
+		if err := rows.Scan(&scannedName, &scannedOSUser, &scannedAdmin, &rawRole, &rawTarget); err != nil {
 			return model.User{}, translateErr("store.User", err)
 		}
 
@@ -127,6 +129,7 @@ func (s *Store) User(ctx context.Context, username string) (model.User, error) {
 			found = true
 			user.Name = scannedName
 			user.OSUser = scannedOSUser
+			user.Admin = scannedAdmin
 			user.Roles = make([]model.Role, 0)
 		}
 
@@ -313,6 +316,290 @@ func (s *Store) GrantTarget(ctx context.Context, roleName, targetName string) er
 	return nil
 }
 
+// ---------------------------------------------------------------------
+// Yönetim: silme, geri alma, yönetici denetim kaydı (S4.2)
+// ---------------------------------------------------------------------
+
+// AdminLogEntry, tek bir yönetici işleminin kaydı.
+type AdminLogEntry struct {
+	At      time.Time
+	Actor   string // web: oturum sahibi; cli: işletim sistemi kullanıcısı
+	Via     string // "web" | "cli"
+	Action  string // makine-okur: "user.create", "role.grant" ...
+	Entity  string // etkilenen varlık adı
+	Details string
+}
+
+// LogAdmin, bir yönetici işlemini deftere yazar (sıfır At damgalanır).
+//
+// Çağıran, işlemi BAŞARIYLA bitirdikten sonra çağırır — başarısız
+// denemeler HTTP log'unda zaten var; defter, "ne değişti"nin kaydı.
+func (s *Store) LogAdmin(ctx context.Context, e AdminLogEntry) error {
+	at := e.At
+	if at.IsZero() {
+		at = time.Now()
+	}
+
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO admin_log (at, actor, via, action, entity, details) VALUES (?, ?, ?, ?, ?, ?);`,
+		at.Unix(), e.Actor, e.Via, e.Action, e.Entity, e.Details)
+	if err != nil {
+		return translateErr("store.LogAdmin", err)
+	}
+	return nil
+}
+
+// AdminLog, defteri YENİDEN ESKİYE döner. limit<=0 sınırsız.
+func (s *Store) AdminLog(ctx context.Context, limit int) ([]AdminLogEntry, error) {
+	if limit <= 0 {
+		limit = -1
+	}
+
+	// id ikincil sıralama: aynı saniyeye düşen kayıtlar (bir formda arka
+	// arkaya yapılan işlemler) deterministik ve ekleme sırasında kalsın.
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT at, actor, via, action, entity, details
+		FROM admin_log
+		ORDER BY at DESC, id DESC
+		LIMIT ?;`, limit)
+	if err != nil {
+		return nil, translateErr("store.AdminLog", err)
+	}
+	defer rows.Close()
+
+	entries := make([]AdminLogEntry, 0)
+	for rows.Next() {
+		var e AdminLogEntry
+		var at int64
+		if err := rows.Scan(&at, &e.Actor, &e.Via, &e.Action, &e.Entity, &e.Details); err != nil {
+			return nil, translateErr("store.AdminLog", err)
+		}
+		e.At = time.Unix(at, 0)
+		entries = append(entries, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, translateErr("store.AdminLog", err)
+	}
+	return entries, nil
+}
+
+// Roles, tüm rolleri hedefleriyle, ada göre sıralı döner; hedefsiz rol
+// boş Targets ile gelir.
+func (s *Store) Roles(ctx context.Context) ([]model.Role, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT r.name, t.name
+		FROM roles r
+		LEFT JOIN role_targets rt ON rt.role_id = r.id
+		LEFT JOIN targets      t  ON t.id       = rt.target_id
+		ORDER BY r.name, t.name;`)
+	if err != nil {
+		return nil, translateErr("store.Roles", err)
+	}
+	defer rows.Close()
+
+	roles := make([]model.Role, 0)
+	index := map[string]int{}
+
+	for rows.Next() {
+		var name string
+		var rawTarget sql.NullString
+		if err := rows.Scan(&name, &rawTarget); err != nil {
+			return nil, translateErr("store.Roles", err)
+		}
+
+		ri, ok := index[name]
+		if !ok {
+			roles = append(roles, model.Role{Name: name, Targets: make([]string, 0)})
+			ri = len(roles) - 1
+			index[name] = ri
+		}
+		// Hedefsiz rolün hayalet LEFT JOIN satırı: NULL hedefi atla.
+		if rawTarget.Valid {
+			roles[ri].Targets = append(roles[ri].Targets, rawTarget.String)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, translateErr("store.Roles", err)
+	}
+	return roles, nil
+}
+
+// rowID, ada göre tek bir id çözer; yoksa ErrNotFound. table/column
+// çağıran koddan gelen SABİTLERDİR — kullanıcı girdisi buraya asla girmez
+// (string birleştirmeli SQL'in tek meşru hâli).
+func (s *Store) rowID(ctx context.Context, op, table, column, value string) (string, error) {
+	var id string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id FROM `+table+` WHERE `+column+` = ?;`, value).Scan(&id)
+	if err != nil {
+		return "", translateErr(op, err)
+	}
+	return id, nil
+}
+
+// isFKRestrict, hatanın "bu satıra hâlâ referans var" olup olmadığını
+// söyler.
+//
+// translateErr 787'yi ErrNotFound'a çevirir — o eşleme INSERT varsayımı
+// ("işaret ettiğin ebeveyn yok"). DELETE'te anlam tersine döner: silmek
+// istediğin satır BAŞKASININ ebeveyni. Bu yüzden Delete* fonksiyonları
+// translateErr'den ÖNCE bu kontrolü yapar ve ErrConflict üretir.
+//
+// İki kod birden: SQLite, ON DELETE RESTRICT'i içeride tetikleyici gibi
+// uyguladığı için ihlali 787 (FOREIGNKEY) değil 1811 (TRIGGER) olarak
+// raporlar; varsayılan NO ACTION ise 787 verir. Şemadaki RESTRICT bilinçli
+// bir karardı — kodu da onun diliyle dinliyoruz.
+func isFKRestrict(err error) bool {
+	var sqliteErr *sqlite.Error
+	if !errors.As(err, &sqliteErr) {
+		return false
+	}
+	code := sqliteErr.Code()
+	return code == sqlitelib.SQLITE_CONSTRAINT_FOREIGNKEY || code == sqlitelib.SQLITE_CONSTRAINT_TRIGGER
+}
+
+// DeleteTarget, hedefi ve rol bağlarını (CASCADE) kaldırır. Yoksa
+// ErrNotFound; oturum kaydı varsa ErrConflict — denetim kaydı olan varlık
+// silinmez, bu bir kısıt değil özellik (ayrıntı: isFKRestrict).
+func (s *Store) DeleteTarget(ctx context.Context, name string) error {
+	id, err := s.rowID(ctx, "store.DeleteTarget", "targets", "name", name)
+	if err != nil {
+		return err
+	}
+
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM targets WHERE id = ?;`, id); err != nil {
+		if isFKRestrict(err) {
+			return fmt.Errorf("store.DeleteTarget: target %q has recorded sessions: %w", name, ErrConflict)
+		}
+		return translateErr("store.DeleteTarget", err)
+	}
+	return nil
+}
+
+// DeleteRole: rolün bağları (user_roles, role_targets) CASCADE ile gider;
+// sessions rolü referanslamadığı için 787 bu yoldan çıkmaz — kontrol yine
+// de duruyor, şema yarın değişirse sessizce yanlış hataya düşmeyelim.
+func (s *Store) DeleteRole(ctx context.Context, name string) error {
+	id, err := s.rowID(ctx, "store.DeleteRole", "roles", "name", name)
+	if err != nil {
+		return err
+	}
+
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM roles WHERE id = ?;`, id); err != nil {
+		if isFKRestrict(err) {
+			return fmt.Errorf("store.DeleteRole: role %q is still referenced: %w", name, ErrConflict)
+		}
+		return translateErr("store.DeleteRole", err)
+	}
+	return nil
+}
+
+// DeleteUser: kullanıcıyı, bağlarını ve anahtarlarını kaldırır. Oturum
+// kaydı olan kullanıcı için ErrConflict. Erişimi kesmenin doğru yolu
+// zaten silmek değil: anahtarlarını ve rollerini almak — kayıt kalır,
+// kapı kapanır.
+func (s *Store) DeleteUser(ctx context.Context, username string) error {
+	id, err := s.rowID(ctx, "store.DeleteUser", "users", "username", username)
+	if err != nil {
+		return err
+	}
+
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM users WHERE id = ?;`, id); err != nil {
+		if isFKRestrict(err) {
+			return fmt.Errorf("store.DeleteUser: user %q has recorded sessions: %w", username, ErrConflict)
+		}
+		return translateErr("store.DeleteUser", err)
+	}
+	return nil
+}
+
+// RevokeRole, kullanıcıdan rolü geri alır. Kullanıcı ya da rol yoksa
+// ErrNotFound; bağ zaten yoksa SESSİZ no-op (AssignRole'un aynası).
+func (s *Store) RevokeRole(ctx context.Context, username, roleName string) error {
+	userID, err := s.rowID(ctx, "store.RevokeRole", "users", "username", username)
+	if err != nil {
+		return err
+	}
+	roleID, err := s.rowID(ctx, "store.RevokeRole", "roles", "name", roleName)
+	if err != nil {
+		return err
+	}
+
+	// Bağ zaten yoksa sessiz no-op: "bu yetkiyi al" isteği, yetki zaten
+	// yokken de yerine getirilmiş sayılır (AssignRole'un aynası).
+	if _, err := s.db.ExecContext(ctx,
+		`DELETE FROM user_roles WHERE user_id = ? AND role_id = ?;`, userID, roleID); err != nil {
+		return translateErr("store.RevokeRole", err)
+	}
+	return nil
+}
+
+// RevokeTarget, rolden hedef erişimini geri alır. GrantTarget'ın aynası.
+func (s *Store) RevokeTarget(ctx context.Context, roleName, targetName string) error {
+	roleID, err := s.rowID(ctx, "store.RevokeTarget", "roles", "name", roleName)
+	if err != nil {
+		return err
+	}
+	targetID, err := s.rowID(ctx, "store.RevokeTarget", "targets", "name", targetName)
+	if err != nil {
+		return err
+	}
+
+	if _, err := s.db.ExecContext(ctx,
+		`DELETE FROM role_targets WHERE role_id = ? AND target_id = ?;`, roleID, targetID); err != nil {
+		return translateErr("store.RevokeTarget", err)
+	}
+	return nil
+}
+
+// RemovePublicKey, anahtarı kullanıcıdan kaldırır. Kullanıcı yoksa ya da
+// anahtar BU kullanıcıya ait değilse ErrNotFound — başka birinin
+// anahtarını "benimkiymiş gibi" silmek sessizce başarılı OLMAMALI.
+// keyBlob ham bayt; base64 çevrimi içeride, AddPublicKey ile simetrik.
+func (s *Store) RemovePublicKey(ctx context.Context, username string, keyBlob []byte) error {
+	userID, err := s.rowID(ctx, "store.RemovePublicKey", "users", "username", username)
+	if err != nil {
+		return err
+	}
+
+	// user_id koşulu güvenliğin kendisi: yalnızca blob'la silseydik,
+	// "ayse'nin anahtarını sil" isteği yigit'in anahtarını silebilirdi.
+	// Sıfır satır = anahtar yok YA DA başkasının — ikisi de çağırana göre
+	// "senin böyle bir anahtarın yok", yani ErrNotFound.
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM user_public_keys WHERE key_blob = ? AND user_id = ?;`,
+		base64.StdEncoding.EncodeToString(keyBlob), userID)
+	if err != nil {
+		return translateErr("store.RemovePublicKey", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return translateErr("store.RemovePublicKey", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("store.RemovePublicKey: %w", ErrNotFound)
+	}
+	return nil
+}
+
+// SetUserAdmin, uygulama yönetim yetkisini verir ya da alır.
+// Kullanıcı yoksa ErrNotFound.
+func (s *Store) SetUserAdmin(ctx context.Context, username string, admin bool) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE users SET is_admin = ? WHERE username = ?;`, admin, username)
+	if err != nil {
+		return translateErr("store.SetUserAdmin", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return translateErr("store.SetUserAdmin", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("store.SetUserAdmin: %w", ErrNotFound)
+	}
+	return nil
+}
+
 // SetUserEmail, kullanıcının e-postasını değiştirir; boş string adresi
 // SİLER (NULL). Kullanıcı yoksa ErrNotFound; adres başka bir kullanıcıda
 // kayıtlıysa ErrConflict (users.email UNIQUE — OIDC eşleşmesi tekil kalmalı).
@@ -374,6 +661,7 @@ func (s *Store) Users(ctx context.Context) ([]model.User, error) {
 	queryStr := `
 		SELECT u.username,
 	       u.os_user,
+	       u.is_admin,
 	       r.name AS role_name,
 	       t.name AS target_name
 		FROM users u
@@ -400,15 +688,16 @@ func (s *Store) Users(ctx context.Context) ([]model.User, error) {
 
 	for rows.Next() {
 		var name, osUser string
+		var admin bool
 		var rawRole, rawTarget sql.NullString
 
-		if err := rows.Scan(&name, &osUser, &rawRole, &rawTarget); err != nil {
+		if err := rows.Scan(&name, &osUser, &admin, &rawRole, &rawTarget); err != nil {
 			return nil, translateErr("store.Users", err)
 		}
 
 		ui, ok := userIndex[name]
 		if !ok {
-			users = append(users, model.User{Name: name, OSUser: osUser, Roles: make([]model.Role, 0)})
+			users = append(users, model.User{Name: name, OSUser: osUser, Admin: admin, Roles: make([]model.Role, 0)})
 			ui = len(users) - 1
 			userIndex[name] = ui
 			roleIndex[name] = map[string]int{}

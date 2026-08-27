@@ -10,6 +10,7 @@ import (
 	"net/http"
 
 	"github.com/warewave/postern/internal/auth"
+	"github.com/warewave/postern/internal/store"
 )
 
 // Server, HTTP uçlarını taşır. TLS/dinleme çağıranın işi (serve kuruyor);
@@ -18,19 +19,66 @@ type Server struct {
 	oidc   *auth.OIDC
 	logins *auth.Logins
 	logger *slog.Logger
+
+	// S4.1: tarayıcı oturumları. store, /api uçlarının kimlik ve yetki
+	// kaynağı — sshd ile AYNI veritabanı, aynı tek-kaynak sözleşmesi.
+	store       *store.Store
+	webSessions *auth.WebSessions
+	webLogins   *webPending
 }
 
-func New(o *auth.OIDC, logins *auth.Logins, logger *slog.Logger) *Server {
-	return &Server{oidc: o, logins: logins, logger: logger}
+func New(o *auth.OIDC, logins *auth.Logins, db *store.Store, logger *slog.Logger) *Server {
+	return &Server{
+		oidc:        o,
+		logins:      logins,
+		logger:      logger,
+		store:       db,
+		webSessions: auth.NewWebSessions(),
+		webLogins:   &webPending{},
+	}
 }
 
 // Handler, yönlendirme tablosu. Metod kısıtları desenin içinde ("GET /x"):
 // yanlış metod otomatik 405 alır.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+
+	// Kimlik akışları (oturumsuz erişilir).
+	mux.HandleFunc("GET /auth/login", s.handleWebLogin)
 	mux.HandleFunc("GET /auth/callback", s.handleCallback)
 	mux.HandleFunc("POST /auth/confirm", s.handleConfirm)
-	return mux
+	mux.HandleFunc("POST /auth/logout", s.handleLogout)
+
+	// API: oturum ister.
+	mux.Handle("GET /api/me", s.requireSession(http.HandlerFunc(s.handleMe)))
+
+	// Yönetim: oturum + admin + same-origin (admin.go).
+	s.registerAdminRoutes(mux)
+
+	// Kalan her şey SPA: web/dist'ten statik dosyalar (S4.1 frontend).
+	mux.Handle("/", spaHandler())
+
+	return securityHeaders(mux)
+}
+
+// securityHeaders, her cevaba tarayıcı savunmalarını ekler.
+//
+// CSP buradaki en önemli satır ve web terminali tartışmasının doğrudan
+// sonucu: script YALNIZCA kendi origin'imizden. Vite build'i harici
+// script/inline script üretmiyor; bu başlık, SPA'ya sızacak bir XSS'in
+// dışarıdan kod yükleyip oturumu silaha çevirmesini zorlaştıran kat.
+// style-src'taki 'unsafe-inline' React'in style={{}} nitelikleri için.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy",
+			"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "+
+				"img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Referrer-Policy", "no-referrer")
+		next.ServeHTTP(w, r)
+	})
 }
 
 // handleCallback, IdP'nin tarayıcıyı geri gönderdiği uç:
@@ -61,10 +109,10 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 
 	req, ok := s.logins.Lookup(state)
 	if !ok {
-		// Ayrıntı yok: hangi state'lerin canlı olduğu saldırgana bilgi.
-		// Meşru yol buraya düşmez — link tek kullanımlık ve taze.
-		log.Warn("oidc callback for unknown attempt")
-		http.Error(w, "unknown or expired login attempt", http.StatusNotFound)
+		// OOB kaydında yok: bu bir WEB login dönüşü olabilir — iki akış
+		// aynı redirect URL'ini paylaşıyor, state hangi kayıttaysa akış
+		// odur. Web kaydında da yoksa 404'ü o taraf verir.
+		s.completeWebLogin(w, r, state, code)
 		return
 	}
 

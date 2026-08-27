@@ -21,4 +21,10 @@ type User struct {
 
 	// Roles, kişinin sahip olduğu roller. Hedef erişimi rollerden gelir.
 	Roles []Role
+
+	// Admin, uygulama YÖNETİM yetkisi (kullanıcı/rol/hedef değiştirme,
+	// web'deki yönetim sayfaları). Hedef erişimiyle ilgisi yok: admin
+	// olmayan biri terminale girebilir, admin olan biri rolü yoksa hiçbir
+	// hedefe giremez. İki eksen bilerek ayrık.
+	Admin bool
 }
