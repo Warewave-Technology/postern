@@ -279,3 +279,26 @@ func extractGroups(idToken *oidc.IDToken, claim string) ([]string, error) {
 		return nil, fmt.Errorf("claim %q is neither a string nor a list of strings", claim)
 	}
 }
+
+// GroupSource, kullanıcının grup üyeliklerini veren kaynak.
+//
+// İki gerçekleştirmesi var ve ikisi de aynı şeyi üretir — bir grup adı
+// listesi. Senkronizasyon kodu hangisinden geldiğini BİLMEZ; policy'nin
+// model.User'a bakıp kaynağı bilmemesiyle aynı desen, bir kat yukarıda.
+//
+//   - ClaimGroups: grupları ID token'ın claim'inden okur (S5.2).
+//   - ldap.Source: LDAP dizinine sorar (S5.3).
+//
+// LDAP'ın kazandırdığı şey tazelik: token'daki claim giriş anında
+// dondurulmuştur, LDAP ise her sorguda güncel cevap verir.
+type GroupSource interface {
+	Groups(ctx context.Context, id Identity) ([]string, error)
+}
+
+// ClaimGroups, grupları kimliğin kendisinden okur — yani ID token'dan.
+// LDAP yapılandırılmadığında kullanılan varsayılan kaynak.
+type ClaimGroups struct{}
+
+func (ClaimGroups) Groups(_ context.Context, id Identity) ([]string, error) {
+	return id.Groups, nil
+}

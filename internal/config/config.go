@@ -8,11 +8,19 @@
 package config
 
 type Config struct {
-	Listen    ListenConfig    `yaml:"listen"`
-	HostKey   string          `yaml:"host_key"` // path to the bastion's own host private key
-	CA        CAConfig        `yaml:"ca"`
-	Database  DatabaseConfig  `yaml:"database"`
-	Recording RecordingConfig `yaml:"recording"`
+	Listen   ListenConfig   `yaml:"listen"`
+	HostKey  string         `yaml:"host_key"` // path to the bastion's own host private key
+	CA       CAConfig       `yaml:"ca"`
+	Database DatabaseConfig `yaml:"database"`
+
+	// SecretKeyFile, veritabanındaki şifreli ayarları açan ana anahtar
+	// (`postern secret init` üretir). Boş bırakılabilir: o zaman şifreli
+	// ayar okunamaz/yazılamaz ama bastion'ın geri kalanı çalışır.
+	//
+	// ⚠️ Bu dosya veritabanıyla AYNI yerde durmamalı: ikisi birlikte
+	// sızarsa şifrelemenin tek faydası (yedek/kopya senaryosu) kaybolur.
+	SecretKeyFile string          `yaml:"secret_key_file"`
+	Recording     RecordingConfig `yaml:"recording"`
 
 	// HTTP ve OIDC birlikte OOB girişini açar (S3.3). İkisi de boş
 	// bırakılabilir: o zaman bastion yalnızca public key kabul eder —

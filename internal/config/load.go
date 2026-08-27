@@ -42,6 +42,10 @@ func Load(path string) (*Config, error) {
 		cfg.Database.Path = filepath.Join(base, cfg.Database.Path)
 	}
 
+	if cfg.SecretKeyFile != "" && !filepath.IsAbs(cfg.SecretKeyFile) {
+		cfg.SecretKeyFile = filepath.Join(base, cfg.SecretKeyFile)
+	}
+
 	err = cfg.Validate()
 	if err != nil {
 		return nil, fmt.Errorf("config %s: %w", path, err)

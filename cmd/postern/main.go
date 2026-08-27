@@ -30,5 +30,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newTargetCmd())
 	root.AddCommand(newRoleCmd())
 	root.AddCommand(newMappingCmd())
+	root.AddCommand(newSecretCmd())
+	root.AddCommand(newSettingsCmd())
 	return root
 }

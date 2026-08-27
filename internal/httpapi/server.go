@@ -27,11 +27,21 @@ type Server struct {
 	webSessions *auth.WebSessions
 	webLogins   *webPending
 
+	// groups, kullanıcının grup üyeliklerini veren kaynak: OIDC claim'i
+	// ya da LDAP dizini. New varsayılan olarak claim'i kurar; serve
+	// LDAP yapılandırılmışsa UseGroupSource ile değiştirir.
+	groups auth.GroupSource
+
 	// S4.3: web terminali. proxyDeps nil ise terminal yapılandırılmamış
 	// demektir ve rota HİÇ bağlanmaz — kapalı özellik, kapalı yüzey.
 	proxyDeps   *proxy.Deps
 	externalURL string
 }
+
+// UseGroupSource, grup kaynağını değiştirir (LDAP için).
+//
+// Dinlemeye başlamadan ÖNCE çağrılmalı: alan kilitsiz.
+func (s *Server) UseGroupSource(src auth.GroupSource) { s.groups = src }
 
 // EnableTerminal, web terminalini açar. serve yalnızca
 // http.terminal_enabled true iken çağırır; çağrılmazsa /api/terminal
@@ -49,6 +59,7 @@ func New(o *auth.OIDC, logins *auth.Logins, db *store.Store, logger *slog.Logger
 		store:       db,
 		webSessions: auth.NewWebSessions(),
 		webLogins:   &webPending{},
+		groups:      auth.ClaimGroups{},
 	}
 }
 

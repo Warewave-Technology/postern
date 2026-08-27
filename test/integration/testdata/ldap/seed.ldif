@@ -1,0 +1,53 @@
+# postern LDAP entegrasyon testi verisi.
+#
+# İki grup şeması birden var, çünkü ikisini de desteklememiz gerekiyor:
+#
+#   1. groupOfNames — üyelik GRUBUN üstünde (member özniteliği). Grup
+#      araması (group_base + group_filter) bu şemayı okur.
+#
+#   2. Kullanıcı girdisindeki çoklu-değerli öznitelik — üyelik
+#      KULLANICININ üstünde. Gerçek dizinlerde bu "memberOf" olur (AD ve
+#      memberOf overlay'li OpenLDAP). Testte "ou" kullanıyoruz çünkü
+#      memberOf operasyonel bir özniteliktir ve bootstrap LDIF'iyle elle
+#      yazılamaz; okuma mekanizması ise birebir aynı — kod öznitelik
+#      adını yapılandırmadan alıyor, "memberOf" diye bir varsayımı yok.
+
+dn: ou=people,dc=warewave,dc=io
+objectClass: organizationalUnit
+ou: people
+
+dn: ou=groups,dc=warewave,dc=io
+objectClass: organizationalUnit
+ou: groups
+
+dn: uid=yigit.basalma,ou=people,dc=warewave,dc=io
+objectClass: inetOrgPerson
+uid: yigit.basalma
+cn: Yigit Basalma
+sn: Basalma
+mail: yigit@warewave.io
+ou: cn=sysadmins,ou=groups,dc=warewave,dc=io
+ou: cn=dbteam,ou=groups,dc=warewave,dc=io
+
+dn: uid=ayse.yilmaz,ou=people,dc=warewave,dc=io
+objectClass: inetOrgPerson
+uid: ayse.yilmaz
+cn: Ayse Yilmaz
+sn: Yilmaz
+mail: ayse@warewave.io
+ou: cn=hr,ou=groups,dc=warewave,dc=io
+
+dn: cn=sysadmins,ou=groups,dc=warewave,dc=io
+objectClass: groupOfNames
+cn: sysadmins
+member: uid=yigit.basalma,ou=people,dc=warewave,dc=io
+
+dn: cn=dbteam,ou=groups,dc=warewave,dc=io
+objectClass: groupOfNames
+cn: dbteam
+member: uid=yigit.basalma,ou=people,dc=warewave,dc=io
+
+dn: cn=hr,ou=groups,dc=warewave,dc=io
+objectClass: groupOfNames
+cn: hr
+member: uid=ayse.yilmaz,ou=people,dc=warewave,dc=io

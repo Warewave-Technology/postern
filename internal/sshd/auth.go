@@ -113,10 +113,18 @@ func (s *Server) keyboardInteractiveCallback(conn ssh.ConnMetadata,
 // kullanıcıyı oluştur), yoksa doğrulanmış e-postayla eşleştirme.
 func (s *Server) resolveIdentity(ctx context.Context, id auth.Identity) (model.User, error) {
 	if id.Username != "" {
+		groups, err := s.groups.Groups(ctx, id)
+		if err != nil {
+			// Dizin arızası yetki yokluğu değildir (httpapi'deki notun
+			// aynısı): sessizce yetkisiz bırakmak yerine reddet.
+			s.logger.Error("oob group lookup failed", "idp_user", id.Username, "error", err)
+			return model.User{}, err
+		}
+
 		u, err := s.db.ProvisionUser(ctx, store.ProvisionRequest{
 			Username: id.Username,
 			Email:    id.Email,
-			Groups:   id.Groups,
+			Groups:   groups,
 		})
 		if err == nil {
 			return u, nil

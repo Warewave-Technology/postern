@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -13,6 +14,8 @@ import (
 	"github.com/warewave/postern/internal/auth"
 	"github.com/warewave/postern/internal/config"
 	"github.com/warewave/postern/internal/httpapi"
+	"github.com/warewave/postern/internal/ldap"
+	"github.com/warewave/postern/internal/secret"
 	"github.com/warewave/postern/internal/sshd"
 	"github.com/warewave/postern/internal/store"
 )
@@ -38,6 +41,16 @@ func newServeCmd() *cobra.Command {
 				return err
 			}
 			defer db.Close()
+
+			// Sır anahtarı varsa bağla: şifreli ayarlar (LDAP servis
+			// hesabı parolası) onsuz okunamaz.
+			if cfg.SecretKeyFile != "" {
+				box, err := secret.Load(cfg.SecretKeyFile)
+				if err != nil {
+					return err
+				}
+				db.UseSecretBox(box)
+			}
 
 			pending, err := db.PendingMigrations(ctx)
 			if err != nil {
@@ -74,7 +87,27 @@ func newServeCmd() *cobra.Command {
 				logins := auth.NewLogins(oidcClient)
 				s.EnableOOB(logins, 0)
 
+				// Grup kaynağı: LDAP ayarlanmışsa dizin, değilse ID
+				// token'ın claim'i. İKİ KAPI DA aynı kaynağı kullanır —
+				// SSH'tan giren ile web'den giren aynı yetkiyi almalı.
+				groupSource, err := ldap.SourceFromStore(ctx, db)
+				switch {
+				case err == nil:
+					s.UseGroupSource(groupSource)
+					logger.Info("group source: ldap directory")
+				case errors.Is(err, ldap.ErrNotConfigured):
+					logger.Info("group source: oidc claim")
+				default:
+					// Yapılandırma VAR ama bozuk: sessizce claim'e
+					// düşmek, yöneticinin kurduğunu sandığı LDAP'ın hiç
+					// çalışmaması demek olurdu.
+					return fmt.Errorf("ldap configuration is invalid: %w", err)
+				}
+
 				webAPI := httpapi.New(oidcClient, logins, db, logger)
+				if groupSource != nil {
+					webAPI.UseGroupSource(groupSource)
+				}
 
 				// Web terminali yalnızca açıkça istendiğinde: rota bile
 				// kurulmaz. Bağımlılıklar sshd'ninkilerle AYNI — iki kapı

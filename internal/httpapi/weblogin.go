@@ -256,10 +256,23 @@ func sessionUser(r *http.Request) string {
 // İkisi de başarısızsa erişim yok — ve sebep log'da ayrışır.
 func (s *Server) resolveIdentity(ctx context.Context, log *slog.Logger, id auth.Identity) (model.User, error) {
 	if id.Username != "" {
+		// Gruplar kaynaktan: OIDC claim'i ya da LDAP. Kaynak arayüzün
+		// arkasında olduğu için buradaki kod hangisini kullandığını
+		// bilmiyor — LDAP eklendiğinde bu satır değişmedi.
+		groups, err := s.groups.Groups(ctx, id)
+		if err != nil {
+			// Dizin arızası yetki YOKLUĞU değildir: kullanıcıyı sessizce
+			// yetkisiz bırakmak yerine girişi reddediyoruz. Aksi halde
+			// LDAP çöktüğünde herkes "hiçbir hedefe erişimin yok"
+			// mesajıyla karşılaşır ve sorun günlerce fark edilmez.
+			log.Error("group lookup failed", "idp_user", id.Username, "error", err)
+			return model.User{}, err
+		}
+
 		u, err := s.store.ProvisionUser(ctx, store.ProvisionRequest{
 			Username: id.Username,
 			Email:    id.Email,
-			Groups:   id.Groups,
+			Groups:   groups,
 		})
 		switch {
 		case err == nil:

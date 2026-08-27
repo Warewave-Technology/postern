@@ -41,7 +41,15 @@ type Server struct {
 	// durumda çalışmaya devam eder (makineler/otomasyon).
 	logins     *auth.Logins
 	oobTimeout time.Duration
+
+	// groups, OOB girişinde kullanılacak grup kaynağı. httpapi ile AYNI
+	// olmalı: iki kapı aynı yetkiyi vermeli.
+	groups auth.GroupSource
 }
+
+// UseGroupSource, grup kaynağını değiştirir (LDAP için).
+// Dinlemeye başlamadan ÖNCE çağrılmalı.
+func (s *Server) UseGroupSource(src auth.GroupSource) { s.groups = src }
 
 // ProxyDeps, oturum akışının ihtiyaç duyduğu altyapıyı döner.
 //
@@ -93,7 +101,11 @@ func New(cfg *config.Config, db *store.Store, logger *slog.Logger) (*Server, err
 		return nil, fmt.Errorf("sshd.New: %w", err)
 	}
 
-	return &Server{cfg: cfg, signer: signer, logger: logger, rStore: recStore, db: db, authority: caAuthority}, nil
+	return &Server{
+		cfg: cfg, signer: signer, logger: logger,
+		rStore: recStore, db: db, authority: caAuthority,
+		groups: auth.ClaimGroups{},
+	}, nil
 }
 
 // ListenAndServe listens on cfg.Listen.Addr and hands the listener to Serve.
