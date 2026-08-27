@@ -6,12 +6,16 @@ import (
 	"crypto/ed25519"
 	"database/sql"
 	"errors"
+	"path/filepath"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
 	"golang.org/x/crypto/ssh"
 
 	"github.com/warewave/postern/internal/model"
+	"github.com/warewave/postern/internal/secret"
 )
 
 const testHostKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIcLUQM0UcoZdJVh2EokribDvFZyyNyAVURM/LrCugFM"
@@ -121,7 +125,7 @@ func TestUserResolvesRolesAndTargets(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := s.AssignRole(ctx, "yigit", "ops"); err != nil {
+	if err := s.AssignRole(ctx, "yigit", "ops", time.Time{}); err != nil {
 		t.Fatalf("AssignRole: %v", err)
 	}
 	for _, name := range []string{"web01", "db01"} {
@@ -161,11 +165,11 @@ func TestAssignRoleIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := s.AssignRole(ctx, "yigit", "ops"); err != nil {
+	if err := s.AssignRole(ctx, "yigit", "ops", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	// "Bu kişiye ops ver" isteği, kişi zaten ops ise yerine getirilmiştir.
-	if err := s.AssignRole(ctx, "yigit", "ops"); err != nil {
+	if err := s.AssignRole(ctx, "yigit", "ops", time.Time{}); err != nil {
 		t.Fatalf("ikinci AssignRole hata verdi: %v", err)
 	}
 
@@ -185,7 +189,7 @@ func TestAssignRoleIsIdempotent(t *testing.T) {
 	if _, err := s.CreateRole(ctx, "dba"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AssignRole(ctx, "yigit", "dba"); err != nil {
+	if err := s.AssignRole(ctx, "yigit", "dba", time.Time{}); err != nil {
 		t.Fatalf("ikinci rol: %v", err)
 	}
 
@@ -209,10 +213,10 @@ func TestAssignRoleUnknown(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := s.AssignRole(ctx, "yok-boyle-biri", "ops"); !errors.Is(err, ErrNotFound) {
+	if err := s.AssignRole(ctx, "yok-boyle-biri", "ops", time.Time{}); !errors.Is(err, ErrNotFound) {
 		t.Errorf("bilinmeyen kullanıcı: hata = %v, beklenen ErrNotFound", err)
 	}
-	if err := s.AssignRole(ctx, "yigit", "yok-boyle-rol"); !errors.Is(err, ErrNotFound) {
+	if err := s.AssignRole(ctx, "yigit", "yok-boyle-rol", time.Time{}); !errors.Is(err, ErrNotFound) {
 		t.Errorf("bilinmeyen rol: hata = %v, beklenen ErrNotFound", err)
 	}
 }
@@ -592,7 +596,7 @@ func TestUserByPublicKeyCarriesRoles(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AssignRole(ctx, "yigit", "ops"); err != nil {
+	if err := s.AssignRole(ctx, "yigit", "ops", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.GrantTarget(ctx, "ops", "web01"); err != nil {
@@ -739,13 +743,13 @@ func TestUsersListsAllWithRoles(t *testing.T) {
 	if err := s.GrantTarget(ctx, "ops", "web01"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AssignRole(ctx, "yigit", "ops"); err != nil {
+	if err := s.AssignRole(ctx, "yigit", "ops", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AssignRole(ctx, "yigit", "dba"); err != nil {
+	if err := s.AssignRole(ctx, "yigit", "dba", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AssignRole(ctx, "ali", "ops"); err != nil {
+	if err := s.AssignRole(ctx, "ali", "ops", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1075,7 +1079,7 @@ func TestRevokes(t *testing.T) {
 	if _, err := s.CreateTarget(ctx, model.Target{Name: "web01", Host: "h", Port: 22, HostKey: testHostKey}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AssignRole(ctx, "yigit", "ops"); err != nil {
+	if err := s.AssignRole(ctx, "yigit", "ops", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.GrantTarget(ctx, "ops", "web01"); err != nil {
@@ -1184,5 +1188,318 @@ func TestDeletes(t *testing.T) {
 
 	if err := s.DeleteUser(ctx, "hic-yok"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("bilinmeyen kullanıcı: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------
+// S5.1: rol kaynağı, süre ve ayarlar
+// ---------------------------------------------------------------------
+
+// seedRoleFixtures, rol testleri için kullanıcı + üç rol hazırlar.
+func seedRoleFixtures(t *testing.T, s *Store) {
+	t.Helper()
+	ctx := context.Background()
+
+	if _, err := s.CreateUser(ctx, "yigit", "yigit@warewave.io", "yigit"); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []string{"ops", "dba", "network"} {
+		if _, err := s.CreateRole(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func roleNames(u model.User) []string {
+	out := make([]string, 0, len(u.Roles))
+	for _, r := range u.Roles {
+		out = append(out, r.Name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// Senkronizasyonun ÇEKİRDEK sözleşmesi: SSO rolleri yenilenir, elle
+// atananlara dokunulmaz. Bu testin düşmesi, Warpgate'in iki modundan
+// birine geri düştüğümüz anlamına gelir.
+func TestSyncRolesLeavesManualGrantsAlone(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedRoleFixtures(t, s)
+
+	// Yönetici elle "dba" verdi.
+	if err := s.AssignRole(ctx, "yigit", "dba", time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	// IdP "ops" diyor.
+	if err := s.SyncRoles(ctx, "yigit", []string{"ops"}); err != nil {
+		t.Fatalf("SyncRoles: %v", err)
+	}
+
+	u, err := s.User(ctx, "yigit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := roleNames(u); len(got) != 2 || got[0] != "dba" || got[1] != "ops" {
+		t.Fatalf("roller = %v, beklenen [dba ops] — elle atama silinmiş ya da SSO rolü yazılmamış", got)
+	}
+
+	// IdP artık "network" diyor: ops gitmeli, dba KALMALI.
+	if err := s.SyncRoles(ctx, "yigit", []string{"network"}); err != nil {
+		t.Fatal(err)
+	}
+	u, _ = s.User(ctx, "yigit")
+	if got := roleNames(u); len(got) != 2 || got[0] != "dba" || got[1] != "network" {
+		t.Fatalf("roller = %v, beklenen [dba network]", got)
+	}
+
+	// IdP hiçbir şey demiyor: SSO rolleri gider, elle atanan kalır.
+	if err := s.SyncRoles(ctx, "yigit", nil); err != nil {
+		t.Fatal(err)
+	}
+	u, _ = s.User(ctx, "yigit")
+	if got := roleNames(u); len(got) != 1 || got[0] != "dba" {
+		t.Fatalf("roller = %v, beklenen [dba] — elle atama SSO senkronunda silinmiş", got)
+	}
+}
+
+// Bilinmeyen rol adı girişi düşürmemeli: eşleme silinmiş olabilir ve
+// yönetici hatası kullanıcıyı kapıda bırakmamalı.
+func TestSyncRolesSkipsUnknownRoles(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedRoleFixtures(t, s)
+
+	if err := s.SyncRoles(ctx, "yigit", []string{"ops", "boyle-bir-rol-yok"}); err != nil {
+		t.Fatalf("bilinmeyen rol senkronizasyonu düşürdü: %v", err)
+	}
+	u, _ := s.User(ctx, "yigit")
+	if got := roleNames(u); len(got) != 1 || got[0] != "ops" {
+		t.Fatalf("roller = %v, beklenen [ops]", got)
+	}
+
+	if err := s.SyncRoles(ctx, "yok-boyle-biri", []string{"ops"}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("bilinmeyen kullanıcı: %v, beklenen ErrNotFound", err)
+	}
+}
+
+// Elle atanmış rol IdP'den de gelirse elle atama KAZANIR: bir sonraki
+// senkronizasyonda silinmemeli.
+func TestManualGrantSurvivesSSOOverlap(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedRoleFixtures(t, s)
+
+	if err := s.AssignRole(ctx, "yigit", "ops", time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	// IdP de "ops" diyor.
+	if err := s.SyncRoles(ctx, "yigit", []string{"ops"}); err != nil {
+		t.Fatal(err)
+	}
+	// IdP artık demiyor — elle atandığı için KALMALI.
+	if err := s.SyncRoles(ctx, "yigit", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	u, _ := s.User(ctx, "yigit")
+	if got := roleNames(u); len(got) != 1 || got[0] != "ops" {
+		t.Fatalf("roller = %v, beklenen [ops] — elle atama SSO çakışmasında kaybolmuş", got)
+	}
+}
+
+// Süresi dolan rol yetki VERMEZ ama satır durur (denetim izi).
+func TestExpiredRoleIsNotGranted(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedRoleFixtures(t, s)
+
+	// Geçmişte dolmuş.
+	if err := s.AssignRole(ctx, "yigit", "dba", time.Now().Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	// Gelecekte dolacak.
+	if err := s.AssignRole(ctx, "yigit", "ops", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	u, err := s.User(ctx, "yigit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := roleNames(u); len(got) != 1 || got[0] != "ops" {
+		t.Fatalf("roller = %v, beklenen [ops] — süresi dolan rol hâlâ yetki veriyor", got)
+	}
+
+	// Users listesi de aynı filtreyi uygulamalı: iki ayrı sorgu, tek kural.
+	users, err := s.Users(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(users) != 1 {
+		t.Fatalf("%d kullanıcı", len(users))
+	}
+	if got := roleNames(users[0]); len(got) != 1 || got[0] != "ops" {
+		t.Errorf("Users'ta roller = %v — süre filtresi yalnızca User'a konmuş", got)
+	}
+
+	// Satır SİLİNMEMİŞ olmalı: denetim izi kalır.
+	var n int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM user_roles WHERE expires_at IS NOT NULL`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Errorf("süreli satır sayısı = %d, beklenen 2 — süresi dolan satır silinmiş", n)
+	}
+}
+
+// "Yetkiyi uzat" ayrı komut gerektirmemeli: aynı rolü yeni süreyle
+// atamak süreyi günceller.
+func TestAssignRoleExtendsExpiry(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedRoleFixtures(t, s)
+
+	past := time.Now().Add(-time.Hour)
+	if err := s.AssignRole(ctx, "yigit", "ops", past); err != nil {
+		t.Fatal(err)
+	}
+	if u, _ := s.User(ctx, "yigit"); len(u.Roles) != 0 {
+		t.Fatal("süresi dolmuş rol yetki veriyor")
+	}
+
+	// Uzat.
+	if err := s.AssignRole(ctx, "yigit", "ops", time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("uzatma: %v", err)
+	}
+	if u, _ := s.User(ctx, "yigit"); len(u.Roles) != 1 {
+		t.Fatal("uzatma sonrası rol hâlâ etkisiz")
+	}
+
+	// Süresizleştir.
+	if err := s.AssignRole(ctx, "yigit", "ops", time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	var expires sql.NullInt64
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT expires_at FROM user_roles LIMIT 1`).Scan(&expires); err != nil {
+		t.Fatal(err)
+	}
+	if expires.Valid {
+		t.Error("sıfır time.Time NULL yerine sayı yazmış — 'süresiz' 1970 olmuş olabilir")
+	}
+}
+
+func TestSettingsRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	box, err := secret.Init(filepath.Join(t.TempDir(), "secret.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.UseSecretBox(box)
+
+	if err := s.SetSetting(ctx, "ldap.url", "ldaps://ldap.example:636", false, "yigit"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+	if err := s.SetSetting(ctx, "ldap.bind_password", "çok-gizli", true, "yigit"); err != nil {
+		t.Fatalf("SetSetting(secret): %v", err)
+	}
+
+	if got, err := s.Setting(ctx, "ldap.url"); err != nil || got != "ldaps://ldap.example:636" {
+		t.Fatalf("Setting = %q, %v", got, err)
+	}
+	if got, err := s.Setting(ctx, "ldap.bind_password"); err != nil || got != "çok-gizli" {
+		t.Fatalf("şifreli Setting = %q, %v", got, err)
+	}
+
+	// Ham satır düz metni İÇERMEMELİ.
+	var raw string
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT value FROM settings WHERE key = ?`, "ldap.bind_password").Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(raw, "çok-gizli") {
+		t.Fatal("sır veritabanına düz metin yazılmış")
+	}
+
+	// UPSERT: aynı anahtar tekrar yazılabilmeli.
+	if err := s.SetSetting(ctx, "ldap.url", "ldaps://yeni.example:636", false, "ayse"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.Setting(ctx, "ldap.url"); got != "ldaps://yeni.example:636" {
+		t.Errorf("güncelleme yazılmadı: %q", got)
+	}
+
+	if _, err := s.Setting(ctx, "yok.boyle.ayar"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("bilinmeyen ayar: %v, beklenen ErrNotFound", err)
+	}
+}
+
+// SIR YAZILIR AMA OKUNMAZ: liste admin API'sine gidiyor.
+func TestSettingsListMasksSecrets(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	box, err := secret.Init(filepath.Join(t.TempDir(), "secret.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.UseSecretBox(box)
+
+	if err := s.SetSetting(ctx, "ldap.url", "ldaps://ldap.example:636", false, "yigit"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSetting(ctx, "ldap.bind_password", "çok-gizli", true, "yigit"); err != nil {
+		t.Fatal(err)
+	}
+
+	views, err := s.Settings(ctx)
+	if err != nil {
+		t.Fatalf("Settings: %v", err)
+	}
+	if len(views) != 2 {
+		t.Fatalf("%d ayar döndü, beklenen 2", len(views))
+	}
+	// Ada göre sıralı: bind_password önce.
+	if views[0].Key != "ldap.bind_password" {
+		t.Fatalf("sıralama ada göre değil: %+v", views)
+	}
+	if !views[0].Secret {
+		t.Error("şifreli ayar Secret=false işaretlenmiş")
+	}
+	if strings.Contains(views[0].Value, "gizli") {
+		t.Fatalf("sır listede açığa çıkmış: %q", views[0].Value)
+	}
+	if views[0].Value == "" {
+		t.Error("maske boş — arayüz 'değer var' ile 'değer yok'u ayırt edemez")
+	}
+	if views[1].Value != "ldaps://ldap.example:636" {
+		t.Errorf("şifresiz ayar maskelenmiş: %q", views[1].Value)
+	}
+	if views[0].UpdatedBy != "yigit" {
+		t.Errorf("UpdatedBy = %q", views[0].UpdatedBy)
+	}
+}
+
+// Anahtar yokken şifreli ayara dokunmak SESSİZ kalmamalı.
+func TestSecretSettingsRequireKey(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t) // UseSecretBox çağrılmadı
+
+	if err := s.SetSetting(ctx, "ldap.bind_password", "gizli", true, "yigit"); err == nil {
+		t.Fatal("anahtarsız şifreli yazma kabul edildi — düz metin yazılmış olabilir")
+	}
+
+	// Şifreli satırı elle koy, sonra anahtarsız okumayı dene.
+	if _, err := s.db.ExecContext(ctx,
+		`INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 1, 0)`,
+		"ldap.bind_password", "bWFzYWw="); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Setting(ctx, "ldap.bind_password"); err == nil {
+		t.Fatal("anahtarsız şifreli okuma boş/başarılı döndü — sır silinmiş gibi görünür")
 	}
 }

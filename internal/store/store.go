@@ -16,6 +16,7 @@ import (
 	sqlitelib "modernc.org/sqlite/lib"
 
 	"github.com/warewave/postern/internal/model"
+	"github.com/warewave/postern/internal/secret"
 )
 
 var (
@@ -26,12 +27,18 @@ var (
 	// (aynı adla ikinci bir kullanıcı, rol, hedef...).
 	ErrConflict = errors.New("store: already exists")
 
+	// errNotImplementedS51, S5.1 iskeletinin bekleyen fonksiyonları.
+	errNotImplementedS51 = errors.New("store: not implemented")
+
 	// errNotImplementedS33, S3.3 iskeletinin bekleyen fonksiyonları.
 	errNotImplementedS33 = errors.New("store: not implemented")
 )
 
 type Store struct {
 	db *sql.DB
+
+	// box, şifreli ayarları açan anahtar. nil olabilir — bkz. UseSecretBox.
+	box *secret.Box
 }
 
 func Open(ctx context.Context, path string) (*Store, error) {
@@ -252,7 +259,26 @@ func (s *Store) Targets(ctx context.Context) ([]model.Target, error) {
 	return targets, nil
 }
 
-func (s *Store) AssignRole(ctx context.Context, username, roleName string) error {
+// AssignRole, kullanıcıya ELLE rol verir (source='manual').
+//
+// expiresAt sıfır ise süresiz. Zaten verilmiş bir rolü tekrar vermek hata
+// değil — ama artık tam olarak no-op da değil: expires_at GÜNCELLENİR,
+// çünkü "bu yetkiyi uzat" doğal bir istek ve ayrı bir komut gerektirmesi
+// için sebep yok.
+//
+// Kullanıcı ya da rol yoksa ErrNotFound.
+//
+// TODO(yigit): expiresAt ve source='manual' ekle.
+//
+// İpucu: ON CONFLICT hedefi aynı kalıyor ((user_id, role_id)) ama artık
+// DO NOTHING değil DO UPDATE gerekiyor — expires_at ve source alanlarını
+// yaz. source'u güncellemek önemli: SSO'dan gelmiş bir rolü yönetici elle
+// onaylıyorsa artık ona ait olmalı ve sonraki senkronizasyonda silinmemeli.
+//
+// ⚠️ Sıfır time.Time'ı doğrudan Unix()'e verme: 1970 öncesi bir sayı
+// üretir ve "süresiz" yerine "çoktan doldu" anlamına gelir. NULL yazman
+// gerekiyor (sql.NullInt64).
+func (s *Store) AssignRole(ctx context.Context, username, roleName string, expiresAt time.Time) error {
 	var userID string
 	queryUserStr := `
 		SELECT id
@@ -511,6 +537,87 @@ func (s *Store) DeleteUser(ctx context.Context, username string) error {
 		return translateErr("store.DeleteUser", err)
 	}
 	return nil
+}
+
+// SyncRoles, kullanıcının SSO kaynaklı rollerini IdP'nin söylediğiyle
+// DEĞİŞTİRİR. Elle atanmış roller (source='manual') etkilenmez.
+//
+// Her SSO girişinde çağrılır: gruptan çıkarılan kullanıcı yetkisini o an
+// kaybeder, yeni gruba eklenen o an kazanır.
+//
+// TODO(yigit): implement.
+//
+// Akış:
+//  1. Kullanıcının id'sini çöz (yoksa ErrNotFound).
+//  2. source='sso' satırlarını SİL — hepsini, tek sorguda.
+//  3. roleNames'teki her rol için satır ekle (source='sso').
+//     Bilinmeyen rol adı: ATLA, hata verme. Sebep: rol adları
+//     group_mappings'ten gelecek ve bir eşleme silinmiş olabilir; bir
+//     kullanıcının girişini yönetici hatası yüzünden reddetmek yanlış.
+//  4. ⚠️ Rol zaten source='manual' olarak varsa ON CONFLICT DO NOTHING:
+//     elle verilen yetki kazanır ve IdP'ye bağlı olmadan yaşamaya devam
+//     eder. "Elle verilen yetki elle alınır" kuralı.
+//
+// ⚠️ 2 ve 3 AYNI TRANSACTION'da olmalı. Ayrı yaparsan araya düşen bir
+// hata kullanıcıyı yetkisiz bırakır ve bir sonraki girişe kadar öyle
+// kalır — Migrate'te öğrendiğimiz dersin aynısı.
+func (s *Store) SyncRoles(ctx context.Context, username string, roleNames []string) error {
+	return errNotImplementedS51
+}
+
+// ---------------------------------------------------------------------
+// Ayarlar (S5.1)
+// ---------------------------------------------------------------------
+
+// UseSecretBox, şifreli ayarları açıp mühürleyecek anahtarı bağlar.
+//
+// Store bunsuz da çalışır: şifresiz ayarlar okunur/yazılır, şifreli olana
+// dokunulduğunda hata verilir. CLI'ın çoğu komutu sır gerektirmiyor ve
+// anahtar dosyası olmadan da çalışabilmeli.
+func (s *Store) UseSecretBox(box *secret.Box) { s.box = box }
+
+// Setting, tek bir ayarı döner; şifreliyse çözer. Yoksa ErrNotFound.
+//
+// TODO(yigit): implement.
+//
+// encrypted=1 olan bir satır s.box nil iken okunmaya çalışılırsa AÇIK bir
+// hata ver ("secret key not configured") — boş string dönmek, sırrı
+// silinmiş gibi gösterir ve LDAP'ın parolasız bağlanmaya çalışmasına yol
+// açar.
+func (s *Store) Setting(ctx context.Context, key string) (string, error) {
+	return "", errNotImplementedS51
+}
+
+// SetSetting, ayarı yazar. encrypt=true ise değer mühürlenerek saklanır.
+//
+// TODO(yigit): implement. (UPSERT: aynı anahtar tekrar yazılabilmeli.)
+//
+// encrypt=true iken s.box nil ise REDDET — düz metin yazıp "şifreledim"
+// sanmak, bu paketin bütün amacını sessizce boşa çıkarır.
+func (s *Store) SetSetting(ctx context.Context, key, value string, encrypt bool, actor string) error {
+	return errNotImplementedS51
+}
+
+// Settings, ada göre sıralı ayar listesi döner — ŞİFRELİ DEĞERLER
+// MASKELENMİŞ olarak.
+//
+// TODO(yigit): implement.
+//
+// ⚠️ Bu fonksiyonun çıktısı admin API'sine gidecek. Şifreli bir ayarın
+// değeri ASLA dönmemeli: sır yazılır ama okunmaz. Value alanına maske
+// koy (Secret=true ile birlikte), böylece arayüz "değer var ama
+// gösterilmiyor" ile "değer boş"u ayırt edebilir.
+func (s *Store) Settings(ctx context.Context) ([]SettingView, error) {
+	return nil, errNotImplementedS51
+}
+
+// SettingView, listeleme için ayar görünümü.
+type SettingView struct {
+	Key       string
+	Value     string // şifreliyse maskeli
+	Secret    bool
+	UpdatedAt time.Time
+	UpdatedBy string
 }
 
 // RevokeRole, kullanıcıdan rolü geri alır. Kullanıcı ya da rol yoksa

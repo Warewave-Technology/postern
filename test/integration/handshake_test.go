@@ -208,7 +208,7 @@ func seedStore(t *testing.T, dbPath string, targets []model.Target, authorizedKe
 	if _, err := db.CreateUser(ctx, "yigit", "yigit@warewave.io", "postern"); err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
-	if err := db.AssignRole(ctx, "yigit", "ops"); err != nil {
+	if err := db.AssignRole(ctx, "yigit", "ops", time.Time{}); err != nil {
 		t.Fatalf("AssignRole: %v", err)
 	}
 	pub, comment, _, _, err := ssh.ParseAuthorizedKey([]byte(authorizedKey))

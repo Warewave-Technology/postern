@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
@@ -115,7 +116,7 @@ func newUserAddCmd() *cobra.Command {
 			}
 
 			for _, role := range roles {
-				if err := db.AssignRole(ctx, name, role); err != nil {
+				if err := db.AssignRole(ctx, name, role, time.Time{}); err != nil {
 					if errors.Is(err, store.ErrNotFound) {
 						return fmt.Errorf("role %q not found — create it with `postern role add`, then re-run this command (already-applied grants are kept)", role)
 					}

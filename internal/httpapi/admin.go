@@ -202,7 +202,7 @@ func (s *Server) adminCreateUser(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, "user.create", in.Name, "os_user "+in.OSUser)
 
 	for _, role := range in.Roles {
-		if err := s.store.AssignRole(r.Context(), in.Name, role); err != nil {
+		if err := s.store.AssignRole(r.Context(), in.Name, role, time.Time{}); err != nil {
 			// Kullanıcı oluştu, rol atanamadı: kısmi durum. Gövde bunu
 			// söyler; CLI'daki "düzelt ve yeniden dene" sözleşmesinin aynısı
 			// burada geçerli değil (create tekrar 409 verir), o yüzden rol
@@ -280,7 +280,7 @@ func (s *Server) adminAssignRole(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if err := s.store.AssignRole(r.Context(), name, in.Role); err != nil {
+	if err := s.store.AssignRole(r.Context(), name, in.Role, time.Time{}); err != nil {
 		s.storeErr(w, "user.grant_role", err)
 		return
 	}
