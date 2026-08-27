@@ -4,11 +4,13 @@ import Users from "./admin/Users";
 import Targets from "./admin/Targets";
 import Roles from "./admin/Roles";
 import { AdminLog, Sessions } from "./admin/Audit";
+import Mappings from "./admin/Mappings";
+import Settings from "./admin/Settings";
 import Terminal from "./Terminal";
 
 // Rota kütüphanesi yok: beş sekmelik bir panel için useState yeter.
 // (S4.3'te terminal sayfası eklenince gerekirse gerçek router'a geçeriz.)
-type Tab = "home" | "users" | "targets" | "roles" | "sessions" | "log";
+type Tab = "home" | "users" | "targets" | "roles" | "mappings" | "settings" | "sessions" | "log";
 
 export default function App() {
   const [me, setMe] = useState<Me | null>(null);
@@ -33,7 +35,8 @@ export default function App() {
   }
 
   const tabs: [Tab, string][] = me.admin
-    ? [["home", "Home"], ["users", "Users"], ["targets", "Targets"], ["roles", "Roles"], ["sessions", "Sessions"], ["log", "Admin log"]]
+    ? [["home", "Home"], ["users", "Users"], ["targets", "Targets"], ["roles", "Roles"],
+       ["mappings", "Mappings"], ["settings", "LDAP"], ["sessions", "Sessions"], ["log", "Admin log"]]
     : [["home", "Home"]];
 
   return (
@@ -76,6 +79,8 @@ export default function App() {
       {tab === "users" && <Users />}
       {tab === "targets" && <Targets />}
       {tab === "roles" && <Roles />}
+      {tab === "mappings" && <Mappings />}
+      {tab === "settings" && <Settings />}
       {tab === "sessions" && <Sessions />}
       {tab === "log" && <AdminLog />}
     </main>

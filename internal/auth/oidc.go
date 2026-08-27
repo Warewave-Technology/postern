@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
@@ -301,4 +302,38 @@ type ClaimGroups struct{}
 
 func (ClaimGroups) Groups(_ context.Context, id Identity) ([]string, error) {
 	return id.Groups, nil
+}
+
+// SwitchableGroupSource, çalışırken değiştirilebilen grup kaynağı.
+//
+// NEDEN GEREKLİ: LDAP ayarları panelden değiştirilebiliyor, ama grup
+// kaynağını SSH tarafı (sshd.Server) ve web tarafı (httpapi.Server) ayrı
+// ayrı tutuyor. İkisine ayrı nesne verseydik, panelden yapılan bir
+// değişiklik yalnızca web'e işler ve SSH'tan giren kullanıcı eski
+// kaynaktan yetki alırdı — "iki kapı, tek gerçek" kuralının tam
+// karşıtı. Bu sarmalayıcıyı ikisi de paylaşıyor: Set bir kez çağrılır,
+// her iki kapı da yeni kaynağı görür.
+type SwitchableGroupSource struct {
+	mu  sync.RWMutex
+	src GroupSource
+}
+
+// NewSwitchableGroupSource, verilen kaynakla başlar.
+func NewSwitchableGroupSource(initial GroupSource) *SwitchableGroupSource {
+	return &SwitchableGroupSource{src: initial}
+}
+
+func (s *SwitchableGroupSource) Groups(ctx context.Context, id Identity) ([]string, error) {
+	s.mu.RLock()
+	src := s.src
+	s.mu.RUnlock()
+	return src.Groups(ctx, id)
+}
+
+// Set, kaynağı değiştirir. Süregelen sorgular eski kaynakla biter;
+// sonrakiler yenisini kullanır.
+func (s *SwitchableGroupSource) Set(src GroupSource) {
+	s.mu.Lock()
+	s.src = src
+	s.mu.Unlock()
 }

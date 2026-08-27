@@ -9,6 +9,17 @@ export type Session = {
   id: string; user: string; target: string; os_user: string;
   src_ip: string; started_at: string; ended_at: string | null;
 };
+export type Mapping = { group: string; role: string; created_by: string };
+export type UnmappedGroup = { name: string; seen_count: number; last_seen: string };
+export type Setting = { key: string; value: string; secret: boolean; updated_by: string };
+export type LDAPTestResult = {
+  ok: boolean;
+  error?: string;
+  groups?: string[];
+  roles?: string[];
+  unmapped?: string[];
+};
+
 export type LogEntry = {
   at: string; actor: string; via: string; action: string; entity: string; details: string;
 };
@@ -61,6 +72,20 @@ export const api = {
   createTarget: (t: { name: string; host: string; port?: number; host_key: string }) =>
     req<void>("POST", "/api/admin/targets", t),
   deleteTarget: (name: string) => req<void>("DELETE", `/api/admin/targets/${encodeURIComponent(name)}`),
+
+  mappings: () => req<Mapping[]>("GET", "/api/admin/mappings"),
+  addMapping: (group: string, role: string) =>
+    req<void>("POST", "/api/admin/mappings", { group, role }),
+  removeMapping: (group: string, role: string) =>
+    req<void>("DELETE",
+      `/api/admin/mappings/${encodeURIComponent(group)}/${encodeURIComponent(role)}`),
+  unmappedGroups: () => req<UnmappedGroup[]>("GET", "/api/admin/unmapped-groups"),
+
+  settings: () => req<Setting[]>("GET", "/api/admin/settings"),
+  setSetting: (key: string, value: string) =>
+    req<{ ok: boolean; source: string }>("PUT", "/api/admin/settings", { key, value }),
+  testLDAP: (user?: string) =>
+    req<LDAPTestResult>("POST", "/api/admin/ldap/test", { user: user ?? "" }),
 
   sessions: () => req<Session[]>("GET", "/api/admin/sessions"),
   adminLog: () => req<LogEntry[]>("GET", "/api/admin/log"),

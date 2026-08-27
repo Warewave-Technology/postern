@@ -90,10 +90,15 @@ func newServeCmd() *cobra.Command {
 				// Grup kaynağı: LDAP ayarlanmışsa dizin, değilse ID
 				// token'ın claim'i. İKİ KAPI DA aynı kaynağı kullanır —
 				// SSH'tan giren ile web'den giren aynı yetkiyi almalı.
+				// PAYLAŞILAN sarmalayıcı: panelden ayar değişince tek
+				// Set çağrısı iki kapıyı birden günceller.
+				groupSwitch := auth.NewSwitchableGroupSource(auth.ClaimGroups{})
+				s.UseGroupSource(groupSwitch)
+
 				groupSource, err := ldap.SourceFromStore(ctx, db)
 				switch {
 				case err == nil:
-					s.UseGroupSource(groupSource)
+					groupSwitch.Set(groupSource)
 					logger.Info("group source: ldap directory")
 				case errors.Is(err, ldap.ErrNotConfigured):
 					logger.Info("group source: oidc claim")
@@ -105,9 +110,7 @@ func newServeCmd() *cobra.Command {
 				}
 
 				webAPI := httpapi.New(oidcClient, logins, db, logger)
-				if groupSource != nil {
-					webAPI.UseGroupSource(groupSource)
-				}
+				webAPI.UseGroupSource(groupSwitch)
 
 				// Web terminali yalnızca açıkça istendiğinde: rota bile
 				// kurulmaz. Bağımlılıklar sshd'ninkilerle AYNI — iki kapı

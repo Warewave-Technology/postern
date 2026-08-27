@@ -32,6 +32,11 @@ type Server struct {
 	// LDAP yapılandırılmışsa UseGroupSource ile değiştirir.
 	groups auth.GroupSource
 
+	// groupSwitch, groups ile AYNI nesne (değiştirilebilir sarmalayıcı
+	// verildiyse). Panelden ayar değişince kaynağı buradan çeviriyoruz —
+	// sshd de aynı sarmalayıcıyı tuttuğu için iki kapı ayrışmıyor.
+	groupSwitch *auth.SwitchableGroupSource
+
 	// S4.3: web terminali. proxyDeps nil ise terminal yapılandırılmamış
 	// demektir ve rota HİÇ bağlanmaz — kapalı özellik, kapalı yüzey.
 	proxyDeps   *proxy.Deps
@@ -41,7 +46,14 @@ type Server struct {
 // UseGroupSource, grup kaynağını değiştirir (LDAP için).
 //
 // Dinlemeye başlamadan ÖNCE çağrılmalı: alan kilitsiz.
-func (s *Server) UseGroupSource(src auth.GroupSource) { s.groups = src }
+func (s *Server) UseGroupSource(src auth.GroupSource) {
+	s.groups = src
+	// Değiştirilebilir sarmalayıcıysa ayrıca sakla: ayar değişiminde
+	// kaynağı çevirebilmek için.
+	if sw, ok := src.(*auth.SwitchableGroupSource); ok {
+		s.groupSwitch = sw
+	}
+}
 
 // EnableTerminal, web terminalini açar. serve yalnızca
 // http.terminal_enabled true iken çağırır; çağrılmazsa /api/terminal
@@ -77,8 +89,9 @@ func (s *Server) Handler() http.Handler {
 	// API: oturum ister.
 	mux.Handle("GET /api/me", s.requireSession(http.HandlerFunc(s.handleMe)))
 
-	// Yönetim: oturum + admin + same-origin (admin.go).
+	// Yönetim: oturum + admin + same-origin (admin.go, federation.go).
 	s.registerAdminRoutes(mux)
+	s.registerFederationRoutes(mux)
 
 	// Terminal: yalnızca yapılandırıldıysa. Kapalıyken rota yok — açık
 	// ama yetkisiz bir uç, kapalı bir uçtan daha büyük bir yüzeydir.
