@@ -1,14 +1,23 @@
+import { useState } from "react";
 import { api, LogEntry, Session } from "../api";
 import { ErrorLine, td, th, useList } from "./common";
+import CastPlayer from "./CastPlayer";
 
 export function Sessions() {
   const { items, error } = useList<Session>(api.sessions);
+  // Oynatılan oturum. Aynı anda tek kayıt: iki terminali yan yana
+  // izlemenin bir faydası yok, ikisini birden beslemenin maliyeti var.
+  const [playing, setPlaying] = useState<string | null>(null);
+
   return (
     <section>
       <h2>Sessions</h2>
       <ErrorLine msg={error} />
+
+      {playing && <CastPlayer sessionId={playing} onClose={() => setPlaying(null)} />}
+
       <table style={{ borderCollapse: "collapse" }}>
-        <thead><tr><th style={th}>ID</th><th style={th}>User</th><th style={th}>Target</th><th style={th}>OS user</th><th style={th}>Src</th><th style={th}>Started</th><th style={th}>Ended</th></tr></thead>
+        <thead><tr><th style={th}>ID</th><th style={th}>User</th><th style={th}>Target</th><th style={th}>OS user</th><th style={th}>Src</th><th style={th}>Started</th><th style={th}>Ended</th><th style={th} /></tr></thead>
         <tbody>
           {items.map((s) => (
             <tr key={s.id}>
@@ -19,6 +28,14 @@ export function Sessions() {
               <td style={td}>{s.src_ip}</td>
               <td style={td}>{s.started_at}</td>
               <td style={td}>{s.ended_at ?? "running"}</td>
+              <td style={td}>
+                <button
+                  onClick={() => setPlaying(s.id)}
+                  aria-label={`watch session ${s.id}`}
+                >
+                  watch
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>

@@ -135,6 +135,11 @@ func newServeCmd() *cobra.Command {
 				// Secure bayrağı bu adresin şemasından türüyor.
 				webAPI.SetExternalURL(cfg.HTTP.ExternalURL)
 
+				// Kayıt izleme: panelden oturum oynatma. sshd ile AYNI
+				// depo — kayıtların yazıldığı yer ile okunduğu yer
+				// ayrışamaz.
+				webAPI.UseRecordings(s.Records())
+
 				// Web terminali yalnızca açıkça istendiğinde: rota bile
 				// kurulmaz. Bağımlılıklar sshd'ninkilerle AYNI — iki kapı
 				// tek oturum akışını paylaşıyor (proxy.Open).

@@ -91,6 +91,9 @@ func oobBastionOpts(t *testing.T, oobTimeout time.Duration, terminal bool, fresh
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	webAPI := httpapi.New(oidcClient, logins, db, logger)
+	// Kayıt izleme uçları: sshd ile AYNI depo (serve.go'daki bağlamanın
+	// aynısı) — kayıtların yazıldığı yer ile okunduğu yer ayrışamaz.
+	webAPI.UseRecordings(srv.Records())
 	if terminal {
 		// Terminal, sshd ile AYNI bağımlılıkları paylaşır — iki kapı,
 		// tek oturum akışı.

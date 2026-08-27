@@ -28,6 +28,36 @@ and RBAC storage (S3) are next. Not production-ready. The roadmap lives in
 
 Still ahead: TOTP and an SFTP relay.
 
+### Watching a session back
+
+Recordings were written from the first release and readable by nobody:
+the audit file existed, the audit did not. The admin panel now replays
+them.
+
+Two things about how it is served. The path in `sessions.recording_path`
+is a *database column*, and treating a database value as a filesystem
+path would turn any future write into that column — an injection
+elsewhere, a hand-edited row, a restored dump — into arbitrary file read
+over an authenticated admin session, with `ca.key_file` the obvious
+target. So the file is opened through the recordings store, which proves
+the resolved path stays under the recordings root and refuses otherwise;
+symlinks are resolved on both sides, which also stops a link planted
+inside the root from pointing out of it.
+
+And watching is itself audited, before a single byte is served: a
+recording contains what someone else typed and saw. If the audit row
+cannot be written, the recording is not served — a read nobody can trace
+should not happen.
+
+Playback replays into xterm.js rather than embedding asciinema-player.
+That is a deliberate deviation from the plan, which called the player a
+free win. It is not free: every 3.x release ships its terminal emulator
+as inlined WebAssembly and calls `WebAssembly.instantiate`, which the
+`script-src 'self'` policy blocks outright. Loading it would mean
+relaxing the CSP of a bastion's admin panel to get a nicer scrubber.
+xterm.js is already a dependency and interprets the same escape
+sequences.
+
 ### What crosses the bridge
 
 A session channel carries more than keystrokes, and postern forwards only

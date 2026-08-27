@@ -42,7 +42,7 @@ sözleşmeyi bozmadan sağlıyor.
 | Router | React Router | |
 | Veri | TanStack Query | Cache, refetch, loading state hazır |
 | Terminal | `@xterm/xterm` + `@xterm/addon-fit` | W5 |
-| Kayıt oynatıcı | `asciinema-player` | **asciicast seçiminin bedava kazancı** |
+| Kayıt oynatıcı | `asciinema-player` | **asciicast seçiminin bedava kazancı — ⚠️ DEĞİL: 3.x sürümleri VT emülasyonunu gömülü WASM olarak taşıyor ve script-src 'self' onu engelliyor (ölçüldü). Oynatma xterm.js'e yapılıyor** |
 | API tipleri | `openapi-typescript` | Sözleşmeden otomatik üretim |
 | Dağıtım | `go:embed` | Tek binary korunur |
 

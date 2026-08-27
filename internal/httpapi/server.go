@@ -12,6 +12,7 @@ import (
 
 	"github.com/warewave/postern/internal/auth"
 	"github.com/warewave/postern/internal/proxy"
+	"github.com/warewave/postern/internal/record"
 	"github.com/warewave/postern/internal/store"
 )
 
@@ -42,6 +43,10 @@ type Server struct {
 	// demektir ve rota HİÇ bağlanmaz — kapalı özellik, kapalı yüzey.
 	proxyDeps   *proxy.Deps
 	externalURL string
+
+	// records nil ise kayıt izleme yapılandırılmamış demektir ve
+	// rotalar HİÇ kurulmaz — kapalı özellik, kapalı yüzey.
+	records *record.Store
 
 	// secureCookies, oturum çerezine Secure bayrağının konup
 	// konmayacağı. SetExternalURL kuruyor.

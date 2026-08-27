@@ -59,6 +59,12 @@ type Server struct {
 	maxChannels      int
 }
 
+// Records, kayıt deposunu döner.
+//
+// httpapi ile PAYLAŞILIR: panel kayıtları AYNI depodan okumalı, yoksa
+// "hangi dizin" sorusunun iki cevabı olur.
+func (s *Server) Records() *record.Store { return s.rStore }
+
 // UseGroupSource, grup kaynağını değiştirir (LDAP için).
 // Dinlemeye başlamadan ÖNCE çağrılmalı.
 func (s *Server) UseGroupSource(src auth.GroupSource) { s.groups = src }

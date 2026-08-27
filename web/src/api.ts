@@ -20,6 +20,12 @@ export type LDAPTestResult = {
   unmapped?: string[];
 };
 
+export type RecordingState = "none" | "missing" | "partial" | "complete";
+
+export type SessionDetail = Session & {
+  recording: { state: RecordingState; size: number };
+};
+
 export type LogEntry = {
   at: string; actor: string; via: string; action: string; entity: string; details: string;
 };
@@ -40,6 +46,22 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
     throw new ApiError(r.status, msg);
   }
   return r.status === 204 ? (undefined as T) : r.json();
+}
+
+/**
+ * reqText, JSON DEĞİL düz metin bekleyen uçlar için.
+ *
+ * Kayıt dosyası NDJSON: her satırı ayrı bir JSON, bütünü değil.
+ * r.json() onu ayrıştıramaz.
+ */
+async function reqText(method: string, path: string): Promise<string> {
+  const r = await fetch(path, { method });
+  if (!r.ok) {
+    let msg = r.statusText;
+    try { msg = (await r.json()).error ?? msg; } catch { /* gövde JSON değilse statusText kalır */ }
+    throw new ApiError(r.status, msg);
+  }
+  return r.text();
 }
 
 export const api = {
@@ -88,5 +110,11 @@ export const api = {
     req<LDAPTestResult>("POST", "/api/admin/ldap/test", { user: user ?? "" }),
 
   sessions: () => req<Session[]>("GET", "/api/admin/sessions"),
+  sessionDetail: (id: string) =>
+    req<SessionDetail>("GET", `/api/admin/sessions/${encodeURIComponent(id)}`),
+  // Kaydın kendisi: asciicast v2, satır satır JSON — düz metin olarak
+  // alınıyor (bkz. reqText).
+  sessionRecording: (id: string) =>
+    reqText("GET", `/api/admin/sessions/${encodeURIComponent(id)}/recording`),
   adminLog: () => req<LogEntry[]>("GET", "/api/admin/log"),
 };

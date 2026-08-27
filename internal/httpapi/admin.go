@@ -44,6 +44,9 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 
 	mux.Handle("GET /api/admin/sessions", admin(s.adminListSessions))
 	mux.Handle("GET /api/admin/log", admin(s.adminListLog))
+
+	// Kayıt izleme yalnızca UseRecordings çağrıldıysa.
+	s.registerRecordingRoutes(mux, admin)
 }
 
 // requireAdmin, oturum sahibinin admin olduğunu HER İSTEKTE store'dan
