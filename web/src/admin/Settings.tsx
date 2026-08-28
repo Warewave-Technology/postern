@@ -1,6 +1,13 @@
 import { useMemo, useState } from "react";
 import { LDAPCandidate, LDAPTestResult, Setting, api, toMessage } from "../api";
-import { ActionButton, ErrorLine, ListState, OkLine, WarnLine, useList } from "./common";
+import {
+  ActionButton,
+  ErrorLine,
+  ListState,
+  OkLine,
+  WarnLine,
+  useList,
+} from "./common";
 import SyncPanel from "./SyncPanel";
 
 /**
@@ -81,7 +88,11 @@ const FIELDS: Field[] = [
     label: "Group filter",
     hint: "(&(objectClass=groupOfNames)(member=%s)) — used when the attribute is empty",
   },
-  { key: "ldap.group_name_from", label: "Group name from", hint: "cn (default) or dn" },
+  {
+    key: "ldap.group_name_from",
+    label: "Group name from",
+    hint: "cn (default) or dn",
+  },
 ];
 
 type StepId = "connection" | "users" | "groups" | "review";
@@ -97,7 +108,8 @@ const STEPS: { id: StepId; title: string; blurb: string; keys: string[] }[] = [
   {
     id: "users",
     title: "Users",
-    blurb: "Where to look a person up once the identity provider has said who they are.",
+    blurb:
+      "Where to look a person up once the identity provider has said who they are.",
     keys: ["ldap.user_base", "ldap.user_filter"],
   },
   {
@@ -105,9 +117,19 @@ const STEPS: { id: StepId; title: string; blurb: string; keys: string[] }[] = [
     title: "Groups",
     blurb:
       "How to read someone's group membership. Either read it off the user entry (memberOf) or search the group tree — but the search base is required either way.",
-    keys: ["ldap.group_attribute", "ldap.group_base", "ldap.group_filter", "ldap.group_name_from"],
+    keys: [
+      "ldap.group_attribute",
+      "ldap.group_base",
+      "ldap.group_filter",
+      "ldap.group_name_from",
+    ],
   },
-  { id: "review", title: "Review", blurb: "What is stored, and whether it actually works.", keys: [] },
+  {
+    id: "review",
+    title: "Review",
+    blurb: "What is stored, and whether it actually works.",
+    keys: [],
+  },
 ];
 
 // Sunucunun "kaydettim ama kaynağı kuramadım" cevabının öneki.
@@ -127,10 +149,9 @@ const byKey = (k: string) => FIELDS.find((f) => f.key === k)!;
  */
 function looksLoopback(rawURL: string): boolean {
   try {
-    const host = new URL(rawURL.replace(/^ldaps?:\/\//i, "http://")).hostname.replace(
-      /^\[|\]$/g,
-      "",
-    );
+    const host = new URL(
+      rawURL.replace(/^ldaps?:\/\//i, "http://"),
+    ).hostname.replace(/^\[|\]$/g, "");
     if (host === "localhost" || host === "::1") return true;
     return /^127\./.test(host);
   } catch {
@@ -170,11 +191,17 @@ function fieldProblem(key: string, value: string): string {
 function looksLikeDNS(err?: string): boolean {
   if (!err) return false;
   const e = err.toLowerCase();
-  return e.includes("no such host") || e.includes("server misbehaving") || e.includes("lookup ");
+  return (
+    e.includes("no such host") ||
+    e.includes("server misbehaving") ||
+    e.includes("lookup ")
+  );
 }
 
 export default function Settings() {
-  const { items, error, denied, loading, refresh, setError } = useList<Setting>(api.settings);
+  const { items, error, denied, loading, refresh, setError } = useList<Setting>(
+    api.settings,
+  );
 
   const [mode, setMode] = useState<"auto" | "edit">("auto");
   const [step, setStep] = useState<StepId>("connection");
@@ -183,11 +210,16 @@ export default function Settings() {
   const [warning, setWarning] = useState("");
   const [testUser, setTestUser] = useState("");
   const [test, setTest] = useState<LDAPTestResult | null>(null);
-  const [conn, setConn] = useState<{ ok: boolean; error?: string } | null>(null);
+  const [conn, setConn] = useState<{ ok: boolean; error?: string } | null>(
+    null,
+  );
 
   // Sınama sonucu, SINANAN DEĞERLERE bağlı. Form değişince geçersiz
   // olmalı — yoksa "test geçti" damgası başka bir yapılandırmaya ait olur.
-  const [verified, setVerified] = useState<{ sig: string; result: LDAPTestResult } | null>(null);
+  const [verified, setVerified] = useState<{
+    sig: string;
+    result: LDAPTestResult;
+  } | null>(null);
 
   const stored = (key: string) => items.find((s) => s.key === key);
   const hasValue = (key: string) => {
@@ -211,7 +243,9 @@ export default function Settings() {
       });
       const stuck = r.source.startsWith(INCOMPLETE);
       setStatus(stuck ? "" : `saved — group source: ${r.source}`);
-      setWarning(stuck ? `saved, but the group source did not switch — ${r.source}` : "");
+      setWarning(
+        stuck ? `saved, but the group source did not switch — ${r.source}` : "",
+      );
       setTest(null);
       return r;
     });
@@ -285,7 +319,8 @@ export default function Settings() {
       );
     }
   }
-  const configured = !loading && !denied && items.length > 0 && problems.length === 0;
+  const configured =
+    !loading && !denied && items.length > 0 && problems.length === 0;
 
   // --- düzenleme formu ---
   const editValue = (key: string) => {
@@ -330,7 +365,9 @@ export default function Settings() {
   };
 
   const saveEdit = async () => {
-    const changed = FIELDS.map((f) => f.key).filter((k) => edits[k] !== undefined && edits[k] !== "");
+    const changed = FIELDS.map((f) => f.key).filter(
+      (k) => edits[k] !== undefined && edits[k] !== "",
+    );
     if (await saveKeys(changed)) {
       setMode("auto");
       setVerified(null);
@@ -344,12 +381,22 @@ export default function Settings() {
   const stepFields = current.keys.map(byKey);
 
   const stepDone = (s: (typeof STEPS)[number]) =>
-    s.keys.length > 0 && s.keys.map(byKey).filter((f) => f.required).every((f) => hasValue(f.key));
+    s.keys.length > 0 &&
+    s.keys
+      .map(byKey)
+      .filter((f) => f.required)
+      .every((f) => hasValue(f.key));
 
-  const stepHasProblem = stepFields.some((f) => fieldProblem(f.key, edits[f.key] ?? "") !== "");
+  const stepHasProblem = stepFields.some(
+    (f) => fieldProblem(f.key, edits[f.key] ?? "") !== "",
+  );
 
   // Tek bir alanın çizimi — sihirbaz ve düzenleme formu paylaşıyor.
-  const renderField = (f: Field, value: string, onChange: (v: string) => void) => {
+  const renderField = (
+    f: Field,
+    value: string,
+    onChange: (v: string) => void,
+  ) => {
     const cur = stored(f.key);
     const filled = hasValue(f.key);
     const problem = fieldProblem(f.key, value);
@@ -367,7 +414,9 @@ export default function Settings() {
           aria-describedby={`h-${f.key}`}
           // Yer tutucu SAKLI OLANI gösteriyor: kutunun neyin üstüne
           // yazacağını söylüyor. İpucu aşağıda, ikisi aynı cümle değil.
-          placeholder={filled ? (f.secret || cur?.secret ? MASK : cur?.value) : ""}
+          placeholder={
+            filled ? (f.secret || cur?.secret ? MASK : cur?.value) : ""
+          }
           onChange={(e) => {
             clearNotices();
             onChange(e.target.value);
@@ -485,7 +534,10 @@ export default function Settings() {
                         }}
                       />
                     </label>
-                    <ActionButton onClick={runTest} label="test the stored LDAP settings">
+                    <ActionButton
+                      onClick={runTest}
+                      label="test the stored LDAP settings"
+                    >
                       Run test
                     </ActionButton>
                     <span className="note">
@@ -499,18 +551,48 @@ export default function Settings() {
                       <OkLine msg="connection and bind succeeded" />
                     ) : (
                       <ErrorLine
-                        msg={test.error || "the bind failed and the server did not say why"}
+                        msg={
+                          test.error ||
+                          "the bind failed and the server did not say why"
+                        }
                       />
                     ))}
 
-                  {test?.groups && (
+                  {/*
+                    ⚠️ SORULAN SORUNUN CEVABI HER ZAMAN GÖSTERİLİR.
+                    Eskiden blok `test.groups` doluysa çiziliyordu; bir
+                    kullanıcı adı yazıp da dizinde bulunamayınca ekranda
+                    yalnızca yeşil "connection and bind succeeded"
+                    kalıyordu. Bağ kurulmuştu, doğruydu — ama operatörün
+                    sorduğu soru o değildi. Boş cevap, cevapsızlık
+                    değildir.
+                  */}
+                  {test?.presence === "absent" && (
+                    <p className="msg msg-warn" role="status">
+                      The directory answered, and it has no user matching{" "}
+                      <b>{testUser}</b>. postern looks the name up with the
+                      stored user filter, so a directory whose accounts are
+                      named differently from the identity provider will grant no
+                      groups at all — and no roles with them.
+                    </p>
+                  )}
+
+                  {test?.presence === "unknown" && (
+                    <p className="msg msg-warn" role="status">
+                      The directory could not answer for <b>{testUser}</b>. This
+                      is not the same as having no groups: nothing can be
+                      concluded from it, and sync refuses to act on it.
+                    </p>
+                  )}
+
+                  {test?.presence === "present" && (
                     <dl className="kv">
                       <dt>groups</dt>
-                      <dd>{test.groups.join(", ") || "—"}</dd>
+                      <dd>{test.groups?.join(", ") || "none"}</dd>
                       <dt>mapped to roles</dt>
-                      <dd>{test.roles?.join(", ") || "—"}</dd>
+                      <dd>{test.roles?.join(", ") || "none"}</dd>
                       <dt>unmapped</dt>
-                      <dd>{test.unmapped?.join(", ") || "—"}</dd>
+                      <dd>{test.unmapped?.join(", ") || "none"}</dd>
                     </dl>
                   )}
                 </div>
@@ -543,7 +625,10 @@ export default function Settings() {
                 <div className="wizard-check">
                   <label style={{ flex: "0 0 auto" }}>
                     Look up a user (optional)
-                    <input value={testUser} onChange={(e) => setTestUser(e.target.value)} />
+                    <input
+                      value={testUser}
+                      onChange={(e) => setTestUser(e.target.value)}
+                    />
                   </label>
                   <ActionButton onClick={verify} label="test these values">
                     Test these values
@@ -560,7 +645,10 @@ export default function Settings() {
                   ) : (
                     <>
                       <ErrorLine
-                        msg={verified.result.error || "the directory refused and did not say why"}
+                        msg={
+                          verified.result.error ||
+                          "the directory refused and did not say why"
+                        }
                       />
                       {looksLikeDNS(verified.result.error) && (
                         <p className="note">
@@ -605,7 +693,9 @@ export default function Settings() {
                   disabled={!verifiedNow}
                   label="save the tested configuration"
                 >
-                  {verifiedNow ? "Save tested configuration" : "Test before saving"}
+                  {verifiedNow
+                    ? "Save tested configuration"
+                    : "Test before saving"}
                 </ActionButton>
               </div>
             </div>
@@ -698,8 +788,9 @@ export default function Settings() {
                         </ActionButton>
                         <span className="note">
                           Dials the directory and binds as the service account.
-                          Reads what is <b>stored</b>, so save first. The name is
-                          resolved <b>on the bastion</b>, not in your browser.
+                          Reads what is <b>stored</b>, so save first. The name
+                          is resolved <b>on the bastion</b>, not in your
+                          browser.
                         </span>
                       </div>
                     )}
@@ -710,13 +801,17 @@ export default function Settings() {
                       ) : (
                         <>
                           <ErrorLine
-                            msg={conn.error || "the bind failed and the server did not say why"}
+                            msg={
+                              conn.error ||
+                              "the bind failed and the server did not say why"
+                            }
                           />
                           {looksLikeDNS(conn.error) && (
                             <p className="note">
-                              postern could not resolve that name. It looks it up
-                              from the bastion, not from your browser — a name
-                              that works on your machine may not exist there.
+                              postern could not resolve that name. It looks it
+                              up from the bastion, not from your browser — a
+                              name that works on your machine may not exist
+                              there.
                             </p>
                           )}
                         </>

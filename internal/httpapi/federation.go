@@ -282,22 +282,60 @@ func (s *Server) adminTestLDAP(w http.ResponseWriter, r *http.Request) {
 	res := map[string]any{"ok": true}
 
 	if in.User != "" {
-		groups, err := src.Groups(r.Context(), auth.Identity{Username: in.User})
+		/*
+		 * ⚠️ Groups DEĞİL, Lookup.
+		 *
+		 * Groups iki ayrı cevabı aynı boş dilime katlıyor: "dizin bu
+		 * kullanıcıyı hiç tanımıyor" ile "tanıyor, hiçbir grupta değil".
+		 * Ölçüldü ve maliyeti görüldü: IdP kullanıcı adı yigit, dizindeki
+		 * kayıt yigit.basalma olan bir kurulumda panel yemyeşil
+		 * "connection and bind succeeded" diyordu. Bağlantı gerçekten
+		 * kurulmuştu — ama operatörün SORDUĞU soru o değildi ve
+		 * cevabı hiç görünmüyordu.
+		 *
+		 * Lookup bu ayrımı zaten yapıyor (senkronizasyon ona dayanıyor);
+		 * eksik olan tek şey teşhis aracının onu kullanmasıydı.
+		 */
+		lr, err := src.Lookup(r.Context(), auth.Identity{Username: in.User})
 		if err != nil {
 			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
-		roles, unmapped, err := s.store.RolesForGroups(r.Context(), groups)
+
+		res["presence"] = lr.Presence.String()
+		if lr.Presence != ldap.PresencePresent {
+			// Bulunamayan kullanıcı için rol hesaplamak anlamsız:
+			// gösterilecek "sıfır rol", kullanıcının değil aramanın
+			// sonucu olurdu.
+			writeJSON(w, http.StatusOK, res)
+			return
+		}
+
+		roles, unmapped, err := s.store.RolesForGroups(r.Context(), lr.Groups)
 		if err != nil {
 			s.storeErr(w, "ldap.test", err)
 			return
 		}
-		res["groups"] = groups
-		res["roles"] = roles
-		res["unmapped"] = unmapped
+		// Boş dilimler nil DEĞİL: JSON'da null ile [] farkı, panelde
+		// "veri yok" ile "cevap boş" farkına dönüşüyor.
+		res["groups"] = nonNil(lr.Groups)
+		res["roles"] = nonNil(roles)
+		res["unmapped"] = nonNil(unmapped)
 	}
 
 	writeJSON(w, http.StatusOK, res)
+}
+
+// nonNil, nil dilimi boş dilime çevirir.
+//
+// JSON'da null ile [] aynı şey değil: panel "alan yok" ile "alan var,
+// içi boş" arasında karar veriyor ve nil gönderirsek boş bir cevabı
+// hiç gelmemiş sayıp gizliyor.
+func nonNil(v []string) []string {
+	if v == nil {
+		return []string{}
+	}
+	return v
 }
 
 // knownSettingKeys, panelden yazılabilecek ayarlar.
