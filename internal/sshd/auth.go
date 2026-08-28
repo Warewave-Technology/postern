@@ -108,9 +108,13 @@ func (s *Server) keyboardInteractive(nConn deadlineSetter, conn ssh.ConnMetadata
 	// Challenge'ın hatası "istemci gitti" demektir: linki hiç görmemiş
 	// olabilir. Beklemeye girip tarayıcı onayı beklemek, terk edilmiş
 	// bir handshake goroutine'ini s.oobTimeout boyunca yaşatmak olurdu.
+	// Metin SALT ASCII: OpenSSH keyboard-interactive yönergesini istemciye
+	// vermeden önce strnvis'ten geçiriyor ve ASCII olmayan her baytı
+	// kaçış dizisine çeviriyor. Buradaki tire "—" gerçek terminallerde
+	// "\200\224" olarak çıkıyordu; kullanıcının okuduğu ilk ekran bu.
 	instruction := "postern login\n\n  " + a.URL +
 		"\n\nOpen the link and sign in. Your browser will then show a\n" +
-		"verification code — type it here.\n"
+		"verification code - type it here.\n"
 
 	// Kullanıcıya birkaç deneme hakkı: tarayıcı tarafı bitmeden ENTER'a
 	// basmak yaygın ve denemeyi yakmamalı.
@@ -212,6 +216,17 @@ func (s *Server) resolveIdentity(ctx context.Context, id auth.Identity) (model.U
 		})
 		if err == nil {
 			return u, nil
+		}
+		// Kimlik çatışması AYRI loglanıyor: bu bir yapılandırma eksiği
+		// değil, var olan bir hesabın adını taşıyan BAŞKA bir IdP
+		// kimliğinin giriş denemesi. Tek mesajla toplandığında olay
+		// "no mapped groups" diye görünüyordu ve araştıran yönetici
+		// hiçbir şeyi düzeltmeyecek olan grup eşlemesine yönlendiriliyordu.
+		// İstemciye giden yanıt aynı — ayrım yalnızca logda.
+		if errors.Is(err, store.ErrIdentityConflict) {
+			s.logger.Warn("oob login denied: username belongs to an account bound to a different identity",
+				"idp_user", id.Username, "idp_issuer", id.Issuer)
+			return model.User{}, fmt.Errorf("access denied")
 		}
 		if errors.Is(err, store.ErrAccessDenied) {
 			s.logger.Warn("oob login denied: no mapped groups",

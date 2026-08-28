@@ -377,6 +377,18 @@ func (s *Server) resolveIdentity(ctx context.Context, log *slog.Logger, id auth.
 		switch {
 		case err == nil:
 			return u, nil
+		case errors.Is(err, store.ErrIdentityConflict):
+			// Kullanıcı adı var olan bir hesapla eşleşiyor ama o hesap
+			// BAŞKA bir IdP kimliğine bağlı — yapılandırma eksiği değil,
+			// incelenmesi gereken bir olay (kullanıcı adı geri dönüşümü
+			// ya da devralma denemesi). Ayrı loglanıyor.
+			//
+			// ⚠️ DÖNEN HATA ErrAccessDenied OLMAK ZORUNDA: default dalına
+			// düşseydi yanıt 403 yerine 500 olurdu ve bu fark tek başına
+			// "bu kullanıcı adı postern'de var" bilgisini sızdırırdı.
+			log.Warn("login denied: username belongs to an account bound to a different identity",
+				"idp_user", id.Username, "idp_issuer", id.Issuer)
+			return model.User{}, store.ErrAccessDenied
 		case errors.Is(err, store.ErrAccessDenied):
 			// Kimlik geçerli ama hiçbir grubu role eşleşmiyor. Bu bir
 			// yapılandırma boşluğu olabilir: eşlenmemiş gruplar teşhis

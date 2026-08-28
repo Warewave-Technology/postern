@@ -28,6 +28,20 @@ var (
 	// JIT sağlamada hiçbir grup role eşleşmediğinde.
 	ErrAccessDenied = errors.New("store: access denied")
 
+	// ErrIdentityConflict: kullanıcı adı var olan bir hesapla eşleşiyor
+	// ama o hesap BAŞKA bir IdP kimliğine bağlı.
+	//
+	// ErrAccessDenied'dan AYRI TUTULUYOR çünkü ikisi operatöre bambaşka
+	// şeyler söyler. "Grup eşlenmemiş" bir yapılandırma eksiğidir; bu
+	// ise kullanıcı adı geri dönüşümü ya da hesap devralma denemesidir
+	// — incelenmesi gereken bir olay. Tek bir sentinel altında
+	// toplandığında giriş reddi "no mapped groups" diye loglanıyordu ve
+	// olayı araştıran yönetici, düzeltmeyecek bir eşlemeyi düzeltmeye
+	// gönderiliyordu.
+	//
+	// İstemciye giden yanıt İKİSİNDE DE aynı: ayrım yalnızca logda.
+	ErrIdentityConflict = errors.New("store: identity conflict")
+
 	// errNotImplementedS51, S5.1 iskeletinin bekleyen fonksiyonları.
 	errNotImplementedS51 = errors.New("store: not implemented")
 
@@ -898,7 +912,7 @@ func (s *Store) ProvisionUser(ctx context.Context, req ProvisionRequest) (model.
 		if berr := s.BindIdPSubject(ctx, req.Username, req.Issuer, req.Subject); berr != nil {
 			return model.User{}, fmt.Errorf(
 				"store.ProvisionUser[%s]: account is bound to a different identity: %w",
-				req.Username, ErrAccessDenied)
+				req.Username, ErrIdentityConflict)
 		}
 
 		// ⚠️ İLK BAĞLAMA (TOFU) DENETLENEBİLİR OLMALI.
@@ -962,6 +976,27 @@ func (s *Store) ProvisionUser(ctx context.Context, req ProvisionRequest) (model.
 		// yani IdP'de kapatılınca erişimi gerçekten biter.
 		if serr := s.SetUserSSOOnly(ctx, req.Username, true); serr != nil {
 			return model.User{}, serr
+		}
+
+		// ⚠️ OTOMATİK AÇILAN HESAP DA DENETİM SATIRI BIRAKMALI.
+		//
+		// Burası bir YETKİ VERME noktası: hesap açılıyor ve altındaki
+		// SyncRoles rolleri — dolayısıyla hedef erişimini — veriyor.
+		// CLI'dan yapılan aynı iş (user.create, role.grant) denetim
+		// günlüğüne düşerken bu yol sessizdi: panelde günlüğe bakan bir
+		// operatör, SSO ile gelip sysadmin olan kullanıcıları HİÇ
+		// görmüyordu. Denetim izi ürünün kendisi olan bir sistemde,
+		// yetkinin en sık verildiği yolun kayıtsız olması kabul edilemez.
+		//
+		// Yeni migration gerekmiyor: via='sso' 010'da eklendi, action
+		// serbest metin.
+		if lerr := s.LogAdmin(ctx, AdminLogEntry{
+			Actor: "system", Via: "sso", Action: "user.create",
+			Entity: req.Username,
+			Details: fmt.Sprintf("provisioned on first sign-in; roles from directory groups: %s",
+				strings.Join(roles, ", ")),
+		}); lerr != nil {
+			return model.User{}, fmt.Errorf("store.ProvisionUser[%s]: audit: %w", req.Username, lerr)
 		}
 	default:
 		return model.User{}, err

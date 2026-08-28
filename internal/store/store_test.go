@@ -1771,8 +1771,13 @@ func TestProvisionUserRefusesSubjectCollision(t *testing.T) {
 	if err == nil {
 		t.Fatal("HESAP DEVRALINDI: adı çakışan ikinci kimlik hesaba girdi")
 	}
-	if !errors.Is(err, ErrAccessDenied) {
-		t.Errorf("hata = %v, ErrAccessDenied bekleniyordu", err)
+	// SEBEP DE DOĞRULANIYOR, yalnızca "reddedildi" değil. Bu red
+	// "hiçbir grubu eşleşmedi"den ayrılmalı: ikisi de girişi düşürür ama
+	// operatöre bambaşka şeyler söyler ve tek sentinel altında
+	// toplandıklarında devralma denemesi logda yapılandırma eksiği gibi
+	// görünüyordu.
+	if !errors.Is(err, ErrIdentityConflict) {
+		t.Errorf("hata = %v, ErrIdentityConflict bekleniyordu", err)
 	}
 
 	// Hesap dokunulmamış olmalı.
@@ -1890,5 +1895,61 @@ func TestProvisionUserRefusesReservedAccountNames(t *testing.T) {
 		Issuer: "https://idp.local", Subject: "sub-normal",
 	}); err != nil {
 		t.Errorf("sıradan ad reddedildi: %v", err)
+	}
+}
+
+// TestProvisionUserAuditsAutomaticAccountCreation, JIT sağlamanın denetim
+// satırı bıraktığını doğrular.
+//
+// NEDEN: SSO ile açılan hesap, CLI'daki `user add` + `role grant` ile aynı
+// şeyi yapıyor — hesabı açıp hedef erişimi veriyor. CLI yolu denetim
+// günlüğüne düşerken bu yol sessizdi; panelde günlüğe bakan operatör, SSO
+// üzerinden gelip sysadmin olmuş kullanıcıları hiç görmüyordu. Yetkinin en
+// sık verildiği yolun kayıtsız olması, denetim izini ürün sayan bir
+// sistemde asıl kusurdur.
+func TestProvisionUserAuditsAutomaticAccountCreation(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedMappingFixtures(t, s)
+
+	if err := s.AddGroupMapping(ctx, "sysadmins", "ops", "yigit"); err != nil {
+		t.Fatal(err)
+	}
+
+	before, err := s.AdminLog(ctx, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.ProvisionUser(ctx, ProvisionRequest{
+		Username: "yeni.kullanici", Groups: []string{"sysadmins"},
+		Issuer: "https://idp.local", Subject: "sub-yeni",
+	}); err != nil {
+		t.Fatalf("sağlama başarısız: %v", err)
+	}
+
+	after, err := s.AdminLog(ctx, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var entry *AdminLogEntry
+	for i := range after {
+		if after[i].Action == "user.create" && after[i].Entity == "yeni.kullanici" {
+			entry = &after[i]
+			break
+		}
+	}
+	if entry == nil {
+		t.Fatalf("otomatik açılan hesap denetim günlüğüne düşmedi (%d -> %d satır)",
+			len(before), len(after))
+	}
+	if entry.Via != "sso" {
+		t.Errorf("via = %q, \"sso\" bekleniyordu", entry.Via)
+	}
+	// Verilen rol de görünmeli: "hesap açıldı" tek başına neyin
+	// verildiğini söylemiyor.
+	if !strings.Contains(entry.Details, "ops") {
+		t.Errorf("details = %q, verilen rolü içermeli", entry.Details)
 	}
 }
