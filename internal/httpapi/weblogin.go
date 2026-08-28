@@ -300,6 +300,8 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		// kullanıcı 404 alır ve ekranda "[disconnected]" görür — yani
 		// olmayan bir özelliğin bozuk olduğunu sanır.
 		"terminal_enabled": s.proxyDeps != nil,
+		// Panel anahtar yönetimini buna göre çiziyor. Asıl koruma uçta.
+		"public_key_login": s.publicKeyLogin,
 	})
 }
 

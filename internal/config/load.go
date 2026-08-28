@@ -198,6 +198,19 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("http.terminal_enabled requires the oidc and http sections")
 	}
 
+	// ⚠️ İKİ KAPI DA KAPALI OLAMAZ.
+	//
+	// public_key_login kapatılıp OIDC de yapılandırılmamışsa geriye
+	// hiçbir giriş yolu kalmıyor: bastion açılır, dinler ve HİÇ KİMSEYİ
+	// içeri almaz. Bu, çalışır görünen ama kimsenin fark etmediği bir
+	// kilitlenme — açılışta söylemek, ilk kullanıcının "SSH cevap
+	// vermiyor" diye aramasından iyi.
+	if !c.Auth.PublicKeyLoginEnabled() && !c.OOBEnabled() {
+		return fmt.Errorf("auth.public_key_login is false and no oidc/http section is " +
+			"configured: nobody could sign in — configure browser login, or leave " +
+			"public key login on")
+	}
+
 	// ⚠️ HTTPS KURALI TERMİNALE DEĞİL, WEB YÜZEYİNİN TAMAMINA BAĞLI.
 	//
 	// Kural eskiden yalnızca terminal_enabled iken uygulanıyordu. Ama

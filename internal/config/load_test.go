@@ -508,3 +508,45 @@ func TestPlainHTTPExternalURLIsRefusedEvenWithoutTerminal(t *testing.T) {
 		}
 	})
 }
+
+// ⚠️ İKİ KAPI DA KAPALI OLAMAZ. public_key_login kapatılıp OIDC de
+// yapılandırılmamışsa bastion açılır, dinler ve HİÇ KİMSEYİ içeri
+// almaz — çalışır görünen ama kimsenin fark etmediği bir kilitlenme.
+func TestPublicKeyOffWithoutBrowserLoginIsRefused(t *testing.T) {
+	off := false
+
+	c := validConfig()
+	c.Auth = AuthConfig{PublicKeyLogin: &off}
+
+	err := c.Validate()
+	if err == nil {
+		t.Fatal("iki kapı da kapalıyken yapılandırma kabul edildi")
+	}
+	// Mesaj SEBEBİ söylemeli: "invalid config" diyen bir hata,
+	// operatöre neyi düzelteceğini söylemiyor.
+	if !strings.Contains(err.Error(), "nobody could sign in") {
+		t.Errorf("hata sebebi anlatmıyor: %v", err)
+	}
+
+	// Tarayıcı girişi varken AYNI ayar geçerli olmalı.
+	c.HTTP = HTTPConfig{Addr: ":8088", ExternalURL: "https://postern.example"}
+	c.OIDC = OIDCConfig{IssuerURL: "https://idp.example", ClientID: "postern"}
+	if err := c.Validate(); err != nil {
+		t.Errorf("OIDC varken reddedildi: %v", err)
+	}
+}
+
+// Yazılmamış alan anahtar girişini KAPATMAMALI: mevcut kurulumlar
+// yükseltmeden sonra dışarıda kalırdı.
+func TestPublicKeyLoginDefaultsOn(t *testing.T) {
+	if !(AuthConfig{}).PublicKeyLoginEnabled() {
+		t.Error("varsayılan kapalı — mevcut kurulumları kilitler")
+	}
+	on, off := true, false
+	if !(AuthConfig{PublicKeyLogin: &on}).PublicKeyLoginEnabled() {
+		t.Error("true okunmadı")
+	}
+	if (AuthConfig{PublicKeyLogin: &off}).PublicKeyLoginEnabled() {
+		t.Error("false okunmadı")
+	}
+}

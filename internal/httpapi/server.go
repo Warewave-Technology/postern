@@ -41,8 +41,14 @@ type Server struct {
 
 	// S4.3: web terminali. proxyDeps nil ise terminal yapılandırılmamış
 	// demektir ve rota HİÇ bağlanmaz — kapalı özellik, kapalı yüzey.
-	proxyDeps   *proxy.Deps
-	externalURL string
+	proxyDeps *proxy.Deps
+
+	// publicKeyLogin, anahtarla girişin açık olup olmadığı. Varsayılan
+	// AÇIK: sıfır değeri bir güvenlik ayarını sessizce KAPATMAMALI —
+	// tersi, SetPublicKeyLogin çağırmayı unutan bir yolun kullanıcıları
+	// kapı dışında bırakması demekti.
+	publicKeyLogin bool
+	externalURL    string
 
 	// records nil ise kayıt izleme yapılandırılmamış demektir ve
 	// rotalar HİÇ kurulmaz — kapalı özellik, kapalı yüzey.
@@ -65,6 +71,16 @@ type Server struct {
 // bağlantı HTTPS'tir. r.TLS'e bakan kod o kurulumda oturum çerezini
 // Secure'suz yazar — yani düz metin bir isteğe iliştirilebilir hâle
 // getirir. Dış adresin şeması dağıtımın gerçeğini söyleyen tek kaynak.
+/*
+ * SetPublicKeyLogin, anahtar girişinin açık olup olmadığını bildirir.
+ *
+ * Panelin anahtar yönetimi ekranı buna bakıyor — ama ASIL KORUMA UÇTA
+ * (adminAddKey/adminRemoveKey). Arayüzde gizlemek bir yetki kontrolü
+ * değil, yalnızca nezaket: uç açık kaldığı sürece curl ile anahtar
+ * eklenebilirdi ve kapalı sanılan kapı açık kalırdı.
+ */
+func (s *Server) SetPublicKeyLogin(on bool) { s.publicKeyLogin = on }
+
 func (s *Server) SetExternalURL(raw string) {
 	s.externalURL = raw
 	s.secureCookies = strings.HasPrefix(strings.ToLower(raw), "https://")
@@ -99,6 +115,12 @@ func New(o *auth.OIDC, logins *auth.Logins, db *store.Store, logger *slog.Logger
 		webSessions: auth.NewWebSessions(),
 		webLogins:   &webPending{},
 		groups:      auth.ClaimGroups{},
+
+		// ⚠️ VARSAYILAN AÇIK. Sıfır değeri false olsaydı,
+		// SetPublicKeyLogin çağırmayı unutan her yol anahtar girişini
+		// sessizce kapatırdı — güvenlik ayarları "unutulunca kapansın"
+		// diye kurulur, "unutulunca kullanıcıyı kilitlesin" diye değil.
+		publicKeyLogin: true,
 	}
 }
 

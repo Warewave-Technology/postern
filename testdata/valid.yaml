@@ -29,6 +29,16 @@ session:
 recording:
    dir: recordings
 
+# Bastion'a girişin kabul edilen yolları.
+#
+# public_key_login yazılmazsa AÇIK. Tamamen SSO ile çalışan bir kurumda
+# kapatılabilir: kullanıcının anahtarı GELEN bacakta ve o kapı IdP'ye
+# bakmıyor. Kapatıldığında sunucu publickey yöntemini teklif bile etmiyor.
+# ⚠️ OIDC yapılandırılmadan kapatmak herkesi dışarıda bırakır; açılışta
+# reddediliyor.
+# auth:
+#   public_key_login: false
+
 # Hedefte KOMUT ÇALIŞTIRARAK tanıma. ⚠️ VARSAYILAN KAPALI.
 #
 # Kapalıyken postern hedef hakkında yalnızca el sıkışmadan öğrendiğini

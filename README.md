@@ -112,6 +112,41 @@ actually notice. The page also names the source address of the waiting
 connection and says postern will never ask for the code to be sent
 anywhere.
 
+### Two legs, two credentials
+
+These get confused, so plainly: there are two SSH connections.
+
+On the **inbound** leg a user proves who they are *to postern* — either
+through the browser and your identity provider, or with their own public
+key. On the **outbound** leg postern proves *to the target* that it may
+open a session as that person, using a per-session certificate that is
+minted, used and thrown away. The certificate is why no target holds a
+static key; it says nothing about how the user reached postern.
+
+So a user's `authorized_keys` entries are not redundant with
+certificates. They are the other leg.
+
+They are also the leg that does not consult your identity provider. An
+account disabled in the IdP still has its key, which is why accounts
+provisioned through SSO are marked `sso_only` and refused at the key
+door outright. Keys therefore only work for accounts an operator created
+deliberately — service accounts, automation, break-glass.
+
+If a deployment has none of those, that door is open and unused:
+
+```yaml
+auth:
+  # Default true. Set false only where browser sign-in is configured.
+  public_key_login: false
+```
+
+With it off, postern does not *offer* publickey during the handshake at
+all, rather than offering it and refusing — a client would otherwise burn
+its auth attempts on keys that can never work. The panel stops managing
+keys, and the API refuses to add one (removing stays allowed, so leftover
+keys can still be cleaned up). Turning it off with no browser login
+configured is refused at startup: that combination locks everybody out.
+
 ### Keeping authorization fresh
 
 Group membership was resolved only at login, so a user deleted in the
@@ -162,6 +197,25 @@ service accounts and CI users are never revoked; `postern user modify
 An OIDC-claim-only deployment cannot be synchronised at all — a claim
 arrives only when someone logs in, so there is nothing to ask. `sync`
 requires a directory and says so at startup rather than pretending.
+
+### Registering a target
+
+A target is pinned to its host key, so registering one means deciding
+which key is the right key. The panel can fetch it: **Fetch host key**
+reads what the machine offers at that address right now, shows the
+SHA256 fingerprint, and will not let the form be submitted until the
+fingerprint is explicitly confirmed.
+
+That is trust on first use and the screen says so. It is not weaker than
+pasting: an operator running `ssh-keyscan` was almost always running it
+over the same network. What it removes is the typo and the temptation to
+leave the field for later. What it cannot do is verify — compare the
+fingerprint against the host's own `ssh-keygen -lf`, from the console or
+from whatever built the machine.
+
+If another target is already registered at the same address with a
+different key, the scan says so. That is either a rebuilt host or not
+the machine you think it is, and both are worth stopping for.
 
 ### Knowing what a target is
 

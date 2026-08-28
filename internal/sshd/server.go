@@ -62,6 +62,11 @@ type Server struct {
 	handshakeTimeout time.Duration
 	maxAuthTries     int
 	maxChannels      int
+
+	// publicKeyLogin, anahtarla girişin açık olup olmadığı
+	// (auth.public_key_login). Kapalıysa PublicKeyCallback hiç
+	// kurulmuyor — bkz. serverConfig.
+	publicKeyLogin bool
 }
 
 // Records, kayıt deposunu döner.
@@ -188,6 +193,7 @@ func New(cfg *config.Config, db *store.Store, logger *slog.Logger) (*Server, err
 		handshakeTimeout: cfg.Listen.HandshakeTimeoutOrDefault(),
 		maxAuthTries:     cfg.Listen.MaxAuthTriesOrDefault(),
 		maxChannels:      cfg.Listen.MaxChannelsOrDefault(),
+		publicKeyLogin:   cfg.Auth.PublicKeyLoginEnabled(),
 	}, nil
 }
 
@@ -400,8 +406,7 @@ func (s *Server) handleConn(ctx context.Context, nConn net.Conn, release func())
 // serverConfig builds the ssh.ServerConfig used for handshakes.
 func (s *Server) serverConfig(nConn deadlineSetter) (*ssh.ServerConfig, error) {
 	cfg := &ssh.ServerConfig{
-		PublicKeyCallback: s.publicKeyCallback,
-		ServerVersion:     "SSH-2.0-postern",
+		ServerVersion: "SSH-2.0-postern",
 
 		// x/crypto'nun varsayılanı 6. Düşürüyoruz çünkü her deneme bir
 		// veritabanı sorgusu (UserByPublicKey) ve OOB yolunda bir
@@ -415,6 +420,19 @@ func (s *Server) serverConfig(nConn deadlineSetter) (*ssh.ServerConfig, error) {
 			Ciphers:      sshalg.Ciphers,
 			MACs:         sshalg.MACs,
 		},
+	}
+
+	// ⚠️ KAPALIYSA CALLBACK HİÇ KURULMUYOR.
+	//
+	// Kurup içeride reddetmek DEĞİL: x/crypto, callback varsa publickey
+	// yöntemini istemciye TEKLİF EDİYOR. O zaman istemci anahtarlarını
+	// tek tek dener, her deneme MaxAuthTries'tan bir hak yakar ve
+	// kullanıcı "çok fazla deneme" ile kapı dışında kalır — üstelik
+	// kurumun anahtar girişini kapattığı dışarıdan hiç anlaşılmaz.
+	// Teklif edilmeyen bir yöntem, istemcinin doğrudan
+	// keyboard-interactive'e geçmesini sağlıyor.
+	if s.publicKeyLogin {
+		cfg.PublicKeyCallback = s.publicKeyCallback
 	}
 	if s.logins != nil {
 		// nil kaldıkça istemciye bu yöntem hiç sunulmaz — OIDC'siz

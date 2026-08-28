@@ -333,6 +333,22 @@ func (s *Server) adminRevokeRole(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) adminAddKey(w http.ResponseWriter, r *http.Request) {
+	/*
+	 * ⚠️ KORUMA BURADA, arayüzde değil.
+	 *
+	 * Panel anahtar bölümünü gizliyor ama gizlemek bir yetki kontrolü
+	 * değil: uç açık kalsaydı curl ile anahtar eklenebilir ve kurumun
+	 * kapattığını sandığı kapı açık kalırdı. Üstelik eklenen anahtar
+	 * ayar bir gün geri açıldığında sessizce ÇALIŞIR hale gelirdi —
+	 * kimsenin kararı olmayan bir erişim.
+	 */
+	if !s.publicKeyLogin {
+		writeErr(w, http.StatusConflict,
+			"public key login is switched off on this bastion (auth.public_key_login); "+
+				"adding a key would grant nothing today and grant access silently if it is turned back on")
+		return
+	}
+
 	name := r.PathValue("name")
 	var in struct {
 		AuthorizedKey string `json:"authorized_key"`
@@ -352,6 +368,10 @@ func (s *Server) adminAddKey(w http.ResponseWriter, r *http.Request) {
 	ok(w)
 }
 
+// adminRemoveKey, anahtar girişi KAPALIYKEN DE çalışır ve bu kasıtlı:
+// ayarı kapatan operatörün elde kalan anahtarları temizleyebilmesi
+// gerekiyor. Silmeyi de reddetseydik, kullanılmayan anahtarlar
+// veritabanında panelden ulaşılamaz biçimde kalırdı.
 func (s *Server) adminRemoveKey(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	var in struct {

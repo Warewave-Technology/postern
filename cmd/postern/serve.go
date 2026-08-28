@@ -156,6 +156,10 @@ func newServeCmd() *cobra.Command {
 				// çalışıyor. Açık olduğu HER açılışta operatörün
 				// görmesi gereken bir şey; sessiz kalması "biz bunu
 				// açmış mıydık" sorusuna yol açardı.
+				if !cfg.Auth.PublicKeyLoginEnabled() {
+					logger.Info("public key login is off: browser sign-in is the only way in")
+				}
+
 				if cfg.TargetProbe.Enabled {
 					logger.Warn("target probe ENABLED: postern will run commands on targets",
 						"commands", strings.Join(upstream.ProbeCommands, "; "),
@@ -164,6 +168,7 @@ func newServeCmd() *cobra.Command {
 				}
 
 				webAPI := httpapi.New(oidcClient, logins, db, logger)
+				webAPI.SetPublicKeyLogin(cfg.Auth.PublicKeyLoginEnabled())
 				webAPI.UseGroupSource(groupSwitch)
 				webAPI.UseEventBus(bus)
 				// Terminal açık olmasa da gerekli: oturum çerezinin

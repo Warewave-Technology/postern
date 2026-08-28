@@ -17,6 +17,9 @@ type Config struct {
 	Session  SessionConfig  `yaml:"session"`
 	Sync     SyncConfig     `yaml:"sync"`
 
+	// Auth, bastion'ın KABUL ETTİĞİ giriş yolları.
+	Auth AuthConfig `yaml:"auth"`
+
 	// TargetProbe, hedefe bağlanıldığında makineyi TANIMA denemesi.
 	// VARSAYILAN KAPALI — bkz. TargetProbeConfig.
 	TargetProbe TargetProbeConfig `yaml:"target_probe"`
@@ -35,6 +38,44 @@ type Config struct {
 	// mevcut kurulumlar hiçbir şey değiştirmeden çalışmaya devam eder.
 	HTTP HTTPConfig `yaml:"http"`
 	OIDC OIDCConfig `yaml:"oidc"`
+}
+
+/*
+ * AuthConfig, bastion'a girişin kabul edilen yolları.
+ *
+ * ⚠️ Sıfır değeri "anahtar girişi AÇIK" olmalı — bu yüzden alan
+ * `PublicKeyLogin *bool`, düz bool değil. Düz bool olsaydı yapılandırma
+ * dosyasında satırı olmayan her mevcut kurulum, yükseltmeden sonra
+ * anahtarla giremez hale gelirdi: sessizce herkesi kapı dışında
+ * bırakan bir varsayılan.
+ */
+type AuthConfig struct {
+	/*
+	 * PublicKeyLogin, kullanıcıların kendi anahtarlarıyla girmesine
+	 * izin verir. Yazılmazsa AÇIK.
+	 *
+	 * NEDEN KAPATILABİLİR: iki bacak var ve karıştırılıyor. Kullanıcının
+	 * anahtarı GELEN bacakta, "postern'e kim olduğunu kanıtlama" işi;
+	 * sertifika GİDEN bacakta, "hedefe bu kullanıcı adına açabilirim"
+	 * işi. Tamamen SSO ile çalışan bir kurumda gelen bacaktaki anahtar
+	 * kapısı hiç kullanılmıyor ama açık duruyor — ve o kapı IdP'ye
+	 * BAKMIYOR. Kullanılmayan bir kapıyı kapatmak, saldırı yüzeyini
+	 * kullanıldığı kadarına indirir.
+	 *
+	 * ⚠️ Kapatıldığında PublicKeyCallback HİÇ KURULMUYOR: sunucu
+	 * publickey yöntemini teklif bile etmiyor. Kabul edip reddetmek,
+	 * istemcinin deneme hakkını yakması ve duruşun dışarıdan
+	 * görünmemesi demekti.
+	 */
+	PublicKeyLogin *bool `yaml:"public_key_login"`
+}
+
+// PublicKeyLoginEnabled, yazılmamış alan için varsayılan (açık).
+func (a AuthConfig) PublicKeyLoginEnabled() bool {
+	if a.PublicKeyLogin == nil {
+		return true
+	}
+	return *a.PublicKeyLogin
 }
 
 /*
