@@ -236,3 +236,68 @@ func TestChangingLDAPURLDropsTheStoredBindPassword(t *testing.T) {
 		t.Error("aynı adres yeniden yazılınca parola gereksiz yere düştü")
 	}
 }
+
+/*
+ * verify ucu ADAY yapılandırmayı sınıyor ve saklanan parolayı yalnızca
+ * SAKLANAN ADRESE gönderiyor.
+ *
+ * Kapatılan sızıntı adminSetSetting'dekiyle aynı sınıftan: aday URL'i
+ * saldırganın sunucusuna çevirip parolayı boş bırakmak, postern'in
+ * SAKLANAN parolayla oraya bağlanmasını sağlardı. Yeni bir uç, eski bir
+ * korumayı sessizce boşa çıkarabilir — bu test onu bekliyor.
+ */
+func TestVerifyLDAPWontSendStoredPasswordElsewhere(t *testing.T) {
+	_, apiURL, _, db := oobBastion(t, 0)
+
+	if err := db.SetUserAdmin(context.Background(), "yigit", true); err != nil {
+		t.Fatal(err)
+	}
+	box, err := secret.Init(filepath.Join(t.TempDir(), "secret.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.UseSecretBox(box)
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
+	browserSignIn(t, client, apiURL)
+
+	set := func(key, value string) {
+		t.Helper()
+		body := fmt.Sprintf(`{"key":%q,"value":%q}`, key, value)
+		if status, out := adminReq(t, client, "PUT", apiURL+"/api/admin/settings", body); status != 200 {
+			t.Fatalf("%s yazılamadı: %d %s", key, status, out)
+		}
+	}
+	set("ldap.url", "ldaps://dc.sirket.local")
+	set("ldap.bind_password", "COK-GIZLI-PAROLA")
+
+	verify := func(url string) (int, string) {
+		t.Helper()
+		body := fmt.Sprintf(`{"url":%q,"bind_dn":"cn=postern","bind_password":"",`+
+			`"user_base":"ou=people","user_filter":"(uid=%%s)",`+
+			`"group_base":"ou=groups","group_attribute":"memberOf"}`, url)
+		return adminReq(t, client, "POST", apiURL+"/api/admin/ldap/verify", body)
+	}
+
+	// SALDIRI: başka bir adres, parola boş.
+	status, out := verify("ldaps://saldirgan.example.com")
+	if status != 400 {
+		t.Errorf("BAŞKA ADRESE SAKLANAN PAROLAYLA GİDİLDİ: %d %s", status, out)
+	}
+	if !strings.Contains(out, "bind password") {
+		t.Errorf("red sebebi anlatmıyor: %s", out)
+	}
+
+	// Saklanan adres için parolasız sınama KABUL edilmeli — aksi hâlde
+	// operatör her denemede parolayı yeniden yazmak zorunda kalırdı.
+	// Bağlantı kurulamayacağı için ok:false döner; önemli olan 400
+	// DÖNMEMESİ, yani isteğin reddedilmemesi.
+	status, out = verify("ldaps://dc.sirket.local")
+	if status != 200 {
+		t.Errorf("saklanan adres için parolasız sınama reddedildi: %d %s", status, out)
+	}
+	if strings.Contains(out, "COK-GIZLI-PAROLA") {
+		t.Error("PAROLA CEVAPTA GERİ DÖNDÜ")
+	}
+}

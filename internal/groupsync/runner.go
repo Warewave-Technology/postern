@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/warewave/postern/internal/auth"
@@ -41,6 +42,39 @@ type Runner struct {
 	interval time.Duration
 	timeout  time.Duration
 	dryRun   bool
+
+	// settings, HER KOŞUDA ayarları yeniden okur.
+	//
+	// ⚠️ open ile aynı gerekçe: ayarlar panelden çalışma zamanında
+	// değişiyor ve yapıcıda yakalanmış bir değer, operatörün çoktan
+	// kapattığı bir döngüyü çalıştırmaya devam ederdi. En çok önemsenen
+	// düğme dry_run: yetki iptal eden bir döngüyü izlemeye almak anlık
+	// olmalı, yeniden başlatma gerektirmemeli.
+	//
+	// nil ise ayarlar sabit (testler ve YAML-only kurulumlar).
+	settings func(context.Context) (Settings, error)
+
+	// mu, yukarıdaki dryRun/limits/timeout alanlarını korur.
+	//
+	// ⚠️ BUGÜN YARIŞ YOK — refresh ve RunOnce aynı goroutine'de
+	// (Start döngüsü) çalışıyor, CLI ise ayrı bir süreç. Kilit, ileride
+	// "şimdi koştur" diye bir uç eklendiğinde sessizce yarışa dönmesin
+	// diye: ayarların çalışma zamanında değişebilir olması bu tuzağı
+	// yeni yarattı.
+	mu sync.Mutex
+}
+
+// snapshot, koşunun kullanacağı ayarların anlık kopyası.
+func (r *Runner) snapshot() (bool, Limits, time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.dryRun, r.limits, r.timeout
+}
+
+// UseSettings, ayarları her koşuda yeniden okuyan kaynağı bağlar.
+// Start'tan ÖNCE çağrılmalı.
+func (r *Runner) UseSettings(fn func(context.Context) (Settings, error)) {
+	r.settings = fn
 }
 
 // Config, Runner'ın ayarları.
@@ -80,15 +114,20 @@ type Report struct {
 
 // RunOnce, tek bir senkronizasyon koşusu yapar.
 func (r *Runner) RunOnce(ctx context.Context, trigger string) (Report, error) {
-	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	// Ayarların anlık kopyası: koşunun ortasında değişen bir tavan,
+	// planın yarısını bir eşikle diğer yarısını başkasıyla
+	// değerlendirmek olurdu.
+	dryRun, limits, timeout := r.snapshot()
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	runID, err := r.db.StartSyncRun(ctx, "ldap", trigger, r.dryRun)
+	runID, err := r.db.StartSyncRun(ctx, "ldap", trigger, dryRun)
 	if err != nil {
 		return Report{}, err
 	}
 
-	rep, runErr := r.run(ctx, runID)
+	rep, runErr := r.run(ctx, runID, dryRun, limits)
 
 	// Koşu satırı her hâlükârda kapatılmalı — iptal edilen bir koşunun
 	// SEBEBİ, olmayan bir koşudan daha değerli.
@@ -106,7 +145,15 @@ func (r *Runner) RunOnce(ctx context.Context, trigger string) (Report, error) {
 	return rep, runErr
 }
 
-func (r *Runner) run(ctx context.Context, runID int64) (Report, error) {
+/*
+ * run, asıl koşu.
+ *
+ * ⚠️ dryRun ve limits PARAMETRE, r'den okunmuyor: ayarlar çalışma
+ * zamanında değişiyor ve RunOnce ile run arasında değişen bir tavan,
+ * koşunun başını bir eşikle sonunu başkasıyla değerlendirmek olurdu.
+ * Anlık kopya bir kez alınıp buraya geçiliyor.
+ */
+func (r *Runner) run(ctx context.Context, runID int64, dryRun bool, limits Limits) (Report, error) {
 	// 1) Kilit. Alamadıysak başka bir süreç zaten senkronize ediyor.
 	release, acquired, err := r.db.TryLockSync(ctx)
 	if err != nil {
@@ -189,7 +236,7 @@ func (r *Runner) run(ctx context.Context, runID int64) (Report, error) {
 	}
 
 	// 5) Karar (saf fonksiyon).
-	plan := BuildPlan(time.Now(), obs, r.limits)
+	plan := BuildPlan(time.Now(), obs, limits)
 	if plan.Abort != "" {
 		r.logger.Warn("sync aborted by blast-radius guard",
 			"run", runID, "reason", plan.Abort,
@@ -198,7 +245,7 @@ func (r *Runner) run(ctx context.Context, runID int64) (Report, error) {
 		return rep, nil
 	}
 
-	if r.dryRun {
+	if dryRun {
 		for _, a := range plan.Apply {
 			if a.Revoking {
 				rep.Revoked++
@@ -265,25 +312,104 @@ func (r *Runner) run(ctx context.Context, runID int64) (Report, error) {
 
 // Start, periyodik döngüyü çalıştırır ve ctx bitene kadar döner.
 func (r *Runner) Start(ctx context.Context) {
-	r.logger.Info("directory sync started",
-		"interval", r.interval, "grace", r.limits.Grace,
-		"max_zero_fraction", r.limits.MaxZeroFraction,
-		"max_unknown_fraction", r.limits.MaxUnknownFraction,
-		"max_revoke_per_run", r.limits.MaxRevokePerRun,
-		"dry_run", r.dryRun)
+	// ⚠️ ÖNCE AYARLARI OKU, sonra logla. İlk hâlde açılış satırı
+	// YAML'daki varsayılanı yazıyordu: veritabanında dry_run açıkken
+	// log "dry_run=false" diyordu — yani operatörün en çok güvenmesi
+	// gereken satır, en çok önemsediği bayrak hakkında yanlış.
+	enabled, interval := r.refresh(ctx)
+	if interval <= 0 {
+		interval = r.interval
+	}
+	dryRun, limits, _ := r.snapshot()
+	r.logger.Info("directory sync loop started",
+		"enabled", enabled,
+		"interval", interval, "grace", limits.Grace,
+		"max_zero_fraction", limits.MaxZeroFraction,
+		"max_unknown_fraction", limits.MaxUnknownFraction,
+		"max_revoke_per_run", limits.MaxRevokePerRun,
+		"dry_run", dryRun)
 
-	t := time.NewTicker(r.interval)
+	/*
+	 * ⚠️ DÖNGÜ HER ZAMAN ÇALIŞIR, ayar kapalıyken bile.
+	 *
+	 * Eskiden serve yalnızca cfg.Sync.Enabled iken Runner'ı
+	 * başlatıyordu; ayar panele taşınınca bu, "panelden açtım ama
+	 * hiçbir şey olmuyor" demek olurdu — çalışacak bir döngü yok.
+	 *
+	 * ⚠️ AYAR OKUMA SIKLIĞI, KOŞU SIKLIĞINDAN AYRI.
+	 *
+	 * İlk hâlde tik aralığı = senkronizasyon aralığıydı ve ayarlar
+	 * yalnızca tikte okunuyordu. Sonucu: 15 dakikalık aralıkta panelden
+	 * "enabled" yapan operatör 15 dakika boyunca hiçbir şey görmüyordu —
+	 * ve haklı olarak bozuk sanıyordu. Aynısı dry_run için de geçerli,
+	 * ki o düğmenin varlık sebebi HIZLI müdahale.
+	 *
+	 * Şimdi döngü settingsPoll'da bir uyanıp ayarı okuyor, koşuyu ise
+	 * yalnızca aralık dolduğunda yapıyor.
+	 */
+	t := time.NewTicker(settingsPoll)
 	defer t.Stop()
 
+	var last time.Time
 	for {
 		select {
 		case <-ctx.Done():
 			r.logger.Info("directory sync stopped")
 			return
 		case <-t.C:
+			enabled, interval := r.refresh(ctx)
+			if !enabled {
+				continue
+			}
+			if interval <= 0 {
+				interval = r.interval
+			}
+			if time.Since(last) < interval {
+				continue
+			}
+			last = time.Now()
 			if _, err := r.RunOnce(ctx, "timer"); err != nil {
 				r.logger.Error("sync run failed", "error", err)
 			}
 		}
 	}
+}
+
+/*
+ * settingsPoll, ayarların yeniden okunma sıklığı.
+ *
+ * Senkronizasyon aralığından bağımsız ve KISA: buradaki maliyet tek bir
+ * küçük sorgu, karşılığında panelden yapılan bir değişiklik — özellikle
+ * dry_run — saniyeler içinde etkili oluyor.
+ */
+const settingsPoll = 15 * time.Second
+
+/*
+ * refresh, ayarları yeniden okur ve döngünün açık olup olmadığını döner.
+ *
+ * ⚠️ HATA DURUMUNDA KOŞMUYOR. Okunamayan bir ayarla devam etmek, hangi
+ * patlama yarıçapı tavanının geçerli olduğunu bilmeden yetki iptal
+ * etmek demekti — bu döngüde bilinmeyenle devam etmenin bedeli, bir tik
+ * atlamaktan çok daha yüksek.
+ */
+func (r *Runner) refresh(ctx context.Context) (bool, time.Duration) {
+	if r.settings == nil {
+		return true, r.interval
+	}
+
+	s, err := r.settings(ctx)
+	if err != nil {
+		r.logger.Error("sync settings unreadable; skipping this run", "error", err)
+		return false, r.interval
+	}
+
+	r.mu.Lock()
+	r.dryRun = s.Config.DryRun
+	r.limits = s.Config.Limits
+	if s.Config.Timeout > 0 {
+		r.timeout = s.Config.Timeout
+	}
+	r.mu.Unlock()
+
+	return s.Enabled, s.Config.Interval
 }

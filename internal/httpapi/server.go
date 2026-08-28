@@ -11,6 +11,7 @@ import (
 
 	"github.com/warewave/postern/internal/auth"
 	"github.com/warewave/postern/internal/events"
+	"github.com/warewave/postern/internal/groupsync"
 	"github.com/warewave/postern/internal/proxy"
 	"github.com/warewave/postern/internal/record"
 	"github.com/warewave/postern/internal/store"
@@ -48,7 +49,12 @@ type Server struct {
 	// tersi, SetPublicKeyLogin çağırmayı unutan bir yolun kullanıcıları
 	// kapı dışında bırakması demekti.
 	publicKeyLogin bool
-	externalURL    string
+
+	// syncDefaults, YAML'daki sync bloğu — saklanan ayar yokken geçerli
+	// olan değerler. Panel ETKİN değeri göstermek zorunda: "ayarlanmamış"
+	// demek, döngünün 15 dakikada bir koştuğu bir kurulumda yanlış bilgi.
+	syncDefaults groupsync.Settings
+	externalURL  string
 
 	// records nil ise kayıt izleme yapılandırılmamış demektir ve
 	// rotalar HİÇ kurulmaz — kapalı özellik, kapalı yüzey.
@@ -80,6 +86,9 @@ type Server struct {
  * eklenebilirdi ve kapalı sanılan kapı açık kalırdı.
  */
 func (s *Server) SetPublicKeyLogin(on bool) { s.publicKeyLogin = on }
+
+// SetSyncDefaults, YAML'dan gelen senkronizasyon varsayılanlarını bildirir.
+func (s *Server) SetSyncDefaults(d groupsync.Settings) { s.syncDefaults = d }
 
 func (s *Server) SetExternalURL(raw string) {
 	s.externalURL = raw

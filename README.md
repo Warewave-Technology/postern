@@ -198,6 +198,28 @@ An OIDC-claim-only deployment cannot be synchronised at all — a claim
 arrives only when someone logs in, so there is nothing to ask. `sync`
 requires a directory and says so at startup rather than pretending.
 
+Sync is a directory feature, so it is configured on the panel's **LDAP**
+page, next to the directory it reads: enabled, dry run, the interval and
+every blast-radius ceiling. The `sync:` block in the config file is still
+read and still works — it is the **default** for anything the panel has
+not overridden, so an existing deployment loses nothing on upgrade — and
+the panel shows, per setting, whether the value came from the file or
+from the panel.
+
+Runtime beats a restart here for one setting in particular. Dry run
+exists to watch a loop that revokes access before letting it write, and
+"edit a file and restart the bastion" is the wrong cost for the switch
+you reach for when something looks wrong. The loop re-reads its settings
+every few seconds, independently of the sync interval — turning it on at
+a 15-minute interval must not mean fifteen minutes of wondering whether
+it worked.
+
+A stored value that cannot be parsed does not fall back to the default:
+the run is skipped and the reason is logged. `max_revoke_per_run: 2O`
+with a letter O, silently becoming 25 again, would mean a ceiling running
+at a number nobody chose — in a loop that takes access away, that is the
+worst place to be quietly wrong.
+
 ### Registering a target
 
 A target is pinned to its host key, so registering one means deciding

@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/warewave/postern/internal/auth"
+	"github.com/warewave/postern/internal/groupsync"
 	"github.com/warewave/postern/internal/ldap"
 	"github.com/warewave/postern/internal/store"
 )
@@ -34,6 +35,10 @@ func (s *Server) registerFederationRoutes(mux *http.ServeMux) {
 	// sınanabilir yapıyor: dokuz alandan hangisinin yanlış olduğunu
 	// dokuzunu da yazdıktan sonra öğrenmek gerekmesin.
 	mux.Handle("POST /api/admin/ldap/check-connection", admin(s.adminCheckLDAPConnection))
+	// ADAY yapılandırmayı sınar (saklananı değil). Düzenleme ekranı
+	// buna dayanıyor: sınanmamış bir değişiklik canlıya çıkmasın.
+	mux.Handle("POST /api/admin/ldap/verify", admin(s.adminVerifyLDAP))
+	mux.Handle("GET /api/admin/sync/settings", admin(s.adminSyncSettings))
 }
 
 // --- grup eşlemeleri ---
@@ -306,6 +311,19 @@ var knownSettingKeys = map[string]bool{
 	ldap.KeyGroupBase:      true,
 	ldap.KeyGroupFilter:    true,
 	ldap.KeyGroupNameFrom:  true,
+
+	// Dizin senkronizasyonu LDAP'ın bir özelliği ve LDAP panelden
+	// yönetiliyor; ayarlarının yalnızca YAML'da olması, en çok
+	// ihtiyaç duyulan düğmeyi — dry_run — dosya düzenleyip yeniden
+	// başlatmaya bağlıyordu.
+	groupsync.KeyEnabled:            true,
+	groupsync.KeyInterval:           true,
+	groupsync.KeyGrace:              true,
+	groupsync.KeyDryRun:             true,
+	groupsync.KeyMaxZeroFraction:    true,
+	groupsync.KeyMinZeroFloor:       true,
+	groupsync.KeyMaxUnknownFraction: true,
+	groupsync.KeyMaxRevokePerRun:    true,
 }
 
 var _ = store.SettingView{}
@@ -344,4 +362,144 @@ func (s *Server) adminCheckLDAPConnection(w http.ResponseWriter, r *http.Request
 	// isteğin kendisi başarılı. 5xx dönmek panelde "sunucu bozuk" gibi
 	// görünürdü.
 	writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+}
+
+/*
+ * adminVerifyLDAP, GÖNDERİLEN yapılandırmayı sınar — saklananı değil.
+ *
+ * NEDEN GEREKLİ: mevcut test saklanan değerleri okuyor, dolayısıyla yeni
+ * bir değeri sınamanın tek yolu onu önce KAYDETMEKTİ. Yani "çalıştığını
+ * görmeden kaydetme" kuralı, kendi kendini imkânsız kılıyordu: kaydeden
+ * kişi zaten canlı yapılandırmayı bozmuş oluyordu. Bu uç sırayı tersine
+ * çeviriyor — önce kanıtla, sonra yaz.
+ *
+ * ⚠️ SAKLANAN PAROLA YALNIZCA SAKLANAN ADRESE GİDER.
+ *
+ * Parola gönderilmediğinde saklananı kullanmak kolaydı ve kapatılmış bir
+ * sızıntıyı geri açardı (bkz. adminSetSetting'deki "HEDEF DEĞİŞİRSE
+ * KİMLİK BİLGİSİ DÜŞER"): panel admini aday URL'i kendi sunucusuna
+ * çevirip sınamaya basar, postern oraya SAKLANAN parolayla bağlanır ve
+ * parolayı düz metin verirdi. Mühürlemenin tüm amacı — "admin bile
+ * okuyamaz" — bu yolla boşa çıkardı.
+ *
+ * Kural adminSetSetting'inkiyle aynı: nereye bağlanacağını
+ * değiştiriyorsan kimlik bilgisini yeniden gireceksin.
+ */
+func (s *Server) adminVerifyLDAP(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		URL            string `json:"url"`
+		BindDN         string `json:"bind_dn"`
+		BindPassword   string `json:"bind_password"`
+		UserBase       string `json:"user_base"`
+		UserFilter     string `json:"user_filter"`
+		GroupAttribute string `json:"group_attribute"`
+		GroupBase      string `json:"group_base"`
+		GroupFilter    string `json:"group_filter"`
+		GroupNameFrom  string `json:"group_name_from"`
+
+		// User doluysa gruplarını da çözer: "bağlanıyor" ile "bu kişiyi
+		// bulabiliyor" ayrı sorular ve ikincisi asıl merak edilen.
+		User string `json:"user"`
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+
+	if in.BindPassword == "" {
+		stored, err := s.store.Setting(r.Context(), ldapURLKey)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			s.storeErr(w, "ldap.verify", err)
+			return
+		}
+		if stored == "" || stored != in.URL {
+			writeErr(w, http.StatusBadRequest,
+				"enter the bind password: it is only reused for the directory address "+
+					"that is already stored, and this address is different")
+			return
+		}
+		pwd, err := s.store.Setting(r.Context(), ldapBindPasswordKey)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			s.storeErr(w, "ldap.verify", err)
+			return
+		}
+		in.BindPassword = pwd
+	}
+
+	src, err := ldap.New(ldap.Config{
+		URL: in.URL, BindDN: in.BindDN, BindPassword: in.BindPassword,
+		UserBase: in.UserBase, UserFilter: in.UserFilter,
+		GroupAttribute: in.GroupAttribute, GroupBase: in.GroupBase,
+		GroupFilter: in.GroupFilter, GroupNameFrom: in.GroupNameFrom,
+	})
+	if err != nil {
+		// Yapılandırma hatası: istek başarılı, sonuç olumsuz.
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+
+	if err := src.Test(r.Context()); err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+
+	out := map[string]any{"ok": true}
+	if in.User != "" {
+		groups, gerr := src.Groups(r.Context(), auth.Identity{Username: in.User})
+		if gerr != nil {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": gerr.Error()})
+			return
+		}
+		roles, unmapped, rerr := s.store.RolesForGroups(r.Context(), groups)
+		if rerr != nil {
+			s.storeErr(w, "ldap.verify", rerr)
+			return
+		}
+		out["groups"] = groups
+		out["roles"] = roles
+		out["unmapped"] = unmapped
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+/*
+ * adminSyncSettings, senkronizasyonun ETKİN ayarlarını döner.
+ *
+ * ⚠️ Saklanan değil ETKİN: saklanan bir anahtar yoksa YAML'daki değer
+ * geçerli ve döngü onu kullanıyor. Panelde "ayarlanmamış" yazmak,
+ * aslında 15 dakikada bir koşan bir döngü için yanlış bilgi olurdu.
+ * overridden, hangilerinin panelden yazıldığını söylüyor — operatör
+ * neyin dosyadan geldiğini görebilsin.
+ */
+func (s *Server) adminSyncSettings(w http.ResponseWriter, r *http.Request) {
+	eff, err := groupsync.LoadSettings(r.Context(), s.store, s.syncDefaults)
+	if err != nil {
+		// Okunamayan bir ayar SESSİZ KALMAMALI: döngü de o yüzden
+		// koşmuyor ve operatörün sebebini görmesi gerekiyor.
+		writeJSON(w, http.StatusOK, map[string]any{"error": err.Error()})
+		return
+	}
+
+	stored, err := s.store.Settings(r.Context())
+	if err != nil {
+		s.storeErr(w, "sync.settings", err)
+		return
+	}
+	overridden := []string{}
+	for _, v := range stored {
+		if strings.HasPrefix(v.Key, "sync.") && v.Value != "" {
+			overridden = append(overridden, v.Key)
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"enabled":              eff.Enabled,
+		"dry_run":              eff.Config.DryRun,
+		"interval":             eff.Config.Interval.String(),
+		"grace":                eff.Config.Limits.Grace.String(),
+		"max_zero_fraction":    eff.Config.Limits.MaxZeroFraction,
+		"min_zero_floor":       eff.Config.Limits.MinZeroFloor,
+		"max_unknown_fraction": eff.Config.Limits.MaxUnknownFraction,
+		"max_revoke_per_run":   eff.Config.Limits.MaxRevokePerRun,
+		"overridden":           overridden,
+	})
 }

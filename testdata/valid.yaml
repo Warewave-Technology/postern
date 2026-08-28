@@ -64,6 +64,10 @@ oidc:
 
 # Periyodik dizin senkronizasyonu. VARSAYILAN KAPALI.
 #
+# ⚠️ Buradaki değerler artık VARSAYILAN: panelin LDAP sayfasından
+# yazılan ayar bunları ezer ve çalışan süreç yeniden başlatılmadan
+# uygular. Panel her ayarın nereden geldiğini (dosya / panel) yazıyor.
+#
 # ⚠️ Açıldığında bu döngü OTOMATİK OLARAK YETKİ İPTAL EDER.
 # Önce dry_run: true ile bir süre koşturup `postern sync status`
 # çıktısına bakın.

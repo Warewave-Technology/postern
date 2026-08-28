@@ -186,7 +186,39 @@ func newServeCmd() *cobra.Command {
 				// sunucuyla başlar" kuralını bir gelenek olmaktan
 				// çıkarıp yapısal hâle getiriyor: diğer alt komutlar
 				// çıplak bir Store açıyor ve bu koda hiç ulaşamıyor.
-				if cfg.Sync.Enabled {
+				/*
+				 * ⚠️ DÖNGÜ HER ZAMAN BAŞLIYOR, cfg.Sync.Enabled'a
+				 * bakılmadan.
+				 *
+				 * Ayar artık panelden de değişebiliyor ve yalnızca
+				 * YAML'a bakıp başlatmamak, "panelden açtım ama hiçbir
+				 * şey olmuyor" demek olurdu — çalışacak bir döngü yok.
+				 * Döngü uyuyor ve her tikte açık mı diye soruyor.
+				 *
+				 * YAML bloğu VARSAYILAN olarak duruyor: saklanan anahtar
+				 * yoksa dosyadaki değer geçerli, yani mevcut kurulumlar
+				 * yükseltmeden sonra ayar kaybetmiyor.
+				 */
+				syncFallback := groupsync.Settings{
+					Enabled: cfg.Sync.Enabled,
+					Config: groupsync.Config{
+						Interval: cfg.Sync.IntervalOrDefault(),
+						Timeout:  cfg.Sync.TimeoutOrDefault(),
+						DryRun:   cfg.Sync.DryRun,
+						Limits: groupsync.Limits{
+							Grace:              cfg.Sync.GraceOrDefault(),
+							MaxZeroFraction:    cfg.Sync.MaxZeroFractionOrDefault(),
+							MinZeroFloor:       cfg.Sync.MinZeroFloorOrDefault(),
+							MaxUnknownFraction: cfg.Sync.MaxUnknownFractionOrDefault(),
+							MaxRevokePerRun:    cfg.Sync.MaxRevokePerRunOrDefault(),
+						},
+					},
+				}
+				// Panel de ETKİN değeri gösterebilsin: saklanan ayar
+				// yokken geçerli olan bu.
+				webAPI.SetSyncDefaults(syncFallback)
+
+				{
 					runner := groupsync.NewRunner(db,
 						func(c context.Context) (groupsync.Directory, error) {
 							// HER koşuda yeniden açılıyor: LDAP ayarı
@@ -195,18 +227,11 @@ func newServeCmd() *cobra.Command {
 							// sorgu atmaya devam ederdi.
 							return ldap.SourceFromStore(c, db)
 						},
-						groupsync.Config{
-							Interval: cfg.Sync.IntervalOrDefault(),
-							Timeout:  cfg.Sync.TimeoutOrDefault(),
-							DryRun:   cfg.Sync.DryRun,
-							Limits: groupsync.Limits{
-								Grace:              cfg.Sync.GraceOrDefault(),
-								MaxZeroFraction:    cfg.Sync.MaxZeroFractionOrDefault(),
-								MinZeroFloor:       cfg.Sync.MinZeroFloorOrDefault(),
-								MaxUnknownFraction: cfg.Sync.MaxUnknownFractionOrDefault(),
-								MaxRevokePerRun:    cfg.Sync.MaxRevokePerRunOrDefault(),
-							},
-						}, logger)
+						syncFallback.Config, logger)
+
+					runner.UseSettings(func(c context.Context) (groupsync.Settings, error) {
+						return groupsync.LoadSettings(c, db, syncFallback)
+					})
 
 					go runner.Start(ctx)
 				}
