@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, Target, toMessage } from "../api";
+import { ScannedKey, api, Target, toMessage } from "../api";
 import { ActionButton, ErrorLine, ListState, OkLine, useList } from "./common";
 import DataTable, { Column } from "./DataTable";
 import TargetDetail from "./TargetDetail";
@@ -44,6 +44,40 @@ export default function Targets() {
   const [selected, setSelected] = useState<string | null>(null);
   // Kayıt formu MODALDA: sayfanın işi listeyi göstermek.
   const [adding, setAdding] = useState(false);
+
+  /*
+   * Taranmış anahtar ve onayı.
+   *
+   * ⚠️ scan DOLUYSA confirmed ŞART. Anahtar yapıştırıldığında operatör
+   * onu zaten bir yerden getirmiş oluyor — bilinçli bir eylem. Tarandığında
+   * ise makineyi postern seçti ve karşılaştırma yapılmadı: onay kutusu,
+   * o karşılaştırmanın yapıldığını söyleyen tek şey. Kutusuz bir "tara ve
+   * kaydet" akışı, ağ yolundaki birinin sunduğu anahtarı tek tıkla
+   * pinletirdi.
+   */
+  const [scan, setScan] = useState<ScannedKey | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [scanErr, setScanErr] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
+
+  const doScan = () => {
+    setScanErr("");
+    setScanning(true);
+    return api
+      .scanHostKey(host.trim(), portNum)
+      .then((k) => {
+        setScan(k);
+        setHostKey(k.authorized_key);
+        // Her yeni taramada onay SIFIRLANIR: önceki anahtar için
+        // verilen onay yenisini kapsamaz.
+        setConfirmed(false);
+      })
+      .catch((e: unknown) => {
+        setScan(null);
+        setScanErr(toMessage(e));
+      })
+      .finally(() => setScanning(false));
+  };
   const [ok, setOk] = useState("");
   const [name, setName] = useState("");
   const [host, setHost] = useState("");
@@ -319,7 +353,12 @@ export default function Targets() {
 
       <Modal
         open={adding}
-        onClose={() => setAdding(false)}
+        onClose={() => {
+          setAdding(false);
+          setScan(null);
+          setScanErr("");
+          setConfirmed(false);
+        }}
         title="Register target"
         description="Everything here comes off the machine itself; nothing is guessed."
       >
@@ -378,6 +417,81 @@ export default function Targets() {
           doğal (20 sütunluk) genişliğine hapsediyor, htmlFor bağı ise
           erişilebilir adı aynı şekilde verip tam genişliği koruyor.
         */}
+        <div className="field-row">
+          <ActionButton
+            onClick={doScan}
+            disabled={!host.trim() || !portOk || scanning}
+            label="fetch the host key from this address"
+          >
+            {scanning ? "Fetching…" : "Fetch host key"}
+          </ActionButton>
+          <span className="note" style={{ flex: 1, minWidth: "12rem" }}>
+            Reads the key the machine offers right now. You still have to
+            confirm it.
+          </span>
+        </div>
+
+        <ErrorLine msg={scanErr} />
+
+        {scan && (
+          /*
+            ⚠️ BU BİR DOĞRULAMA DEĞİL, BİR SORU — ve metin bunu söylüyor.
+            İlk SSH bağlantısındaki soruyla aynı: anahtar bu, doğru mu?
+            Postern bunu ağdan aldı ve ağdan gelen her şey gibi
+            sorgulanabilir; onay kutusu, karşılaştırmanın yapıldığını
+            söyleyen tek kayıt.
+          */
+          <div className="keycheck">
+            <p className="keycheck-q">Is this the right key?</p>
+            <p className="keycheck-fp">
+              <code>{scan.fingerprint}</code>
+            </p>
+            <p className="note">
+              {scan.key_type} · offered by {host}:{portOk ? portNum : "?"} just
+              now. postern read this over the network and nothing has verified
+              it.
+              {scan.key_file && (
+                <>
+                  {" "}
+                  Compare it with the host itself:{" "}
+                  <code>ssh-keygen -lf {scan.key_file}</code>
+                </>
+              )}
+            </p>
+
+            {/*
+              ⚠️ İKİ ÇAKIŞMA AYRI SESLE. Aynı makinenin başka TÜRDEN
+              anahtarı sık ve masum; aynı türde BAŞKA anahtar ise
+              alarmdır. İkisini aynı kırmızıyla söylemek, alarmı
+              işe yaramaz yapardı.
+            */}
+            {scan.conflicts_with && scan.conflict_kind === "different-type" && (
+              <p className="msg msg-warn" role="status">
+                {scan.conflicts_with} is already registered at this address with
+                a key of a different type. Probably the same machine — but you
+                are about to pin a second, separate identity for it.
+              </p>
+            )}
+            {scan.conflicts_with && scan.conflict_kind !== "different-type" && (
+              <p className="msg msg-error" role="alert">
+                {scan.conflicts_with} is already registered at this address with
+                a <b>different key of the same type</b>. Either the host was
+                rebuilt, or this is not the machine you think it is. Do not
+                confirm until you know which.
+              </p>
+            )}
+
+            <label className="keycheck-ok">
+              <input
+                type="checkbox"
+                checked={confirmed}
+                onChange={(e) => setConfirmed(e.target.checked)}
+              />
+              This matches the fingerprint on the host
+            </label>
+          </div>
+        )}
+
         <label htmlFor="target-host-key">Host public key</label>
         {/*
           cols YOK: cols={70} telefonda alanı ekrandan taşırıp SAYFAYI
@@ -388,7 +502,12 @@ export default function Targets() {
           id="target-host-key"
           rows={2}
           value={hostKey}
-          onChange={(e) => setHostKey(e.target.value)}
+          onChange={(e) => {
+            setHostKey(e.target.value);
+            // Elle değiştirildiyse artık "taranmış" değil: onay kutusu
+            // kalkıyor, çünkü onaylanan parmak izi bu değil.
+            if (scan && e.target.value.trim() !== scan.authorized_key) setScan(null);
+          }}
           placeholder="ssh-ed25519 AAAA…"
         />
         <p className="note">
@@ -402,7 +521,15 @@ export default function Targets() {
         <ActionButton
           variant="primary"
           onClick={() => create().then((ok) => ok && setAdding(false))}
-          disabled={!name || !host || !hostKey.trim() || !portOk || !labelsOk}
+          disabled={
+            !name ||
+            !host ||
+            !hostKey.trim() ||
+            !portOk ||
+            !labelsOk ||
+            // Taranmış anahtar ONAYSIZ kaydedilemez.
+            (scan !== null && !confirmed)
+          }
         >
           Register target
         </ActionButton>

@@ -12,6 +12,7 @@ const me: Me = {
   admin: false,
   targets: ["web01"],
   terminal_enabled: true,
+  public_key_login: true,
 };
 
 describe("App önyükleme", () => {

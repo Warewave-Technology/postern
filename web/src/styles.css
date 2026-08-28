@@ -1108,6 +1108,61 @@ label > input, label > select, label > textarea { color: var(--ink); font-weight
 }
 
 /* ============================================================
+   17c. Host key onayı
+   ============================================================ */
+/*
+ * İlk SSH bağlantısındaki soruyla aynı: anahtar bu, doğru mu?
+ * Parmak izi EKRANDAKİ EN BÜYÜK ŞEY olmalı — onaylanacak olan o.
+ */
+.keycheck {
+  margin: 0.9rem 0;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--warn-line);
+  border-left-width: 3px;
+  border-left-color: var(--warn);
+  border-radius: var(--radius);
+  background: var(--warn-bg);
+}
+.keycheck-q {
+  margin: 0 0 0.5rem;
+  font-weight: 650;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.keycheck-fp {
+  margin: 0 0 0.6rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.keycheck-fp code { font-size: 13px; color: var(--ink); }
+.keycheck .note { color: var(--ink); opacity: 0.85; }
+.keycheck .msg { margin: 0.7rem 0 0; }
+
+/* Onay kutusu: satır içi, kendi etiketiyle tıklanabilir. */
+.keycheck-ok {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.8rem;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--ink);
+  cursor: pointer;
+}
+.keycheck-ok input { width: 1rem; height: 1rem; accent-color: var(--accent); }
+
+/* İki sütun ancak yer varken: dar ekranda yan yana iki kart, ikisini de
+   okunmaz genişliğe sıkıştırıyordu. */
+@media (max-width: 62rem) {
+  .detail-grid { grid-template-columns: minmax(0, 1fr); }
+  .detail-grid .card-head { min-height: 0; }
+}
+
+/* ============================================================
    18. Tema anahtarı
    ============================================================ */
 /*
@@ -1266,14 +1321,39 @@ label > input, label > select, label > textarea { color: var(--ink); font-weight
 /* ============================================================
    20. Hedef detay sayfası
    ============================================================ */
+/*
+ * ⚠️ SÜTUNLAR SABİT, auto-fit DEĞİL.
+ *
+ * auto-fit ile kartlar ekran genişliğine göre yeniden diziliyor:
+ * "Labels" bir açılışta sağda, diğerinde solun altında çıkıyor ve aynı
+ * sayfa her seferinde başka görünüyordu. Bir makinenin künyesinde
+ * bilginin yeri sabit olmalı — göz aynı bilgiyi aynı yerde arar.
+ */
 .detail-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
   gap: 1.1rem;
   align-items: start;
 }
+.detail-main,
+.detail-side {
+  display: grid;
+  gap: 1.1rem;
+  align-content: start;
+  min-width: 0;
+}
 .detail-grid .card { margin-bottom: 0; }
 .detail-wide { grid-column: 1 / -1; }
+
+/* Kart başlıkları AYNI yüksekliği tutuyor: iki sütun yan yana
+   dururken başlıkları farklı hizalarda başlayan kartlar, ızgarayı
+   olduğundan dağınık gösteriyordu. */
+.detail-grid .card-head { min-height: 4.9rem; }
+
+/* Etiket sütunu SABİT genişlikte: değerler bütün kartlarda aynı
+   düşey çizgide başlıyor. Değişken genişlik, her kartta başka bir
+   hizalama demekti. */
+.detail-grid .kv { grid-template-columns: 7.5rem minmax(0, 1fr); }
 
 /* ============================================================
    21. Tam ekran kabuk (/shell/<target>)
@@ -1360,4 +1440,6 @@ label > input, label > select, label > textarea { color: var(--ink); font-weight
   .card-grid { grid-template-columns: minmax(0, 1fr); }
   .shell-hint { display: none; }
   .detail-grid { grid-template-columns: minmax(0, 1fr); }
+  .detail-grid .card-head { min-height: 0; }
+  .detail-grid .kv { grid-template-columns: minmax(0, 1fr); }
 }

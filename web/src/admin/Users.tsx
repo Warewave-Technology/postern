@@ -11,7 +11,7 @@ import Modal from "./Modal";
 // Yalnızca kullanıcı oluşturabilen bir panel, yöneticiyi işi bitirmek
 // için hosttaki CLI'a geri gönderiyordu — o hâlde panelin varlığı
 // kullanıcıya yalnızca yarım bir yol gösteriyor demekti.
-export default function Users() {
+export default function Users({ publicKeyLogin }: { publicKeyLogin: boolean }) {
   const { items, error, denied, loading, refresh, setError } = useList<User>(api.users);
   // Roller ayrıca çekiliyor: adı elle yazdırmak, tek harf yanlışında
   // "role not found" veren bir atama demekti.
@@ -211,24 +211,35 @@ export default function Users() {
         );
       },
     },
-    {
-      key: "keys",
-      header: "Keys",
-      className: "num",
-      value: (u) => u.keys,
-      render: (u) => (
-        <div className="cell-form">
-          {u.keys === 0 ? <span className="muted">none</span> : u.keys}
-          <button
-            onClick={() => toggleKeys(u.name)}
-            aria-expanded={keysFor === u.name}
-            aria-label={`manage SSH keys for ${u.name}`}
-          >
-            {keysFor === u.name ? "Close" : "Keys"}
-          </button>
-        </div>
-      ),
-    },
+    /*
+     * ⚠️ Anahtar sütunu, anahtar girişi KAPALIYKEN HİÇ ÇİZİLMİYOR.
+     *
+     * Devre dışı bir düğme göstermek daha kötü olurdu: kullanıcı
+     * özelliğin bozuk mu yoksa kapalı mı olduğunu ayırt edemez.
+     * Sayfanın altındaki not sebebi yazıyor.
+     */
+    ...(publicKeyLogin
+      ? [
+          {
+            key: "keys",
+            header: "Keys",
+            className: "num",
+            value: (u: User) => u.keys,
+            render: (u: User) => (
+              <div className="cell-form">
+                {u.keys === 0 ? <span className="muted">none</span> : u.keys}
+                <button
+                  onClick={() => toggleKeys(u.name)}
+                  aria-expanded={keysFor === u.name}
+                  aria-label={`manage SSH keys for ${u.name}`}
+                >
+                  {keysFor === u.name ? "Close" : "Keys"}
+                </button>
+              </div>
+            ),
+          } as Column<User>,
+        ]
+      : []),
     {
       key: "actions",
       header: "Actions",
@@ -296,7 +307,7 @@ export default function Users() {
         />
       )}
 
-      {keysUser && (
+      {publicKeyLogin && keysUser && (
         <div className="panel">
           <div className="panel-header">
             <h3>SSH keys — {keysUser.name}</h3>
@@ -344,6 +355,15 @@ export default function Users() {
             </ActionButton>
           </div>
         </div>
+      )}
+
+      {!publicKeyLogin && (
+        <p className="note">
+          Key-based sign-in is switched off on this bastion
+          (<code>auth.public_key_login</code>), so keys are not managed here.
+          Everyone signs in through the identity provider — which is also what
+          makes an account disabled there actually lose access.
+        </p>
       )}
 
       <Modal

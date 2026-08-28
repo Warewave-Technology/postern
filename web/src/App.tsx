@@ -244,7 +244,7 @@ export default function App() {
 
             <div>
               {section === "overview" && <Overview />}
-              {section === "users" && <Users />}
+              {section === "users" && <Users publicKeyLogin={me.public_key_login} />}
               {section === "roles" && <Roles />}
               {section === "mappings" && <Mappings />}
               {section === "targets" && <Targets />}

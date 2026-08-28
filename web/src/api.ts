@@ -10,6 +10,9 @@ export type Me = {
   // hiç göstermez: olmayan bir kapıyı sunup 404 aldırmak, kullanıcıya
   // özelliğin BOZUK olduğunu düşündürür.
   terminal_enabled: boolean;
+  /** Anahtarla giriş açık mı (auth.public_key_login). Kapalıysa panel
+   *  anahtar yönetimini hiç çizmiyor — asıl koruma sunucuda. */
+  public_key_login: boolean;
 };
 export type User = { name: string; os_user: string; admin: boolean; roles: string[]; keys: number };
 export type Role = { name: string; targets: string[] };
@@ -30,6 +33,20 @@ export type MyTarget = {
   labels: Record<string, string>;
   server_version?: string;
   last_seen_at?: string;
+};
+
+/** ScannedKey, bir adresteki makinenin O ANDA sunduğu host key.
+ *  ⚠️ Doğrulanmış değil: operatörün makineyle karşılaştırması gerekiyor. */
+export type ScannedKey = {
+  key_type: string;
+  fingerprint: string;
+  authorized_key: string;
+  /** Hedefteki dosya yolu — doğrulama komutu için. Sunucu türetiyor. */
+  key_file?: string;
+  conflicts_with?: string;
+  /** "different-type": aynı makinenin başka türden anahtarı (sık ve
+   *  masum). "different-key": AYNI türde BAŞKA anahtar (alarm). */
+  conflict_kind?: "different-type" | "different-key";
 };
 
 export type TargetFacts = {
@@ -159,6 +176,8 @@ export const api = {
 
   targets: () => req<Target[]>("GET", "/api/admin/targets"),
   myTargets: () => req<MyTarget[]>("GET", "/api/targets"),
+  scanHostKey: (host: string, port: number) =>
+    req<ScannedKey>("POST", "/api/admin/targets/scan", { host, port }),
   targetDetail: (name: string) =>
     req<TargetDetail>("GET", `/api/admin/targets/${encodeURIComponent(name)}`),
   createTarget: (t: {
