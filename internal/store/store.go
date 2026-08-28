@@ -291,6 +291,20 @@ func (s *Store) Targets(ctx context.Context) ([]model.Target, error) {
 	if err = rows.Err(); err != nil {
 		return nil, translateErr("store.Targets", err)
 	}
+	// rows KAPANDIKTAN sonra: aynı bağlantı üzerinde açık bir sonuç
+	// kümesi dururken ikinci sorgu açmak, havuzdan fazladan bağlantı
+	// tutmak demek.
+	rows.Close()
+
+	// Etiketler TEK sorguyla: hedef başına ayrı sorgu, elli hedefli bir
+	// listede elli gidiş dönüş olurdu (N+1).
+	labels, err := s.allTargetLabels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range targets {
+		targets[i].Labels = labels[targets[i].Name]
+	}
 
 	return targets, nil
 }

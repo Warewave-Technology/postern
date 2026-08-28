@@ -42,6 +42,8 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/admin/targets", admin(s.adminListTargets))
 	mux.Handle("POST /api/admin/targets", admin(s.adminCreateTarget))
 	mux.Handle("DELETE /api/admin/targets/{name}", admin(s.adminDeleteTarget))
+	mux.Handle("PUT /api/admin/targets/{name}/labels/{key}", admin(s.adminSetTargetLabel))
+	mux.Handle("DELETE /api/admin/targets/{name}/labels/{key}", admin(s.adminDeleteTargetLabel))
 
 	mux.Handle("GET /api/admin/sessions", admin(s.adminListSessions))
 	mux.Handle("GET /api/admin/log", admin(s.adminListLog))
@@ -477,10 +479,11 @@ func (s *Server) adminListTargets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type row struct {
-		Name        string `json:"name"`
-		Host        string `json:"host"`
-		Port        int    `json:"port"`
-		Fingerprint string `json:"fingerprint"`
+		Name        string            `json:"name"`
+		Host        string            `json:"host"`
+		Port        int               `json:"port"`
+		Fingerprint string            `json:"fingerprint"`
+		Labels      map[string]string `json:"labels"`
 	}
 	out := make([]row, 0, len(targets))
 	for _, t := range targets {
@@ -488,17 +491,24 @@ func (s *Server) adminListTargets(w http.ResponseWriter, r *http.Request) {
 		if pub, _, _, _, err := ssh.ParseAuthorizedKey([]byte(t.HostKey)); err == nil {
 			fp = ssh.FingerprintSHA256(pub)
 		}
-		out = append(out, row{Name: t.Name, Host: t.Host, Port: t.Port, Fingerprint: fp})
+		labels := t.Labels
+		if labels == nil {
+			// nil map JSON'da null oluyor ve istemcide Object.entries
+			// patlıyor. Boş nesne, "etiketi yok"un doğru karşılığı.
+			labels = map[string]string{}
+		}
+		out = append(out, row{Name: t.Name, Host: t.Host, Port: t.Port, Fingerprint: fp, Labels: labels})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) adminCreateTarget(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Name    string `json:"name"`
-		Host    string `json:"host"`
-		Port    int    `json:"port"`
-		HostKey string `json:"host_key"`
+		Name    string            `json:"name"`
+		Host    string            `json:"host"`
+		Port    int               `json:"port"`
+		HostKey string            `json:"host_key"`
+		Labels  map[string]string `json:"labels"`
 	}
 	if !readJSON(w, r, &in) {
 		return
@@ -515,6 +525,16 @@ func (s *Server) adminCreateTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ⚠️ ETİKETLER HEDEFİ AÇMADAN ÖNCE DOĞRULANIYOR. Sonra doğrulasaydık
+	// geçersiz tek bir anahtar, hedefi açılmış ama etiketsiz bırakır ve
+	// operatör hata mesajına bakıp isteğin hiç işlemediğini sanırdı.
+	for k, v := range in.Labels {
+		if err := store.ValidateLabel(k, v); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+
 	// CLI ile aynı kural: kanonik satır saklanır — aynı anahtarın iki
 	// farklı metni iki farklı değer gibi görünmesin.
 	_, err := s.store.CreateTarget(r.Context(), model.Target{
@@ -526,6 +546,44 @@ func (s *Server) adminCreateTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "target.create", in.Name, in.Host)
+
+	for k, v := range in.Labels {
+		if err := s.store.SetTargetLabel(r.Context(), in.Name, k, v, sessionUser(r), "web"); err != nil {
+			// Hedef açıldı, etiket takılamadı: sessiz kalmak yerine söyle.
+			// İstemci listeyi tazelediğinde eksik etiketi görecek.
+			s.storeErr(w, "target.label_set", err)
+			return
+		}
+	}
+	ok(w)
+}
+
+// adminSetTargetLabel, etiketi ekler ya da değiştirir.
+//
+// Denetim satırını STORE yazıyor (bkz. store.SetTargetLabel), burada
+// değil: aynı işi CLI de yapıyor ve iki yolun ayrı ayrı loglaması,
+// birinin unutulması demekti.
+func (s *Server) adminSetTargetLabel(w http.ResponseWriter, r *http.Request) {
+	name, key := r.PathValue("name"), r.PathValue("key")
+	var in struct {
+		Value string `json:"value"`
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	if err := s.store.SetTargetLabel(r.Context(), name, key, in.Value, sessionUser(r), "web"); err != nil {
+		s.storeErr(w, "target.label_set", err)
+		return
+	}
+	ok(w)
+}
+
+func (s *Server) adminDeleteTargetLabel(w http.ResponseWriter, r *http.Request) {
+	name, key := r.PathValue("name"), r.PathValue("key")
+	if err := s.store.DeleteTargetLabel(r.Context(), name, key, sessionUser(r), "web"); err != nil {
+		s.storeErr(w, "target.label_remove", err)
+		return
+	}
 	ok(w)
 }
 

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -23,6 +25,7 @@ func newTargetCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newTargetAddCmd())
 	cmd.AddCommand(newTargetListCmd())
+	cmd.AddCommand(newTargetLabelCmd())
 	return cmd
 }
 
@@ -164,7 +167,7 @@ func newTargetListCmd() *cobra.Command {
 			}
 
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "NAME\tHOST\tPORT\tHOST KEY")
+			fmt.Fprintln(w, "NAME\tHOST\tPORT\tLABELS\tHOST KEY")
 
 			for _, t := range targets {
 				// 550 karakterlik base64 satırı yerine parmak izi: insan
@@ -173,7 +176,8 @@ func newTargetListCmd() *cobra.Command {
 				if pub, _, _, _, err := ssh.ParseAuthorizedKey([]byte(t.HostKey)); err == nil {
 					fingerprint = ssh.FingerprintSHA256(pub)
 				}
-				fmt.Fprintf(w, "%s\t%s\t%d\t%s\n", t.Name, t.Host, t.Port, fingerprint)
+				fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\n",
+					t.Name, t.Host, t.Port, formatLabels(t.Labels), fingerprint)
 			}
 
 			return w.Flush()
@@ -181,5 +185,106 @@ func newTargetListCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
+	return cmd
+}
+
+// formatLabels, etiketleri sıralı ve okunur tek satıra çevirir.
+//
+// SIRALI: Go'da map yineleme sırası rastgele ve sıralamazsak aynı
+// hedefin çıktısı her koşuda farklı görünür — iki çıktıyı diff'leyen
+// operatör için gürültü.
+func formatLabels(l map[string]string) string {
+	if len(l) == 0 {
+		return "-"
+	}
+	keys := make([]string, 0, len(l))
+	for k := range l {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, k+"="+l[k])
+	}
+	return strings.Join(parts, ",")
+}
+
+// newTargetLabelCmd, hedef etiketleri.
+func newTargetLabelCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "label",
+		Short: "Manage target labels",
+	}
+	cmd.AddCommand(newTargetLabelSetCmd(), newTargetLabelRemoveCmd())
+	return cmd
+}
+
+func newTargetLabelSetCmd() *cobra.Command {
+	var configPath, target, key, value string
+
+	cmd := &cobra.Command{
+		Use:   "set",
+		Short: "Add or change a label on a target",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load(configPath)
+			if err != nil {
+				return err
+			}
+			ctx := context.Background()
+			db, err := store.Open(ctx, cfg.Database.DSN)
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+
+			if err := db.SetTargetLabel(ctx, target, key, value, cliActor(), "cli"); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "target %q: %s=%s\n", target, key, value)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
+	cmd.Flags().StringVar(&target, "target", "", "hedef adı (zorunlu)")
+	cmd.Flags().StringVar(&key, "key", "", "etiket anahtarı (zorunlu)")
+	cmd.Flags().StringVar(&value, "value", "", "etiket değeri")
+	_ = cmd.MarkFlagRequired("target")
+	_ = cmd.MarkFlagRequired("key")
+	return cmd
+}
+
+func newTargetLabelRemoveCmd() *cobra.Command {
+	var configPath, target, key string
+
+	cmd := &cobra.Command{
+		Use:   "remove",
+		Short: "Remove a label from a target",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load(configPath)
+			if err != nil {
+				return err
+			}
+			ctx := context.Background()
+			db, err := store.Open(ctx, cfg.Database.DSN)
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+
+			if err := db.DeleteTargetLabel(ctx, target, key, cliActor(), "cli"); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "target %q: label %q removed\n", target, key)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
+	cmd.Flags().StringVar(&target, "target", "", "hedef adı (zorunlu)")
+	cmd.Flags().StringVar(&key, "key", "", "etiket anahtarı (zorunlu)")
+	_ = cmd.MarkFlagRequired("target")
+	_ = cmd.MarkFlagRequired("key")
 	return cmd
 }

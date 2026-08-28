@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -234,8 +235,18 @@ func TestTargetRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Target: %v", err)
 	}
-	if got != want {
+	// reflect.DeepEqual: Target artık bir map (Labels) taşıyor ve struct
+	// eşitliği derlenmiyor.
+	//
+	// ⚠️ Target() etiketleri YÜKLEMİYOR ve bu bilinçli: burası oturum
+	// açma yolunun tekil okuması, her bağlantıda ikinci bir sorgu hiç
+	// kullanılmayan bir alan için olurdu. Etiketler yalnızca listeleme
+	// yolunda dolu (bkz. store.Targets), o yüzden burada nil bekleniyor.
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Target = %+v, beklenen %+v", got, want)
+	}
+	if got.Labels != nil {
+		t.Errorf("Target() etiketleri yüklememeli (oturum açma yolu): %v", got.Labels)
 	}
 
 	if _, err := s.Target(ctx, "yok"); !errors.Is(err, ErrNotFound) {
