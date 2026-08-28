@@ -7,6 +7,12 @@
 // sessizce ayrışmasına açık kapı bırakırdı.
 package sshalg
 
+import (
+	"strings"
+
+	"golang.org/x/crypto/ssh"
+)
+
 // SSH taşıma algoritmaları.
 //
 // ⚠️ NEDEN AÇIKÇA YAZILIYOR: x/crypto'nun varsayılanları UYUMLULUK
@@ -53,4 +59,53 @@ var MACs = []string{
 	"hmac-sha2-512-etm@openssh.com",
 	"hmac-sha2-256",
 	"hmac-sha2-512",
+}
+
+/*
+ * HostKeyAlgorithms, hedefin host key'ini TARARKEN istediğimiz türler,
+ * TERCİH SIRASINDA.
+ *
+ * ⚠️ SIRA ÖNEMLİ ve liste kısıtlanmak ZORUNDA. Kısıtlamayınca sunucunun
+ * keyfi tercihi geliyordu: ölçüldü, OpenSSH 9.7 taramaya
+ * ecdsa-sha2-nistp256 döndü. Pinlenen tür sonradan postern'in pazarlık
+ * edeceği tür olduğu için (bkz. upstream.hostKeyCallback, algoları
+ * pinlenmiş anahtardan türetiyor), taramanın "sunucu ne derse" değil
+ * "elimizdekilerin en iyisi" seçmesi gerekiyor.
+ *
+ * ed25519 önce: küçük, hızlı, eğri seçimi tartışmasız. Sonra RSA'nın
+ * SHA-2 varyantları. NIST eğrileri en sonda — destekleniyor, çünkü
+ * yalnızca onu sunan hedefler var ve o hedefi kaydedememek onu
+ * korumasız bırakmak olurdu.
+ */
+var HostKeyAlgorithms = []string{
+	ssh.KeyAlgoED25519,
+	ssh.KeyAlgoRSASHA512,
+	ssh.KeyAlgoRSASHA256,
+	ssh.KeyAlgoECDSA256,
+	ssh.KeyAlgoECDSA384,
+	ssh.KeyAlgoECDSA521,
+}
+
+/*
+ * HostKeyFile, bir anahtar türünün hedefteki DOSYA ADI.
+ *
+ * ⚠️ Tür adından türetilemiyor. İlk hâlde "ssh-" öneki kırpılıyordu ve
+ * ecdsa-sha2-nistp256 için "ssh_host_ecdsa-sha2-nistp256_key.pub" gibi
+ * var olmayan bir yol üretiyordu — operatöre verilen doğrulama komutu
+ * çalışmıyordu, yani onaylaması istenen şeyi karşılaştıramıyordu.
+ */
+func HostKeyFile(keyType string) string {
+	switch {
+	case keyType == ssh.KeyAlgoED25519:
+		return "/etc/ssh/ssh_host_ed25519_key.pub"
+	case strings.HasPrefix(keyType, "ecdsa-"):
+		return "/etc/ssh/ssh_host_ecdsa_key.pub"
+	case keyType == ssh.KeyAlgoRSA || strings.HasPrefix(keyType, "rsa-sha2-"):
+		return "/etc/ssh/ssh_host_rsa_key.pub"
+	default:
+		// Bilinmeyen tür: yol UYDURULMUYOR. Yanlış bir dosya adı,
+		// operatörü "dosya yok" hatasıyla uğraştırıp doğrulamadan
+		// vazgeçirir.
+		return ""
+	}
 }

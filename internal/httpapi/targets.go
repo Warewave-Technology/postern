@@ -2,13 +2,18 @@ package httpapi
 
 import (
 	"errors"
+	"net"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/ssh"
 
 	"github.com/warewave/postern/internal/model"
+	"github.com/warewave/postern/internal/sshalg"
 	"github.com/warewave/postern/internal/store"
+	"github.com/warewave/postern/internal/upstream"
 )
 
 // registerTargetRoutes, hedeflerle ilgili iki ucu bağlar.
@@ -17,6 +22,12 @@ func (s *Server) registerTargetRoutes(mux *http.ServeMux) {
 	// döndürüyor ve ana ekranı besliyor. Yetki sınırı gövdede: liste
 	// kullanıcının rollerinden türüyor, istemcinin sorduğundan değil.
 	mux.Handle("GET /api/targets", noStore(s.requireSession(http.HandlerFunc(s.handleMyTargets))))
+
+	// Tarama YAZMA gibi korunuyor (sameOrigin): hedefe ağdan bağlanan,
+	// yan etkisi olan bir eylem. GET olsaydı bir <img> etiketiyle
+	// tetiklenebilirdi.
+	mux.Handle("POST /api/admin/targets/scan",
+		noStore(s.requireSession(s.requireAdmin(s.sameOrigin(http.HandlerFunc(s.adminScanTarget))))))
 
 	mux.Handle("GET /api/admin/targets/{name}",
 		noStore(s.requireSession(s.requireAdmin(s.sameOrigin(http.HandlerFunc(s.adminTargetDetail))))))
@@ -253,4 +264,93 @@ func fingerprintOf(t model.Target) string {
 		return "(invalid key)"
 	}
 	return ssh.FingerprintSHA256(pub)
+}
+
+/*
+ * adminScanTarget, bir adresteki makinenin SUNDUĞU host key'i getirir.
+ *
+ * ⚠️ DÖNEN ANAHTAR GÜVENİLİR DEĞİL ve bu uç öyle davranmıyor: hiçbir şey
+ * kaydetmiyor, hiçbir hedefi değiştirmiyor. Yalnızca "o adreste şu anda
+ * cevap veren makine bu anahtarı sunuyor" diyor. Güveni kuran adım
+ * panelde: parmak izi operatöre gösteriliyor ve makinenin kendisiyle
+ * karşılaştırdığını AÇIKÇA onaylaması isteniyor (TOFU).
+ *
+ * Neden yine de değerli: yapıştırmalı akış da aynı TOFU'ydu — operatör
+ * `ssh-keyscan`i çoğu zaman aynı ağdan çalıştırıp yapıştırıyordu. Bu
+ * akış yazım hatasını ve alanı boş bırakma cazibesini kaldırıyor.
+ */
+func (s *Server) adminScanTarget(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Host string `json:"host"`
+		Port int    `json:"port"`
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	if strings.TrimSpace(in.Host) == "" {
+		writeErr(w, http.StatusBadRequest, "host is required")
+		return
+	}
+	if in.Port <= 0 || in.Port > 65535 {
+		writeErr(w, http.StatusBadRequest, "port must be between 1 and 65535")
+		return
+	}
+
+	key, err := upstream.ScanHostKey(r.Context(), in.Host, in.Port)
+	if err != nil {
+		// ⚠️ Sebep OPERATÖRE GÖSTERİLİYOR: "bağlanamadım" ile "SSH
+		// konuşmuyor" ile "ad çözülmedi" farklı sorunlar ve hepsini tek
+		// bir "failed" altına toplamak, kurulum yapan kişiyi karanlıkta
+		// bırakırdı. İçerik hedefin adresine dair; sır taşımıyor.
+		s.logger.Warn("host key scan failed", "host", in.Host, "port", in.Port, "error", err)
+		writeErr(w, http.StatusBadGateway, "could not read a host key from "+
+			net.JoinHostPort(in.Host, strconv.Itoa(in.Port))+": "+err.Error())
+		return
+	}
+
+	// Aynı adres başka bir anahtarla zaten kayıtlıysa SÖYLE. Sessiz
+	// kalmak, anahtarı dönmüş (ya da taklit edilen) bir makineyi ikinci
+	// kez kaydettirirdi.
+	//
+	// ⚠️ TÜR FARKI İLE ANAHTAR FARKI AYRI ŞEYLER. İlk hâl yalnızca
+	// parmak izlerini karşılaştırıyordu ve aynı makinenin ed25519 yerine
+	// ecdsa anahtarı geldiğinde "bu düşündüğünüz makine değil" diyordu —
+	// gerçek bir alarmı, sık görülen ve masum bir durumla aynı sesle
+	// vermek, alarmı işe yaramaz yapar.
+	conflict, conflictKind := "", ""
+	if targets, terr := s.store.Targets(r.Context()); terr == nil {
+		for _, t := range targets {
+			if t.Host != in.Host || t.Port != in.Port {
+				continue
+			}
+			if fingerprintOf(t) == ssh.FingerprintSHA256(key) {
+				continue
+			}
+			conflict = t.Name
+			conflictKind = "different-key"
+			if pub, _, _, _, perr := ssh.ParseAuthorizedKey([]byte(t.HostKey)); perr == nil &&
+				pub.Type() != key.Type() {
+				conflictKind = "different-type"
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, struct {
+		KeyType       string `json:"key_type"`
+		Fingerprint   string `json:"fingerprint"`
+		AuthorizedKey string `json:"authorized_key"`
+		KeyFile       string `json:"key_file,omitempty"`
+		ConflictsWith string `json:"conflicts_with,omitempty"`
+		ConflictKind  string `json:"conflict_kind,omitempty"`
+	}{
+		KeyType:       key.Type(),
+		Fingerprint:   ssh.FingerprintSHA256(key),
+		AuthorizedKey: strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key))),
+		// Doğrulama komutunun dosya adı SUNUCUDA türetiliyor: istemcide
+		// tür adından uydurmak "ssh_host_ecdsa-sha2-nistp256_key.pub"
+		// gibi var olmayan yollar üretiyordu.
+		KeyFile:       sshalg.HostKeyFile(key.Type()),
+		ConflictsWith: conflict,
+		ConflictKind:  conflictKind,
+	})
 }
