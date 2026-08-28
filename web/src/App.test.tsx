@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { ApiError, api, type Me } from "./api";
 
+const myTargets = [{ name: "web01", labels: { env: "prod" } }];
+
 const me: Me = {
   name: "yigit",
   os_user: "yigit",
@@ -49,6 +51,7 @@ describe("App önyükleme", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument());
 
     spy.mockResolvedValue(me);
+    vi.spyOn(api, "myTargets").mockResolvedValue(myTargets);
     await userEvent.click(screen.getByRole("button", { name: /retry/i }));
 
     await waitFor(() => expect(screen.getByText("web01")).toBeInTheDocument());
@@ -113,24 +116,51 @@ describe("App gezinmesi", () => {
   });
 });
 
-describe("App terminal düğmesi", () => {
-  // Sunucuda rota yoksa düğme HİÇ gösterilmemeli: basan kullanıcı 404
-  // alıp "[disconnected]" görüyor ve kapalı bir özelliğin BOZUK
+describe("App kabuk baglantisi", () => {
+  // Sunucuda rota yoksa bağlantı HİÇ gösterilmemeli: basan kullanıcı
+  // 404 alıp "[disconnected]" görüyor ve kapalı bir özelliğin BOZUK
   // olduğunu sanıyordu.
-  it("terminal kapaliyken dugme yok, sebebi yazili", async () => {
+  it("terminal kapaliyken baglanti yok, sebebi yazili", async () => {
     vi.spyOn(api, "me").mockResolvedValue({ ...me, terminal_enabled: false });
+    vi.spyOn(api, "myTargets").mockResolvedValue(myTargets);
 
     render(<App />);
     await screen.findByText("web01");
 
-    expect(screen.queryByRole("button", { name: /open terminal/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /open a shell/i })).not.toBeInTheDocument();
     expect(screen.getByText(/browser terminal is switched off/i)).toBeInTheDocument();
   });
 
-  it("terminal aciksa dugme var", async () => {
+  // ⚠️ DÜĞME DEĞİL BAĞLANTI ve yeni sekmede açılıyor: orta tık ve
+  // "yeni sekmede aç" bağlam menüsü çalışsın, ve kabuk panelin
+  // içinde ekranın yarısını çevre kabuğa vermesin.
+  it("terminal aciksa yeni sekmede acilan kabuk baglantisi var", async () => {
     vi.spyOn(api, "me").mockResolvedValue(me);
+    vi.spyOn(api, "myTargets").mockResolvedValue(myTargets);
 
     render(<App />);
-    expect(await screen.findByRole("button", { name: /open terminal to web01/i })).toBeInTheDocument();
+    const link = await screen.findByRole("link", { name: /open a shell on web01 in a new tab/i });
+
+    expect(link).toHaveAttribute("href", "/shell/web01");
+    expect(link).toHaveAttribute("target", "_blank");
+    // noopener: açılan sekme window.opener ile bu sayfayı yönlendiremesin.
+    expect(link.getAttribute("rel")).toContain("noopener");
+  });
+
+  it("etiketler kutuda gorunur ve sorguyla suzulur", async () => {
+    vi.spyOn(api, "me").mockResolvedValue(me);
+    vi.spyOn(api, "myTargets").mockResolvedValue([
+      { name: "web01", labels: { env: "prod" } },
+      { name: "db01", labels: { env: "staging" } },
+    ]);
+
+    render(<App />);
+    await screen.findByText("web01");
+    expect(screen.getByText("db01")).toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText(/filter targets/i), "env: prod");
+
+    await waitFor(() => expect(screen.queryByText("db01")).not.toBeInTheDocument());
+    expect(screen.getByText("web01")).toBeInTheDocument();
   });
 });

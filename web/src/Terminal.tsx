@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
-import { monokaiMaterial, terminalFont } from "./theme/terminal";
+import { gruvbox, terminalFont } from "./theme/terminal";
+import type { Resolved } from "./theme/mode";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
@@ -8,8 +9,21 @@ import "@xterm/xterm/css/xterm.css";
 //   binary frame  (her iki yön)  : terminal verisi
 //   text/JSON     (istemci→sunucu): {"type":"resize","cols":N,"rows":M}
 
-export default function Terminal({ target, onClose }: { target: string; onClose: () => void }) {
+export default function Terminal({
+  target,
+  onClose,
+  theme,
+  fullScreen,
+}: {
+  target: string;
+  onClose?: () => void;
+  /** Çözülmüş tema — xterm paleti CSS değişkeninden okuyamıyor. */
+  theme: Resolved;
+  /** Tam ekran kabuk sayfası: kendi başlığını çizmiyor. */
+  fullScreen?: boolean;
+}) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const termRef = useRef<XTerm | null>(null);
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -18,9 +32,10 @@ export default function Terminal({ target, onClose }: { target: string; onClose:
       convertEol: false,
       // Tema ve yazı ayarları TEK KAYNAKTAN (theme/terminal.ts): canlı
       // izleyen ile kaydından izleyen operatör aynı renkleri görmeli.
-      theme: monokaiMaterial,
+      theme: gruvbox(theme),
       ...terminalFont,
     });
+    termRef.current = term;
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(hostRef.current);
@@ -96,11 +111,30 @@ export default function Terminal({ target, onClose }: { target: string; onClose:
       dataSub.dispose();
       ws.close();
       term.dispose();
+      termRef.current = null;
     };
+    // ⚠️ theme BAĞIMLILIK LİSTESİNDE YOK ve bilerek: listeye girseydi
+    // tema değişimi terminali yeniden kurar, yani WebSocket'i kapatıp
+    // ÇALIŞAN OTURUMU ÖLDÜRÜRDÜ. Palet aşağıdaki ayrı effect ile
+    // yerinde güncelleniyor.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target]);
 
+  // Tema değişince paleti YERİNDE değiştir: oturum yaşamaya devam eder.
+  useEffect(() => {
+    if (termRef.current) termRef.current.options.theme = gruvbox(theme);
+  }, [theme]);
+
   // Ölçüler ve renkler stil dosyasında: inline stil prefers-color-scheme
-  // ifade edemiyor ve buradaki sabit "#111" temadan bağımsız kalıyordu.
+  // ifade edemiyor.
+  if (fullScreen) {
+    return (
+      <div className="shell-surface">
+        <div ref={hostRef} className="terminal-host shell-fill" />
+      </div>
+    );
+  }
+
   return (
     <section>
       <div className="page-bar">
@@ -110,7 +144,7 @@ export default function Terminal({ target, onClose }: { target: string; onClose:
             Live session — everything in this window is being recorded.
           </p>
         </div>
-        <button onClick={onClose}>Close session</button>
+        {onClose && <button onClick={onClose}>Close session</button>}
       </div>
       <div className="surface-dark">
         <div ref={hostRef} className="terminal-host terminal-live" />

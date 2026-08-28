@@ -21,50 +21,80 @@
  */
 
 /* ============================================================
-   1. Belirteçler — aydınlık
+   1. Belirteçler — gruvbox
    ============================================================ */
+/*
+ * ⚠️ ARAYÜZÜN ANLAM RENKLERİ gruvbox'tan KAYDIRILDI — koyu temada bir
+ * tık açık, aydınlıkta bir tık koyu. Ölçüldü:
+ * gruvbox'ın kırmızısı (#fb4934) koyu zeminde hiçbir tonda 5.4:1'i
+ * geçmiyor — yani bir hata satırı erişilebilirlik eşiğinin altında
+ * kalıyor. Terminal birebir gruvbox kaldı (theme/terminal.ts): oradaki
+ * renkleri program çıktısının yazarları seçiyor ve onları değiştirmek
+ * `ls --color` çıktısını yanlış gösterirdi. Arayüzün kırmızısı ise
+ * bizim; okunması gerekiyor.
+ *
+ * Aydınlık tarafta aynı sorun daha ağırdı: gruvbox light'ın sarısı
+ * (#b57614) krem zeminde 3.05:1 veriyor — AA'nın bile altında. Aynı
+ * hue korunup ton koyulaştırıldı.
+ *
+ * PALET gruvbox (morhetz). Terminal de aynı paletle çiziliyor
+ * (theme/terminal.ts): panelin rengi ile kabuğun rengi ayrı ailelerden
+ * olduğunda terminal "yapıştırılmış" duruyor.
+ *
+ * ÜÇ HÂL:
+ *   :root                                  → aydınlık (varsayılan)
+ *   @media dark + :root:not([data-theme=light]) → sistem koyu
+ *   :root[data-theme="dark"]               → kullanıcı koyu seçti
+ *
+ * ⚠️ KOYU BLOK İKİ KEZ YAZILI ve öyle olmak zorunda: biri medya
+ * sorgusunun içinde, diğeri öznitelik seçicisinde, ve CSS bunları tek
+ * kurala birleştiremiyor. JS ile kökü her zaman damgalayıp tek bloğa
+ * inebilirdik ama o zaman sayfa ilk boyandığında bir kare aydınlık tema
+ * yanıp sönerdi — CSP script-src 'self' satır içi bir önyükleme
+ * betiğine izin vermiyor. İkilemenin bedeli, ikisinin ayrışması; onu da
+ * bir test bekliyor (styles.test.ts).
+ */
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
 
-  /* Dört katman: canvas < surface < raised < overlay. Kartı sayfadan
-     ayıran şey kenarlık değil ZEMİN FARKI + çok yumuşak bir gölge. */
-  --canvas: #f6f5f9;
-  --surface: #ffffff;
-  --raised: #ffffff;
-  --sunken: #f2f0f6;
-  --hover: #f8f7fb;
-  --active: #efedf5;
+  /* gruvbox light: bg0_h / bg0 / bg1 / bg2 / bg3 */
+  --canvas: #f2e5bc;
+  --surface: #fbf1c7;
+  --raised: #fbf1c7;
+  --sunken: #ebdbb2;
+  --hover: #f4ead2;
+  --active: #ebdbb2;
 
-  --line: #e5e2ee;
-  --line-soft: #efedf5;
-  --line-strong: #d5d1e1;
+  --line: #d5c4a1;
+  --line-soft: #e6d5b0;
+  --line-strong: #bdae93;
 
-  --ink: #17151c;
-  --muted: #514c60;
-  --faint: #77718a;
+  /* gruvbox light: fg0 / fg2 / fg3 */
+  --ink: #282828;
+  --muted: #473f3a;
+  --faint: #4a423b;
 
-  --accent: #542eb2;
-  --accent-hi: #6540c8;
-  --accent-fg: #ffffff;
-  --accent-soft: #efe9fc;
-  --accent-line: #d5c7f5;
+  /* gruvbox "neutral blue"nun koyu varyantı: krem zeminde okunur. */
+  --accent: #05505e;
+  --accent-hi: #076678;
+  --accent-fg: #fbf1c7;
+  --accent-soft: #d7e6e4;
+  --accent-line: #a8c8c4;
 
-  --danger: #960e33;
-  --danger-bg: #fdecf1;
-  --danger-line: #f2c2d1;
-  --ok: #0e5527;
-  --ok-bg: #e8f5ec;
-  --ok-line: #bee0c8;
-  --warn: #6b4500;
-  --warn-bg: #fdf3e2;
-  --warn-line: #ecd7a5;
-  --info: #0c4e5c;
-  --info-bg: #e5f4f7;
-  --info-line: #b6dfe7;
+  --danger: #7d0005;
+  --danger-bg: #f7ddd3;
+  --danger-line: #dfae9e;
+  --ok: #464308;
+  --ok-bg: #e6e5c0;
+  --ok-line: #c3c48c;
+  --warn: #5e3d09;
+  --warn-bg: #f6e6bd;
+  --warn-line: #ddc487;
+  --info: #24452f;
+  --info-bg: #dfe8d9;
+  --info-line: #aec9b3;
 
-  /* Terminal İKİ TEMADA DA Monokai: kabuk çıktısı beyaz zeminde
-     okunmuyor ve ANSI renkleri koyu zemine göre seçilmiş. */
-  --terminal-bg: #221f22;
+  --terminal-bg: #fbf1c7;
 
   --radius-sm: 6px;
   --radius: 9px;
@@ -77,69 +107,120 @@
 
   /* Gölgeler ÇOK yumuşak. Belirgin gölge bir yönetim panelinde ucuz
      durur; buradaki iş yüzeyleri ayırmak, onları havaya kaldırmak değil. */
-  --shadow-sm: 0 1px 2px rgba(23, 21, 28, 0.05), 0 1px 1px rgba(23, 21, 28, 0.03);
-  --shadow-md: 0 4px 12px rgba(23, 21, 28, 0.08), 0 1px 3px rgba(23, 21, 28, 0.05);
-  --shadow-lg: 0 16px 40px rgba(23, 21, 28, 0.14), 0 2px 8px rgba(23, 21, 28, 0.06);
+  --shadow-sm: 0 1px 2px rgba(60, 56, 54, 0.07), 0 1px 1px rgba(60, 56, 54, 0.04);
+  --shadow-md: 0 4px 12px rgba(60, 56, 54, 0.10), 0 1px 3px rgba(60, 56, 54, 0.06);
+  --shadow-lg: 0 16px 40px rgba(60, 56, 54, 0.16), 0 2px 8px rgba(60, 56, 54, 0.08);
   /* Yükseltilmiş yüzeyin üst kenarındaki 1px'lik iç ışık. Aydınlıkta
      görünmez, karanlıkta yüzeyi "camsı" yapan ayrıntı bu. */
   --edge-hi: inset 0 1px 0 rgba(255, 255, 255, 0);
-  --ring: 0 0 0 3px rgba(91, 52, 192, 0.16);
+  --ring: 0 0 0 3px rgba(5, 80, 94, 0.20);
 }
 
 /* ============================================================
-   2. Belirteçler — karanlık
+   2. Belirteçler — koyu
    ============================================================ */
 /*
  * ⚠️ Her yüzeyde background VE color BİRLİKTE tanımlı. Daha önce yalnız
  * color verilip arka planın tarayıcıya bırakılması, siyah üstüne siyah
  * metin üretmişti — o hata bir kez oldu, ikinci kez olmasın.
  *
- * Zemin nötr gri DEĞİL, hafif mor-sıcak grafit: Monokai'nin #221F22
- * terminali nötr gri bir panele yapıştırıldığında yamalı duruyordu.
+ * ⚠️ AŞAĞIDAKİ İKİ BLOK BİREBİR AYNI OLMALI. styles.test.ts ikisini
+ * karşılaştırıyor: biri güncellenip diğeri unutulduğunda, kullanıcı
+ * temayı elle seçtiği anda paletin yarısı eski değerlerde kalır ve bu
+ * yalnızca o yolda ortaya çıkar — gözden en kolay kaçan kusur türü.
  */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --canvas: #131217;
-    --surface: #1a1820;
-    --raised: #211f29;
-    --sunken: #201e27;
-    --hover: #252330;
-    --active: #2b2836;
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
 
-    --line: #2d2a37;
-    --line-soft: #232029;
-    --line-strong: #3d3950;
+    --canvas: #1d2021;
+    --surface: #282828;
+    --raised: #32302f;
+    --sunken: #32302f;
+    --hover: #3c3836;
+    --active: #504945;
 
-    --ink: #f0eef5;
-    --muted: #b6b0c6;
-    --faint: #837d94;
+    --line: #3c3836;
+    --line-soft: #32302f;
+    --line-strong: #504945;
 
-    --accent: #ab9df2;
-    --accent-hi: #bcb0f6;
-    --accent-fg: #17122a;
-    --accent-soft: #1e1830;
-    --accent-line: #3d3363;
+    --ink: #ebdbb2;
+    --muted: #d5c4a1;
+    --faint: #c9bb9f;
 
-    /* Monokai ailesinin durum renkleri: terminalle birebir aynı. */
-    --danger: #ff7d9c;
-    --danger-bg: #2a1119;
-    --danger-line: #5b2939;
-    --ok: #a9dc76;
-    --ok-bg: #1b2916;
-    --ok-line: #33512a;
-    --warn: #ffd866;
-    --warn-bg: #2e2612;
-    --warn-line: #514322;
-    --info: #78dce8;
-    --info-bg: #10282d;
-    --info-line: #234a52;
+    --accent: #a5c3b8;
+    --accent-hi: #bcd3ca;
+    --accent-fg: #1d2021;
+    --accent-soft: #182022;
+    --accent-line: #354a48;
+
+    --danger: #ff9a8c;
+    --danger-bg: #261311;
+    --danger-line: #5c2a24;
+    --ok: #b8bb26;
+    --ok-bg: #232612;
+    --ok-line: #414516;
+    --warn: #fabd2f;
+    --warn-bg: #2e250f;
+    --warn-line: #574517;
+    --info: #8ec07c;
+    --info-bg: #1c2718;
+    --info-line: #344527;
+
+    --terminal-bg: #282828;
 
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
     --shadow-md: 0 6px 18px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
     --shadow-lg: 0 20px 48px rgba(0, 0, 0, 0.62), 0 2px 10px rgba(0, 0, 0, 0.5);
     --edge-hi: inset 0 1px 0 rgba(255, 255, 255, 0.045);
-    --ring: 0 0 0 3px rgba(171, 157, 242, 0.22);
+    --ring: 0 0 0 3px rgba(165, 195, 184, 0.24);
   }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --canvas: #1d2021;
+  --surface: #282828;
+  --raised: #32302f;
+  --sunken: #32302f;
+  --hover: #3c3836;
+  --active: #504945;
+
+  --line: #3c3836;
+  --line-soft: #32302f;
+  --line-strong: #504945;
+
+  --ink: #ebdbb2;
+  --muted: #d5c4a1;
+  --faint: #c9bb9f;
+
+  --accent: #a5c3b8;
+  --accent-hi: #bcd3ca;
+  --accent-fg: #1d2021;
+  --accent-soft: #182022;
+  --accent-line: #354a48;
+
+  --danger: #ff9a8c;
+  --danger-bg: #261311;
+  --danger-line: #5c2a24;
+  --ok: #b8bb26;
+  --ok-bg: #232612;
+  --ok-line: #414516;
+  --warn: #fabd2f;
+  --warn-bg: #2e250f;
+  --warn-line: #574517;
+  --info: #8ec07c;
+  --info-bg: #1c2718;
+  --info-line: #344527;
+
+  --terminal-bg: #282828;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --shadow-md: 0 6px 18px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 20px 48px rgba(0, 0, 0, 0.62), 0 2px 10px rgba(0, 0, 0, 0.5);
+  --edge-hi: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+  --ring: 0 0 0 3px rgba(165, 195, 184, 0.24);
 }
 
 * { box-sizing: border-box; }
@@ -808,7 +889,9 @@ label > input, label > select, label > textarea { color: var(--ink); font-weight
  * kazanıyor.
  */
 .surface-dark .xterm .xterm-viewport,
-.surface-dark .xterm .xterm-screen {
+.surface-dark .xterm .xterm-screen,
+.shell-surface .xterm .xterm-viewport,
+.shell-surface .xterm .xterm-screen {
   background-color: var(--terminal-bg);
 }
 .terminal-live { height: 66vh; min-height: 20rem; }
@@ -971,6 +1054,218 @@ label > input, label > select, label > textarea { color: var(--ink); font-weight
 }
 
 /* ============================================================
+   18. Tema anahtarı
+   ============================================================ */
+/*
+ * Üç durumlu: açık / koyu / sistem. İkisi görünür, üçü de tıklanabilir —
+ * hangi hâlde olduğunu göstermek, tıklayıp öğrenmekten iyi.
+ */
+.theme-switch {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--sunken);
+}
+.theme-switch button {
+  display: grid;
+  place-items: center;
+  width: 1.7rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  box-shadow: none;
+  color: var(--faint);
+}
+.theme-switch button:hover { background: var(--hover); color: var(--ink); }
+.theme-switch button[aria-checked="true"] {
+  background: var(--surface);
+  color: var(--accent);
+  box-shadow: var(--shadow-sm);
+}
+.theme-switch button:focus-visible { outline-offset: 0; }
+
+.center-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.2rem;
+}
+.center-top .brand { margin: 0; }
+
+/* ============================================================
+   19. Hedef kutuları (ana ekran)
+   ============================================================ */
+/*
+ * KUTU, SATIR DEĞİL: bir hedefin adı, etiketleri ve son görülme bilgisi
+ * bir satıra sığmıyordu; sığdırmaya çalışmak ya etiketleri kesiyor ya
+ * satırı okunmaz yapıyordu.
+ */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr));
+  gap: 0.9rem;
+  margin-bottom: 1.5rem;
+}
+.tcard {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm), var(--edge-hi);
+  overflow: hidden;
+}
+.tcard-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 0.95rem;
+}
+.tcard-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.tcard-name svg { flex: none; color: var(--faint); }
+
+/* Kabuk düğmesi bir BAĞLANTI (yeni sekme), düğme değil: orta tık ve
+   "yeni sekmede aç" bağlam menüsü çalışsın. */
+.btn-shell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: none;
+  text-decoration: none;
+}
+.btn-shell svg:last-child { opacity: 0.75; }
+
+.tcard-body { padding: 0 0.95rem 0.85rem; flex: 1; }
+.tcard-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0.6rem 0.95rem;
+  border-top: 1px solid var(--line-soft);
+  background: var(--sunken);
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.tcard-foot code { font-size: 11px; overflow-wrap: anywhere; }
+
+.search-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 0.9rem;
+  align-items: center;
+  margin-bottom: 0.6rem;
+}
+.search-bar .search { flex: 1 1 20rem; max-width: 30rem; }
+.search-bar .search input { background: var(--surface); border-color: var(--line-strong); }
+
+/* Sorgunun NASIL anlaşıldığı. Sonuç boş çıktığında "eşleşme yok" tek
+   başına yetmiyor: kullanıcı sorgusunu mu yanlış yazdı, gerçekten mi
+   yok, ayırt edemiyor. */
+.query-echo {
+  margin: 0 0 0.9rem;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.query-echo b { color: var(--ink); font-weight: 550; }
+
+/* Tablodaki ad hücresi: kendi sayfasına götüren bağlantı. */
+.link-cell {
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.link-cell:hover { background: none; text-decoration-thickness: 2px; }
+
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.4rem;
+  padding-inline: 0;
+  font-size: 12.5px;
+}
+
+/* ============================================================
+   20. Hedef detay sayfası
+   ============================================================ */
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: 1.1rem;
+  align-items: start;
+}
+.detail-grid .card { margin-bottom: 0; }
+.detail-wide { grid-column: 1 / -1; }
+
+/* ============================================================
+   21. Tam ekran kabuk (/shell/<target>)
+   ============================================================ */
+/*
+ * Kendi sekmesinde açılıyor: panelin içindeki terminal ekranın yarısını
+ * çevre kabuğa veriyordu ve sekme değiştirmek çalışan oturumu
+ * gizliyordu.
+ */
+.shell-page {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--canvas);
+}
+.shell-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.5rem 0.9rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  flex: none;
+}
+.shell-bar .brand { margin: 0; font-size: 13.5px; }
+.shell-target {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shell-spacer { flex: 1; }
+.shell-hint { font-size: 11.5px; color: var(--faint); white-space: nowrap; }
+
+.shell-surface {
+  flex: 1;
+  min-height: 0;
+  background: var(--terminal-bg);
+}
+/* Kabuk yüzeyi kalan alanı DOLDURUYOR: sabit bir yükseklik verseydik
+   uzun pencerede altta boşluk, kısa pencerede taşma olurdu. */
+.shell-fill { height: 100%; }
+
+/* ============================================================
    18. Dar ekran
    ============================================================ */
 @media (max-width: 60rem) {
@@ -994,6 +1289,12 @@ label > input, label > select, label > textarea { color: var(--ink); font-weight
 
 @media (max-width: 40rem) {
   .topbar-inner, .tabs-inner, .app { padding-inline: 1rem; }
+  /* ⚠️ Marka YAZISI gizleniyor, işaret kalıyor. Üst bantta marka + tema
+     anahtarı + ad + rozet + çıkış yan yana durunca 375px'te kullanıcı
+     adı tek harfe kırpılıyordu ("y"). Kimin oturumu olduğunu göstermek,
+     ürünün adını ikinci kez göstermekten önemli — ad zaten sekmenin
+     başlığında ve işaret yerinde duruyor. */
+  .brand-word { display: none; }
   .app { padding-block: 1.25rem 3rem; }
   .page-head h2 { font-size: 18px; }
   .field-row > label { flex-basis: 100%; min-width: 0; }
@@ -1002,4 +1303,7 @@ label > input, label > select, label > textarea { color: var(--ink); font-weight
   th button.sort, th .th-pad, td { padding-inline: 0.9rem; }
   .table-tools { padding-inline: 0.9rem; }
   .search { max-width: none; }
+  .card-grid { grid-template-columns: minmax(0, 1fr); }
+  .shell-hint { display: none; }
+  .detail-grid { grid-template-columns: minmax(0, 1fr); }
 }

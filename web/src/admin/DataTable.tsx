@@ -71,6 +71,7 @@ export default function DataTable<T>({
   foot,
   toolbarExtra,
   noun,
+  match,
 }: {
   rows: T[];
   columns: Column<T>[];
@@ -80,6 +81,12 @@ export default function DataTable<T>({
   searchPlaceholder?: string;
   /** Sütunlarda görünmeyen ama aranabilir olması gereken metin. */
   extraSearch?: (row: T) => string;
+  /**
+   * Aramayı DEVRALIR. Verilmezse sütun değerleri üzerinde alt dize
+   * araması yapılır; verilirse (hedefler için sorgu dili) süzme buna
+   * bırakılır.
+   */
+  match?: (row: T, query: string) => boolean;
   foot?: ReactNode;
   toolbarExtra?: ReactNode;
   /** "user" / "target" — sayaç ve boş sonuç metni için. */
@@ -91,6 +98,7 @@ export default function DataTable<T>({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return rows;
+    if (match) return rows.filter((r) => match(r, query.trim()));
     // Her terim AYRI aranıyor: "yigit web" yazan kişi iki alanda birden
     // eşleşme bekliyor, tek bir bitişik dize değil.
     const terms = q.split(/\s+/);
@@ -102,7 +110,7 @@ export default function DataTable<T>({
       ).toLowerCase();
       return terms.every((t) => hay.includes(t));
     });
-  }, [rows, columns, query, extraSearch]);
+  }, [rows, columns, query, extraSearch, match]);
 
   const sorted = useMemo(() => {
     if (!sort) return filtered;

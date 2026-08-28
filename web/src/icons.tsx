@@ -170,3 +170,58 @@ export function SortArrow({ dir }: { dir: "asc" | "desc" | null }) {
     </svg>
   );
 }
+
+export function SunIcon({ size = 14 }: P) {
+  return (
+    <svg {...base(size)}>
+      <circle cx="8" cy="8" r="3.1" />
+      <path d="M8 1.4v1.4M8 13.2v1.4M1.4 8h1.4M13.2 8h1.4M3.3 3.3l1 1M11.7 11.7l1 1M12.7 3.3l-1 1M4.3 11.7l-1 1" />
+    </svg>
+  );
+}
+
+export function MoonIcon({ size = 14 }: P) {
+  return (
+    <svg {...base(size)}>
+      <path d="M13.2 9.6A5.8 5.8 0 0 1 6.4 2.8a5.8 5.8 0 1 0 6.8 6.8Z" />
+    </svg>
+  );
+}
+
+/** AutoIcon, "sistemi izle": yarısı dolu bir daire. */
+export function AutoIcon({ size = 14 }: P) {
+  return (
+    <svg {...base(size)}>
+      <circle cx="8" cy="8" r="6" />
+      <path d="M8 2a6 6 0 0 1 0 12V2Z" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+/** ShellIcon, komut istemi: bir prompt oku ve alt çizgi. */
+export function ShellIcon({ size = 14 }: P) {
+  return (
+    <svg {...base(size)}>
+      <rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6" />
+      <path d="m4.6 6.4 1.9 1.7-1.9 1.7M8.9 10.2h2.6" />
+    </svg>
+  );
+}
+
+/** ExternalIcon, yeni sekmede açılacağını söyler. */
+export function ExternalIcon({ size = 12 }: P) {
+  return (
+    <svg {...base(size)}>
+      <path d="M9.2 2.6h4.2v4.2M13.4 2.6 7.6 8.4" />
+      <path d="M11.6 9.6v3a1.4 1.4 0 0 1-1.4 1.4H3.4A1.4 1.4 0 0 1 2 12.6V5.8a1.4 1.4 0 0 1 1.4-1.4h3" />
+    </svg>
+  );
+}
+
+export function BackIcon({ size = 14 }: P) {
+  return (
+    <svg {...base(size)}>
+      <path d="M13 8H3.4M7 3.8 2.8 8 7 12.2" />
+    </svg>
+  );
+}

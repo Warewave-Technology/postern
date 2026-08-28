@@ -23,6 +23,35 @@ export type Session = {
   id: string; user: string; target: string; os_user: string;
   src_ip: string; started_at: string; ended_at: string | null;
 };
+/** MyTarget, ana ekrandaki kutu. Adres YOK: sıradan kullanıcı hedefe
+ *  postern üzerinden bağlanıyor ve ağ topolojisini bilmesi gerekmiyor. */
+export type MyTarget = {
+  name: string;
+  labels: Record<string, string>;
+  server_version?: string;
+  last_seen_at?: string;
+};
+
+export type TargetFacts = {
+  server_version?: string;
+  host_key_type?: string;
+  last_seen_at?: string;
+  connect_ms?: number;
+  last_error_at?: string;
+  last_error?: string;
+};
+
+export type TargetDetail = {
+  name: string; host: string; port: number; fingerprint: string;
+  labels: Record<string, string>;
+  facts: TargetFacts;
+  granted_by: string[];
+  recent_sessions: {
+    id: string; user: string; os_user: string; src_ip: string;
+    started_at: string; ended_at?: string;
+  }[];
+};
+
 export type Mapping = { group: string; role: string; created_by: string };
 export type UnmappedGroup = { name: string; seen_count: number; last_seen: string };
 export type Setting = { key: string; value: string; secret: boolean; updated_by: string };
@@ -125,6 +154,9 @@ export const api = {
     req<void>("DELETE", `/api/admin/roles/${encodeURIComponent(role)}/targets/${encodeURIComponent(target)}`),
 
   targets: () => req<Target[]>("GET", "/api/admin/targets"),
+  myTargets: () => req<MyTarget[]>("GET", "/api/targets"),
+  targetDetail: (name: string) =>
+    req<TargetDetail>("GET", `/api/admin/targets/${encodeURIComponent(name)}`),
   createTarget: (t: {
     name: string; host: string; port?: number; host_key: string;
     labels?: Record<string, string>;

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { monokaiMaterial, terminalFont } from "../theme/terminal";
+import { gruvbox, terminalFont } from "../theme/terminal";
+import type { Resolved } from "../theme/mode";
 import { Terminal as XTerm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { ApiError, api, toMessage } from "../api";
@@ -29,7 +30,17 @@ type Loaded = {
 
 const SPEEDS = [0.5, 1, 2, 4, 8];
 
-export default function CastPlayer({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
+export default function CastPlayer({
+  sessionId,
+  onClose,
+  theme,
+}: {
+  sessionId: string;
+  onClose: () => void;
+  /** Çözülmüş tema: canlı izleyen ile kayıttan izleyen aynı renkleri
+   *  görmeli, ve ikisi de panelin temasını izlemeli. */
+  theme: Resolved;
+}) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
 
@@ -105,7 +116,7 @@ export default function CastPlayer({ sessionId, onClose }: { sessionId: string; 
       scrollback: 5000,
       // Tema ve yazı ayarları TEK KAYNAKTAN (theme/terminal.ts): canlı
       // izleyen ile kaydından izleyen operatör aynı renkleri görmeli.
-      theme: monokaiMaterial,
+      theme: gruvbox(theme),
       ...terminalFont,
     });
     term.open(hostRef.current);

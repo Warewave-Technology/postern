@@ -7,11 +7,13 @@ import { AdminLog, Sessions } from "./admin/Audit";
 import Mappings from "./admin/Mappings";
 import Settings from "./admin/Settings";
 import Overview from "./admin/Overview";
-import Terminal from "./Terminal";
+import Home from "./Home";
+import ShellPage, { shellTargetFromPath } from "./ShellPage";
+import ThemeSwitch from "./theme/ThemeSwitch";
+import { useThemeMode } from "./theme/mode";
 import {
   DirectoryIcon,
   GateMark,
-  HostIcon,
   LogIcon,
   MapIcon,
   PlayIcon,
@@ -72,13 +74,19 @@ function Brand({ size = 20 }: { size?: number }) {
 }
 
 export default function App() {
+  const [mode, setMode, resolved] = useThemeMode();
   const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);
   // unreachable, "oturum yok" ile "sunucuya ulaşamıyorum"u AYIRIR.
   const [unreachable, setUnreachable] = useState("");
   const [top, setTop] = useState<Top>("home");
   const [section, setSection] = useState<Section>("overview");
-  const [terminal, setTerminal] = useState<string | null>(null);
+
+  // ⚠️ Kabuk artık PANELİN İÇİNDE DEĞİL, kendi sekmesinde (/shell/…).
+  // Panel içindeki terminal ekranın yarısını çevre kabuğa veriyordu ve
+  // sekme değiştirmek çalışan oturumu gizliyordu. Kendi sekmesinde
+  // açılan bir kabuk, kullanıcının zaten alışkın olduğu şey.
+  const shellTarget = shellTargetFromPath(window.location.pathname);
 
   const loadMe = useCallback(() => {
     setLoading(true);
@@ -141,7 +149,10 @@ export default function App() {
     return (
       <main className="center">
         <div className="center-card">
-          <Brand size={22} />
+          <div className="center-top">
+            <Brand size={22} />
+            <ThemeSwitch mode={mode} onChange={setMode} />
+          </div>
           <h1>Sign in</h1>
           <p>
             Access is granted by your identity provider. postern never sees your
@@ -155,13 +166,18 @@ export default function App() {
     );
   }
 
-  const closeTerminal = () => {
-    // Onay: açık bir kabuk kapatmak geri alınamaz ve kullanıcı komutun
-    // ortasında olabilir.
-    if (window.confirm("Close the terminal? The session will end.")) {
-      setTerminal(null);
-    }
-  };
+  // /shell/<target>: tam ekran kabuk. Kimlik kontrolü YUKARIDA yapıldı,
+  // yani bu sayfa da oturum istiyor — adres çubuğuna yazarak atlanamaz.
+  if (shellTarget) {
+    return (
+      <ShellPage
+        target={shellTarget}
+        mode={mode}
+        onMode={setMode}
+        resolved={resolved}
+      />
+    );
+  }
 
   // Home HERKESİN ekranı; geri kalan her şey yönetim ve Settings'in
   // altında. Admin olmayan için Settings sekmesi HİÇ çizilmiyor —
@@ -176,6 +192,7 @@ export default function App() {
         <div className="topbar-inner">
           <Brand />
           <div className="account">
+            <ThemeSwitch mode={mode} onChange={setMode} />
             <span className="who">{me.name}</span>
             {me.admin && <span className="badge badge-accent">admin</span>}
             <form method="post" action="/auth/logout">
@@ -203,73 +220,7 @@ export default function App() {
       </nav>
 
       <main className="app">
-        {/*
-          Terminal üst sekmeden BAĞIMSIZ ve monte kalıyor.
-
-          Eskiden yalnızca kendi sekmesinde çiziliyordu, yani başka bir
-          ekrana bakmak için sekme değiştiren kullanıcının çalışan kabuğu
-          uyarısız ölüyordu (unmount ws.close çağırıyor). Gizlemek
-          yeterli: React ağacı korunuyor, WebSocket yaşıyor.
-        */}
-        {terminal && (
-          <div hidden={top !== "home"}>
-            <Terminal target={terminal} onClose={closeTerminal} />
-          </div>
-        )}
-
-        {top === "home" && !terminal && (
-          <section className="narrow">
-            <div className="page-head">
-              <h2>Your targets</h2>
-              <p className="page-sub">
-                The hosts your roles reach. Every session through them is
-                recorded.
-              </p>
-            </div>
-
-            {me.targets.length === 0 ? (
-              <p className="state">
-                No targets granted. An administrator has to grant your role a
-                target before you can connect.
-              </p>
-            ) : (
-              <div className="card">
-                <ul className="rows">
-                  {me.targets.map((t) => (
-                    <li key={t} className="row">
-                      <span className="row-name">
-                        <HostIcon />
-                        {t}
-                      </span>
-                      {me.terminal_enabled && (
-                        <button
-                          onClick={() => setTerminal(t)}
-                          aria-label={`open terminal to ${t}`}
-                        >
-                          Open terminal
-                        </button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            <p className="note">
-              {me.terminal_enabled ? (
-                <>
-                  From a shell, connect with{" "}
-                  <code>ssh {me.name}:&lt;target&gt;@&lt;bastion&gt;</code>.
-                </>
-              ) : (
-                <>
-                  The browser terminal is switched off on this bastion. Connect
-                  over SSH: <code>ssh {me.name}:&lt;target&gt;@&lt;bastion&gt;</code>
-                </>
-              )}
-            </p>
-          </section>
-        )}
+        {top === "home" && <Home me={me} />}
 
         {top === "settings" && me.admin && (
           <div className="settings">
@@ -298,7 +249,7 @@ export default function App() {
               {section === "mappings" && <Mappings />}
               {section === "targets" && <Targets />}
               {section === "ldap" && <Settings />}
-              {section === "sessions" && <Sessions />}
+              {section === "sessions" && <Sessions theme={resolved} />}
               {section === "log" && <AdminLog />}
             </div>
           </div>

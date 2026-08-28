@@ -2,6 +2,8 @@ import { useState } from "react";
 import { api, Target, toMessage } from "../api";
 import { ActionButton, ErrorLine, ListState, OkLine, useList } from "./common";
 import DataTable, { Column } from "./DataTable";
+import TargetDetail from "./TargetDetail";
+import { matches, parse } from "../query";
 
 /**
  * parseLabels, "env=prod, team=data" biçimini çiftlere çevirir.
@@ -36,6 +38,9 @@ function labelText(t: Target): string {
 
 export default function Targets() {
   const { items, error, denied, loading, refresh, setError } = useList<Target>(api.targets);
+  // Seçili hedef: kendi sayfası açılıyor. Tablo satırı adres, parmak
+  // izi, etiketler, roller ve gözlemleri birden taşıyamıyor.
+  const [selected, setSelected] = useState<string | null>(null);
   const [ok, setOk] = useState("");
   const [name, setName] = useState("");
   const [host, setHost] = useState("");
@@ -112,7 +117,18 @@ export default function Targets() {
   };
 
   const columns: Column<Target>[] = [
-    { key: "name", header: "Name", value: (t) => t.name },
+    {
+      key: "name",
+      header: "Name",
+      value: (t) => t.name,
+      // Ad bir BAĞLANTI: satırın tamamını tıklanabilir yapmak, satır
+      // içindeki sil/etiket düğmeleriyle çakışırdı.
+      render: (t) => (
+        <button className="link-cell" onClick={() => setSelected(t.name)}>
+          {t.name}
+        </button>
+      ),
+    },
     {
       key: "address",
       header: "Address",
@@ -231,6 +247,20 @@ export default function Targets() {
     },
   ];
 
+  if (selected) {
+    return (
+      <TargetDetail
+        name={selected}
+        onBack={() => {
+          setSelected(null);
+          // Detay sayfasında etiket eklenmiş ya da hedef silinmiş
+          // olabilir: listeye eski hâliyle dönmek yanlış bilgi verirdi.
+          refresh();
+        }}
+      />
+    );
+  }
+
   return (
     <section>
       <div className="page-head">
@@ -258,8 +288,17 @@ export default function Targets() {
           rowKey={(t) => t.name}
           initialSort={{ key: "name", dir: "asc" }}
           noun="target"
-          searchLabel="search targets by name, address or label"
-          searchPlaceholder="Search targets, or a label like env=prod…"
+          searchLabel="filter targets by name or label"
+          searchPlaceholder="name: web and env: prod"
+          // Sorgu dili: alansız alt dize araması "prod" yazan operatörün
+          // adında mı etiketinde mi aradığını ayırt edemiyordu.
+          match={(t, q) =>
+            matches(parse(q), {
+              name: t.name,
+              labels: t.labels,
+              extra: { host: t.host, port: String(t.port), fingerprint: t.fingerprint },
+            })
+          }
         />
       )}
 

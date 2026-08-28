@@ -3,6 +3,7 @@ import { api, LogEntry, Session } from "../api";
 import { ActionButton, ErrorLine, ListState, useList } from "./common";
 import CastPlayer from "./CastPlayer";
 import DataTable, { Column } from "./DataTable";
+import type { Resolved } from "../theme/mode";
 
 /*
  * Sunucunun döndürdüğü en fazla satır sayısı (internal/httpapi/admin.go:
@@ -63,7 +64,7 @@ function sortableTime(v: string | null): number {
   return Number.isNaN(t) ? 0 : t;
 }
 
-export function Sessions() {
+export function Sessions({ theme }: { theme: Resolved }) {
   const { items, error, denied, loading, refresh } = useList<Session>(api.sessions);
   // Oynatılan oturum. Aynı anda tek kayıt: iki terminali yan yana
   // izlemenin bir faydası yok, ikisini birden beslemenin maliyeti var.
@@ -138,7 +139,9 @@ export function Sessions() {
       </div>
       <ErrorLine msg={error} />
 
-      {playing && <CastPlayer sessionId={playing} onClose={() => setPlaying(null)} />}
+      {playing && (
+        <CastPlayer sessionId={playing} theme={theme} onClose={() => setPlaying(null)} />
+      )}
 
       <ListState
         loading={loading}
