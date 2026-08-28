@@ -11,7 +11,13 @@ const FIELDS: { key: string; label: string; hint: string; secret?: boolean }[] =
   { key: "ldap.user_base", label: "User base", hint: "ou=people,dc=example,dc=com" },
   { key: "ldap.user_filter", label: "User filter", hint: "(uid=%s) — %s is the IdP username" },
   { key: "ldap.group_attribute", label: "Group attribute", hint: "memberOf — leave empty to search groups instead" },
-  { key: "ldap.group_base", label: "Group base", hint: "used when group attribute is empty" },
+  // İpucu "grup niteliği boşken kullanılır" diyordu; artık DOĞRU DEĞİL.
+  // group_base her iki yolda da zorunlu (bkz. ldap.New): memberOf yolu
+  // eskiden dizinin herhangi bir yerindeki grubu kabul ediyordu ve
+  // "bir yere grup açabilmek" = "o rolün hedeflerine girebilmek"ti.
+  // Eski ipucu memberOf kullanan operatörü alanı boş bırakmaya
+  // yönlendirir, bağlantı reddedilir ve sebebi panelde görünmezdi.
+  { key: "ldap.group_base", label: "Group base", hint: "required — limits which part of the directory may name a role" },
   { key: "ldap.group_filter", label: "Group filter", hint: "(&(objectClass=groupOfNames)(member=%s))" },
   { key: "ldap.group_name_from", label: "Group name from", hint: "cn (default) or dn" },
 ];

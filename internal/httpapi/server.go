@@ -248,11 +248,48 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 // Sıra: SSH kaynağı, kimlik, sonra kod.
 const confirmPageHTML = `<!doctype html>
 <meta charset="utf-8"><title>postern — verify this SSH login</title>
-<body style="font-family:system-ui;max-width:34rem;margin:3rem auto;line-height:1.5">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+/* Renkler İKİ TEMA İÇİN DE AÇIKÇA yazılıyor.
+   Sayfa yalnızca ön plan renklerini verip zemini tarayıcıya bırakırsa,
+   koyu temada uyarı koyu zemine koyu yazılıp OKUNMAZ hale geliyordu.
+   Bu sayfanın tek işi o uyarıyı okutmak: okunmayan uyarı, oltalama
+   savunmasının kendisini işlevsiz bırakır. */
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff; --fg: #1a1d23; --soft: #5a5f6a;
+  --warn-bg: #fdf3e2; --warn-fg: #6d4600; --warn-line: #b07d1a;
+  --code-bg: #f1f2f4; --code-fg: #16181d;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161a; --fg: #e7e9ee; --soft: #a2a9b6;
+    --warn-bg: #33260f; --warn-fg: #f3cf8b; --warn-line: #8a6a22;
+    --code-bg: #232830; --code-fg: #f2f4f8;
+  }
+}
+body {
+  font-family: system-ui, sans-serif; max-width: 34rem;
+  margin: 3rem auto; padding: 0 1rem; line-height: 1.5;
+  background: var(--bg); color: var(--fg);
+}
+.warn {
+  background: var(--warn-bg); border: 1px solid var(--warn-line);
+  color: var(--warn-fg); padding: .75rem 1rem; border-radius: 6px;
+}
+.code {
+  font-size: 2rem; letter-spacing: .25em;
+  font-family: ui-monospace, monospace; text-align: center;
+  padding: 1rem; border-radius: 6px;
+  background: var(--code-bg); color: var(--code-fg);
+  overflow-wrap: anywhere;
+}
+.note { color: var(--soft); font-size: .9rem; }
+</style>
+<body>
 <h2>An SSH login is waiting for you</h2>
 
-<p style="background:#fdf3e2;border:1px solid #8a5a00;color:#8a5a00;
-          padding:.75rem 1rem;border-radius:6px">
+<p class="warn">
 <strong>Did you start this?</strong> A connection from
 <code style="font-size:1.05em">%s</code> is asking to sign in as
 <strong>%s</strong>. If that was not you, close this page and tell your
@@ -262,10 +299,9 @@ administrator — someone may be trying to use your account.
 <p>If it was you, type this verification code into the terminal that is
 waiting:</p>
 
-<p style="font-size:2rem;letter-spacing:.25em;font-family:ui-monospace,monospace;
-          text-align:center;padding:1rem;background:#f2f2f2;border-radius:6px">%s</p>
+<p class="code">%s</p>
 
-<p style="color:#5a5a5a;font-size:.9rem">
+<p class="note">
 postern will never ask you to send this code to anyone. It is only ever
 typed into a terminal you are sitting at.
 </p>

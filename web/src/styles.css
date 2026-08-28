@@ -86,6 +86,18 @@ body {
   line-height: 1.5;
 }
 
+/*
+ * Bağlantılar.
+ *
+ * ⚠️ Bu seçici HİÇ YOKTU ve linkler iki temada da tarayıcı varsayılanına
+ * düşüyordu: açık temada #0000EE, karanlıkta Chrome'un lavantası.
+ * İkisi de paletin dışında; üstelik karanlık taraf yalnızca tarayıcının
+ * color-scheme'i doğru okumasına bağlı kalıyordu. Giriş sayfasında
+ * sayfadaki TEK etkileşim öğesi bir bağlantı — orası stilsiz görünüyordu.
+ */
+a { color: var(--accent); text-underline-offset: 2px; }
+a:hover { text-decoration-thickness: 2px; }
+
 /* --- düzen --- */
 .app {
   max-width: 60rem;
@@ -176,7 +188,15 @@ label > input, label > select, label > textarea { color: var(--fg); font-size: 1
  * damgalı tablolar telefonda SAYFAYI kaydırtıyordu; kaydırma tabloda
  * kalmalı.
  */
-.table-wrap { overflow-x: auto; margin-bottom: 1rem; }
+.table-wrap {
+  overflow-x: auto;
+  margin-bottom: 1rem;
+  /* position:relative ŞART: içerideki .sr-only mutlak konumlu. Konumlandırılmış
+     bir ata olmazsa kapsayıcı blok viewport olur ve öğe overflow kırpmasından
+     KAÇAR — tablo geniş olduğunda sayfanın tamamına yatay kaydırma çubuğu
+     bindiriyordu (yedi yönetim sayfasında birden). */
+  position: relative;
+}
 
 table { border-collapse: collapse; width: 100%; }
 th, td { text-align: left; padding: 0.4rem 0.7rem; white-space: nowrap; }
