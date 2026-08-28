@@ -484,7 +484,9 @@ h1, h2, h3, h4 { margin: 0; font-weight: 640; letter-spacing: -0.014em; }
   gap: 0.6rem 0.9rem;
   align-items: center;
   padding: 0.7rem 1.15rem;
-  border-bottom: 1px solid var(--line);
+  /* line-strong: araç çubuğunun altındaki başlık satırı zaten --sunken
+     zeminde ve ince bir çizgi ikisini yeterince ayırmıyordu. */
+  border-bottom: 1px solid var(--line-strong);
   background: var(--surface);
 }
 .search {
@@ -1051,6 +1053,58 @@ label > input, label > select, label > textarea { color: var(--ink); font-weight
   clip: rect(0 0 0 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* ============================================================
+   17b. Modal (ekleme formları)
+   ============================================================ */
+/*
+ * Native <dialog>: odak tuzağı, Esc ve arka planın inert olması
+ * tarayıcıdan geliyor. Kütüphane getirmemenin gerekçesi bu.
+ */
+.modal {
+  width: 100%;
+  max-width: min(44rem, calc(100vw - 2rem));
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-lg);
+}
+.modal::backdrop {
+  /* Sabit renk, değişken DEĞİL: ::backdrop kökten custom property
+     miras almıyor ve var(--x) burada boşa düşüyor. */
+  background: rgba(0, 0, 0, 0.5);
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.15rem 0.5rem;
+}
+.modal-head h3 { font-size: 15px; }
+.modal-head button { padding: 0.2rem 0.5rem; font-size: 16px; line-height: 1; }
+.modal-sub {
+  margin: 0 1.15rem 1rem;
+  color: var(--muted);
+  font-size: 12.5px;
+  max-width: 60ch;
+}
+.modal-body { padding: 0 1.15rem 1.15rem; }
+/* Modal içindeki form satırı dikey: dar bir kutuda yan yana üç alan
+   sıkışıyor ve etiketleri kırpıyordu. */
+.modal-body .field-row > label { flex-basis: 100%; }
+
+/* Liste ile onu süzen kutuyu AYIRAN çizgi. Arama kutusu doğrudan
+   kartların üstünde durunca ikisi tek bir öbek gibi okunuyordu; bu
+   çizgi "yukarısı süzgeç, aşağısı sonuç" diyor. */
+.list-sep {
+  height: 1px;
+  margin: 0.9rem 0 1.1rem;
+  border: 0;
+  background: var(--line);
 }
 
 /* ============================================================

@@ -3,6 +3,7 @@ import { api, Target, toMessage } from "../api";
 import { ActionButton, ErrorLine, ListState, OkLine, useList } from "./common";
 import DataTable, { Column } from "./DataTable";
 import TargetDetail from "./TargetDetail";
+import Modal from "./Modal";
 import { matches, parse } from "../query";
 
 /**
@@ -41,6 +42,8 @@ export default function Targets() {
   // Seçili hedef: kendi sayfası açılıyor. Tablo satırı adres, parmak
   // izi, etiketler, roller ve gözlemleri birden taşıyamıyor.
   const [selected, setSelected] = useState<string | null>(null);
+  // Kayıt formu MODALDA: sayfanın işi listeyi göstermek.
+  const [adding, setAdding] = useState(false);
   const [ok, setOk] = useState("");
   const [name, setName] = useState("");
   const [host, setHost] = useState("");
@@ -80,9 +83,16 @@ export default function Targets() {
         setPort("22");
         setHostKey("");
         setLabelText0("");
-        return refresh();
+        return refresh().then(() => true);
       })
-      .catch((e: unknown) => setError(toMessage(e)));
+      // ⚠️ BAŞARIYI DÖNDÜRÜYOR. Hatada modal AÇIK kalmalı: kapanan bir
+      // modal, arkadaki hata satırını görmeyen kullanıcıya kaydın
+      // tuttuğunu düşündürür — ve host key gibi elle yapıştırılan bir
+      // alanı ikinci kez doldurtmak, o kullanıcıyı panele küstürür.
+      .catch((e: unknown) => {
+        setError(toMessage(e));
+        return false;
+      });
   };
 
   const remove = (t: Target) => {
@@ -263,13 +273,18 @@ export default function Targets() {
 
   return (
     <section>
-      <div className="page-head">
-        <h2>Targets</h2>
-        <p className="page-sub">
-          The hosts postern will open sessions to. Each one is pinned to a host
-          key, so a machine that later presents a different key is no longer
-          that target.
-        </p>
+      <div className="page-bar">
+        <div className="page-head">
+          <h2>Targets</h2>
+          <p className="page-sub">
+            The hosts postern will open sessions to. Each one is pinned to a
+            host key, so a machine that later presents a different key is no
+            longer that target.
+          </p>
+        </div>
+        <button className="btn-primary" onClick={() => setAdding(true)}>
+          Register target
+        </button>
       </div>
       <ErrorLine msg={error} />
       <OkLine msg={ok} />
@@ -302,11 +317,12 @@ export default function Targets() {
         />
       )}
 
-      <div className="panel">
-        <h3>Register target</h3>
-        <p className="note">
-          Everything here comes off the machine itself; nothing is guessed.
-        </p>
+      <Modal
+        open={adding}
+        onClose={() => setAdding(false)}
+        title="Register target"
+        description="Everything here comes off the machine itself; nothing is guessed."
+      >
 
         <div className="field-row">
           <label>
@@ -385,12 +401,12 @@ export default function Targets() {
 
         <ActionButton
           variant="primary"
-          onClick={create}
+          onClick={() => create().then((ok) => ok && setAdding(false))}
           disabled={!name || !host || !hostKey.trim() || !portOk || !labelsOk}
         >
           Register target
         </ActionButton>
-      </div>
+      </Modal>
     </section>
   );
 }

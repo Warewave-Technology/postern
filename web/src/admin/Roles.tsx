@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api, Role, Target, toMessage } from "../api";
 import { ActionButton, ErrorLine, ListState, WarnLine, useList } from "./common";
 import DataTable, { Column } from "./DataTable";
+import Modal from "./Modal";
 
 export default function Roles() {
   const { items, error, denied, loading, refresh, setError } = useList<Role>(api.roles);
@@ -11,18 +12,28 @@ export default function Roles() {
   const targets = useList<Target>(api.targets);
 
   const [name, setName] = useState("");
+  // Ekleme formu MODALDA: sayfanın işi listeyi göstermek, ekleme ara
+  // sıra yapılan bir eylem ve listenin altında kalıcı durması hem
+  // listeyi aşağı itiyor hem sayfanın ne için olduğunu bulanıklaştırıyordu.
+  const [adding, setAdding] = useState(false);
   // Seçim SATIR BAŞINA tutuluyor; tek ortak state, bir satırda seçilen
   // hedefi bütün satırlarda seçili gösterirdi.
   const [picked, setPicked] = useState<Record<string, string>>({});
 
+  // ⚠️ BAŞARIYI DÖNDÜRÜYOR. Hata durumunda modal AÇIK kalmalı: kapanan
+  // bir modal, arkadaki hata satırını görmeyen kullanıcıya işlemin
+  // tuttuğunu düşündürür ve aynı adı bir daha yazdırır.
   const create = () =>
     api
       .createRole({ name: name.trim() })
       .then(() => {
         setName("");
-        return refresh();
+        return refresh().then(() => true);
       })
-      .catch((e: unknown) => setError(toMessage(e)));
+      .catch((e: unknown) => {
+        setError(toMessage(e));
+        return false;
+      });
 
   const grant = (role: string, target: string) =>
     api
@@ -143,12 +154,17 @@ export default function Roles() {
 
   return (
     <section>
-      <div className="page-head">
-        <h2>Roles</h2>
-        <p className="page-sub">
-          Access is granted only through a role: a role holds targets, and a
-          user holds roles.
-        </p>
+      <div className="page-bar">
+        <div className="page-head">
+          <h2>Roles</h2>
+          <p className="page-sub">
+            Access is granted only through a role: a role holds targets, and a
+            user holds roles.
+          </p>
+        </div>
+        <button className="btn-primary" onClick={() => setAdding(true)}>
+          New role
+        </button>
       </div>
       <ErrorLine msg={error} />
 
@@ -183,12 +199,12 @@ export default function Roles() {
         />
       )}
 
-      <div className="panel">
-        <h3>Add role</h3>
-        <p className="note">
-          A new role starts empty and grants nothing until you give it a target
-          in the table above.
-        </p>
+      <Modal
+        open={adding}
+        onClose={() => setAdding(false)}
+        title="New role"
+        description="A role starts empty and grants nothing until you give it a target in the table."
+      >
         <div className="field-row">
           <label>
             Name
@@ -197,11 +213,15 @@ export default function Roles() {
                 "ops" mapping'ine hiç bağlanmazdı. */}
             <input value={name} onChange={(e) => setName(e.target.value)} />
           </label>
-          <ActionButton variant="primary" onClick={create} disabled={!name.trim()}>
+          <ActionButton
+            variant="primary"
+            onClick={() => create().then((ok) => ok && setAdding(false))}
+            disabled={!name.trim()}
+          >
             Create role
           </ActionButton>
         </div>
-      </div>
+      </Modal>
     </section>
   );
 }

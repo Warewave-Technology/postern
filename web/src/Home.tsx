@@ -111,6 +111,10 @@ export default function Home({ me }: { me: Me }) {
             </p>
           )}
 
+          {/* Süzgeç ile sonuç arasında ayırıcı: ikisi bitişik durunca tek
+              bir öbek gibi okunuyordu. */}
+          <hr className="list-sep" />
+
           {shown.length === 0 ? (
             <p className="state">
               Nothing matches that filter. Try a label like <code>env: prod</code>,

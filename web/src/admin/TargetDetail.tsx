@@ -147,14 +147,17 @@ export default function TargetDetail({
               <h3>Observed</h3>
               {/*
                 Bu ayrımı yazmak önemli: aşağıdakiler yapılandırma değil,
-                makinenin el sıkışmada söyledikleri. Ve yalnızca o kadarı
-                — hedefte komut çalıştırıp uname/os-release okumak daha
-                fazlasını verirdi ama postern kullanıcının oturumu
-                dışında hedefte iş çalıştırmaz.
+                makinenin el sıkışmada söyledikleri.
+
+                ⚠️ Metin "postern hedefte hiçbir şey çalıştırmaz" DİYORDU;
+                target_probe eklendikten sonra bu artık her kurulumda
+                doğru değil. Bir güven ifadesinin koşullu hale geldiği an
+                düzeltilmesi gerekir — yoksa panel, kurumun kendi
+                politikasına aykırı bir şey söylemeye başlar.
               */}
               <p>
-                Read from the SSH handshake only. postern never runs a command
-                on a target outside someone&apos;s session.
+                Read from the SSH handshake. Nothing is executed on the target
+                to collect any of this.
               </p>
             </div>
             <div className="card-body">
@@ -175,6 +178,51 @@ export default function TargetDetail({
                 <p className="msg msg-warn" role="status">
                   last failure <Stamp value={t.facts.last_error_at} /> —{" "}
                   {t.facts.last_error}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/*
+            AYRI KART, "Observed"ın içinde değil.
+
+            Yukarıdaki kart hedefe DOKUNMADAN öğrenilenleri gösteriyor;
+            burası ancak target_probe.enabled ile, hedefte komut
+            çalıştırılarak elde ediliyor. İkisini aynı kutuya koymak,
+            operatörün "bu satırı öğrenmek için makineye dokunduk mu"
+            sorusunu cevapsız bırakırdı — ve o soru, denetim
+            politikasının tam ortasında duruyor.
+          */}
+          <div className="card">
+            <div className="card-head">
+              <h3>Identified</h3>
+              <p>
+                Requires <code>target_probe</code>. postern runs a fixed,
+                read-only command set on the connecting user&apos;s own
+                connection — so it appears in the target&apos;s logs under
+                their account, and every run is in the admin log.
+              </p>
+            </div>
+            <div className="card-body">
+              {t.facts.probed_at ? (
+                <dl className="kv">
+                  <dt>OS</dt>
+                  <dd>{t.facts.os_name || "—"}</dd>
+                  <dt>Kernel</dt>
+                  <dd>{t.facts.kernel || "—"}</dd>
+                  <dt>Identified</dt>
+                  <dd>
+                    <Stamp value={t.facts.probed_at} />
+                  </dd>
+                </dl>
+              ) : (
+                // ⚠️ "Bilmiyoruz" ile "sormadık" AYRI ŞEYLER. Boş bir
+                // kutu, kapalı bir özelliği bozuk bir özellik gibi
+                // gösterirdi.
+                <p className="no-match">
+                  This host has not been identified. Either{" "}
+                  <code>target_probe</code> is switched off on this bastion, or
+                  nobody has connected since it was turned on.
                 </p>
               )}
             </div>

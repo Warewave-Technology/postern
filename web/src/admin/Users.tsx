@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, Role, User, toMessage } from "../api";
 import { ActionButton, ErrorLine, ListState, OkLine, WarnLine, useList } from "./common";
 import DataTable, { Column } from "./DataTable";
+import Modal from "./Modal";
 
 // Kullanıcılar.
 //
@@ -19,6 +20,8 @@ export default function Users() {
   const [name, setName] = useState("");
   const [osUser, setOsUser] = useState("");
   const [email, setEmail] = useState("");
+  // Ekleme formu MODALDA: sayfanın işi listeyi göstermek.
+  const [adding, setAdding] = useState(false);
   // Seçim SATIR BAŞINA tutuluyor; tek ortak state, bir satırda seçilen
   // rolü bütün satırlarda seçili gösterir ve yanlış kullanıcıya
   // yetki verdirirdi.
@@ -39,6 +42,9 @@ export default function Users() {
     setError(toMessage(e));
   };
 
+  // ⚠️ BAŞARIYI DÖNDÜRÜYOR. Hata durumunda modal AÇIK kalmalı: kapanan
+  // bir modal, arkadaki hata satırını görmeyen kullanıcıya işlemin
+  // tuttuğunu düşündürür ve aynı adı bir daha yazdırır.
   const create = () =>
     api
       .createUser({ name: name.trim(), os_user: osUser.trim(), email: email.trim() || undefined })
@@ -46,10 +52,13 @@ export default function Users() {
         setName("");
         setOsUser("");
         setEmail("");
-        setNotice(`${name.trim()} created — give it a role and a key below, or it reaches nothing.`);
-        return refresh();
+        setNotice(`${name.trim()} created — give it a role and a key in the table, or it reaches nothing.`);
+        return refresh().then(() => true);
       })
-      .catch(fail);
+      .catch((e: unknown) => {
+        fail(e);
+        return false;
+      });
 
   const assign = (user: string, role: string) =>
     api
@@ -240,13 +249,18 @@ export default function Users() {
 
   return (
     <section>
-      <div className="page-head">
-        <h2>Users</h2>
-        <p className="page-sub">
-          Accounts postern knows. The admin flag is read-only here on purpose:
-          it is set from the bastion&apos;s own CLI, so the panel can never
-          hand out administrators.
-        </p>
+      <div className="page-bar">
+        <div className="page-head">
+          <h2>Users</h2>
+          <p className="page-sub">
+            Accounts postern knows. The admin flag is read-only here on purpose:
+            it is set from the bastion&apos;s own CLI, so the panel can never
+            hand out administrators.
+          </p>
+        </div>
+        <button className="btn-primary" onClick={() => setAdding(true)}>
+          New user
+        </button>
       </div>
       <ErrorLine msg={error} />
       <OkLine msg={notice} />
@@ -332,12 +346,12 @@ export default function Users() {
         </div>
       )}
 
-      <div className="panel">
-        <h3>Add user</h3>
-        <p className="note">
-          The OS user is the account postern opens on the target host; it is not
-          the name people sign in with.
-        </p>
+      <Modal
+        open={adding}
+        onClose={() => setAdding(false)}
+        title="New user"
+        description="The OS user is the account postern opens on the target host; it is not the name people sign in with."
+      >
         <div className="field-row">
           <label>
             Name
@@ -356,13 +370,13 @@ export default function Users() {
           </label>
           <ActionButton
             variant="primary"
-            onClick={create}
+            onClick={() => create().then((ok) => ok && setAdding(false))}
             disabled={!name.trim() || !osUser.trim()}
           >
             Create user
           </ActionButton>
         </div>
-      </div>
+      </Modal>
     </section>
   );
 }

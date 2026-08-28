@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { api, Mapping, Role, UnmappedGroup, toMessage } from "../api";
 import { ActionButton, ErrorLine, ListState, OkLine, useList } from "./common";
 import DataTable, { Column } from "./DataTable";
+import Modal from "./Modal";
 
 // IdP grubu → postern rolü eşlemesi.
 //
@@ -16,6 +17,8 @@ export default function Mappings() {
 
   const [group, setGroup] = useState("");
   const [role, setRole] = useState("");
+  // Ekleme formu MODALDA: sayfanın işi listeyi göstermek.
+  const [adding, setAdding] = useState(false);
   // Hem ekleme hem kaldırma GECİKMELİ etki ediyor: satırın tablodan
   // gidip gelmesi işin bittiğini söylüyor ama ne zaman geçerli olacağını
   // söylemiyor. O cümle olmadan yönetici "kaldırdım, hâlâ girebiliyor"
@@ -38,8 +41,14 @@ export default function Mappings() {
         setNotice(`${g} → ${role} mapped. Members get the role at their next sign-in.`);
         refresh();
         unmapped.refresh();
+        return true;
       })
-      .catch((e: unknown) => setError(toMessage(e)));
+      // ⚠️ BAŞARIYI DÖNDÜRÜYOR: hatada modal AÇIK kalmalı, yoksa
+      // kapanan modal işlemin tuttuğunu düşündürür.
+      .catch((e: unknown) => {
+        setError(toMessage(e));
+        return false;
+      });
   };
 
   const remove = (m: Mapping) => {
@@ -126,13 +135,18 @@ export default function Mappings() {
 
   return (
     <section>
-      <div className="page-head">
-        <h2>Group mappings</h2>
-        <p className="page-sub">
-          A directory group becomes a postern role at sign-in. Removing a
-          mapping revokes nothing on the spot: existing SSO assignments are
-          refreshed on the user&apos;s next login.
-        </p>
+      <div className="page-bar">
+        <div className="page-head">
+          <h2>Group mappings</h2>
+          <p className="page-sub">
+            A directory group becomes a postern role at sign-in. Removing a
+            mapping revokes nothing on the spot: existing SSO assignments are
+            refreshed on the user&apos;s next login.
+          </p>
+        </div>
+        <button className="btn-primary" onClick={() => setAdding(true)}>
+          New mapping
+        </button>
       </div>
       <ErrorLine msg={error} />
       <OkLine msg={notice} />
@@ -155,8 +169,12 @@ export default function Mappings() {
         />
       )}
 
-      <div className="panel">
-        <h3>Add mapping</h3>
+      <Modal
+        open={adding}
+        onClose={() => setAdding(false)}
+        title="New mapping"
+        description="Members of the group get the role at their next sign-in — a mapping never changes anyone's access on the spot."
+      >
         <div className="field-row">
           <label>
             IdP group
@@ -175,7 +193,11 @@ export default function Mappings() {
               ))}
             </select>
           </label>
-          <ActionButton variant="primary" onClick={add} disabled={!group.trim() || !role}>
+          <ActionButton
+            variant="primary"
+            onClick={() => add().then((ok) => ok && setAdding(false))}
+            disabled={!group.trim() || !role}
+          >
             Map group
           </ActionButton>
         </div>
@@ -192,7 +214,7 @@ export default function Mappings() {
               : "No roles exist yet — create one on the Roles tab before a group can be mapped."}
           </p>
         )}
-      </div>
+      </Modal>
 
       <div className="page-head">
         <h3>Groups seen but not mapped</h3>

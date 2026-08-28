@@ -39,6 +39,10 @@ export type TargetFacts = {
   connect_ms?: number;
   last_error_at?: string;
   last_error?: string;
+  // Yalnızca target_probe açıkken dolar: hedefte komut çalıştırıldı.
+  kernel?: string;
+  os_name?: string;
+  probed_at?: string;
 };
 
 export type TargetDetail = {
