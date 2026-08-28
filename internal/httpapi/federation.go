@@ -30,6 +30,10 @@ func (s *Server) registerFederationRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/admin/settings", admin(s.adminListSettings))
 	mux.Handle("PUT /api/admin/settings", admin(s.adminSetSetting))
 	mux.Handle("POST /api/admin/ldap/test", admin(s.adminTestLDAP))
+	// Yalnızca bağlantı + servis hesabı. Sihirbazın ilk adımını
+	// sınanabilir yapıyor: dokuz alandan hangisinin yanlış olduğunu
+	// dokuzunu da yazdıktan sonra öğrenmek gerekmesin.
+	mux.Handle("POST /api/admin/ldap/check-connection", admin(s.adminCheckLDAPConnection))
 }
 
 // --- grup eşlemeleri ---
@@ -313,3 +317,31 @@ const (
 	ldapURLKey          = "ldap.url"
 	ldapBindPasswordKey = "ldap.bind_password"
 )
+
+/*
+ * adminCheckLDAPConnection, YALNIZCA dizine ulaşıp servis hesabıyla
+ * bind edilebildiğini sınar.
+ *
+ * adminTestLDAP'in aksine kullanıcı tabanına bakmıyor: sihirbazın
+ * "Connection" adımında henüz user_base yazılmamış oluyor ve tam testi
+ * çalıştırmak, doldurulmamış bir alanı hata gibi göstermek olurdu.
+ *
+ * ⚠️ SAKLANAN değerleri okur, gönderileni değil — adminTestLDAP ile aynı
+ * sözleşme. Aksi hâlde panelin sunucuya kimlik bilgisi ileten ayrı bir
+ * ucu olurdu.
+ */
+func (s *Server) adminCheckLDAPConnection(w http.ResponseWriter, r *http.Request) {
+	err := ldap.CheckConnection(r.Context(), s.store)
+	if err == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
+	if errors.Is(err, ldap.ErrNotConfigured) {
+		writeErr(w, http.StatusBadRequest, "ldap.url is not stored yet — save this step first")
+		return
+	}
+	// Test HATASI 200 döner, gövdede ok:false ile: bu bir teşhis aracı,
+	// isteğin kendisi başarılı. 5xx dönmek panelde "sunucu bozuk" gibi
+	// görünürdü.
+	writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+}

@@ -106,31 +106,8 @@ func New(cfg Config) (*Source, error) {
 		return nil, fmt.Errorf("ldap.New: user_filter must contain %%s for the username")
 	}
 
-	// ŞİFRESİZ TAŞIMA yalnızca loopback'te: servis hesabı parolası
-	// ağdan geçiyor. terminal_enabled'ın HTTPS kuralının kardeşi.
-	//
-	// ⚠️ KONTROL BEYAZ LİSTE, KARA LİSTE DEĞİL.
-	//
-	// Eskiden yalnızca küçük harfli "ldap://" önekine bakıyordu ve URL
-	// şemaları BÜYÜK/KÜÇÜK HARF DUYARSIZDIR (RFC 3986). "LDAP://" ya da
-	// "lDaP://" yazmak kontrolü tamamen atlıyor, go-ldap ise şemayı
-	// normalize edip bağlantıyı kuruyordu — yani dizin servis hesabının
-	// parolası ağa düz metin çıkıyordu. Aynı boşluk "ldapi://" (unix
-	// soketi) ve "cldap://" için de vardı.
-	//
-	// Beyaz liste bu sınıfı kapatıyor: tanımadığımız bir şema geçmez.
-	scheme, _, _ := strings.Cut(cfg.URL, "://")
-	switch strings.ToLower(scheme) {
-	case "ldaps":
-		// TLS: her yerde serbest.
-	case "ldap":
-		if !isLoopback(cfg.URL) {
-			return nil, fmt.Errorf("ldap.New: plain ldap:// is only allowed for loopback; "+
-				"use ldaps:// (got %q)", cfg.URL)
-		}
-	default:
-		return nil, fmt.Errorf("ldap.New: unsupported url scheme %q; use ldaps:// "+
-			"(or ldap:// on loopback)", scheme)
+	if err := checkScheme(cfg.URL); err != nil {
+		return nil, fmt.Errorf("ldap.New: %w", err)
 	}
 
 	if cfg.GroupNameFrom == "" {
@@ -141,6 +118,44 @@ func New(cfg Config) (*Source, error) {
 	}
 
 	return &Source{cfg: cfg}, nil
+}
+
+/*
+ * checkScheme, URL şemasının kabul edilebilir olduğunu doğrular.
+ *
+ * ŞİFRESİZ TAŞIMA yalnızca loopback'te: servis hesabı parolası ağdan
+ * geçiyor. terminal_enabled'ın HTTPS kuralının kardeşi.
+ *
+ * ⚠️ KONTROL BEYAZ LİSTE, KARA LİSTE DEĞİL.
+ *
+ * Eskiden yalnızca küçük harfli "ldap://" önekine bakıyordu ve URL
+ * şemaları BÜYÜK/KÜÇÜK HARF DUYARSIZDIR (RFC 3986). "LDAP://" ya da
+ * "lDaP://" yazmak kontrolü tamamen atlıyor, go-ldap ise şemayı
+ * normalize edip bağlantıyı kuruyordu — yani dizin servis hesabının
+ * parolası ağa düz metin çıkıyordu. Aynı boşluk "ldapi://" (unix
+ * soketi) ve "cldap://" için de vardı.
+ *
+ * ⚠️ AYRI FONKSİYON, New'in içinde gömülü değil. CheckConnection (tek
+ * başına bağlantı sınaması) New'den geçmiyor; kural orada kopyalansaydı
+ * ikisi ayrışır ve panel, New'in reddedeceği bir bağlantıyı "çalışıyor"
+ * diye onaylayan bir yan kapı olurdu.
+ */
+func checkScheme(rawURL string) error {
+	scheme, _, _ := strings.Cut(rawURL, "://")
+	switch strings.ToLower(scheme) {
+	case "ldaps":
+		// TLS: her yerde serbest.
+		return nil
+	case "ldap":
+		if !isLoopback(rawURL) {
+			return fmt.Errorf("plain ldap:// is only allowed for loopback; "+
+				"use ldaps:// (got %q)", rawURL)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported url scheme %q; use ldaps:// "+
+			"(or ldap:// on loopback)", scheme)
+	}
 }
 
 // isLoopback, adresin yerel makineyi gösterip göstermediğini söyler.

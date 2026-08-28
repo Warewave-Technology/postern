@@ -86,3 +86,42 @@ func SourceFromStore(ctx context.Context, db *store.Store) (*Source, error) {
 	}
 	return New(cfg)
 }
+
+/*
+ * CheckConnection, YALNIZCA bağlantıyı ve servis hesabını sınar.
+ *
+ * NEDEN AYRI: SourceFromStore dokuz alanın hepsini istiyor (New tam
+ * yapılandırma doğruluyor), dolayısıyla "URL'im ve servis hesabım doğru
+ * mu" sorusu ancak her şey doldurulduktan sonra sorulabiliyordu.
+ * Sihirbazın ilk adımını sınanamaz yapan buydu: dokuz alandan hangisinin
+ * yanlış olduğunu, dokuzu da yazdıktan sonra öğreniyordunuz.
+ *
+ * ⚠️ SAKLANAN DEĞERLERİ okur, gönderileni değil — Test ile aynı sözleşme.
+ * Parola yazılırken sınamak, panelin sunucuya kimlik bilgisi ileten ayrı
+ * bir ucu olması demekti; oysa aynı parola zaten kaydedilirken gidiyor
+ * ve tek doğruluk kaynağı saklanan değer olmalı.
+ */
+func CheckConnection(ctx context.Context, db *store.Store) error {
+	cfg, err := LoadConfig(ctx, db)
+	if err != nil {
+		return err
+	}
+	if cfg.URL == "" {
+		return ErrNotConfigured
+	}
+
+	// ⚠️ New()'den GEÇMİYOR: New tam yapılandırma istiyor. Ama New'in
+	// TAŞIMA kuralı burada da geçerli olmak zorunda — şifresiz ldap://
+	// yalnızca loopback'te. Aksi hâlde bu uç, New'in reddettiği bir
+	// bağlantıyı "çalışıyor" diye onaylayan bir yan kapı olurdu.
+	if err := checkScheme(cfg.URL); err != nil {
+		return err
+	}
+
+	s := &Source{cfg: cfg}
+	conn, err := s.connect(ctx)
+	if err != nil {
+		return err
+	}
+	return conn.Close()
+}

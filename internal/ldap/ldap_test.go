@@ -121,3 +121,51 @@ func TestNewRequiresGroupBase(t *testing.T) {
 		t.Errorf("group_base'li yapılandırma reddedildi: %v", err)
 	}
 }
+
+/*
+ * checkScheme, New'den AYRI bir fonksiyon olarak sınanıyor.
+ *
+ * NEDEN: kural artık iki yerden çağrılıyor — New (tam yapılandırma) ve
+ * CheckConnection (sihirbazın tek başına bağlantı sınaması). Kopyalansaydı
+ * ikisi ayrışır ve panel, New'in reddedeceği bir bağlantıyı "çalışıyor"
+ * diye onaylayan bir yan kapı olurdu.
+ */
+func TestCheckScheme(t *testing.T) {
+	tests := []struct {
+		name    string
+		url     string
+		wantErr bool
+	}{
+		{name: "ldaps her yerde", url: "ldaps://ldap.example:636"},
+		{name: "ldap loopback ip", url: "ldap://127.0.0.1:389"},
+		{name: "ldap localhost", url: "ldap://localhost:389"},
+		{name: "ldap ipv6 loopback", url: "ldap://[::1]:389"},
+
+		// ⚠️ Şemalar BÜYÜK/KÜÇÜK HARF DUYARSIZDIR (RFC 3986). Bir zamanlar
+		// yalnızca küçük harfli "ldap://" önekine bakılıyordu ve "LDAP://"
+		// kontrolü tamamen atlıyordu — servis hesabının parolası ağa düz
+		// metin çıkıyordu.
+		{name: "LDAP buyuk harf uzak", url: "LDAP://ldap.example:389", wantErr: true},
+		{name: "lDaP karisik uzak", url: "lDaP://ldap.example:389", wantErr: true},
+		{name: "LDAPS buyuk harf", url: "LDAPS://ldap.example:636"},
+
+		{name: "ldap uzak reddedilir", url: "ldap://ldap.example:389", wantErr: true},
+		// Beyaz liste: tanımadığımız şema geçmez.
+		{name: "ldapi unix soketi", url: "ldapi:///", wantErr: true},
+		{name: "cldap", url: "cldap://ldap.example", wantErr: true},
+		{name: "sema yok", url: "ldap.example:389", wantErr: true},
+		{name: "bos", url: "", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := checkScheme(tc.url)
+			if tc.wantErr && err == nil {
+				t.Errorf("checkScheme(%q) kabul etti, reddetmeliydi", tc.url)
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("checkScheme(%q) reddetti: %v", tc.url, err)
+			}
+		})
+	}
+}
