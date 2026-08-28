@@ -69,13 +69,16 @@ export default function Mappings() {
 
   return (
     <section>
-      <h2>Group mappings</h2>
+      <div className="page-head">
+        <h2>Group mappings</h2>
+        <p className="page-sub">
+          A directory group becomes a postern role at sign-in. Removing a
+          mapping revokes nothing on the spot: existing SSO assignments are
+          refreshed on the user&apos;s next login.
+        </p>
+      </div>
       <ErrorLine msg={error} />
       <OkLine msg={notice} />
-      <p className="muted small">
-        A mapping is applied at sign-in. Removing one revokes nothing on the
-        spot: existing SSO assignments are refreshed on the user's next login.
-      </p>
 
       <ListState
         loading={loading}
@@ -84,81 +87,88 @@ export default function Mappings() {
         emptyText="No mappings — nobody can sign in through the IdP yet."
       />
       {items.length > 0 && (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>IdP group</th>
-                <th>Role</th>
-                <th>Mapped by</th>
-                <th><span className="sr-only">Actions</span></th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((m) => (
-                <tr key={`${m.group}/${m.role}`}>
-                  <td>{m.group}</td>
-                  <td>{m.role}</td>
-                  <td>{m.created_by}</td>
-                  <td>
-                    <ActionButton
-                      confirm={`Remove the mapping ${m.group} → ${m.role}? Anyone who already holds ${m.role} keeps it until their next sign-in.`}
-                      label={`remove mapping ${m.group} to ${m.role}`}
-                      onClick={() => remove(m)}
-                    >
-                      remove
-                    </ActionButton>
-                  </td>
+        <div className="card">
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>IdP group</th>
+                  <th>Role</th>
+                  <th>Mapped by</th>
+                  <th className="actions"><span className="sr-only">Actions</span></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {items.map((m) => (
+                  <tr key={`${m.group}/${m.role}`}>
+                    <td><code>{m.group}</code></td>
+                    <td><code>{m.role}</code></td>
+                    <td>{m.created_by}</td>
+                    <td className="actions">
+                      <ActionButton
+                        variant="danger"
+                        confirm={`Remove the mapping ${m.group} → ${m.role}? Anyone who already holds ${m.role} keeps it until their next sign-in.`}
+                        label={`remove mapping ${m.group} to ${m.role}`}
+                        onClick={() => remove(m)}
+                      >
+                        Remove
+                      </ActionButton>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
-      <h3>Add mapping</h3>
-      <div className="field-row">
-        <label>
-          IdP group
-          <input
-            value={group}
-            onChange={(e) => setGroup(e.target.value)}
-            placeholder="sysadmins"
-          />
-        </label>
-        <label>
-          Role
-          <select ref={roleRef} value={role} onChange={(e) => setRole(e.target.value)}>
-            <option value="">select role…</option>
-            {roles.items.map((r) => (
-              <option key={r.name} value={r.name}>{r.name}</option>
-            ))}
-          </select>
-        </label>
-        <ActionButton onClick={add} disabled={!group.trim() || !role}>
-          Map
-        </ActionButton>
-      </div>
-      <ErrorLine msg={roles.error} />
+      <div className="panel">
+        <h3>Add mapping</h3>
+        <div className="field-row">
+          <label>
+            IdP group
+            <input
+              value={group}
+              onChange={(e) => setGroup(e.target.value)}
+              placeholder="sysadmins"
+            />
+          </label>
+          <label>
+            Role
+            <select ref={roleRef} value={role} onChange={(e) => setRole(e.target.value)}>
+              <option value="">select role…</option>
+              {roles.items.map((r) => (
+                <option key={r.name} value={r.name}>{r.name}</option>
+              ))}
+            </select>
+          </label>
+          <ActionButton variant="primary" onClick={add} disabled={!group.trim() || !role}>
+            Map group
+          </ActionButton>
+        </div>
+        <ErrorLine msg={roles.error} />
       {/*
         Boş bir rol açılırı sessizce "seçecek bir şey yok" gibi duruyor.
         Sebebi söylenmezse yönetici formu bozuk sanıyor — ve reddedilmiş
         bir istek ile gerçekten rol olmaması AYNI şey değil.
       */}
-      {!roles.loading && roles.items.length === 0 && (
-        <p className="muted small">
-          {roles.denied
-            ? "Roles could not be listed for your account, so this list is empty — that is not the same as there being no roles."
-            : "No roles exist yet — create one on the Roles tab before a group can be mapped."}
-        </p>
-      )}
+        {!roles.loading && roles.items.length === 0 && (
+          <p className="note">
+            {roles.denied
+              ? "Roles could not be listed for your account, so this list is empty — that is not the same as there being no roles."
+              : "No roles exist yet — create one on the Roles tab before a group can be mapped."}
+          </p>
+        )}
+      </div>
 
-      <h3>Groups seen but not mapped</h3>
-      <p className="muted small">
-        These arrived in a login and matched no role, so whoever signed in got
-        nothing from them. Mapping one grants access on that user's next
-        sign-in.
-      </p>
+      <div className="page-head">
+        <h3>Groups seen but not mapped</h3>
+        <p className="page-sub">
+          These arrived in a login and matched no role, so whoever signed in got
+          nothing from them. Mapping one grants access on that user&apos;s next
+          sign-in.
+        </p>
+      </div>
       <ErrorLine msg={unmapped.error} />
       <ListState
         loading={unmapped.loading}
@@ -167,34 +177,36 @@ export default function Mappings() {
         emptyText="Nothing unmapped so far — every group seen in a login matched a role."
       />
       {pending.length > 0 && (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Group</th>
-                <th>Times seen</th>
-                <th>Last seen</th>
-                <th><span className="sr-only">Actions</span></th>
-              </tr>
-            </thead>
-            <tbody>
-              {pending.map((g) => (
-                <tr key={g.name}>
-                  <td>{g.name}</td>
-                  <td>{g.seen_count}</td>
-                  <td>{g.last_seen}</td>
-                  <td>
-                    <button
-                      onClick={() => mapThisGroup(g.name)}
-                      aria-label={`map group ${g.name}`}
-                    >
-                      map this group
-                    </button>
-                  </td>
+        <div className="card">
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Group</th>
+                  <th className="num">Times seen</th>
+                  <th>Last seen</th>
+                  <th className="actions"><span className="sr-only">Actions</span></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {pending.map((g) => (
+                  <tr key={g.name}>
+                    <td><code>{g.name}</code></td>
+                    <td className="num">{g.seen_count}</td>
+                    <td>{g.last_seen}</td>
+                    <td className="actions">
+                      <button
+                        onClick={() => mapThisGroup(g.name)}
+                        aria-label={`map group ${g.name}`}
+                      >
+                        Map this group
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </section>

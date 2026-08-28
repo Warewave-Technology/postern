@@ -120,7 +120,14 @@ export default function Users() {
 
   return (
     <section>
-      <h2>Users</h2>
+      <div className="page-head">
+        <h2>Users</h2>
+        <p className="page-sub">
+          Accounts postern knows. The admin flag is read-only here on purpose:
+          it is set from the bastion&apos;s own CLI, so the panel can never
+          hand out administrators.
+        </p>
+      </div>
       <ErrorLine msg={error} />
       <OkLine msg={notice} />
 
@@ -144,122 +151,126 @@ export default function Users() {
       />
 
       {items.length > 0 && (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>OS user</th>
-                <th>Admin</th>
-                <th className="wrap">Roles</th>
-                <th>Assign role</th>
-                <th>Keys</th>
-                <th>
-                  <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((u) => {
-                // Zaten atanmış rol kutuda GÖRÜNMÜYOR: sunucu isteği kabul
-                // ediyor (upsert) ama tabloda hiçbir şey değişmiyor —
-                // değişmeyen satıra bakan yönetici atamanın tutmadığını sanıp
-                // aynı düğmeye tekrar basıyordu.
-                const free = roles.items.filter((r) => !u.roles.includes(r.name));
-                const choice = picked[u.name] ?? "";
+        <div className="card">
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>OS user</th>
+                  <th>Admin</th>
+                  <th className="wrap">Roles</th>
+                  <th>Assign role</th>
+                  <th>Keys</th>
+                  <th className="actions">
+                    <span className="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((u) => {
+                  // Zaten atanmış rol kutuda GÖRÜNMÜYOR: sunucu isteği kabul
+                  // ediyor (upsert) ama tabloda hiçbir şey değişmiyor —
+                  // değişmeyen satıra bakan yönetici atamanın tutmadığını sanıp
+                  // aynı düğmeye tekrar basıyordu.
+                  const free = roles.items.filter((r) => !u.roles.includes(r.name));
+                  const choice = picked[u.name] ?? "";
 
-                return (
-                  <tr key={u.name}>
-                    <td>{u.name}</td>
-                    <td>{u.os_user}</td>
-                    {/* Admin sütunu SALT OKUNUR: bayrak yalnızca hosttaki CLI'dan
-                        değişir — panel kendine yetki dağıtamaz. */}
-                    <td>{u.admin ? "yes" : "—"}</td>
-                    <td className="wrap">
-                      {u.roles.length === 0 ? (
-                        <span className="muted">no roles</span>
-                      ) : (
-                        <span className="chips">
-                          {u.roles.map((r) => (
-                            <span key={r} className="chip">
-                              <code>{r}</code>
-                              <ActionButton
-                                onClick={() => revoke(u.name, r)}
-                                confirm={`Revoke "${r}" from ${u.name}? They immediately lose every target that role grants.`}
-                                label={`revoke role ${r} from ${u.name}`}
-                              >
-                                revoke
-                              </ActionButton>
-                            </span>
-                          ))}
-                        </span>
-                      )}
-                    </td>
-                    <td>
-                      <div className="cell-form">
-                        <select
-                          aria-label={`role to assign to ${u.name}`}
-                          value={choice}
-                          onChange={(e) =>
-                            setPicked((p) => ({ ...p, [u.name]: e.target.value }))
-                          }
-                          disabled={free.length === 0}
-                        >
-                          <option value="">
-                            {roles.items.length === 0
-                              ? "no roles defined"
-                              : free.length === 0
-                                ? "all roles assigned"
-                                : "choose a role…"}
-                          </option>
-                          {free.map((r) => (
-                            <option key={r.name} value={r.name}>
-                              {r.name}
+                  return (
+                    <tr key={u.name}>
+                      <td>{u.name}</td>
+                      <td>{u.os_user}</td>
+                      {/* Admin sütunu SALT OKUNUR: bayrak yalnızca hosttaki CLI'dan
+                          değişir — panel kendine yetki dağıtamaz. */}
+                      <td>
+                        {u.admin ? (
+                          <span className="badge badge-accent">admin</span>
+                        ) : (
+                          <span className="muted">—</span>
+                        )}
+                      </td>
+                      <td className="wrap">
+                        {u.roles.length === 0 ? (
+                          <span className="muted">no roles</span>
+                        ) : (
+                          <span className="chips">
+                            {u.roles.map((r) => (
+                              <span key={r} className="chip">
+                                <code>{r}</code>
+                                <ActionButton
+                                  onClick={() => revoke(u.name, r)}
+                                  confirm={`Revoke "${r}" from ${u.name}? They immediately lose every target that role grants.`}
+                                  label={`revoke role ${r} from ${u.name}`}
+                                >
+                                  revoke
+                                </ActionButton>
+                              </span>
+                            ))}
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        <div className="cell-form">
+                          <select
+                            aria-label={`role to assign to ${u.name}`}
+                            value={choice}
+                            onChange={(e) =>
+                              setPicked((p) => ({ ...p, [u.name]: e.target.value }))
+                            }
+                            disabled={free.length === 0}
+                          >
+                            <option value="">
+                              {roles.items.length === 0
+                                ? "no roles defined"
+                                : free.length === 0
+                                  ? "all roles assigned"
+                                  : "choose a role…"}
                             </option>
-                          ))}
-                        </select>
+                            {free.map((r) => (
+                              <option key={r.name} value={r.name}>
+                                {r.name}
+                              </option>
+                            ))}
+                          </select>
+                          <ActionButton
+                            onClick={() => assign(u.name, choice)}
+                            label={choice ? `assign ${choice} to ${u.name}` : `assign a role to ${u.name}`}
+                            disabled={!choice}
+                          >
+                            Assign
+                          </ActionButton>
+                        </div>
+                      </td>
+                      <td>
+                        <div className="cell-form">
+                          {u.keys === 0 ? <span className="muted">none</span> : u.keys}
+                          <button
+                            onClick={() => toggleKeys(u.name)}
+                            aria-expanded={keysFor === u.name}
+                            aria-label={`manage SSH keys for ${u.name}`}
+                          >
+                            {keysFor === u.name ? "Close" : "Keys"}
+                          </button>
+                        </div>
+                      </td>
+                      <td className="actions">
                         <ActionButton
-                          onClick={() => assign(u.name, choice)}
-                          label={choice ? `assign ${choice} to ${u.name}` : `assign a role to ${u.name}`}
-                          disabled={!choice}
+                          variant="danger"
+                          onClick={() => remove(u.name)}
+                          confirm={`Delete the user "${u.name}"? Their SSH keys and role assignments go with them. If ${u.name} has recorded sessions the server refuses this outright — revoking their keys and roles is how access is cut without losing the audit trail.`}
+                          label={`delete user ${u.name}`}
                         >
-                          assign
+                          Delete
                         </ActionButton>
-                      </div>
-                    </td>
-                    <td>
-                      <div className="cell-form">
-                        {u.keys === 0 ? <span className="muted">none</span> : u.keys}
-                        <button
-                          onClick={() => toggleKeys(u.name)}
-                          aria-expanded={keysFor === u.name}
-                          aria-label={`manage SSH keys for ${u.name}`}
-                        >
-                          {keysFor === u.name ? "close" : "keys"}
-                        </button>
-                      </div>
-                    </td>
-                    <td>
-                      <ActionButton
-                        onClick={() => remove(u.name)}
-                        confirm={`Delete the user "${u.name}"? Their SSH keys and role assignments go with them. If ${u.name} has recorded sessions the server refuses this outright — revoking their keys and roles is how access is cut without losing the audit trail.`}
-                        label={`delete user ${u.name}`}
-                      >
-                        delete
-                      </ActionButton>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
-
-      <p className="muted small">
-        The admin column is read-only here on purpose: the flag is set from the
-        bastion's own CLI, so the panel can never hand out administrators.
-      </p>
 
       {keysUser && (
         <div className="panel">
@@ -311,31 +322,37 @@ export default function Users() {
         </div>
       )}
 
-      <h3>Add user</h3>
-      <div className="field-row">
-        <label>
-          Name
-          {/* trim: baştaki/sondaki boşluk gözle görünmüyor ama SSH
-              tarafında ad birebir eşleşiyor — "ops " kullanıcısına
-              hiç kimse bağlanamazdı. */}
-          <input value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
-        <label>
-          OS user
-          <input value={osUser} onChange={(e) => setOsUser(e.target.value)} />
-        </label>
-        <label>
-          Email (optional)
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-        </label>
-        <ActionButton onClick={create} disabled={!name.trim() || !osUser.trim()}>
-          Create
-        </ActionButton>
+      <div className="panel">
+        <h3>Add user</h3>
+        <p className="note">
+          The OS user is the account postern opens on the target host; it is not
+          the name people sign in with.
+        </p>
+        <div className="field-row">
+          <label>
+            Name
+            {/* trim: baştaki/sondaki boşluk gözle görünmüyor ama SSH
+                tarafında ad birebir eşleşiyor — "ops " kullanıcısına
+                hiç kimse bağlanamazdı. */}
+            <input value={name} onChange={(e) => setName(e.target.value)} />
+          </label>
+          <label>
+            OS user
+            <input value={osUser} onChange={(e) => setOsUser(e.target.value)} />
+          </label>
+          <label>
+            Email (optional)
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          </label>
+          <ActionButton
+            variant="primary"
+            onClick={create}
+            disabled={!name.trim() || !osUser.trim()}
+          >
+            Create user
+          </ActionButton>
+        </div>
       </div>
-      <p className="muted small">
-        The OS user is the account postern opens on the target host; it is not
-        the name people sign in with.
-      </p>
     </section>
   );
 }

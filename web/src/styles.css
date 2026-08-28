@@ -10,39 +10,65 @@
  * CDN'den gelen hiçbir şeye izin vermiyor ve npm'den gelen bir çerçeve
  * ~600 satırlık bir panel için büyük bir sıçrama olurdu — üstelik npm
  * bağımlılıklarını ne gosec ne govulncheck tarıyor.
+ *
+ * ⚠️ YAZI TİPİ DE AYNI SEBEPLE SİSTEMDEN: default-src 'self' font-src'yi
+ * de kapsıyor, yani Google Fonts yüklenmez. Tasarım sistem yığınıyla
+ * çalışmak ZORUNDA; ölçek, ağırlık ve boşluk ritmi işi yapıyor.
  */
 
-/* --- renk ve ölçü belirteçleri --- */
+/* ============================================================
+   1. Belirteçler
+   ============================================================ */
 :root {
   color-scheme: light dark;
 
-  --bg: #ffffff;
-  --fg: #111111;
-  --muted: #5a5a5a;
-  --border: #d4d4d4;
-  --border-soft: #ebebeb;
+  /* Yüzeyler: canvas < surface. Kartın kenarlığı değil, ZEMİN FARKI
+     ayırıyor onu sayfadan; kenarlık yalnızca sınırı keskinleştiriyor. */
+  --canvas: #f6f7f9;
+  --surface: #ffffff;
+  --sunken: #f1f3f6;
+  --hover: #f7f8fa;
 
-  --surface: #fafafa;
-  --surface-raised: #ffffff;
+  --line: #e2e5ea;
+  --line-soft: #edeff3;
+  --line-strong: #d3d8df;
 
-  --accent: #1a4f8a;
+  --ink: #171a1f;
+  --muted: #4a5260;
+  --faint: #79818f;
+
+  --accent: #17509f;
   --accent-fg: #ffffff;
+  --accent-soft: #dfe9fa;
+  --accent-line: #c2d6f5;
 
-  --danger: #a4133c;
-  --danger-bg: #fdeaef;
-  --ok: #1b5e20;
-  --ok-bg: #e9f5ea;
-  --warn: #8a5a00;
-  --warn-bg: #fdf3e2;
+  --danger: #970c2a;
+  --danger-bg: #fdedf1;
+  --danger-line: #f0c3ce;
+  --ok: #0d5225;
+  --ok-bg: #e9f5ec;
+  --ok-line: #bfe0c9;
+  --warn: #684500;
+  --warn-bg: #fdf4e3;
+  --warn-line: #ebd7a6;
 
-  --terminal-bg: #111111;
-  --terminal-fg: #eeeeee;
+  /* Terminal İKİ TEMADA DA koyu: bir kabuk çıktısı beyaz zeminde
+     okunmuyor ve ANSI renkleri koyu zemine göre seçilmiş. */
+  --terminal-bg: #0f1216;
+  --terminal-fg: #e6e9ee;
 
   --radius: 6px;
-  --gap: 0.75rem;
+  --radius-lg: 10px;
 
-  --font: system-ui, -apple-system, "Segoe UI", sans-serif;
-  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+
+  /* Gölge: kart için DEĞİL, yalnızca yüzen katmanlar için (yapışkan
+     sütun, üst bant). Kartlar düz kalıyor — gölgeli kart yığını
+     sekiz sekmelik bir panelde gürültü. */
+  --shadow-edge: 6px 0 6px -6px rgba(16, 20, 28, 0.16);
 }
 
 /*
@@ -54,25 +80,36 @@
  */
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #16181c;
-    --fg: #e8e8e8;
-    --muted: #a0a4ab;
-    --border: #3a3f47;
-    --border-soft: #282c33;
+    --canvas: #0e1014;
+    --surface: #14171c;
+    --sunken: #1a1e25;
+    --hover: #1b1f27;
 
-    --surface: #1c1f24;
-    --surface-raised: #22262c;
+    --line: #272c35;
+    --line-soft: #1f232b;
+    --line-strong: #363d49;
 
-    --accent: #7aa7db;
-    --accent-fg: #10131a;
+    --ink: #e7eaef;
+    --muted: #a3abb7;
+    --faint: #7f8794;
+
+    --accent: #74a9f8;
+    --accent-fg: #0b1220;
+    --accent-soft: #111a2b;
+    --accent-line: #2c3f5e;
 
     /* Açık temadaki crimson/green karanlıkta kontrastı geçemiyor. */
-    --danger: #ff8fa3;
-    --danger-bg: #3a1f27;
-    --ok: #8fd694;
-    --ok-bg: #1e2f20;
-    --warn: #e8bd6d;
-    --warn-bg: #33290f;
+    --danger: #ff8ba5;
+    --danger-bg: #331a22;
+    --danger-line: #5c2b38;
+    --ok: #7fd39a;
+    --ok-bg: #12291b;
+    --ok-line: #27492f;
+    --warn: #e6c176;
+    --warn-bg: #2e2611;
+    --warn-line: #4d411d;
+
+    --shadow-edge: 6px 0 6px -6px rgba(0, 0, 0, 0.55);
   }
 }
 
@@ -80,10 +117,14 @@
 
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--fg);
+  background: var(--canvas);
+  color: var(--ink);
   font-family: var(--font);
+  /* 14px yönetim arayüzü taban ölçüsü. rem KÖKE bağlı (16px), yani
+     düzen ölçüleri bundan etkilenmiyor: tipografi px, düzen rem. */
+  font-size: 14px;
   line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
 
 /*
@@ -92,51 +133,14 @@ body {
  * ⚠️ Bu seçici HİÇ YOKTU ve linkler iki temada da tarayıcı varsayılanına
  * düşüyordu: açık temada #0000EE, karanlıkta Chrome'un lavantası.
  * İkisi de paletin dışında; üstelik karanlık taraf yalnızca tarayıcının
- * color-scheme'i doğru okumasına bağlı kalıyordu. Giriş sayfasında
- * sayfadaki TEK etkileşim öğesi bir bağlantı — orası stilsiz görünüyordu.
+ * color-scheme'i doğru okumasına bağlı kalıyordu.
  */
 a { color: var(--accent); text-underline-offset: 2px; }
 a:hover { text-decoration-thickness: 2px; }
 
-/* --- düzen --- */
-.app {
-  max-width: 60rem;
-  margin: 2rem auto;
-  padding: 0 1rem;
-}
+code, kbd, samp { font-family: var(--mono); font-size: 0.92em; }
 
-.app-header {
-  display: flex;
-  flex-wrap: wrap;           /* dar ekranda alt satıra insin */
-  gap: var(--gap);
-  align-items: baseline;
-}
-.app-header h1 { margin: 0 auto 0 0; font-size: 1.5rem; }
-.app-header .who { color: var(--muted); }
-
-/* Sekmeler. Dar ekranda sarmalanır — sarmalamayan bir satır sekiz
-   düğmeyle telefonda yatay kaydırma üretiyordu. */
-.tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin: 1rem 0 1.5rem;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 0.5rem;
-}
-
-/* --- form denetimleri --- */
-button, .btn {
-  font: inherit;
-  padding: 0.35rem 0.8rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface-raised);
-  color: var(--fg);
-  cursor: pointer;
-}
-button:hover:not(:disabled) { background: var(--surface); }
-button:disabled { opacity: 0.55; cursor: not-allowed; }
+h1, h2, h3, h4 { margin: 0; font-weight: 650; letter-spacing: -0.011em; }
 
 /*
  * Odak halkası. Inline stille yazılamıyordu, dolayısıyla klavye
@@ -145,7 +149,99 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+  border-radius: 3px;
 }
+
+/* ============================================================
+   2. Kabuk: üst bant + sekmeler + içerik
+   ============================================================ */
+.shell { min-height: 100vh; }
+
+.topbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.topbar-inner,
+.tabs-inner,
+.app {
+  max-width: 76rem;
+  margin: 0 auto;
+  padding-inline: 1.25rem;
+}
+.topbar-inner {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-height: 3.25rem;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  margin-right: auto;
+}
+.brand svg { display: block; color: var(--accent); }
+
+.account {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 13px;
+  color: var(--muted);
+  min-width: 0;
+}
+.account .who {
+  color: var(--ink);
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * Sekmeler: alt çizgi göstergesi.
+ *
+ * Dolgulu düğme yerine alt çizgi, çünkü sekiz özdeş dolgulu düğme bir
+ * gezinme değil alet çubuğu gibi okunuyordu — hangisinin "bulunduğun
+ * yer", hangisinin "eylem" olduğu ayırt edilmiyordu.
+ *
+ * Kaydırma KAPTA, sayfada değil: sarmalanan sekiz sekme telefonda üç
+ * satır yer kaplıyordu; taşan bir satır ise SAYFAYI kaydırtıyordu.
+ */
+.tabs {
+  position: relative;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.tabs-inner {
+  display: flex;
+  gap: 1.25rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tabs-inner::-webkit-scrollbar { display: none; }
+
+.tabs-inner button {
+  flex: none;
+  appearance: none;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 0.7rem 0;
+  margin-bottom: -1px;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tabs-inner button:hover { color: var(--ink); background: none; }
 
 /*
  * Seçili sekme aria-current ile işaretli, disabled ile DEĞİL.
@@ -154,43 +250,100 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
  * okuyucuya "kullanılamaz" dedirtiyordu: klavye kullanıcısı BULUNDUĞU
  * sekmeye odaklanamıyordu.
  */
-button[aria-current="page"] {
-  background: var(--accent);
-  color: var(--accent-fg);
-  border-color: var(--accent);
+.tabs-inner button[aria-current="page"] {
+  color: var(--ink);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+  background: none;
+}
+.tabs-inner button:focus-visible { outline-offset: -3px; }
+
+/* Sağ kenarda kaybolma: kaydırılacak sekme kaldığını gösterir. */
+.tabs::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  right: 0;
+  width: 2rem;
+  pointer-events: none;
+  background: linear-gradient(to right, transparent, var(--surface));
+}
+@media (min-width: 56rem) {
+  .tabs::after { display: none; }
 }
 
-input, select, textarea {
-  font: inherit;
-  padding: 0.35rem 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface-raised);
-  color: var(--fg);
-  max-width: 100%;
+.app { padding-block: 1.75rem 4rem; }
+
+/* ============================================================
+   3. Sayfa başlığı
+   ============================================================ */
+.page-head { margin-bottom: 1.25rem; }
+.page-head h2 { font-size: 20px; line-height: 1.3; }
+.page-head h3 { font-size: 16px; line-height: 1.35; }
+
+/* Dar sütun: liste kısaysa tam genişlik, ad ile eylem arasında yüzlerce
+   piksel boşluk bırakıyor. Tablolar geniş kalıyor, bu yalnızca ana sayfa. */
+.narrow { max-width: 46rem; }
+.page-sub {
+  margin: 0.3rem 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  max-width: 62ch;
 }
-textarea { font-family: var(--mono); width: 100%; }
 
-label { display: inline-flex; flex-direction: column; gap: 0.2rem; font-size: 0.85rem; color: var(--muted); }
-label > input, label > select, label > textarea { color: var(--fg); font-size: 1rem; }
-
-.field-row {
+/* Başlık + sağdaki eylem (Refresh gibi) aynı satırda. */
+.page-bar {
   display: flex;
-  flex-wrap: wrap;      /* dar ekranda alt alta */
-  gap: var(--gap);
-  align-items: flex-end;
-  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 1.25rem;
 }
+.page-bar .page-head { margin-bottom: 0; }
 
-/* --- tablolar --- */
+/* ============================================================
+   4. Kart
+   ============================================================ */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  margin-bottom: 1.5rem;
+  overflow: hidden;
+}
+.card-head {
+  padding: 0.9rem 1.1rem;
+  border-bottom: 1px solid var(--line);
+}
+.card-head h3 { font-size: 14px; font-weight: 600; }
+.card-head p {
+  margin: 0.25rem 0 0;
+  font-size: 12.5px;
+  color: var(--muted);
+  max-width: 62ch;
+}
+.card-body { padding: 1.1rem; }
+
+/* Kart altı dipnot: tablonun kapsamı hakkındaki uyarılar burada. */
+.card-foot {
+  padding: 0.65rem 1.1rem;
+  border-top: 1px solid var(--line-soft);
+  background: var(--sunken);
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.card-foot p { margin: 0; }
+
+/* ============================================================
+   5. Tablolar
+   ============================================================ */
 /*
- * Her tablo kendi yatay kaydırma kabında. Yedi sütunluk RFC3339
- * damgalı tablolar telefonda SAYFAYI kaydırtıyordu; kaydırma tabloda
- * kalmalı.
+ * Her tablo kendi yatay kaydırma kabında. Sekiz sütunluk damgalı
+ * tablolar telefonda SAYFAYI kaydırtıyordu; kaydırma tabloda kalmalı.
  */
 .table-wrap {
   overflow-x: auto;
-  margin-bottom: 1rem;
   /* position:relative ŞART: içerideki .sr-only mutlak konumlu. Konumlandırılmış
      bir ata olmazsa kapsayıcı blok viewport olur ve öğe overflow kırpmasından
      KAÇAR — tablo geniş olduğunda sayfanın tamamına yatay kaydırma çubuğu
@@ -199,81 +352,309 @@ label > input, label > select, label > textarea { color: var(--fg); font-size: 1
 }
 
 table { border-collapse: collapse; width: 100%; }
-th, td { text-align: left; padding: 0.4rem 0.7rem; white-space: nowrap; }
-th { border-bottom: 1px solid var(--border); font-weight: 600; }
-td { border-bottom: 1px solid var(--border-soft); }
-tbody tr:hover { background: var(--surface); }
-td.wrap, th.wrap { white-space: normal; }
 
-code { font-family: var(--mono); font-size: 0.9em; }
+th {
+  text-align: left;
+  padding: 0.6rem 1.1rem;
+  background: var(--sunken);
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+td {
+  padding: 0.7rem 1.1rem;
+  border-bottom: 1px solid var(--line-soft);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover { background: var(--hover); }
 
-/* --- durum satırları --- */
+td.wrap, th.wrap { white-space: normal; min-width: 16rem; }
+td.num, th.num { font-variant-numeric: tabular-nums; }
+
+/* Zaman damgası: hizalansın diye tabular, ikincil olduğu için soluk. */
+td time { font-variant-numeric: tabular-nums; color: var(--muted); }
+
+/* Eylem sütunu sağa yaslı ve DARALTILMIŞ: geniş tabloda birincil
+   eylem, yatay kaydırmanın ardında kalmasın diye içerik minimumda. */
+th.actions, td.actions { text-align: right; width: 1%; }
+
+/* ============================================================
+   6. Düğmeler
+   ============================================================ */
+button, .btn {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  padding: 0.48rem 0.75rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+}
+button:hover:not(:disabled), .btn:hover { background: var(--hover); }
+button:active:not(:disabled) { background: var(--sunken); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+  font-weight: 550;
+}
+.btn-primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
+
+/* Sessiz düğme: tablo satırındaki ikincil eylemler. Kenarlıksız
+   olmaları satır başına üç kutu çizilmesini önlüyor. */
+.btn-quiet {
+  background: none;
+  border-color: transparent;
+  color: var(--muted);
+  padding-inline: 0.5rem;
+}
+.btn-quiet:hover:not(:disabled) { background: var(--sunken); color: var(--ink); }
+.btn-danger { color: var(--danger); }
+.btn-danger:hover:not(:disabled) { background: var(--danger-bg); border-color: var(--danger-line); }
+
+/* ============================================================
+   7. Form denetimleri
+   ============================================================ */
+input, select, textarea {
+  font: inherit;
+  font-size: 13px;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  max-width: 100%;
+}
+input::placeholder { color: var(--faint); }
+input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+textarea { font-family: var(--mono); width: 100%; line-height: 1.45; }
+
+label {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--muted);
+}
+label > input, label > select, label > textarea {
+  color: var(--ink);
+  font-weight: 400;
+}
+
+.field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-end;
+}
+.field-row + .field-row { margin-top: 0.75rem; }
+.field-row label { min-width: 11rem; flex: 1 1 11rem; }
+
+/* Hücre içi mini form (seçim kutusu + düğme). Dar ekranda sarmalanır:
+   sarmalamayan bir hücre tabloyu telefonda kaydırılamaz kadar
+   genişletiyordu. */
+.cell-form { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+.cell-form select { min-width: 8rem; }
+
+/* ============================================================
+   8. Rozetler ve rol çipleri
+   ============================================================ */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--sunken);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.badge-accent { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent); }
+.badge-ok { background: var(--ok-bg); border-color: var(--ok-line); color: var(--ok); }
+.badge-mono { font-family: var(--mono); font-weight: 500; letter-spacing: 0; }
+
+/*
+ * Rol/hedef çipleri.
+ *
+ * Hedefler virgülle birleştirilmiş TEK metindi ve tek tek geri
+ * alınamıyordu: yanlış verilmiş bir hedefi kaldırmak için rolü silip
+ * yeniden kurmak gerekiyordu — yani o rolü taşıyan herkesin erişimini
+ * bir süreliğine kesmek. Her hedef kendi rozetinde, kendi düğmesiyle.
+ */
+.chips { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.1rem 0.15rem 0.1rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--sunken);
+  font-size: 12px;
+}
+.chip code { font-size: 12px; color: var(--ink); }
+.chip button {
+  padding: 0.1rem 0.35rem;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+}
+.chip button:hover:not(:disabled) { background: var(--danger-bg); color: var(--danger); }
+
+/* ============================================================
+   9. Durum satırları
+   ============================================================ */
 /*
  * ⚠️ Renk TEK BAŞINA sinyal değil: her birinin bir de metin öneki var.
  * Eskiden hata ile başarıyı ayıran tek şey crimson/green farkıydı —
  * renk körü bir kullanıcı için ikisi aynıydı.
  */
 .msg {
-  padding: 0.5rem 0.75rem;
+  padding: 0.6rem 0.85rem;
   border-radius: var(--radius);
   border: 1px solid transparent;
-  margin: 0.5rem 0;
+  border-left-width: 3px;
+  margin: 0 0 1rem;
+  font-size: 13px;
 }
-.msg::before { font-weight: 600; margin-right: 0.4rem; }
+.msg::before { font-weight: 650; margin-right: 0.35rem; }
 
-.msg-error   { background: var(--danger-bg); color: var(--danger); border-color: var(--danger); }
-.msg-error::before   { content: "Error:"; }
+.msg-error { background: var(--danger-bg); color: var(--danger); border-color: var(--danger-line); border-left-color: var(--danger); }
+.msg-error::before { content: "Error:"; }
 
-.msg-ok      { background: var(--ok-bg); color: var(--ok); border-color: var(--ok); }
-.msg-ok::before      { content: "OK:"; }
+.msg-ok { background: var(--ok-bg); color: var(--ok); border-color: var(--ok-line); border-left-color: var(--ok); }
+.msg-ok::before { content: "OK:"; }
 
-.msg-warn    { background: var(--warn-bg); color: var(--warn); border-color: var(--warn); }
-.msg-warn::before    { content: "Warning:"; }
+.msg-warn { background: var(--warn-bg); color: var(--warn); border-color: var(--warn-line); border-left-color: var(--warn); }
+.msg-warn::before { content: "Warning:"; }
 
 .muted { color: var(--muted); }
-.small { font-size: 0.85rem; }
+.small { font-size: 12.5px; }
+.note { color: var(--muted); font-size: 12.5px; max-width: 68ch; }
 
 /* Yükleniyor / boş durum. İkisi FARKLI şeyler: "henüz gelmedi" ile
-   "gerçekten yok" aynı ekranı göstermek yanlış bilgi vermek. */
+   "gerçekten yok" aynı ekranı göstermek yanlış bilgi vermektir. */
 .state {
-  padding: 1rem;
+  margin: 0;
+  padding: 2.25rem 1.25rem;
+  text-align: center;
   color: var(--muted);
+  font-size: 13px;
   background: var(--surface);
-  border-radius: var(--radius);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-lg);
 }
 
-/* --- terminal ve oynatıcı --- */
-.terminal-host {
-  background: var(--terminal-bg);
-  padding: 8px;
-  border-radius: var(--radius);
+/* ============================================================
+   10. Ana sayfa: hedef listesi
+   ============================================================ */
+.rows { list-style: none; margin: 0; padding: 0; }
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1.1rem;
+  border-bottom: 1px solid var(--line-soft);
 }
+.row:last-child { border-bottom: 0; }
+.row:hover { background: var(--hover); }
+.row-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-family: var(--mono);
+  font-size: 13.5px;
+  color: var(--ink);
+  min-width: 0;
+}
+.row-name svg { flex: none; color: var(--faint); }
+
+/* ============================================================
+   11. Giriş / tam sayfa durumlar
+   ============================================================ */
+.center {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+}
+.center-card {
+  width: 100%;
+  max-width: 24rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 1.75rem;
+  text-align: left;
+}
+.center-card .brand { margin: 0 0 1.1rem; font-size: 16px; }
+.center-card h1 { font-size: 17px; margin-bottom: 0.35rem; }
+.center-card p { margin: 0 0 1.25rem; color: var(--muted); font-size: 13px; }
+.center-card .btn,
+.center-card button { width: 100%; text-align: center; padding-block: 0.6rem; }
+.center-card .btn { display: block; text-decoration: none; }
+
+/* ============================================================
+   12. Terminal ve kayıt oynatıcı
+   ============================================================ */
+.surface-dark {
+  background: var(--terminal-bg);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.terminal-host { padding: 0.6rem; }
 
 .panel {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface-raised);
-  padding: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 1.1rem;
   margin-bottom: 1.5rem;
 }
+.panel h3 { font-size: 14px; font-weight: 600; margin-bottom: 0.2rem; }
+.panel > p.note, .panel > p.muted { margin: 0.2rem 0 0.9rem; }
+
 .panel-header {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--gap);
+  gap: 0.75rem;
   align-items: center;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.85rem;
 }
+.panel-header h3 { margin: 0; }
 .panel-header .spacer { flex: 1; }
 
 .player-controls {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--gap);
+  gap: 0.6rem;
   align-items: center;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.85rem;
 }
-.player-controls input[type="range"] { flex: 1; min-width: 8rem; }
-.player-time { font-variant-numeric: tabular-nums; }
+.player-controls input[type="range"] { flex: 1; min-width: 8rem; accent-color: var(--accent); }
+.player-time { font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
 
 /* Yalnız ekran okuyucu için. Eylem sütunlarının başlıkları görsel
    olarak boş ama adsız kalmamalı. */
@@ -287,33 +668,40 @@ code { font-family: var(--mono); font-size: 0.9em; }
   border: 0;
 }
 
-/* --- dar ekran --- */
+/* Ayar tablosunda alan adı ile açıklaması. Açıklama alt satırda ve
+   soluk: aynı hücrede eşit ağırlıkta iki metin, hangisinin alanın adı
+   olduğunu belirsiz bırakıyordu. */
+.setting-name { color: var(--ink); font-weight: 550; }
+.setting-hint { margin-top: 0.15rem; color: var(--muted); font-size: 12px; font-weight: 400; }
+
+/* Anahtar/değer listesi (LDAP testi çıktısı). <ul> madde imleriyle
+   çiziliyordu; bunlar liste değil, alan-değer çiftleri. */
+.kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.3rem 0.9rem;
+  margin: 0.75rem 0 0;
+  font-size: 13px;
+}
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
+
+.panel-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem; min-width: 0; }
+.panel-title code { font-size: 12px; overflow-wrap: anywhere; }
+
+/* Canlı terminal yüksekliği. Inline stildeydi ve sabit "#111" zeminiyle
+   birlikte temadan bağımsız kalıyordu. */
+.terminal-live { height: 68vh; min-height: 20rem; }
+
+/* ============================================================
+   13. Dar ekran
+   ============================================================ */
 @media (max-width: 40rem) {
-  .app { margin: 1rem auto; }
-  .field-row > * { width: 100%; }
-  .field-row label { width: 100%; }
+  .topbar-inner, .tabs-inner, .app { padding-inline: 1rem; }
+  .app { padding-block: 1.25rem 3rem; }
+  .page-head h2 { font-size: 18px; }
+  .field-row > label { flex-basis: 100%; min-width: 0; }
+  .field-row > button, .field-row > .btn { width: 100%; }
+  .center-card { padding: 1.35rem; }
+  th, td { padding-inline: 0.85rem; }
 }
-
-/* --- rol hedefleri --- */
-/*
- * Hedefler virgülle birleştirilmiş TEK metindi ve tek tek geri
- * alınamıyordu: yanlış verilmiş bir hedefi kaldırmak için rolü silip
- * yeniden kurmak gerekiyordu — yani o rolü taşıyan herkesin erişimini
- * bir süreliğine kesmek. Her hedef kendi rozetinde, kendi düğmesiyle.
- */
-.chips { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.1rem 0.25rem 0.1rem 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-}
-.chip button { padding: 0.05rem 0.4rem; font-size: 0.8rem; }
-
-/* Hücre içi mini form (seçim kutusu + düğme). Dar ekranda sarmalanır:
-   sarmalamayan bir hücre tabloyu telefonda kaydırılamaz kadar
-   genişletiyordu. */
-.cell-form { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }

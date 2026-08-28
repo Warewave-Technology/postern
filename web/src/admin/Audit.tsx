@@ -15,9 +15,30 @@ import CastPlayer from "./CastPlayer";
 const SESSION_CAP = 200;
 const LOG_CAP = 500;
 
+/*
+ * Damgalar KISA biçimde yazılıyor ("28 Aug 09:31:56").
+ *
+ * toLocaleString() "8/28/2026, 9:31:56 AM" üretiyordu; iki damgalı bir
+ * satır tabloyu ~200px genişletiyor ve sağdaki EYLEM sütununu yatay
+ * kaydırmanın ardına itiyordu. Yani listedeki birincil işi yapmak için
+ * önce tabloyu kaydırmak gerekiyordu.
+ *
+ * Yıl kasten yok: liste zaten en yeniden eskiye ve tam değer hem
+ * title'da hem dateTime'da duruyor — rapora ya da log sorgusuna
+ * kopyalayacak kişi onu kaybetmiyor.
+ */
+const stampFmt = new Intl.DateTimeFormat(undefined, {
+  day: "2-digit",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+});
+
 /**
- * Timestamp renders an RFC3339 stamp in the viewer's locale and keeps the
- * exact original in the title, for copying into a report or a log query.
+ * Timestamp renders an RFC3339 stamp compactly and keeps the exact
+ * original in the title, for copying into a report or a log query.
  */
 function Timestamp({ value }: { value: string }) {
   const d = new Date(value);
@@ -26,7 +47,7 @@ function Timestamp({ value }: { value: string }) {
   if (Number.isNaN(d.getTime())) return <>{value}</>;
   return (
     <time dateTime={value} title={value}>
-      {d.toLocaleString()}
+      {stampFmt.format(d)}
     </time>
   );
 }
@@ -39,20 +60,24 @@ export function Sessions() {
 
   return (
     <section>
-      <h2>Sessions</h2>
-      <ErrorLine msg={error} />
-
-      {/*
-        Elle yenileme. Bu liste SÜREN oturumları da gösteriyor ama tek
-        başına hiç tazelenmiyordu: açık bırakılmış bir sekme, o andan
-        sonra bağlanan herkesi gizliyor ve "kimse bağlı değil" diyormuş
-        gibi okunuyordu.
-      */}
-      <div className="field-row">
+      <div className="page-bar">
+        <div className="page-head">
+          <h2>Sessions</h2>
+          <p className="page-sub">
+            Every connection this bastion proxied, with the recording it kept.
+          </p>
+        </div>
+        {/*
+          Elle yenileme. Bu liste SÜREN oturumları da gösteriyor ama tek
+          başına hiç tazelenmiyordu: açık bırakılmış bir sekme, o andan
+          sonra bağlanan herkesi gizliyor ve "kimse bağlı değil" diyormuş
+          gibi okunuyordu.
+        */}
         <ActionButton onClick={refresh} label="refresh the session list">
           Refresh
         </ActionButton>
       </div>
+      <ErrorLine msg={error} />
 
       {playing && <CastPlayer sessionId={playing} onClose={() => setPlaying(null)} />}
 
@@ -64,7 +89,7 @@ export function Sessions() {
       />
 
       {items.length > 0 && (
-        <>
+        <div className="card">
           <div className="table-wrap">
             <table>
               <thead>
@@ -76,7 +101,7 @@ export function Sessions() {
                   <th>Src</th>
                   <th>Started</th>
                   <th>Ended</th>
-                  <th>
+                  <th className="actions">
                     <span className="sr-only">Actions</span>
                   </th>
                 </tr>
@@ -97,13 +122,19 @@ export function Sessions() {
                     <td>
                       <Timestamp value={s.started_at} />
                     </td>
-                    <td>{s.ended_at ? <Timestamp value={s.ended_at} /> : "running"}</td>
                     <td>
+                      {s.ended_at ? (
+                        <Timestamp value={s.ended_at} />
+                      ) : (
+                        <span className="badge badge-ok">running</span>
+                      )}
+                    </td>
+                    <td className="actions">
                       <button
                         onClick={() => setPlaying(s.id)}
                         aria-label={`watch the recording of ${s.user} on ${s.target}, started ${s.started_at}`}
                       >
-                        watch
+                        Watch
                       </button>
                     </td>
                   </tr>
@@ -112,12 +143,14 @@ export function Sessions() {
             </table>
           </div>
 
-          <p className="muted small">
-            postern lists at most the {SESSION_CAP} most recent sessions.
-            {items.length >= SESSION_CAP &&
-              " This list is at that limit, so older sessions exist and are not shown here."}
-          </p>
-        </>
+          <div className="card-foot">
+            <p>
+              postern lists at most the {SESSION_CAP} most recent sessions.
+              {items.length >= SESSION_CAP &&
+                " This list is at that limit, so older sessions exist and are not shown here."}
+            </p>
+          </div>
+        </div>
       )}
     </section>
   );
@@ -128,14 +161,19 @@ export function AdminLog() {
 
   return (
     <section>
-      <h2>Admin log</h2>
-      <ErrorLine msg={error} />
-
-      <div className="field-row">
+      <div className="page-bar">
+        <div className="page-head">
+          <h2>Admin log</h2>
+          <p className="page-sub">
+            Who changed what, and through which door — the CLI, the panel, the
+            directory sync, or a first sign-in.
+          </p>
+        </div>
         <ActionButton onClick={refresh} label="refresh the admin log">
           Refresh
         </ActionButton>
       </div>
+      <ErrorLine msg={error} />
 
       <ListState
         loading={loading}
@@ -145,7 +183,7 @@ export function AdminLog() {
       />
 
       {items.length > 0 && (
-        <>
+        <div className="card">
           <div className="table-wrap">
             <table>
               <thead>
@@ -170,7 +208,9 @@ export function AdminLog() {
                       <Timestamp value={e.at} />
                     </td>
                     <td>{e.actor}</td>
-                    <td>{e.via}</td>
+                    <td>
+                      <span className="badge">{e.via}</span>
+                    </td>
                     <td>
                       <code>{e.action}</code>
                     </td>
@@ -182,12 +222,14 @@ export function AdminLog() {
             </table>
           </div>
 
-          <p className="muted small">
-            postern lists at most the {LOG_CAP} most recent entries.
-            {items.length >= LOG_CAP &&
-              " This list is at that limit, so older entries exist and are not shown here."}
-          </p>
-        </>
+          <div className="card-foot">
+            <p>
+              postern lists at most the {LOG_CAP} most recent entries.
+              {items.length >= LOG_CAP &&
+                " This list is at that limit, so older entries exist and are not shown here."}
+            </p>
+          </div>
+        </div>
       )}
     </section>
   );

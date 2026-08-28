@@ -189,12 +189,17 @@ export default function CastPlayer({ sessionId, onClose }: { sessionId: string; 
   return (
     <section className="panel" aria-label={`recording of session ${sessionId}`}>
       <header className="panel-header">
-        <strong>
-          session <code>{sessionId}</code>
-        </strong>
+        <div className="panel-title">
+          <h3>Recording</h3>
+          <code className="muted">{sessionId}</code>
+        </div>
         <span className="spacer" />
-        <button onClick={onClose} aria-label={`close the recording of session ${sessionId}`}>
-          close
+        <button
+          className="btn-quiet"
+          onClick={onClose}
+          aria-label={`close the recording of session ${sessionId}`}
+        >
+          Close
         </button>
       </header>
 
@@ -215,10 +220,10 @@ export default function CastPlayer({ sessionId, onClose }: { sessionId: string; 
               onClick={() => setPlaying((p) => !p)}
               aria-label={playing ? "pause playback" : "play the recording"}
             >
-              {playing ? "pause" : "play"}
+              {playing ? "Pause" : "Play"}
             </button>
             <button onClick={() => seek(0)} aria-label="restart from the beginning">
-              restart
+              Restart
             </button>
 
             <input
@@ -246,9 +251,11 @@ export default function CastPlayer({ sessionId, onClose }: { sessionId: string; 
             </label>
           </div>
 
-          <div ref={hostRef} className="terminal-host" />
+          <div className="surface-dark">
+            <div ref={hostRef} className="terminal-host" />
+          </div>
 
-          <p className="muted small">
+          <p className="note">
             Idle gaps longer than two seconds are shortened. Keystrokes are not shown —
             recordings do not capture input by default.
           </p>

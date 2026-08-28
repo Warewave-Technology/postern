@@ -122,12 +122,28 @@ export function ListState({
  *     BAŞARILI olmuş bir işlem için hata görüyordu. Panelin hata
  *     mesajlarına güvenmemeyi böyle öğreniyor.
  */
+/**
+ * Görsel varyantlar.
+ *
+ * Panelde her düğme aynı kutuydu: "Create" ile satır içindeki "delete"
+ * ve "revoke" aynı ağırlıkta duruyordu, yani ekranda hangisinin asıl iş
+ * hangisinin yıkıcı işlem olduğu okunmuyordu. Ayrım GÖRSEL: erişilebilir
+ * ad ve onay metni değişmiyor.
+ */
+const VARIANT_CLASS = {
+  default: "",
+  primary: "btn-primary",
+  quiet: "btn-quiet",
+  danger: "btn-quiet btn-danger",
+} as const;
+
 export function ActionButton({
   onClick,
   children,
   confirm,
   label,
   disabled,
+  variant = "default",
 }: {
   onClick: () => Promise<unknown> | void;
   children: React.ReactNode;
@@ -136,6 +152,7 @@ export function ActionButton({
   /** Ekran okuyucu için: "delete" tek başına hangi satır olduğunu söylemez. */
   label?: string;
   disabled?: boolean;
+  variant?: keyof typeof VARIANT_CLASS;
 }) {
   const [busy, setBusy] = useState(false);
 
@@ -150,7 +167,12 @@ export function ActionButton({
   };
 
   return (
-    <button onClick={run} disabled={busy || disabled} aria-label={label}>
+    <button
+      onClick={run}
+      disabled={busy || disabled}
+      aria-label={label}
+      className={VARIANT_CLASS[variant] || undefined}
+    >
       {busy ? "…" : children}
     </button>
   );

@@ -76,13 +76,22 @@ export default function Terminal({ target, onClose }: { target: string; onClose:
     };
   }, [target]);
 
+  // Ölçüler ve renkler stil dosyasında: inline stil prefers-color-scheme
+  // ifade edemiyor ve buradaki sabit "#111" temadan bağımsız kalıyordu.
   return (
     <section>
-      <h2>
-        {target}{" "}
-        <button onClick={onClose} style={{ fontSize: "0.8rem" }}>close</button>
-      </h2>
-      <div ref={hostRef} style={{ height: "70vh", background: "#111", padding: "0.5rem" }} />
+      <div className="page-bar">
+        <div className="page-head">
+          <h2>{target}</h2>
+          <p className="page-sub">
+            Live session — everything in this window is being recorded.
+          </p>
+        </div>
+        <button onClick={onClose}>Close session</button>
+      </div>
+      <div className="surface-dark">
+        <div ref={hostRef} className="terminal-host terminal-live" />
+      </div>
     </section>
   );
 }

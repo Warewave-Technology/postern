@@ -92,114 +92,128 @@ export default function Settings() {
 
   return (
     <section>
-      <h2>LDAP settings</h2>
-      <p className="muted small">
-        Identity always comes from the identity provider. LDAP is only used to
-        read group membership — postern never sees a user's password.
-      </p>
+      <div className="page-head">
+        <h2>LDAP settings</h2>
+        <p className="page-sub">
+          Identity always comes from the identity provider. LDAP is only used to
+          read group membership — postern never sees a user&apos;s password.
+          Values are stored in the database, and secrets are never shown again.
+        </p>
+      </div>
       <ErrorLine msg={error} />
       <OkLine msg={status} />
       <WarnLine msg={warning} />
 
-      <ListState
-        loading={loading}
-        denied={denied}
-        // Liste HATA ile döndüyse boş: "hiçbir şey yazılmamış" demek
-        // yanlış olur — bilmiyoruz, okuyamadık. Hata satırı yeter.
-        empty={items.length === 0 && error === ""}
-        emptyText="Nothing stored yet — group membership comes from the IdP claim until ldap.url is set."
-      />
+      {/*
+        empty HER ZAMAN false: bu sayfada "kayıt yok" bir BOŞ LİSTE değil,
+        doldurulmayı bekleyen bir form. Kesikli boş-durum kutusunu tam
+        tablonun üstüne koymak aynı ekranı iki kez anlatıyordu. Yükleniyor
+        ve yetki reddi hâlleri aynen duruyor — onlar gerçekten farklı.
+      */}
+      <ListState loading={loading} denied={denied} empty={false} emptyText="" />
+
+      {/* Liste HATA ile döndüyse boş: "hiçbir şey yazılmamış" demek
+          yanlış olur — bilmiyoruz, okuyamadık. Hata satırı yeter. */}
+      {!loading && !denied && items.length === 0 && error === "" && (
+        <p className="note">
+          Nothing stored yet — group membership comes from the IdP claim until{" "}
+          <code>ldap.url</code> is set.
+        </p>
+      )}
 
       {/* Yetki reddedildiyse form da çizilmiyor: yazamayacağı alanları
           doldurtmak, admine olmayan bir yetki vaat etmektir. */}
       {!loading && !denied && (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Setting</th>
-                <th>Stored</th>
-                <th>New value</th>
-                <th>
-                  <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {FIELDS.map((f) => {
-                const cur = stored(f.key);
-                const pending = edits[f.key] ?? "";
-                const hasValue = cur !== undefined && cur.value !== "";
-                return (
-                  <tr key={f.key}>
-                    <td className="wrap">
-                      {f.label}
-                      <div className="muted small">{f.hint}</div>
-                    </td>
-                    <td>
-                      {hasValue ? (
-                        // Sır sunucuda maskeleniyor ve düz metni buraya
-                        // hiç gelmiyor; f.secret ikinci kilit: maskeleme
-                        // bir gün gerilerse bind parolası DOM'a düşmesin.
-                        <code>{f.secret || cur.secret ? MASK : cur.value}</code>
-                      ) : (
-                        // "hiç yazılmadı" ile "boşaltıldı" AYNI ŞEY DEĞİL:
-                        // boş group_attribute, grup aramaya geçildiğini
-                        // söyleyen geçerli bir yapılandırma.
-                        <span className="muted">{cur ? "empty" : "not set"}</span>
-                      )}
-                    </td>
-                    <td>
-                      <input
-                        type={f.secret ? "password" : "text"}
-                        size={28}
-                        value={pending}
-                        // Placeholder ad değildir: yazmaya başlayınca
-                        // kaybolur ve ekran okuyucuya adsız bir kutu kalır.
-                        aria-label={`new value for ${f.label}`}
-                        onChange={(e) => {
-                          clearNotices();
-                          setEdits({ ...edits, [f.key]: e.target.value });
-                        }}
-                      />
-                    </td>
-                    <td>
-                      <ActionButton
-                        onClick={() => write(f.key, pending)}
-                        disabled={pending === ""}
-                        label={`save ${f.key}`}
-                      >
-                        save
-                      </ActionButton>{" "}
-                      {/*
-                        Boşaltma AYRI bir düğme.
-
-                        ⚠️ Tek "save" düğmesi vardı ve boş değerde kapalıydı:
-                        sayfanın kendi ipucunun anlattığı "group attribute'ü
-                        boşalt, grup aramaya geç" moduna arayüzden
-                        ULAŞILAMIYORDU. Yıkıcı olduğu için onay ister.
-                      */}
-                      {hasValue && (
+        <div className="card">
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Setting</th>
+                  <th>Stored</th>
+                  <th>New value</th>
+                  <th className="actions">
+                    <span className="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {FIELDS.map((f) => {
+                  const cur = stored(f.key);
+                  const pending = edits[f.key] ?? "";
+                  const hasValue = cur !== undefined && cur.value !== "";
+                  return (
+                    <tr key={f.key}>
+                      <td className="wrap">
+                        <div className="setting-name">{f.label}</div>
+                        <div className="setting-hint">{f.hint}</div>
+                      </td>
+                      <td>
+                        {hasValue ? (
+                          // Sır sunucuda maskeleniyor ve düz metni buraya
+                          // hiç gelmiyor; f.secret ikinci kilit: maskeleme
+                          // bir gün gerilerse bind parolası DOM'a düşmesin.
+                          <code>{f.secret || cur.secret ? MASK : cur.value}</code>
+                        ) : (
+                          // "hiç yazılmadı" ile "boşaltıldı" AYNI ŞEY DEĞİL:
+                          // boş group_attribute, grup aramaya geçildiğini
+                          // söyleyen geçerli bir yapılandırma.
+                          <span className="muted">{cur ? "empty" : "not set"}</span>
+                        )}
+                      </td>
+                      <td>
+                        <input
+                          type={f.secret ? "password" : "text"}
+                          size={28}
+                          value={pending}
+                          // Placeholder ad değildir: yazmaya başlayınca
+                          // kaybolur ve ekran okuyucuya adsız bir kutu kalır.
+                          aria-label={`new value for ${f.label}`}
+                          onChange={(e) => {
+                            clearNotices();
+                            setEdits({ ...edits, [f.key]: e.target.value });
+                          }}
+                        />
+                      </td>
+                      <td className="actions">
                         <ActionButton
-                          onClick={() => write(f.key, "")}
-                          confirm={`Clear ${f.key}? The stored value is removed and postern behaves as if it was never set.`}
-                          label={`clear ${f.key}`}
+                          onClick={() => write(f.key, pending)}
+                          disabled={pending === ""}
+                          label={`save ${f.key}`}
                         >
-                          clear
-                        </ActionButton>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                          Save
+                        </ActionButton>{" "}
+                        {/*
+                          Boşaltma AYRI bir düğme.
+
+                          ⚠️ Tek "save" düğmesi vardı ve boş değerde kapalıydı:
+                          sayfanın kendi ipucunun anlattığı "group attribute'ü
+                          boşalt, grup aramaya geç" moduna arayüzden
+                          ULAŞILAMIYORDU. Yıkıcı olduğu için onay ister.
+                        */}
+                        {hasValue && (
+                          <ActionButton
+                            variant="danger"
+                            onClick={() => write(f.key, "")}
+                            confirm={`Clear ${f.key}? The stored value is removed and postern behaves as if it was never set.`}
+                            label={`clear ${f.key}`}
+                          >
+                            Clear
+                          </ActionButton>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
       <div className="panel">
         <h3>Test connection</h3>
-        <p className="muted small">
+        <p className="note">
           A wrong base DN or bind password should surface here, not on someone's
           first login. The test reads what is STORED, not what is typed above.
         </p>
@@ -215,8 +229,12 @@ export default function Settings() {
               }}
             />
           </label>
-          <ActionButton onClick={runTest} label="test the stored LDAP settings">
-            Test
+          <ActionButton
+            variant="primary"
+            onClick={runTest}
+            label="test the stored LDAP settings"
+          >
+            Run test
           </ActionButton>
         </div>
 
@@ -230,11 +248,14 @@ export default function Settings() {
           ))}
 
         {test?.groups && (
-          <ul>
-            <li>groups: {test.groups.join(", ") || "—"}</li>
-            <li>mapped to roles: {test.roles?.join(", ") || "—"}</li>
-            <li>unmapped: {test.unmapped?.join(", ") || "—"}</li>
-          </ul>
+          <dl className="kv">
+            <dt>groups</dt>
+            <dd>{test.groups.join(", ") || "—"}</dd>
+            <dt>mapped to roles</dt>
+            <dd>{test.roles?.join(", ") || "—"}</dd>
+            <dt>unmapped</dt>
+            <dd>{test.unmapped?.join(", ") || "—"}</dd>
+          </dl>
         )}
       </div>
     </section>

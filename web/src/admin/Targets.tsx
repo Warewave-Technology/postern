@@ -45,7 +45,14 @@ export default function Targets() {
 
   return (
     <section>
-      <h2>Targets</h2>
+      <div className="page-head">
+        <h2>Targets</h2>
+        <p className="page-sub">
+          The hosts postern will open sessions to. Each one is pinned to a host
+          key, so a machine that later presents a different key is no longer
+          that target.
+        </p>
+      </div>
       <ErrorLine msg={error} />
       <OkLine msg={ok} />
 
@@ -57,46 +64,52 @@ export default function Targets() {
       />
 
       {items.length > 0 && (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Host</th>
-                <th>Port</th>
-                <th>Host key</th>
-                <th>
-                  <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((t) => (
-                <tr key={t.name}>
-                  <td>{t.name}</td>
-                  <td>{t.host}</td>
-                  <td>{t.port}</td>
-                  <td>
-                    <code>{t.fingerprint}</code>
-                  </td>
-                  <td>
-                    <ActionButton
-                      onClick={() => remove(t)}
-                      confirm={`Delete target ${t.name} (${t.host}:${t.port})? Nobody will be able to open a session to it, and its pinned host key is gone with it.`}
-                      label={`delete target ${t.name}`}
-                    >
-                      delete
-                    </ActionButton>
-                  </td>
+        <div className="card">
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Host</th>
+                  <th>Port</th>
+                  <th>Host key</th>
+                  <th className="actions">
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {items.map((t) => (
+                  <tr key={t.name}>
+                    <td>{t.name}</td>
+                    <td>{t.host}</td>
+                    <td>{t.port}</td>
+                    <td>
+                      <code>{t.fingerprint}</code>
+                    </td>
+                    <td className="actions">
+                      <ActionButton
+                        variant="danger"
+                        onClick={() => remove(t)}
+                        confirm={`Delete target ${t.name} (${t.host}:${t.port})? Nobody will be able to open a session to it, and its pinned host key is gone with it.`}
+                        label={`delete target ${t.name}`}
+                      >
+                        Delete
+                      </ActionButton>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
       <div className="panel">
         <h3>Register target</h3>
+        <p className="note">
+          Everything here comes off the machine itself; nothing is guessed.
+        </p>
 
         <div className="field-row">
           <label>
@@ -161,10 +174,11 @@ export default function Targets() {
         </p>
 
         <ActionButton
+          variant="primary"
           onClick={create}
           disabled={!name || !host || !hostKey.trim() || !portOk}
         >
-          Register
+          Register target
         </ActionButton>
       </div>
     </section>
