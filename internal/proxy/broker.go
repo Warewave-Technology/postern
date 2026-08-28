@@ -221,7 +221,7 @@ func (b *Broker) recordResize(req *ssh.Request) {
 			return
 		}
 
-		err = b.rec.Resize(b.clampDim(p.Columns), b.clampDim(p.Rows))
+		err = b.rec.Resize(b.clampDim(p.Columns, defaultCols), b.clampDim(p.Rows, defaultRows))
 		if err != nil {
 			b.logger.Error("pty-req resize error",
 				"error", err,
@@ -241,7 +241,7 @@ func (b *Broker) recordResize(req *ssh.Request) {
 			return
 		}
 
-		err = b.rec.Resize(b.clampDim(p.Columns), b.clampDim(p.Rows))
+		err = b.rec.Resize(b.clampDim(p.Columns, defaultCols), b.clampDim(p.Rows, defaultRows))
 		if err != nil {
 			b.logger.Error("window-change resize error",
 				"error", err,
@@ -261,6 +261,14 @@ func (b *Broker) recordResize(req *ssh.Request) {
 // 65535, pty'nin kendi sınırı: TIOCSWINSZ'in struct winsize alanları
 // 16 bit. Bundan büyük bir değer hedefte zaten temsil edilemez.
 const maxTerminalDim = 65535
+
+// Sıfır boyut yerine yazılan asciicast varsayılanları. record.NewWriter
+// başlığı da aynı değerlerle kuruyor; ikisi ayrışırsa kayıt kendi
+// içinde tutarsız olur.
+const (
+	defaultCols = 80
+	defaultRows = 24
+)
 
 // clampDim, istemciden gelen terminal boyutunu kayda yazmadan önce
 // sınırlar.
@@ -282,12 +290,29 @@ const maxTerminalDim = 65535
 // Reddetmek yerine SINIRLAMAK: yeniden boyutlandırmanın OLDUĞU bilgisi
 // kaydın bir parçası ve onu düşürmek de bir kayıp. Sınıra takılan
 // değer ayrıca loglanıyor.
-func (b *Broker) clampDim(v uint32) int {
+func (b *Broker) clampDim(v uint32, fallback int) int {
 	if v > maxTerminalDim {
 		b.logger.Warn("terminal dimension clamped for recording",
 			"value", v, "limit", maxTerminalDim)
 		return maxTerminalDim
 	}
+
+	// SIFIR DA AYNI KUSUR, DİĞER UÇTAN. RFC 4254 pty-req'te boyutun
+	// piksel alanlarıyla verilmesine izin verdiği için karakter alanı
+	// meşru olarak 0 gelebilir; ama "0x0" bir ızgara değil. Oynatıcı
+	// replay yüzeyini "r" olaylarından kurduğundan, 0 yazılan bir kayıt
+	// tıpkı 4294967295 yazılan kayıt gibi AÇILMIYOR. Üst sınırı koyan
+	// gerekçe buraya da aynen uyuyor: denetlenen taraf, kendi kaydının
+	// oynatılabilirliğini seçememeli.
+	//
+	// Düşürmek yerine asciicast varsayılanını yazıyoruz — başlık zaten
+	// aynı ikameyi yapıyor (record.NewWriter) — ve ikameyi logluyoruz.
+	if v == 0 {
+		b.logger.Warn("zero terminal dimension replaced for recording",
+			"substituted", fallback)
+		return fallback
+	}
+
 	return int(v)
 }
 

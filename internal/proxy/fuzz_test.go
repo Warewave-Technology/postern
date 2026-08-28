@@ -250,6 +250,14 @@ func FuzzRecordResize(f *testing.F) {
 	// çevriliyor (broker.go recordResize → int(p.Columns)).
 	f.Add(false, ssh.Marshal(WindowChangeRequest{Columns: 0xFFFFFFFF, Rows: 0xFFFFFFFF}))
 	f.Add(true, ssh.Marshal(PtyRequest{Term: "xterm", Columns: 0xFFFFFFFF, Rows: 0xFFFFFFFF}))
+	// Aynı kusurun DİĞER UCU. RFC 4254 pty-req'te karakter boyutunun 0
+	// gelmesine izin veriyor (boyut piksel alanlarıyla verilebilir), ve
+	// "0x0" da bir ızgara değil: oynatıcı replay yüzeyini "r"
+	// olaylarından kurduğu için kayıt yine açılmıyor. Gerçek bir
+	// istemcide görüldü: tty boyutu ayarlanmamış bir pty üzerinden
+	// açılan oturum kayda "0x0" yazdırdı.
+	f.Add(false, ssh.Marshal(WindowChangeRequest{Columns: 0, Rows: 0}))
+	f.Add(true, ssh.Marshal(PtyRequest{Term: "xterm", Columns: 0, Rows: 0}))
 
 	f.Fuzz(func(t *testing.T, isPty bool, payload []byte) {
 		reqType := "window-change"
@@ -304,6 +312,13 @@ func FuzzRecordResize(f *testing.F) {
 				if value > maxTerminalDim {
 					t.Fatalf("istemcinin uydurduğu boyut denetim kaydına girdi: %q > %d (payload=%x)",
 						data, maxTerminalDim, payload)
+				}
+				// Sıfır da aynı kusur: "0x0" bir ızgara değil ve
+				// oynatıcı replay yüzeyini "r" olaylarından kurduğu
+				// için kayıt açılmaz hale gelir.
+				if value == 0 {
+					t.Fatalf("sıfır boyut denetim kaydına girdi: %q (payload=%x)",
+						data, payload)
 				}
 			}
 		}
