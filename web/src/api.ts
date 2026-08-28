@@ -76,6 +76,35 @@ export type TargetDetail = {
 export type Mapping = { group: string; role: string; created_by: string };
 export type UnmappedGroup = { name: string; seen_count: number; last_seen: string };
 export type Setting = { key: string; value: string; secret: boolean; updated_by: string };
+export type LDAPCandidate = {
+  url: string;
+  bind_dn: string;
+  /** Boş bırakılırsa saklanan parola kullanılır — YALNIZCA adres
+   *  değişmediyse. Sunucu aksi hâlde 400 döner. */
+  bind_password: string;
+  user_base: string;
+  user_filter: string;
+  group_attribute: string;
+  group_base: string;
+  group_filter: string;
+  group_name_from: string;
+  user?: string;
+};
+
+/** Senkronizasyonun ETKİN ayarları: saklanan yoksa YAML'daki değer. */
+export type SyncSettings = {
+  enabled: boolean;
+  dry_run: boolean;
+  interval: string;
+  grace: string;
+  max_zero_fraction: number;
+  min_zero_floor: number;
+  max_unknown_fraction: number;
+  max_revoke_per_run: number;
+  overridden: string[];
+  error?: string;
+};
+
 export type LDAPTestResult = {
   ok: boolean;
   error?: string;
@@ -205,6 +234,11 @@ export const api = {
   settings: () => req<Setting[]>("GET", "/api/admin/settings"),
   setSetting: (key: string, value: string) =>
     req<{ ok: boolean; source: string }>("PUT", "/api/admin/settings", { key, value }),
+  /** ADAY yapılandırmayı sınar — saklananı değil. Düzenleme ekranı
+   *  buna dayanıyor: sınanmamış değişiklik canlıya çıkmasın. */
+  verifyLDAP: (cfg: LDAPCandidate) =>
+    req<LDAPTestResult>("POST", "/api/admin/ldap/verify", cfg),
+  syncSettings: () => req<SyncSettings>("GET", "/api/admin/sync/settings"),
   checkLDAPConnection: () =>
     req<{ ok: boolean; error?: string }>("POST", "/api/admin/ldap/check-connection"),
   testLDAP: (user?: string) =>
