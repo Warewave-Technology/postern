@@ -149,8 +149,14 @@ func browserSignInForCode(loginURL string) (string, error) {
 		return "", fmt.Errorf("callback %d döndü; sayfa: %.500s", resp.StatusCode, confirmPage)
 	}
 
-	// Kod, sayfada büyük punto ile gösteriliyor.
-	cm := regexp.MustCompile(`(?s)letter-spacing:\.25em[^>]*>([A-Z0-9-]+)<`).FindSubmatch(confirmPage)
+	// Kod, sayfada class="code" ile işaretli.
+	//
+	// ⚠️ ÖNCEDEN `letter-spacing:.25em` ARANIYORDU — yani bir INLINE
+	// STİL değerine. Sayfa <style> bloğuna taşınıp sınıflara geçince o
+	// dize kayboldu ve bu test, ürün doğru çalışırken kırıldı. Testin
+	// tutunduğu şey sunumun bir ayrıntısı değil, anlamı olmalı: sınıf
+	// adı sayfanın sözleşmesinin parçası, satır içi stil değil.
+	cm := regexp.MustCompile(`(?s)class="code"[^>]*>\s*([A-Z0-9-]+)\s*<`).FindSubmatch(confirmPage)
 	if cm == nil {
 		return "", fmt.Errorf("onay sayfasında kod yok; sayfa: %.700s", confirmPage)
 	}
