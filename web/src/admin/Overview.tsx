@@ -120,24 +120,38 @@ export default function Overview() {
     }
 
     es.onopen = () => setStatus("live");
-    for (const k of ["session.started", "session.ended", "auth.ok", "auth.denied"]) {
+    for (const k of [
+      "session.started",
+      "session.ended",
+      "auth.ok",
+      "auth.denied",
+    ]) {
       es.addEventListener(k, onEvent as EventListener);
     }
     es.onerror = () => {
       // ⚠️ İKİ FARKLI HÂL. readyState CONNECTING ise tarayıcı kendi
-      // yeniden bağlanıyor — dokunma. CLOSED ise akış kalıcı olarak
-      // reddedildi (rota yok, kapasite dolu, yetki gitti): burada
-      // sessizce boş bir ekranda kalmak "hiçbir şey olmuyor" gibi
-      // okunurdu, oysa gerçek "bakmıyorum".
+      // yeniden bağlanıyor. CLOSED ise akış kalıcı olarak reddedildi
+      // (rota yok, kapasite dolu, yetki gitti): burada sessizce boş bir
+      // ekranda kalmak "hiçbir şey olmuyor" gibi okunurdu, oysa gerçek
+      // "bakmıyorum".
       if (es && es.readyState === EventSource.CLOSED) {
         startPolling();
+        return;
       }
+      // ⚠️ YENİDEN BAĞLANIRKEN "Live" DEMEK YALAN. Ölçüldü: sunucu
+      // yeniden başlatıldığında akış kopuyor, tarayıcı sessizce
+      // yeniden denemeye giriyor ve rozet "Live" kalıyordu — operatör
+      // dakikalarca donmuş sayılara canlıymış gibi bakıyordu. Kopuk
+      // olduğunu söylemek, boş bir ekran göstermekten farklı: veri
+      // hâlâ orada, yalnızca artık taze olmadığı biliniyor.
+      setStatus("connecting");
     };
 
     return () => {
       es?.close();
       if (poll !== null) window.clearInterval(poll);
-      if (refreshTimer.current !== null) window.clearTimeout(refreshTimer.current);
+      if (refreshTimer.current !== null)
+        window.clearTimeout(refreshTimer.current);
     };
   }, [loadSessions, scheduleRefresh]);
 
@@ -148,7 +162,9 @@ export default function Overview() {
   // bakıyor ve sunucunun UTC günü onun günü değil.
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
-  const today = sessions.filter((s) => new Date(s.started_at) >= startOfDay).length;
+  const today = sessions.filter(
+    (s) => new Date(s.started_at) >= startOfDay,
+  ).length;
 
   return (
     <section>
@@ -163,7 +179,11 @@ export default function Overview() {
         </div>
         <span className={status === "live" ? "live live-on" : "live live-off"}>
           <span className="live-dot" />
-          {status === "live" ? "Live" : status === "connecting" ? "Connecting…" : "Polling"}
+          {status === "live"
+            ? "Live"
+            : status === "connecting"
+              ? "Connecting…"
+              : "Polling"}
         </span>
       </div>
 
@@ -190,7 +210,9 @@ export default function Overview() {
         <div className="stat">
           <span className="k">Recorded sessions</span>
           <span className="n">{sessions.length}</span>
-          <span className="sub">most recent {sessions.length}, newest first</span>
+          <span className="sub">
+            most recent {sessions.length}, newest first
+          </span>
         </div>
       </div>
 

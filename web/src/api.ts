@@ -147,6 +147,30 @@ export function toMessage(e: unknown): string {
   return s && s !== "undefined" && s !== "null" ? s : "request failed";
 }
 
+/*
+ * Oturumun düştüğünü DUYURAN kanal.
+ *
+ * ⚠️ TEK YERDE olmak zorunda. 401 her uçtan gelebiliyor ve her sayfa
+ * onu kendi hata satırında çizdiğinde, oturumu bitmiş kullanıcı yönetim
+ * ekranında "Error: unauthenticated" yazısıyla oturup kalıyordu —
+ * ekrandaki her şey artık yalan, ama ekran duruyor. Sayfa sayfa
+ * yakalamak da işe yaramaz: bir sonraki eklenen sayfa unutulur.
+ *
+ * ⚠️ OTOMATİK OLARAK IdP'YE YÖNLENDİRMİYORUZ, giriş EKRANINI
+ * gösteriyoruz. Kalıcı bir 401 üreten bir arıza (çerez yazılamıyor,
+ * saat kayması, vekil yapılandırması) otomatik sıçramayla postern ile
+ * IdP arasında çıkışı olmayan bir döngüye dönerdi. Tek tık, döngüsüz.
+ */
+let sessionLost: (() => void) | null = null;
+
+export function onSessionLost(fn: () => void) {
+  sessionLost = fn;
+}
+
+function noteStatus(status: number) {
+  if (status === 401) sessionLost?.();
+}
+
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const r = await fetch(path, {
     method,
@@ -154,6 +178,7 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (!r.ok) {
+    noteStatus(r.status);
     let msg = r.statusText;
     try { msg = (await r.json()).error ?? msg; } catch { /* gövde JSON değilse statusText kalır */ }
     throw new ApiError(r.status, msg);
@@ -170,6 +195,7 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
 async function reqText(method: string, path: string): Promise<string> {
   const r = await fetch(path, { method });
   if (!r.ok) {
+    noteStatus(r.status);
     let msg = r.statusText;
     try { msg = (await r.json()).error ?? msg; } catch { /* gövde JSON değilse statusText kalır */ }
     throw new ApiError(r.status, msg);

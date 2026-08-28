@@ -1,5 +1,5 @@
-import { ReactNode, useCallback, useEffect, useState } from "react";
-import { ApiError, api, Me, toMessage } from "./api";
+import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { ApiError, api, Me, onSessionLost, toMessage } from "./api";
 import Users from "./admin/Users";
 import Targets from "./admin/Targets";
 import Roles from "./admin/Roles";
@@ -79,6 +79,10 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   // unreachable, "oturum yok" ile "sunucuya ulaşamıyorum"u AYIRIR.
   const [unreachable, setUnreachable] = useState("");
+  // expired, "hiç giriş yapmadın" ile "oturumun bitti"yi AYIRIR: ikisi
+  // de giriş ekranını gösteriyor ama ikincisinde ne olduğunu söylemek
+  // gerekiyor — yoksa kullanıcı çalışırken neden atıldığını bilmiyor.
+  const [expired, setExpired] = useState(false);
   const [top, setTop] = useState<Top>("home");
   const [section, setSection] = useState<Section>("overview");
 
@@ -88,12 +92,38 @@ export default function App() {
   // açılan bir kabuk, kullanıcının zaten alışkın olduğu şey.
   const shellTarget = shellTargetFromPath(window.location.pathname);
 
+  /*
+   * Oturum HERHANGİ BİR uçta düşerse giriş ekranına dön.
+   *
+   * ⚠️ Alt sayfalar 401'i kendi hata satırlarında çiziyordu ve sonuç,
+   * yönetim ekranında "Error: unauthenticated" yazısıyla oturup kalan
+   * bir kullanıcıydı: ekrandaki her sayı artık geçersiz ama ekran
+   * duruyor. Dinleyici api.ts'te tek yerde — sayfa sayfa yakalamak,
+   * bir sonraki eklenen sayfayı unutmak demekti.
+   */
+  const meRef = useRef<Me | null>(null);
+  meRef.current = me;
+
+  useEffect(() => {
+    onSessionLost(() => {
+      // Yalnızca OTURUM VARKEN anlamlı: açılışta /api/me zaten 401
+      // döndürüyor ve o "bitti" değil, "hiç başlamadı".
+      if (meRef.current) {
+        setMe(null);
+        setExpired(true);
+      }
+    });
+  }, []);
+
   const loadMe = useCallback(() => {
     setLoading(true);
     setUnreachable("");
     api
       .me()
-      .then((v) => setMe(v))
+      .then((v) => {
+        setMe(v);
+        setExpired(false);
+      })
       .catch((e: unknown) => {
         // ⚠️ Eskiden HER hata "giriş yapmamışsın" ekranına düşüyordu.
         // Yani veritabanı çökmüşken kullanıcıya "oturum aç" deniyor, o
@@ -153,10 +183,11 @@ export default function App() {
             <Brand size={22} />
             <ThemeSwitch mode={mode} onChange={setMode} />
           </div>
-          <h1>Sign in</h1>
+          <h1>{expired ? "Session ended" : "Sign in"}</h1>
           <p>
-            Access is granted by your identity provider. postern never sees your
-            password.
+            {expired
+              ? "Your session is no longer valid, so the screen you were on was showing figures that had stopped being true. Sign in again to continue."
+              : "Access is granted by your identity provider. postern never sees your password."}
           </p>
           <a className="btn btn-primary" href="/auth/login">
             Sign in with your identity provider

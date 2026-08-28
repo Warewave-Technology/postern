@@ -165,3 +165,53 @@ describe("App kabuk baglantisi", () => {
     expect(screen.getByText("web01")).toBeInTheDocument();
   });
 });
+
+/*
+ * Oturum ALT SAYFADA düşünce giriş ekranına dönmeli.
+ *
+ * ⚠️ Ölçülen kusur: 401 yönetim sayfalarının kendi hata satırında
+ * çiziliyordu ve kullanıcı, ekrandaki her sayı geçersizken "Error:
+ * unauthenticated" yazısıyla Overview'da oturup kalıyordu. Bir
+ * yetkilendirme panelinde gösterilebilecek en yanıltıcı ekran bu.
+ *
+ * Test api.* metodunu DEĞİL fetch'i taklit ediyor: kanal api.ts'in
+ * içinde ve metodu mock'lamak tam da sınanmak istenen yolu atlardı.
+ */
+describe("App oturum bitisi", () => {
+  it("alt sayfadan gelen 401 giris ekranina dondurur", async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/me")) {
+        return new Response(JSON.stringify(me), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      // Hedef listesi: oturum bu arada düştü.
+      return new Response(JSON.stringify({ error: "unauthenticated" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      render(<App />);
+
+      // Önce içeri girmiş olmalı…
+      await screen.findByRole("button", { name: "Home" });
+
+      // …sonra 401 gelince giriş ekranına dönmeli, sebebiyle birlikte.
+      await waitFor(() =>
+        expect(screen.getByText(/Session ended/i)).toBeInTheDocument(),
+      );
+      expect(
+        screen.getByText(/Sign in with your identity provider/i),
+      ).toBeInTheDocument();
+      // Yönetim ekranı ARTIK GÖRÜNMEMELİ.
+      expect(screen.queryByRole("button", { name: "Settings" })).not.toBeInTheDocument();
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+});
