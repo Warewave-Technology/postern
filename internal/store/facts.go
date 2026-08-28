@@ -80,10 +80,13 @@ func (s *Store) TargetFacts(ctx context.Context, targetName string) (model.Targe
 		connectMS sql.NullInt64
 		lastErrAt sql.NullInt64
 	)
+	var probedAt sql.NullInt64
 	err = s.db.QueryRowContext(ctx, `
-		SELECT server_version, host_key_type, last_seen_at, connect_ms, last_error_at, last_error
+		SELECT server_version, host_key_type, last_seen_at, connect_ms,
+		       last_error_at, last_error, kernel, os_name, probed_at
 		FROM target_facts WHERE target_id = $1;`, id).
-		Scan(&f.ServerVersion, &f.HostKeyType, &seenAt, &connectMS, &lastErrAt, &f.LastError)
+		Scan(&f.ServerVersion, &f.HostKeyType, &seenAt, &connectMS,
+			&lastErrAt, &f.LastError, &f.Probe.Kernel, &f.Probe.OSName, &probedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.TargetFacts{}, nil
 	}
@@ -100,7 +103,37 @@ func (s *Store) TargetFacts(ctx context.Context, targetName string) (model.Targe
 	if lastErrAt.Valid {
 		f.LastErrorAt = time.Unix(lastErrAt.Int64, 0).UTC()
 	}
+	if probedAt.Valid {
+		f.ProbedAt = time.Unix(probedAt.Int64, 0).UTC()
+	}
 	return f, nil
+}
+
+/*
+ * RecordTargetProbe, hedefte KOMUT ÇALIŞTIRILARAK öğrenilenleri yazar.
+ *
+ * ⚠️ Yalnızca target_probe.enabled ile çağrılır. probed_at ayrı bir
+ * damga: last_seen_at "bağlandık" demek, probed_at "makineye dokunduk"
+ * demek ve ikisi aynı şey değil.
+ */
+func (s *Store) RecordTargetProbe(ctx context.Context, targetName string, p model.TargetProbe) error {
+	id, err := s.rowID(ctx, "store.RecordTargetProbe", "targets", "name", targetName)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO target_facts (target_id, kernel, os_name, probed_at)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (target_id) DO UPDATE SET
+			kernel    = EXCLUDED.kernel,
+			os_name   = EXCLUDED.os_name,
+			probed_at = EXCLUDED.probed_at;`,
+		id, p.Kernel, p.OSName, time.Now().Unix())
+	if err != nil {
+		return translateErr("store.RecordTargetProbe", err)
+	}
+	return nil
 }
 
 // AllTargetFacts, hedef adı → gözlemler.
@@ -111,7 +144,8 @@ func (s *Store) TargetFacts(ctx context.Context, targetName string) (model.Targe
 func (s *Store) AllTargetFacts(ctx context.Context) (map[string]model.TargetFacts, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT t.name, f.server_version, f.host_key_type,
-		       f.last_seen_at, f.connect_ms, f.last_error_at, f.last_error
+		       f.last_seen_at, f.connect_ms, f.last_error_at, f.last_error,
+		       f.kernel, f.os_name, f.probed_at
 		FROM target_facts f
 		JOIN targets t ON t.id = f.target_id;`)
 	if err != nil {
@@ -127,9 +161,11 @@ func (s *Store) AllTargetFacts(ctx context.Context) (map[string]model.TargetFact
 			seenAt    sql.NullInt64
 			connectMS sql.NullInt64
 			lastErrAt sql.NullInt64
+			probedAt  sql.NullInt64
 		)
 		if err := rows.Scan(&name, &f.ServerVersion, &f.HostKeyType,
-			&seenAt, &connectMS, &lastErrAt, &f.LastError); err != nil {
+			&seenAt, &connectMS, &lastErrAt, &f.LastError,
+			&f.Probe.Kernel, &f.Probe.OSName, &probedAt); err != nil {
 			return nil, translateErr("store.AllTargetFacts", err)
 		}
 		if seenAt.Valid {
@@ -140,6 +176,9 @@ func (s *Store) AllTargetFacts(ctx context.Context) (map[string]model.TargetFact
 		}
 		if lastErrAt.Valid {
 			f.LastErrorAt = time.Unix(lastErrAt.Int64, 0).UTC()
+		}
+		if probedAt.Valid {
+			f.ProbedAt = time.Unix(probedAt.Int64, 0).UTC()
 		}
 		out[name] = f
 	}

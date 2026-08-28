@@ -17,6 +17,10 @@ type Config struct {
 	Session  SessionConfig  `yaml:"session"`
 	Sync     SyncConfig     `yaml:"sync"`
 
+	// TargetProbe, hedefe bağlanıldığında makineyi TANIMA denemesi.
+	// VARSAYILAN KAPALI — bkz. TargetProbeConfig.
+	TargetProbe TargetProbeConfig `yaml:"target_probe"`
+
 	// SecretKeyFile, veritabanındaki şifreli ayarları açan ana anahtar
 	// (`postern secret init` üretir). Boş bırakılabilir: o zaman şifreli
 	// ayar okunamaz/yazılamaz ama bastion'ın geri kalanı çalışır.
@@ -31,6 +35,64 @@ type Config struct {
 	// mevcut kurulumlar hiçbir şey değiştirmeden çalışmaya devam eder.
 	HTTP HTTPConfig `yaml:"http"`
 	OIDC OIDCConfig `yaml:"oidc"`
+}
+
+/*
+ * TargetProbeConfig, hedefte KOMUT ÇALIŞTIRARAK yapılan tanıma.
+ *
+ * ⚠️ VARSAYILAN KAPALI VE ÖYLE KALMALI. Kapalıyken postern hedefte
+ * kullanıcının oturumu dışında hiçbir şey çalıştırmaz; hedef hakkında
+ * bildiği her şey el sıkışmadan gelir (SSH afişi, anahtar türü, süre).
+ * Bu, bir bastion'ın taşıyabileceği en dar yetki ve birçok kurumun
+ * denetim politikası tam olarak bunu şart koşuyor.
+ *
+ * Açıldığında ne değişir, açıkça:
+ *
+ *   1. postern, kullanıcının AÇTIĞI BAĞLANTI üzerinde ek bir exec kanalı
+ *      açar ve sabit birkaç okuma komutu çalıştırır. Komutlar hedefin
+ *      kendi günlüklerinde O KULLANICININ adına görünür — kullanıcının
+ *      yazmadığı komutlar, kullanıcının hesabında.
+ *   2. Bu yüzden her koşu admin_log'a yazılır: kimin bağlantısında,
+ *      hangi hedefte, ne çalıştırıldı.
+ *
+ * ⚠️ KOMUT LİSTESİ YAPILANDIRILAMAZ ve bu kasıtlı. Operatörün komut
+ * yazabildiği bir alan, config dosyasına erişebilen herkese denetim
+ * altındaki HER MAKİNEDE uzaktan komut çalıştırma yetkisi verirdi —
+ * yani bastion'ı tam da engellemek için var olduğu şeye çevirirdi.
+ * Çalışanlar upstream.ProbeCommands içinde, salt okunur ve sabit.
+ */
+type TargetProbeConfig struct {
+	// Enabled, tanımayı açar. Varsayılan false.
+	Enabled bool `yaml:"enabled"`
+
+	// Refresh, aynı hedefin ne kadar sonra yeniden sorulacağı.
+	// Yazılmazsa 24 saat. Her oturumda sormak, hedefin günlüklerini
+	// postern'in gürültüsüyle doldururdu.
+	Refresh time.Duration `yaml:"refresh"`
+
+	// Timeout, tanıma komutlarının tamamı için üst sınır.
+	// Yazılmazsa 5 saniye.
+	//
+	// ⚠️ Kısa olması ŞART: tanıma kullanıcının oturumuyla aynı TCP
+	// bağlantısını paylaşıyor ve asılı bir komut o bağlantıyı meşgul
+	// eder. Oturumun kendisi hiçbir koşulda tanımayı BEKLEMEZ.
+	Timeout time.Duration `yaml:"timeout"`
+}
+
+// RefreshOrDefault, yazılmamış Refresh için varsayılan.
+func (c TargetProbeConfig) RefreshOrDefault() time.Duration {
+	if c.Refresh <= 0 {
+		return 24 * time.Hour
+	}
+	return c.Refresh
+}
+
+// TimeoutOrDefault, yazılmamış Timeout için varsayılan.
+func (c TargetProbeConfig) TimeoutOrDefault() time.Duration {
+	if c.Timeout <= 0 {
+		return 5 * time.Second
+	}
+	return c.Timeout
 }
 
 // HTTPConfig, tarayıcıya bakan uçların dinleyicisi.

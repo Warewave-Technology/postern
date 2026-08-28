@@ -214,6 +214,13 @@ type factsOut struct {
 	ConnectMS     int    `json:"connect_ms,omitempty"`
 	LastErrorAt   string `json:"last_error_at,omitempty"`
 	LastError     string `json:"last_error,omitempty"`
+
+	// Aşağıdakiler yalnızca target_probe.enabled ile dolar — yani
+	// hedefte komut çalıştırıldıysa. ProbedAt boşsa hedefe dokunulmadı
+	// ve panel bunu AYRI söylüyor: "bilmiyoruz" ile "sormadık" farklı.
+	Kernel   string `json:"kernel,omitempty"`
+	OSName   string `json:"os_name,omitempty"`
+	ProbedAt string `json:"probed_at,omitempty"`
 }
 
 func toFactsOut(f model.TargetFacts) factsOut {
@@ -222,6 +229,11 @@ func toFactsOut(f model.TargetFacts) factsOut {
 		HostKeyType:   f.HostKeyType,
 		ConnectMS:     f.ConnectMS,
 		LastError:     f.LastError,
+		Kernel:        f.Probe.Kernel,
+		OSName:        f.Probe.OSName,
+	}
+	if !f.ProbedAt.IsZero() {
+		out.ProbedAt = f.ProbedAt.Format(time.RFC3339)
 	}
 	if !f.LastSeenAt.IsZero() {
 		out.LastSeenAt = f.LastSeenAt.Format(time.RFC3339)

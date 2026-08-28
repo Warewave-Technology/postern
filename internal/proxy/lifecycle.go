@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -70,12 +71,87 @@ type Deps struct {
 	// MaxLifetime, oturumun mutlak ömrü. 0 = kapalı.
 	MaxLifetime time.Duration
 
+	// Probe, hedefte KOMUT ÇALIŞTIRARAK tanıma. Sıfır değeri KAPALI —
+	// yani hiçbir şey çağırmadıkça postern hedefte kullanıcının oturumu
+	// dışında bir şey çalıştırmaz.
+	Probe ProbePolicy
+
 	// Events, canlı izleme akışı. nil ise olay yayınlanmaz.
 	//
 	// ⚠️ Publish BLOKLAMAZ (bkz. events.Bus): burası bir oturumun açılış
 	// ve kapanış yolu ve izleyen bir panel, izlediği oturumu
 	// bekletemez.
 	Events events.Publisher
+}
+
+/*
+ * ProbePolicy, tanımanın açık olup olmadığı ve sınırları.
+ *
+ * Sıfır değeri KAPALI ve bu kasıtlı: yapıyı sıfır değeriyle kuran her
+ * çağıran (testler dahil) hedefe dokunmayan davranışı alır.
+ */
+type ProbePolicy struct {
+	Enabled bool
+	Refresh time.Duration
+	Timeout time.Duration
+}
+
+/*
+ * maybeProbe, hedefi tanımayı dener.
+ *
+ * ⚠️ OTURUM BUNU BEKLEMEZ. Ayrı bir goroutine'de, kullanıcının
+ * bağlantısı üzerinde çalışıyor; kullanıcı kabuğunu çoktan almış olur.
+ * Bekletseydik, tanıma süresi her oturumun açılış gecikmesine eklenirdi.
+ *
+ * ⚠️ HER KOŞU DENETİME YAZILIYOR. Komutlar hedefin günlüklerinde
+ * BAĞLANAN KULLANICININ adına görünüyor — kullanıcının yazmadığı
+ * komutlar, kullanıcının hesabında. Bunun izini bırakmamak kabul
+ * edilemez olurdu.
+ */
+func maybeProbe(ctx context.Context, deps Deps, log *slog.Logger, conn *upstream.Conn, targetName, byUser string) {
+	if !deps.Probe.Enabled {
+		return
+	}
+
+	// Bağlam oturumla birlikte iptal oluyor; tanıma kullanıcı çıkınca
+	// yarıda kalmasın diye ayrılıyor, ama kendi süre sınırı var.
+	ctx = context.WithoutCancel(ctx)
+
+	// Her oturumda sormuyoruz: hedefin günlüklerini postern'in
+	// gürültüsüyle doldurmak, özelliğin faydasından çok zararı olurdu.
+	if f, err := deps.Store.TargetFacts(ctx, targetName); err == nil {
+		if !f.ProbedAt.IsZero() && time.Since(f.ProbedAt) < deps.Probe.Refresh {
+			return
+		}
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(ctx, deps.Probe.Timeout)
+		defer cancel()
+
+		p, err := conn.Probe(ctx)
+		if err != nil {
+			log.Warn("target probe failed", "error", err)
+			return
+		}
+		if err := deps.Store.RecordTargetProbe(ctx, targetName, p); err != nil {
+			log.Warn("target probe not recorded", "error", err)
+			return
+		}
+
+		// Denetim satırı: kimin bağlantısında, hangi hedefte, ne
+		// çalıştırıldı. Komut listesi de yazılıyor — "hangi komutlar"
+		// sorusunun cevabı kaynağa bakmayı gerektirmemeli.
+		if err := deps.Store.LogAdmin(ctx, store.AdminLogEntry{
+			Actor: byUser, Via: "probe", Action: "target.probe",
+			Entity: targetName,
+			Details: fmt.Sprintf("ran on this user's connection: %s",
+				strings.Join(upstream.ProbeCommands, "; ")),
+		}); err != nil {
+			log.Warn("target probe not audited", "error", err)
+		}
+		log.Info("target probed", "os", p.OSName, "kernel", p.Kernel)
+	}()
 }
 
 /*
@@ -242,6 +318,7 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 		return nil, fmt.Errorf("proxy.Open: %w", ErrUnavailable)
 	}
 	recordTargetOutcome(ctx, deps, log, req.TargetName, conn.Facts(), nil)
+	maybeProbe(ctx, deps, log, conn, req.TargetName, req.Username)
 
 	up, upR, err := conn.OpenSession()
 	if err != nil {

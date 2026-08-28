@@ -106,6 +106,15 @@ func (s *Server) ProxyDeps() proxy.Deps {
 		IdleTimeout: s.cfg.Session.IdleTimeout,
 		MaxLifetime: s.cfg.Session.MaxLifetime,
 
+		// Tanıma da paylaşılıyor: web terminalinden açılan oturum
+		// hedefte komut çalıştırmıyorsa, aynı hedef hakkında iki kapıdan
+		// iki farklı bilgi birikirdi.
+		Probe: proxy.ProbePolicy{
+			Enabled: s.cfg.TargetProbe.Enabled,
+			Refresh: s.cfg.TargetProbe.RefreshOrDefault(),
+			Timeout: s.cfg.TargetProbe.TimeoutOrDefault(),
+		},
+
 		// Olay akışı da paylaşılıyor: web terminalinden açılan bir
 		// oturum canlı izlemede görünmezse, "iki kapı tek gerçek"
 		// sözleşmesi tam orada bozulurdu.

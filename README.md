@@ -163,6 +163,53 @@ An OIDC-claim-only deployment cannot be synchronised at all — a claim
 arrives only when someone logs in, so there is nothing to ask. `sync`
 requires a directory and says so at startup rather than pretending.
 
+### Knowing what a target is
+
+postern records what a target says while connecting: the SSH banner it
+offers unprompted (`SSH-2.0-OpenSSH_9.6p1 Debian-3`, the most reliable
+single hint at distribution and patch level), the pinned key's type, how
+long the handshake took, when it last worked, and — separately — when and
+why it last failed. None of this touches the machine: it all falls out of
+the handshake, and the target page says so.
+
+That is the default and it is deliberate. Reading `uname` or
+`/etc/os-release` would say much more, and it would mean running commands
+on a machine outside anyone's session — which is the line a bastion
+should not cross on its own.
+
+Some organisations are happy to cross it on their own hosts. For them:
+
+```yaml
+# ⚠️ DEFAULT OFF. Switching this on changes what postern does on your
+# machines. Read the whole block before enabling it.
+target_probe:
+  enabled: true
+  refresh: 24h   # how long before the same host is asked again
+  timeout: 5s    # ceiling for the whole probe
+```
+
+With it on, postern opens an extra exec channel **on the connecting
+user's own connection** and runs a fixed, read-only command set —
+`uname -srm` and `cat /etc/os-release`. Three consequences, stated
+plainly because they are the reason this is off by default:
+
+- The commands run **as the user who connected**, so they appear in that
+  target's own logs under that person's account. They did not type them.
+- Every run is written to the admin log with `via = probe`, naming the
+  user, the target and the commands. "Which machines has postern touched"
+  has to be answerable with one filter.
+- The **command list is not configurable**. Anyone who can edit the
+  config would otherwise have remote command execution on every machine
+  under audit — the bastion would become the thing it exists to prevent.
+  The list lives in `upstream.ProbeCommands`, in the source, reviewable.
+
+A session never waits for a probe: it runs in the background, bounded by
+`timeout`, and a failure is logged and dropped. The result appears on the
+target's page under **Identified**, kept apart from the handshake facts
+so it is always clear which answers cost a command and which did not.
+
+`postern serve` logs a warning at every startup while this is on.
+
 ### Limits
 
 Nothing bounded the listener until recently: it accepted in an unbounded

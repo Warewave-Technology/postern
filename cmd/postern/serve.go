@@ -24,6 +24,7 @@ import (
 	"github.com/warewave/postern/internal/secret"
 	"github.com/warewave/postern/internal/sshd"
 	"github.com/warewave/postern/internal/store"
+	"github.com/warewave/postern/internal/upstream"
 )
 
 func newServeCmd() *cobra.Command {
@@ -147,6 +148,19 @@ func newServeCmd() *cobra.Command {
 					// düşmek, yöneticinin kurduğunu sandığı LDAP'ın hiç
 					// çalışmaması demek olurdu.
 					return fmt.Errorf("ldap configuration is invalid: %w", err)
+				}
+
+				// ⚠️ WARN, Info DEĞİL. Bu ayar postern'in hedefteki
+				// davranışını değiştiriyor: kullanıcının bağlantısında,
+				// kullanıcının adına, kullanıcının yazmadığı komutlar
+				// çalışıyor. Açık olduğu HER açılışta operatörün
+				// görmesi gereken bir şey; sessiz kalması "biz bunu
+				// açmış mıydık" sorusuna yol açardı.
+				if cfg.TargetProbe.Enabled {
+					logger.Warn("target probe ENABLED: postern will run commands on targets",
+						"commands", strings.Join(upstream.ProbeCommands, "; "),
+						"refresh", cfg.TargetProbe.RefreshOrDefault(),
+						"timeout", cfg.TargetProbe.TimeoutOrDefault())
 				}
 
 				webAPI := httpapi.New(oidcClient, logins, db, logger)

@@ -39,4 +39,28 @@ type TargetFacts struct {
 	// LastErrorAt/LastError, son BAŞARISIZ deneme. Başarıyı silmiyor.
 	LastErrorAt time.Time
 	LastError   string
+
+	// Probe, yalnızca target_probe.enabled ile dolar — yani hedefte
+	// komut çalıştırıldıysa. ProbedAt sıfırsa hedefe hiç dokunulmadı.
+	//
+	// İç içe duruyor ki paneli çizen de, koda bakan da "bu satırı
+	// öğrenmek için makineye dokunduk mu" sorusunu tek bakışta
+	// cevaplayabilsin.
+	Probe    TargetProbe
+	ProbedAt time.Time
+}
+
+// TargetProbe, hedefte KOMUT ÇALIŞTIRARAK öğrenilenler.
+//
+// ⚠️ TargetFacts'ten AYRI TUTULUYOR ve bu ayrım kasıtlı: TargetFacts'in
+// içeriği el sıkışmadan gelir ve postern hedefte hiçbir şey
+// çalıştırmadan öğrenilir. Buradakiler ise ancak target_probe.enabled
+// ile, hedefte komut koşturularak elde ediliyor. İkisini aynı yapıya
+// koymak, panele bakan operatörün "bunu öğrenmek için makineye
+// dokunduk mu" sorusunu cevapsız bırakırdı.
+type TargetProbe struct {
+	// Kernel, `uname -srm` çıktısı.
+	Kernel string
+	// OSName, /etc/os-release içindeki PRETTY_NAME (yoksa NAME).
+	OSName string
 }
