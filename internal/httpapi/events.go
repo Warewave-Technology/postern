@@ -95,6 +95,16 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		case <-ctx.Done():
 			return
 
+		// Kapanış başladı. Bu dalın olmaması sürecin SIGTERM ile
+		// ölmemesine yol açıyordu: Shutdown etkin bağlantıyı bekler,
+		// bu döngü ise kendiliğinden hiç bitmez (bkz. Server.closing).
+		//
+		// Akış sessizce kesiliyor, gövdeye bir "sunucu kapanıyor"
+		// olayı yazılmıyor: EventSource zaten kopmayı görüp yeniden
+		// bağlanmayı deniyor ve panel de rozetini ona göre çeviriyor.
+		case <-s.closing:
+			return
+
 		case e := <-ch:
 			b, err := json.Marshal(e)
 			if err != nil {

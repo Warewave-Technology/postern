@@ -95,6 +95,32 @@ func (s *Server) handleTerminal(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(context.WithoutCancel(r.Context()))
 	defer cancel()
 
+	/*
+	 * ⚠️ KAPANIŞ DA OTURUMU BİTİRİR.
+	 *
+	 * Yukarıdaki WithoutCancel oturumu isteğin ömründen KASTEN
+	 * koparıyor; bedeli, hiçbir şeyin onu durdurmaması. Ölçüldü: açık
+	 * bir web terminali varken SIGTERM alan postern hiç ölmüyordu.
+	 *
+	 * Oturumu kesmek burada doğru olan: süreç gidiyor, hedefe giden
+	 * bağlantıyı taşıyan da o. Kaydın kapanması bundan etkilenmiyor —
+	 * aşağıdaki sess.Close, denetim satırını WithoutCancel ile
+	 * yazıyor, yani iptal edilmiş bir bağlamla bile oturum "running"
+	 * kalmıyor ve kayıt düzgün kapanıyor.
+	 */
+	if s.closing != nil {
+		go func() {
+			select {
+			case <-s.closing:
+				cancel()
+			case <-ctx.Done():
+				// Oturum kendiliğinden bitti: goroutine'i burada
+				// bırakmak, uzun ömürlü bir süreçte oturum başına
+				// bir sızıntı demekti.
+			}
+		}()
+	}
+
 	// Bağlantı kapanınca ctx'i iptal et: broker'ın hedef tarafındaki
 	// akışları pty yüzünden kendiliğinden bitmez (wschannel.go'daki not).
 	down, downR := newWSChannel(ctx, conn, cancel)

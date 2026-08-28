@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/warewave/postern/internal/auth"
 	"github.com/warewave/postern/internal/events"
@@ -68,6 +69,46 @@ type Server struct {
 	// HİÇ kurulmaz — kapalı özellik, kapalı yüzey. Panel bunu görüp
 	// yoklamaya düşüyor.
 	bus *events.Bus
+
+	/*
+	 * closing, kapanışın BAŞLADIĞINI duyuran kanal.
+	 *
+	 * ⚠️ VAR OLMA SEBEBİ ÖLÇÜLDÜ: SIGTERM alan postern ölmüyordu.
+	 * http.Server.Shutdown etkin bağlantıların bitmesini bekler ve
+	 * istek bağlamlarını İPTAL ETMEZ; bizim iki uzun ömürlü
+	 * işleyicimiz (SSE akışı ve terminal WebSocket'i) kendiliğinden
+	 * bitmediği için bekleme sonsuza kadar sürüyordu. Süreç ayakta
+	 * kalıp eski bağlantıları taşımaya devam ediyordu: paneli açık
+	 * olan operatör, ölmüş sandığı sürecin akışına bakıp "Live"
+	 * rozetiyle ESKİ sayıları okuyordu.
+	 *
+	 * Yalnızca Shutdown'a süre sınırı koymak yetmezdi: her yeniden
+	 * başlatma o sınır kadar sürer ve süre dolunca oturumlar
+	 * ortasından kesilirdi. Bu kanal işleyicilere "bitir" diyor,
+	 * kapanış milisaniyelerde tamamlanıyor; süre sınırı da ayrıca
+	 * duruyor ama artık bir SON ÇARE.
+	 */
+	closing   chan struct{}
+	closeOnce sync.Once
+}
+
+/*
+ * BeginShutdown, uzun ömürlü işleyicilere kapanışın başladığını söyler.
+ *
+ * http.Server.Shutdown'dan ÖNCE çağrılmalı: sıra tersine dönerse
+ * Shutdown, henüz durması söylenmemiş akışları beklemeye başlar.
+ *
+ * Birden çok kez çağrılabilir (closeOnce): kapanış yolları iç içe
+ * geçebiliyor ve kapalı bir kanalı ikinci kez kapatmak panik olurdu.
+ */
+func (s *Server) BeginShutdown() {
+	// New dışında kurulmuş bir Server (testlerdeki değişmez alanlı
+	// literaller) için kanal nil olur; nil kanal hiç sinyal vermez,
+	// yani o kurulumlar eskisi gibi davranır.
+	if s.closing == nil {
+		return
+	}
+	s.closeOnce.Do(func() { close(s.closing) })
 }
 
 // SetExternalURL, kullanıcının tarayıcısından görülen kök adresi verir.
@@ -118,6 +159,7 @@ func (s *Server) EnableTerminal(deps proxy.Deps, externalURL string) {
 func New(o *auth.OIDC, logins *auth.Logins, db *store.Store, logger *slog.Logger) *Server {
 	return &Server{
 		oidc:        o,
+		closing:     make(chan struct{}),
 		logins:      logins,
 		logger:      logger,
 		store:       db,

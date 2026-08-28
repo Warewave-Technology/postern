@@ -27,6 +27,20 @@ import (
 	"github.com/warewave/postern/internal/upstream"
 )
 
+/*
+ * httpShutdownGrace, kapanışın SON ÇARE süresi.
+ *
+ * Beklenen yol bu değil: BeginShutdown uzun ömürlü işleyicilere
+ * dönmelerini söylüyor ve kapanış milisaniyelerde bitiyor. Bu süre,
+ * onu duymayan (ya da yazarken hedefte bloke olmuş) bir bağlantının
+ * süreci rehin almasını engelliyor.
+ *
+ * 5 saniye: bir init sisteminin kendi SIGKILL süresinden (systemd
+ * varsayılanı 90s) rahatça kısa, ama TCP'ye son baytları yazmaya
+ * yetecek kadar uzun.
+ */
+const httpShutdownGrace = 5 * time.Second
+
 func newServeCmd() *cobra.Command {
 	var configPath string
 
@@ -269,7 +283,34 @@ func newServeCmd() *cobra.Command {
 						logger.Error("http listener failed", "error", err)
 					}
 				}()
-				defer api.Shutdown(context.Background())
+				/*
+				 * ⚠️ KAPANIŞ İKİ ADIM: önce "bitir" de, sonra bekle.
+				 *
+				 * Eskiden burada yalnızca Shutdown(context.Background())
+				 * vardı ve süreç SIGTERM ile ÖLMÜYORDU. Shutdown etkin
+				 * bağlantıların bitmesini bekler ama istek bağlamlarını
+				 * iptal etmez; canlı olay akışı ile web terminali de
+				 * kendiliğinden bitmez. Sonuç ölçüldü: init sistemi
+				 * süreci öldürene kadar eski süreç ayakta kalıyor,
+				 * paneli açık operatör onun akışından ESKİ sayıları
+				 * "Live" rozetiyle okumaya devam ediyordu.
+				 *
+				 * BeginShutdown o işleyicilere dönmelerini söylüyor;
+				 * süre sınırı artık beklenen yol değil, SON ÇARE. Dolarsa
+				 * sessiz geçilmiyor: bir bağlantının bırakmadığını
+				 * bilmek, yeniden başlatmanın neden yavaşladığını
+				 * arayan operatörün ilk ipucu.
+				 */
+				defer func() {
+					webAPI.BeginShutdown()
+
+					sctx, scancel := context.WithTimeout(context.Background(), httpShutdownGrace)
+					defer scancel()
+					if err := api.Shutdown(sctx); err != nil {
+						logger.Warn("http shutdown did not finish cleanly",
+							"error", err, "grace", httpShutdownGrace)
+					}
+				}()
 
 				logger.Info("oob login enabled", "issuer", cfg.OIDC.IssuerURL)
 			}
