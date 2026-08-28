@@ -84,6 +84,15 @@ func TestUnderBaseScopesGroupIdentity(t *testing.T) {
 		"cn=sysadmins,ou=contractors,dc=corp,dc=local",
 		"cn=sysadmins,dc=corp,dc=local",
 		"cn=sysadmins,ou=evilgroups,dc=corp,dc=local", // sonek tuzağı
+
+		// ⚠️ KAÇIŞLI VİRGÜL TUZAĞI. Bu giriş dc=corp,dc=local'in
+		// ÇOCUĞU; ou=groups diye bir atası yok. Metin olarak
+		// karşılaştıran eski hâl onu kapsam içi sayıyordu ve dizinde
+		// dc=corp altına tek bir giriş açabilen herkese istediği rolü
+		// veriyordu.
+		`cn=sysadmins,ou=evil\,ou=groups,dc=corp,dc=local`,
+		// Aynı tuzağın kullanıcı adı tarafındaki biçimi.
+		`cn=x\,ou=groups,dc=corp,dc=local`,
 		"cn=sysadmins,ou=groups,dc=evil,dc=local",
 		"cn=sysadmins",
 		"",
@@ -92,6 +101,28 @@ func TestUnderBaseScopesGroupIdentity(t *testing.T) {
 		if underBase(dn, base) {
 			t.Errorf("KAPSAM DIŞINDAKİ grup içeride sayıldı: %q", dn)
 		}
+	}
+}
+
+// Ayrıştırılamayan bir değer kapsam DIŞIDIR.
+//
+// Bazı dizinler grup özniteliğinde DN olmayan değerler döndürebiliyor.
+// Anlamadığımız bir değeri kabul etmek, kapsam süzgecini isteğe bağlı
+// hâle getirirdi; reddetmek en fazla bir grubun görülmemesine yol açar.
+func TestUnderBaseRejectsUnparseableDN(t *testing.T) {
+	const base = "ou=groups,dc=corp,dc=local"
+	for _, dn := range []string{
+		"bu bir dn degil",
+		"=,,=",
+		`cn=x,ou=groups,dc=corp,dc=local\`, // sonu yarım kaçış
+	} {
+		if underBase(dn, base) {
+			t.Errorf("ayrıştırılamayan %q kapsam içi sayıldı", dn)
+		}
+	}
+	// Taban ayrıştırılamıyorsa da hiçbir şey kapsam içi olmamalı.
+	if underBase("cn=x,ou=groups,dc=corp,dc=local", `ou=groups,dc=corp,dc=local\`) {
+		t.Error("bozuk tabanla eşleşme kabul edildi")
 	}
 }
 

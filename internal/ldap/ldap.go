@@ -357,35 +357,45 @@ func (s *Source) normalize(value string) string {
 	return dn.RDNs[0].Attributes[0].Value
 }
 
-// underBase, bir DN'in verilen tabanın ALTINDA olup olmadığını söyler.
-//
-// DN karşılaştırması harf duyarsız ve boşluklara toleranslı: dizinler
-// "ou=Groups, dc=Corp" ile "ou=groups,dc=corp"u aynı sayar, biz de
-// saymalıyız — aksi hâlde meşru bir grup kapsam dışı görünüp
-// kullanıcının erişimi sessizce kaybolur.
-//
-// Sonek karşılaştırması VİRGÜL SINIRINDA yapılıyor: "ou=x,dc=corp"
-// tabanı için "ou=evilx,dc=corp" ALTTA DEĞİLDİR ve düz strings.HasSuffix
-// onu kabul ederdi.
+/*
+ * underBase, bir DN'in verilen tabanın ALTINDA olup olmadığını söyler.
+ *
+ * ⚠️ KARŞILAŞTIRMA DN OLARAK YAPILIYOR, METİN OLARAK DEĞİL.
+ *
+ * Kapatılan açık ölçüldü: eski hâl DN'i ham virgüllerden bölüp sonek
+ * karşılaştırıyordu ve RFC 4514 kaçışlarını görmüyordu. Bir RDN'in
+ * DEĞERİNİN İÇİNDEKİ kaçışlı virgül, o kaçışı bir bileşen sınırı gibi
+ * gösteriyordu:
+ *
+ *     underBase(`cn=sysadmins,ou=evil\,ou=groups,dc=corp`,
+ *               "ou=groups,dc=corp")  →  true
+ *
+ * Oysa o giriş dc=corp'un çocuğu ve ou=groups'un altında DEĞİL. Yani
+ * dizinde dc=corp altına tek bir giriş açabilen biri, adını istediği
+ * role denk getirip o rolü alabiliyordu — bu fonksiyonun var olma
+ * sebebi olan yetki yükseltmesinin ta kendisi.
+ *
+ * ParseDN kaçışları, çok değerli RDN'leri ve tırnaklamayı doğru
+ * çözüyor; *Fold biçimleri de harf duyarsızlığını veriyor ki
+ * "OU=Groups" ile "ou=groups" aynı sayılsın (dizinler öyle sayıyor,
+ * aksi hâlde meşru bir grup kapsam dışı görünüp kullanıcının erişimi
+ * sessizce kaybolurdu).
+ *
+ * ⚠️ AYRIŞTIRILAMAYAN DN KAPSAM DIŞIDIR. Anlamadığımız bir değeri
+ * "herhalde uygundur" diye kabul etmek, bu fonksiyonun koruduğu şeyi
+ * tam olarak geri verirdi.
+ */
 func underBase(dn, base string) bool {
-	n := normalizeDN(dn)
-	b := normalizeDN(base)
-
-	if b == "" {
+	b, err := goldap.ParseDN(base)
+	if err != nil || len(b.RDNs) == 0 {
 		return false
 	}
-	if n == b {
-		return true
+	d, err := goldap.ParseDN(dn)
+	if err != nil || len(d.RDNs) == 0 {
+		return false
 	}
-	return strings.HasSuffix(n, ","+b)
-}
-
-// normalizeDN, DN'i karşılaştırılabilir hâle getirir: küçük harf ve
-// bileşen çevresindeki boşluklar atılmış.
-func normalizeDN(dn string) string {
-	parts := strings.Split(strings.ToLower(dn), ",")
-	for i, p := range parts {
-		parts[i] = strings.TrimSpace(p)
-	}
-	return strings.Join(parts, ",")
+	// Tabanın kendisi de kapsam içi sayılıyor: grup girişinin doğrudan
+	// taban DN'i olduğu kurulumlar var ve onları dışarıda bırakmak
+	// davranış değişikliği olurdu.
+	return b.EqualFold(d) || b.AncestorOfFold(d)
 }
