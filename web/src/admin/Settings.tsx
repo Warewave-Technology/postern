@@ -122,6 +122,13 @@ function looksLoopback(rawURL: string): boolean {
   }
 }
 
+/** Hatanın ad çözümlemesi kaynaklı olup olmadığı (Go'nun net paketi). */
+function looksLikeDNS(err?: string): boolean {
+  if (!err) return false;
+  const e = err.toLowerCase();
+  return e.includes("no such host") || e.includes("server misbehaving") || e.includes("lookup ");
+}
+
 function fieldProblem(key: string, value: string): string {
   if (value === "") return "";
   switch (key) {
@@ -529,7 +536,16 @@ export default function Settings() {
                       </ActionButton>
                       <span className="note">
                         Dials the directory and binds as the service account.
-                        Reads what is <b>stored</b>, so save first.
+                        Reads what is <b>stored</b>, so save first.{" "}
+                        {/*
+                          ⚠️ KİMİN ÇÖZDÜĞÜNÜ SÖYLEMEK ŞART.
+                          Sınama sunucuda koşuyor: adı postern çözüyor,
+                          tarayıcı değil. Kendi makinesinde çözülen bir
+                          adı yazıp "no such host" alan operatör, hatayı
+                          panelin arızası sanıyordu.
+                        */}
+                        The name is resolved <b>on the bastion</b>, not in your
+                        browser.
                       </span>
                     </div>
                   )}
@@ -538,9 +554,26 @@ export default function Settings() {
                     (conn.ok ? (
                       <OkLine msg="reached the directory and bound as the service account" />
                     ) : (
-                      <ErrorLine
-                        msg={conn.error || "the bind failed and the server did not say why"}
-                      />
+                      <>
+                        <ErrorLine
+                          msg={conn.error || "the bind failed and the server did not say why"}
+                        />
+                        {/*
+                          Ad çözümlemesi hatasında AYRI bir satır: ham
+                          hata "lookup X: no such host" diyor ama KİMİN
+                          baktığını söylemiyor. Operatörün laptopunda
+                          çözülen bir ad, bastion'da çözülmeyebilir —
+                          ayrı ağlar, ayrı resolver'lar.
+                        */}
+                        {looksLikeDNS(conn.error) && (
+                          <p className="note">
+                            postern could not resolve that name. It looks it up
+                            from the bastion, not from your browser — a name
+                            that works on your machine may not exist there. Use
+                            a name the bastion can resolve, or its address.
+                          </p>
+                        )}
+                      </>
                     ))}
                 </div>
               </>

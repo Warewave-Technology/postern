@@ -476,6 +476,32 @@ permission state is read at process start.
 than guessing — `journalctl -u sshd` with `LogLevel VERBOSE` names the cause
 directly ("account is locked", "principal not in list", and so on).
 
+**Nobody can sign in after configuring LDAP.** A directory that cannot be
+reached is not the same as a user with no groups, so postern refuses the login
+rather than admitting someone with nothing. That is the right call for SSH and
+it applies to the panel too — which means a wrong URL or an unreachable
+directory locks out the person who has to fix it. The reason is in the server
+log (`group lookup failed`, with the underlying error); the browser only says
+"login failed", deliberately, since that page is unauthenticated.
+
+Recover from the host:
+
+```bash
+postern settings set --key ldap.url --value ""
+```
+
+Then **restart postern**. Clearing the setting alone is not enough: the running
+process holds the directory source in memory and only rebuilds it when the
+panel writes a setting — which is exactly what you cannot reach. Group
+membership falls back to the IdP claim on the next start.
+
+**The connection test says `no such host` for a name that works on my
+machine.** postern dials from the bastion, not from your browser — the test
+runs on the server and the name is resolved there. Container names, split-horizon
+DNS and VPN-only names commonly resolve on a laptop and not on the host running
+postern. Use a name the bastion can resolve, or an address. The same is true of
+the host key scan when registering a target.
+
 ## License
 
 Apache-2.0 — see [LICENSE](LICENSE).

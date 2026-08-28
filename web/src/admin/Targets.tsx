@@ -427,7 +427,13 @@ export default function Targets() {
           </ActionButton>
           <span className="note" style={{ flex: 1, minWidth: "12rem" }}>
             Reads the key the machine offers right now. You still have to
-            confirm it.
+            confirm it.{" "}
+            {/* Tarama da sunucuda koşuyor: adresi postern çözüyor ve
+                postern'in ağından bağlanıyor. Bunu yazmamak, kendi
+                makinesinde ulaşılan bir adı deneyen operatörü
+                şaşırtıyordu. */}
+            postern connects <b>from the bastion</b>, so the address has to
+            work there.
           </span>
         </div>
 
