@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/warewave/postern/internal/auth"
+	"github.com/warewave/postern/internal/events"
 	"github.com/warewave/postern/internal/model"
 	"github.com/warewave/postern/internal/store"
 	"golang.org/x/crypto/ssh"
@@ -226,11 +227,15 @@ func (s *Server) resolveIdentity(ctx context.Context, id auth.Identity) (model.U
 		if errors.Is(err, store.ErrIdentityConflict) {
 			s.logger.Warn("oob login denied: username belongs to an account bound to a different identity",
 				"idp_user", id.Username, "idp_issuer", id.Issuer)
+			// Canlı akışa da düşüyor: bu, incelenmesi gereken bir olay.
+			s.publish(events.AuthDenied, id.Username, "",
+				"username belongs to an account bound to a different identity")
 			return model.User{}, fmt.Errorf("access denied")
 		}
 		if errors.Is(err, store.ErrAccessDenied) {
 			s.logger.Warn("oob login denied: no mapped groups",
 				"idp_user", id.Username, "groups", len(id.Groups))
+			s.publish(events.AuthDenied, id.Username, "", "no mapped directory groups")
 			return model.User{}, fmt.Errorf("access denied")
 		}
 		s.logger.Error("oob provisioning failed", "idp_user", id.Username, "error", err)

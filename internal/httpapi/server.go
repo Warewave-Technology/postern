@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/warewave/postern/internal/auth"
+	"github.com/warewave/postern/internal/events"
 	"github.com/warewave/postern/internal/proxy"
 	"github.com/warewave/postern/internal/record"
 	"github.com/warewave/postern/internal/store"
@@ -50,6 +51,11 @@ type Server struct {
 	// secureCookies, oturum çerezine Secure bayrağının konup
 	// konmayacağı. SetExternalURL kuruyor.
 	secureCookies bool
+
+	// bus nil ise canlı olay akışı yapılandırılmamış demektir ve rota
+	// HİÇ kurulmaz — kapalı özellik, kapalı yüzey. Panel bunu görüp
+	// yoklamaya düşüyor.
+	bus *events.Bus
 }
 
 // SetExternalURL, kullanıcının tarayıcısından görülen kök adresi verir.
@@ -114,6 +120,7 @@ func (s *Server) Handler() http.Handler {
 	// Yönetim: oturum + admin + same-origin (admin.go, federation.go).
 	s.registerAdminRoutes(mux)
 	s.registerFederationRoutes(mux)
+	s.registerEventRoutes(mux)
 
 	// Terminal: yalnızca yapılandırıldıysa. Kapalıyken rota yok — açık
 	// ama yetkisiz bir uç, kapalı bir uçtan daha büyük bir yüzeydir.

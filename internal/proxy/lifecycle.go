@@ -19,6 +19,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/warewave/postern/internal/ca"
+	"github.com/warewave/postern/internal/events"
 	"github.com/warewave/postern/internal/model"
 	"github.com/warewave/postern/internal/policy"
 	"github.com/warewave/postern/internal/record"
@@ -68,6 +69,13 @@ type Deps struct {
 
 	// MaxLifetime, oturumun mutlak ömrü. 0 = kapalı.
 	MaxLifetime time.Duration
+
+	// Events, canlı izleme akışı. nil ise olay yayınlanmaz.
+	//
+	// ⚠️ Publish BLOKLAMAZ (bkz. events.Bus): burası bir oturumun açılış
+	// ve kapanış yolu ve izleyen bir panel, izlediği oturumu
+	// bekletemez.
+	Events events.Publisher
 }
 
 // Request, açılacak oturumun kim/nereye bilgisi.
@@ -104,6 +112,26 @@ type Session struct {
 
 	start  time.Time
 	closed bool
+
+	// user/target/src, olay yayını için: Log'un alanlarından geri
+	// okunamıyor ve Run'ın elinde başka türlü yok.
+	user   string
+	target string
+	src    string
+}
+
+// publish, olay yayınını nil-güvenli sarar.
+func (s *Session) publish(kind events.Kind, detail string) {
+	if s.deps.Events == nil {
+		return
+	}
+	s.deps.Events.Publish(events.Event{
+		Kind:   kind,
+		User:   s.user,
+		Target: s.target,
+		Source: s.src,
+		Detail: detail,
+	})
 }
 
 // Open, yetkiyi denetler ve oturumu hedefe kadar kurar.
@@ -228,6 +256,7 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 	return &Session{
 		ID: id, OSUser: d.OSUser, Log: log,
 		deps: deps, conn: conn, up: up, upR: upR, rec: rec, start: start,
+		user: req.Username, target: req.TargetName, src: req.SrcIP,
 	}, nil
 }
 
@@ -238,6 +267,7 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 // etmez — arayüz sözleşmesinin bütün faydası bu.
 func (s *Session) Run(ctx context.Context, down ssh.Channel, downR <-chan *ssh.Request) error {
 	s.Log.Info("session started", "os_user", s.OSUser)
+	s.publish(events.SessionStarted, "os user "+s.OSUser)
 
 	ctx, guard, stop := bound(ctx, s.deps.IdleTimeout, s.deps.MaxLifetime)
 	defer stop()
@@ -288,18 +318,31 @@ func (s *Session) Run(ctx context.Context, down ssh.Channel, downR <-chan *ssh.R
 	// "ömrü doldu" denetim kaydında ayrı olaylar; hepsini "session ended"
 	// diye yazmak, sınırların çalışıp çalışmadığını sonradan
 	// anlaşılamaz kılardı.
-	fields := []any{"os_user", s.OSUser, "duration", time.Since(s.start)}
+	var closedBy string
 	if cause := context.Cause(ctx); cause != nil {
 		switch {
 		case errors.Is(cause, ErrIdleTimeout):
-			fields = append(fields, "closed_by", "idle_timeout")
+			closedBy = "idle_timeout"
 		case errors.Is(cause, ErrMaxLifetime):
-			fields = append(fields, "closed_by", "max_lifetime")
+			closedBy = "max_lifetime"
 		case errors.Is(cause, ErrRecordingFailed):
-			fields = append(fields, "closed_by", "recording_failed")
+			closedBy = "recording_failed"
 		}
 	}
+
+	fields := []any{"os_user", s.OSUser, "duration", time.Since(s.start)}
+	if closedBy != "" {
+		fields = append(fields, "closed_by", closedBy)
+	}
 	s.Log.Info("session ended", fields...)
+
+	// Kapanış sebebi olaya da giriyor: canlı bakan operatör için
+	// "kullanıcı çıktı" ile "boşta kaldığı için kesildi" aynı şey değil.
+	detail := "duration " + time.Since(s.start).Round(time.Second).String()
+	if closedBy != "" {
+		detail += ", closed by " + closedBy
+	}
+	s.publish(events.SessionEnded, detail)
 
 	return err
 }

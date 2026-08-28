@@ -18,6 +18,7 @@ import (
 
 	"github.com/warewave/postern/internal/auth"
 	"github.com/warewave/postern/internal/config"
+	"github.com/warewave/postern/internal/events"
 	"github.com/warewave/postern/internal/httpapi"
 	"github.com/warewave/postern/internal/ldap"
 	"github.com/warewave/postern/internal/secret"
@@ -95,6 +96,16 @@ func newServeCmd() *cobra.Command {
 				return err
 			}
 
+			// Canlı olay veriyolu. Panelde "Overview" ekranını besliyor;
+			// abonesi yokken maliyeti yok (Publish boş haritada döner).
+			//
+			// ⚠️ SÜREÇ İÇİ: CLI'dan yapılan yönetim işlemleri başka bir
+			// süreçte ve buradan geçmiyor. Panel bunu söylüyor —
+			// "canlı akış her şeyi gösteriyor" sanmak, göstermediğini
+			// fark etmemek olurdu.
+			bus := events.New(0, 0)
+			s.UseEventBus(bus)
+
 			// OOB girişi yalnızca yapılandırıldıysa: OIDC discovery +
 			// login kaydı + HTTP dinleyicisi. Yoksa bastion eskisi gibi
 			// yalnızca public key kabul eder.
@@ -140,6 +151,7 @@ func newServeCmd() *cobra.Command {
 
 				webAPI := httpapi.New(oidcClient, logins, db, logger)
 				webAPI.UseGroupSource(groupSwitch)
+				webAPI.UseEventBus(bus)
 				// Terminal açık olmasa da gerekli: oturum çerezinin
 				// Secure bayrağı bu adresin şemasından türüyor.
 				webAPI.SetExternalURL(cfg.HTTP.ExternalURL)

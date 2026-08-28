@@ -19,6 +19,7 @@ import (
 	"github.com/warewave/postern/internal/auth"
 	"github.com/warewave/postern/internal/ca"
 	"github.com/warewave/postern/internal/config"
+	"github.com/warewave/postern/internal/events"
 	"github.com/warewave/postern/internal/proxy"
 	"github.com/warewave/postern/internal/record"
 	"github.com/warewave/postern/internal/store"
@@ -50,6 +51,9 @@ type Server struct {
 	// olmalı: iki kapı aynı yetkiyi vermeli.
 	groups auth.GroupSource
 
+	// bus nil ise canlı olay akışı kapalı.
+	bus events.Publisher
+
 	// limiter, eşzamanlı bağlantı sınırları (limits.go).
 	limiter *connLimiter
 
@@ -70,6 +74,20 @@ func (s *Server) Records() *record.Store { return s.rStore }
 // Dinlemeye başlamadan ÖNCE çağrılmalı.
 func (s *Server) UseGroupSource(src auth.GroupSource) { s.groups = src }
 
+// UseEventBus, canlı izleme akışını bağlar. Çağrılmazsa olay yayınlanmaz.
+func (s *Server) UseEventBus(p events.Publisher) { s.bus = p }
+
+// publish, olay yayınını nil-güvenli sarar.
+//
+// ⚠️ Publish BLOKLAMAZ (bkz. events.Bus): burası kimlik doğrulama
+// yolu ve izleyen bir panel, giren kullanıcıyı bekletemez.
+func (s *Server) publish(kind events.Kind, user, source, detail string) {
+	if s.bus == nil {
+		return
+	}
+	s.bus.Publish(events.Event{Kind: kind, User: user, Source: source, Detail: detail})
+}
+
 // ProxyDeps, oturum akışının ihtiyaç duyduğu altyapıyı döner.
 //
 // httpapi ile PAYLAŞILIR: web terminali ve SSH aynı store'u, aynı kayıt
@@ -87,6 +105,11 @@ func (s *Server) ProxyDeps() proxy.Deps {
 		// (EnableTerminal aynı Deps'i alıyor) aynı sınırlara tabi.
 		IdleTimeout: s.cfg.Session.IdleTimeout,
 		MaxLifetime: s.cfg.Session.MaxLifetime,
+
+		// Olay akışı da paylaşılıyor: web terminalinden açılan bir
+		// oturum canlı izlemede görünmezse, "iki kapı tek gerçek"
+		// sözleşmesi tam orada bozulurdu.
+		Events: s.bus,
 	}
 }
 
@@ -300,6 +323,10 @@ func (s *Server) handleConn(ctx context.Context, nConn net.Conn, release func())
 		"postern_user", sshConn.Permissions.Extensions["postern-user"],
 		"remote", sshConn.RemoteAddr(),
 	)
+	s.publish(events.AuthOK,
+		sshConn.Permissions.Extensions["postern-user"],
+		sshConn.RemoteAddr().String(),
+		"ssh handshake as "+sshConn.User())
 
 	// ⚠️ OTURUMLAR BAĞLANTIYA BAĞLANIYOR.
 	//
