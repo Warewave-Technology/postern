@@ -100,6 +100,56 @@ const INCOMPLETE = "incomplete:";
 // Sunucunun sırlar için döndürdüğü maske (store.secretMask ile aynı).
 const MASK = "********";
 
+/*
+ * ⚠️ BU DOĞRULAMA BİR ERKEN UYARI, KURAL DEĞİL.
+ *
+ * Asıl kural sunucuda (ldap.New / ldap.checkScheme) ve orada kalmalı:
+ * panel süslü bir istemci, yetkilendirme kararı veren taraf değil.
+ * Buradaki kopya yalnızca yazarken söylemek için var — dokuz alanı
+ * doldurup kaydettikten sonra "incomplete" uyarısı almak, hatanın
+ * hangi alanda olduğunu söylemiyordu.
+ */
+function looksLoopback(rawURL: string): boolean {
+  try {
+    // URL yalnızca konağı ayıklamak için: ldaps:// tanınmayan bir şema
+    // olduğu için http'ye çevirip ayrıştırıyoruz.
+    const host = new URL(rawURL.replace(/^ldaps?:\/\//i, "http://")).hostname
+      .replace(/^\[|\]$/g, "");
+    if (host === "localhost" || host === "::1") return true;
+    return /^127\./.test(host);
+  } catch {
+    return false;
+  }
+}
+
+function fieldProblem(key: string, value: string): string {
+  if (value === "") return "";
+  switch (key) {
+    case "ldap.url": {
+      const scheme = value.split("://")[0].toLowerCase();
+      if (scheme === "ldaps") return "";
+      if (scheme === "ldap") {
+        return looksLoopback(value)
+          ? ""
+          : "plain ldap:// is only accepted for loopback — the service account password would cross the network in the clear";
+      }
+      return `unsupported scheme “${scheme}” — use ldaps://`;
+    }
+    case "ldap.user_filter":
+      return value.includes("%s")
+        ? ""
+        : "must contain %s — that is where the IdP username is substituted";
+    case "ldap.group_filter":
+      return value.includes("%s")
+        ? ""
+        : "must contain %s — that is where the user's DN is substituted";
+    case "ldap.group_name_from":
+      return value === "cn" || value === "dn" ? "" : "must be either cn or dn";
+    default:
+      return "";
+  }
+}
+
 export default function Settings() {
   const { items, error, denied, loading, refresh, setError } = useList<Setting>(api.settings);
   const [edits, setEdits] = useState<Record<string, string>>({});
@@ -108,6 +158,10 @@ export default function Settings() {
   const [warning, setWarning] = useState("");
   const [testUser, setTestUser] = useState("");
   const [test, setTest] = useState<LDAPTestResult | null>(null);
+  // Yalnızca bağlantı adımının sınama sonucu. Tam testten AYRI: bu
+  // adımda user_base henüz yazılmamış oluyor ve tam testi koşturmak,
+  // doldurulmamış bir alanı hata gibi gösterirdi.
+  const [conn, setConn] = useState<{ ok: boolean; error?: string } | null>(null);
 
   const stored = (key: string) => items.find((s) => s.key === key);
   const hasValue = (key: string) => {
@@ -123,6 +177,7 @@ export default function Settings() {
     setStatus("");
     setWarning("");
     setTest(null);
+    setConn(null);
   };
 
   const write = (key: string, value: string) =>
@@ -171,6 +226,14 @@ export default function Settings() {
       .then(() => refresh())
       .catch((e: unknown) => setError(toMessage(e)));
 
+  const checkConnection = () => {
+    clearNotices();
+    return api
+      .checkLDAPConnection()
+      .then(setConn)
+      .catch((e: unknown) => setError(toMessage(e)));
+  };
+
   const runTest = () => {
     clearNotices();
     return api
@@ -189,6 +252,47 @@ export default function Settings() {
     s.fields.length > 0 && s.fields.filter((f) => f.required).every((f) => hasValue(f.key));
 
   const nothingStored = items.length === 0 && error === "";
+
+  // Bu adımda yazılmış ama geçersiz bir değer var mı.
+  const stepHasProblem = current.fields.some((f) => fieldProblem(f.key, edits[f.key] ?? "") !== "");
+
+  /*
+   * SAKLANAN yapılandırmanın sorunları.
+   *
+   * Review adımı değerleri listeliyordu ama neyin YANLIŞ olduğunu
+   * söylemiyordu: operatör dokuz satıra bakıp hangisinin eksik olduğunu
+   * kendisi bulmak zorundaydı, ve testin neden düştüğü ancak sunucunun
+   * hata metninden anlaşılıyordu. Testi çalıştırmadan önce cevaplanabilen
+   * her soru burada cevaplanıyor.
+   */
+  const problems: string[] = [];
+  if (!loading && !denied) {
+    for (const f of STEPS.flatMap((x) => x.fields)) {
+      const cur = stored(f.key);
+      if (f.required && (cur === undefined || cur.value === "")) {
+        problems.push(`${f.label} is required and nothing is stored`);
+        continue;
+      }
+      // Sırlar geri gelmiyor (maskeli): değerini doğrulayamayız,
+      // yalnızca varlığını. Maskeyi doğrulamaya çalışmak uydurma bir
+      // hata üretirdi.
+      if (cur && !cur.secret && !f.secret) {
+        const bad = fieldProblem(f.key, cur.value);
+        if (bad) problems.push(`${f.label}: ${bad}`);
+      }
+    }
+    // Sunucu ikisinden BİRİNİ istiyor (bkz. ldap.New): memberOf yolu ya
+    // da grup araması. İkisi de boşken yapılandırma hiç kurulmuyor.
+    const attr = stored("ldap.group_attribute");
+    const filt = stored("ldap.group_filter");
+    const hasAttr = attr !== undefined && attr.value !== "";
+    const hasFilter = filt !== undefined && filt.value !== "";
+    if (!hasAttr && !hasFilter && items.length > 0) {
+      problems.push(
+        "Group attribute and Group filter are both empty — set one: memberOf on the user entry, or a filter to search the group tree",
+      );
+    }
+  }
 
   return (
     <section>
@@ -244,6 +348,23 @@ export default function Settings() {
 
             {current.id === "review" ? (
               <>
+                {/* Sorunlar ÖNCE: testi çalıştırmadan önce cevaplanabilen
+                    her soru burada cevaplanıyor. */}
+                {problems.length > 0 ? (
+                  <div className="msg msg-warn" role="status">
+                    <b>Not ready yet</b>
+                    <ul className="problem-list">
+                      {problems.map((p) => (
+                        <li key={p}>{p}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  items.length > 0 && (
+                    <OkLine msg="every field the server requires is stored — run the test to prove it works" />
+                  )
+                )}
+
                 <dl className="kv">
                   {STEPS.flatMap((s) => s.fields).map((f) => {
                     const cur = stored(f.key);
@@ -313,25 +434,24 @@ export default function Settings() {
               </>
             ) : (
               <>
-                {current.fields.map((f) => {
-                  const cur = stored(f.key);
-                  const filled = hasValue(f.key);
-                  return (
-                    <div className="field-row" key={f.key}>
-                      <label style={{ flexBasis: "100%" }}>
-                        {/* Tek satır: label flex-column olduğu için ad ile
-                            "required" ayrı çocuklar olarak alt alta
-                            düşüyordu. */}
-                        <span>
+                <div className="wizard-form">
+                  {current.fields.map((f) => {
+                    const cur = stored(f.key);
+                    const filled = hasValue(f.key);
+                    const typed = edits[f.key] ?? "";
+                    const problem = fieldProblem(f.key, typed);
+                    return (
+                      <div className="wfield" key={f.key}>
+                        <label className="wfield-label" htmlFor={`f-${f.key}`}>
                           {f.label}
-                          {f.required && <span className="muted"> · required</span>}
-                        </span>
+                          {f.required && <span className="wfield-req">required</span>}
+                        </label>
                         <input
+                          id={`f-${f.key}`}
                           type={f.secret ? "password" : "text"}
-                          value={edits[f.key] ?? ""}
-                          // Placeholder ad değildir: yazmaya başlayınca
-                          // kaybolur ve ekran okuyucuya adsız bir kutu kalır.
-                          aria-label={`new value for ${f.label}`}
+                          value={typed}
+                          aria-invalid={problem ? true : undefined}
+                          aria-describedby={`h-${f.key}`}
                           // ⚠️ İPUCU BURADA DEĞİL. Yer tutucuya da ipucu
                           // koyunca aynı cümle hem kutunun içinde hem
                           // altında iki kez yazıyordu. Yer tutucu SAKLI
@@ -345,41 +465,84 @@ export default function Settings() {
                             setEdits({ ...edits, [f.key]: e.target.value });
                           }}
                         />
-                      </label>
-                      <div className="setting-hint" style={{ flexBasis: "100%" }}>
-                        {f.hint}
-                        {" · "}
-                        {/* "hiç yazılmadı" ile "boşaltıldı" AYNI ŞEY DEĞİL:
-                            boş group_attribute, grup aramaya geçildiğini
-                            söyleyen geçerli bir yapılandırma. */}
-                        {cur === undefined ? (
-                          <span className="muted">not set</span>
-                        ) : cur.value === "" ? (
-                          <span className="muted">stored as empty</span>
-                        ) : (
-                          <>
-                            <span className="muted">stored</span>{" "}
-                            {/*
-                              Boşaltma AYRI bir düğme.
 
-                              ⚠️ Tek "save" düğmesi vardı ve boş değerde
-                              kapalıydı: "group attribute'ü boşalt, grup
-                              aramaya geç" moduna arayüzden ULAŞILAMIYORDU.
-                            */}
-                            <ActionButton
-                              variant="danger"
-                              onClick={() => clearField(f.key)}
-                              confirm={`Clear ${f.key}? The stored value is removed and postern behaves as if it was never set.`}
-                              label={`clear ${f.key}`}
-                            >
-                              Clear
-                            </ActionButton>
-                          </>
+                        <p className="wfield-hint" id={`h-${f.key}`}>
+                          {f.hint}
+                        </p>
+
+                        {/* Yazarken söyle: dokuz alanı doldurup kaydettikten
+                            sonra "incomplete" uyarısı almak, hatanın hangi
+                            alanda olduğunu söylemiyordu. */}
+                        {problem && (
+                          <p className="wfield-problem" role="alert">
+                            {problem}
+                          </p>
                         )}
+
+                        {/* Saklanan değerin durumu AYRI SATIRDA. Önceden
+                            ipucuyla aynı cümleye ekleniyordu: "bu alan ne"
+                            ile "şu an ne yazıyor" tek satırda karışıyordu. */}
+                        <div className="wfield-state">
+                          {/* "hiç yazılmadı" ile "boşaltıldı" AYNI ŞEY DEĞİL:
+                              boş group_attribute, grup aramaya geçildiğini
+                              söyleyen geçerli bir yapılandırma. */}
+                          {cur === undefined ? (
+                            <span className="muted">nothing stored</span>
+                          ) : cur.value === "" ? (
+                            <span className="muted">stored as empty</span>
+                          ) : (
+                            <>
+                              <span className="badge badge-ok">stored</span>
+                              {/*
+                                Boşaltma AYRI bir düğme.
+
+                                ⚠️ Tek "save" düğmesi vardı ve boş değerde
+                                kapalıydı: "group attribute'ü boşalt, grup
+                                aramaya geç" moduna arayüzden ULAŞILAMIYORDU.
+                              */}
+                              <ActionButton
+                                variant="danger"
+                                onClick={() => clearField(f.key)}
+                                confirm={`Clear ${f.key}? The stored value is removed and postern behaves as if it was never set.`}
+                                label={`clear ${f.key}`}
+                              >
+                                Clear
+                              </ActionButton>
+                            </>
+                          )}
+                        </div>
                       </div>
+                    );
+                  })}
+
+                  {/* Bağlantı adımı KENDİ BAŞINA sınanabiliyor. Dokuz
+                      alandan hangisinin yanlış olduğunu dokuzunu da
+                      yazdıktan sonra öğrenmek gerekmesin. */}
+                  {current.id === "connection" && (
+                    <div className="wizard-check">
+                      <ActionButton
+                        onClick={checkConnection}
+                        disabled={!hasValue("ldap.url")}
+                        label="test the stored connection and service account"
+                      >
+                        Test connection
+                      </ActionButton>
+                      <span className="note">
+                        Dials the directory and binds as the service account.
+                        Reads what is <b>stored</b>, so save first.
+                      </span>
                     </div>
-                  );
-                })}
+                  )}
+
+                  {conn &&
+                    (conn.ok ? (
+                      <OkLine msg="reached the directory and bound as the service account" />
+                    ) : (
+                      <ErrorLine
+                        msg={conn.error || "the bind failed and the server did not say why"}
+                      />
+                    ))}
+                </div>
               </>
             )}
 
@@ -399,6 +562,11 @@ export default function Settings() {
                 <ActionButton
                   variant="primary"
                   onClick={() => saveStep(current.fields, next?.id)}
+                  // ⚠️ Yalnızca YAZILMIŞ ve geçersiz alanlar engelliyor.
+                  // Boş bırakılan alan "dokunulmadı" demek ve zaten
+                  // kaydedilmiyor; onu da engellemek, tek bir alanı
+                  // düzeltmek isteyen kişiyi kilitlerdi.
+                  disabled={stepHasProblem}
                   label={`save this step${next ? " and continue" : ""}`}
                 >
                   {next ? "Save and continue" : "Save"}

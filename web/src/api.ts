@@ -205,6 +205,8 @@ export const api = {
   settings: () => req<Setting[]>("GET", "/api/admin/settings"),
   setSetting: (key: string, value: string) =>
     req<{ ok: boolean; source: string }>("PUT", "/api/admin/settings", { key, value }),
+  checkLDAPConnection: () =>
+    req<{ ok: boolean; error?: string }>("POST", "/api/admin/ldap/check-connection"),
   testLDAP: (user?: string) =>
     req<LDAPTestResult>("POST", "/api/admin/ldap/test", { user: user ?? "" }),
 
