@@ -10,6 +10,7 @@ import (
 	"github.com/warewave/postern/internal/sshalg"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -20,8 +21,51 @@ import (
 
 // Conn is an established SSH connection to a target.
 type Conn struct {
-	client *ssh.Client
-	target model.Target
+	client    *ssh.Client
+	target    model.Target
+	connectMS int
+}
+
+// Facts, EL SIKIŞMADAN öğrenilenleri döner.
+//
+// ⚠️ KAPSAM KASITLI OLARAK DAR. Buradan çıkan her şey sunucunun
+// bağlantı kurarken kendiliğinden söylediği: afişi, anlaştığımız host
+// key türü, bir de ne kadar sürdüğü. Hedefte `uname` ya da
+// `/etc/os-release` okumak çok daha fazlasını verirdi — ve postern'in
+// güven modelini bozardı: kullanıcının oturumu dışında hedefte iş
+// çalıştırmıyoruz. Bir bastion'ın envanter aracına dönüşmesi, denetim
+// altındaki her makinede sessizce komut çalıştırması demek.
+func (c *Conn) Facts() model.TargetFacts {
+	if c == nil || c.client == nil {
+		return model.TargetFacts{}
+	}
+	f := model.TargetFacts{
+		// Afiş sunucu girdisi: uzunluğu sınırlanıyor, aksi hâlde
+		// düşmanca bir hedef tabloya ve panele istediği kadar metin
+		// yazdırabilirdi.
+		ServerVersion: truncate(string(c.client.ServerVersion()), 128),
+		ConnectMS:     c.connectMS,
+	}
+	if pub, _, _, _, err := ssh.ParseAuthorizedKey([]byte(c.target.HostKey)); err == nil {
+		f.HostKeyType = pub.Type()
+	}
+	return f
+}
+
+// truncate, sunucudan gelen metni sınırlar.
+func truncate(s string, n int) string {
+	// Kontrol karakterleri afişten temizleniyor: terminal kaçış dizisi
+	// taşıyan bir afiş, onu gösteren her yerde ekranı ele geçirebilirdi.
+	clean := strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, s)
+	if len(clean) > n {
+		return clean[:n] + "…"
+	}
+	return clean
 }
 
 // Client exposes the underlying SSH client
@@ -125,6 +169,7 @@ func dialer(ctx context.Context, t model.Target, user string, signer ssh.Signer)
 	stop := context.AfterFunc(ctx, func() { nc.Close() })
 	defer stop()
 
+	start := time.Now()
 	c, chans, reqs, err := ssh.NewClientConn(nc, addr, ccfg)
 	if err != nil {
 		nc.Close()
@@ -133,7 +178,10 @@ func dialer(ctx context.Context, t model.Target, user string, signer ssh.Signer)
 
 	client := ssh.NewClient(c, chans, reqs)
 
-	return &Conn{client: client, target: t}, nil
+	return &Conn{
+		client: client, target: t,
+		connectMS: int(time.Since(start).Milliseconds()),
+	}, nil
 }
 
 // dialTimeout, hedefe bağlanma ve el sıkışma için üst sınır.

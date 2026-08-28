@@ -78,6 +78,34 @@ type Deps struct {
 	Events events.Publisher
 }
 
+/*
+ * recordTargetOutcome, hedef hakkında el sıkışmada öğrenilenleri yazar.
+ *
+ * ⚠️ HATASI YUTULUYOR ve bu ayrım kasıtlı: bu bir GÖZLEM kaydı, denetim
+ * kaydı değil. sessions/admin_log yazılamazsa oturum düşer (denetim
+ * öncelikli politika); "hedefin SSH afişi neydi" yazılamazsa kullanıcının
+ * oturumunu kesmek için bir sebep yok.
+ *
+ * ⚠️ context.WithoutCancel: çağıran bağlam oturumla birlikte iptal
+ * oluyor ve yazma tam o anda düşerdi.
+ */
+func recordTargetOutcome(
+	ctx context.Context, deps Deps, log *slog.Logger,
+	targetName string, facts model.TargetFacts, dialErr error,
+) {
+	ctx = context.WithoutCancel(ctx)
+
+	var err error
+	if dialErr != nil {
+		err = deps.Store.RecordTargetError(ctx, targetName, dialErr.Error())
+	} else {
+		err = deps.Store.RecordTargetSeen(ctx, targetName, facts)
+	}
+	if err != nil {
+		log.Warn("target facts not recorded", "error", err)
+	}
+}
+
 // Request, açılacak oturumun kim/nereye bilgisi.
 type Request struct {
 	// Username, DOĞRULANMIŞ postern kullanıcı adıdır — istemcinin iddia
@@ -207,8 +235,13 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 	}, deps.Authority)
 	if err != nil {
 		log.Error("target dial failed", "error", err, "os_user", d.OSUser)
+		// Başarısız denemeyi hedefin üstüne işaretle: paneldeki hedef
+		// sayfasında "en son ne zaman çalıştı" ile "en son neden
+		// çalışmadı" ayrı ayrı duruyor.
+		recordTargetOutcome(ctx, deps, log, req.TargetName, model.TargetFacts{}, err)
 		return nil, fmt.Errorf("proxy.Open: %w", ErrUnavailable)
 	}
+	recordTargetOutcome(ctx, deps, log, req.TargetName, conn.Facts(), nil)
 
 	up, upR, err := conn.OpenSession()
 	if err != nil {

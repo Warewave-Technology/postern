@@ -121,6 +121,7 @@ func (s *Server) Handler() http.Handler {
 	s.registerAdminRoutes(mux)
 	s.registerFederationRoutes(mux)
 	s.registerEventRoutes(mux)
+	s.registerTargetRoutes(mux)
 
 	// Terminal: yalnızca yapılandırıldıysa. Kapalıyken rota yok — açık
 	// ama yetkisiz bir uç, kapalı bir uçtan daha büyük bir yüzeydir.
