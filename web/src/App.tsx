@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { ReactNode, useCallback, useEffect, useState } from "react";
 import { ApiError, api, Me, toMessage } from "./api";
 import Users from "./admin/Users";
 import Targets from "./admin/Targets";
@@ -6,45 +6,68 @@ import Roles from "./admin/Roles";
 import { AdminLog, Sessions } from "./admin/Audit";
 import Mappings from "./admin/Mappings";
 import Settings from "./admin/Settings";
+import Overview from "./admin/Overview";
 import Terminal from "./Terminal";
+import {
+  DirectoryIcon,
+  GateMark,
+  HostIcon,
+  LogIcon,
+  MapIcon,
+  PlayIcon,
+  PulseIcon,
+  RolesIcon,
+  TargetIcon,
+  UsersIcon,
+} from "./icons";
 
-// Rota kütüphanesi yok: sekiz sekmelik bir panel için useState yeter.
-type Tab = "home" | "users" | "targets" | "roles" | "mappings" | "settings" | "sessions" | "log";
+// Rota kütüphanesi yok: iki üst sekme ve bir kenar listesi için useState
+// yeter. URL'de yer tutmamanın bedeli, paylaşılabilir bağlantı olmaması.
+type Top = "home" | "settings";
+type Section =
+  | "overview"
+  | "users"
+  | "roles"
+  | "mappings"
+  | "targets"
+  | "ldap"
+  | "sessions"
+  | "log";
 
-/**
- * GateMark, ürünün işareti: bir postern küçük bir yan kapıdır.
+/*
+ * Kenar listesi GRUPLANMIŞ.
  *
- * Satır içi SVG, dosya değil — CSP img-src 'self' data: olsa da harici
- * bir varlık istemiyoruz ve tek renkli bir işaret currentColor ile
- * temayı kendiliğinden takip ediyor.
+ * Sekiz düz madde bir liste değil yığın olur; "erişimi kim veriyor",
+ * "nereye bağlanılıyor", "ne olmuş" ayrı sorular ve ayrı başlıklar
+ * altında durmaları hangi ekranda ne aranacağını söylüyor.
  */
-function GateMark({ size = 16 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      {/* Kemer + eşik + orta dikme: ilk denemede tek nokta vardı ve
-          16px'te ZİL gibi okunuyordu. Orta dikme iki kanatlı bir kapı
-          yapıyor, şekli tartışmasız hale getiriyor. */}
-      <path
-        d="M3.4 13.8V6.9a4.6 4.6 0 0 1 9.2 0v6.9"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-      <path d="M1.7 13.8h12.6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      <path d="M8 13.8V2.4" stroke="currentColor" strokeWidth="1.1" opacity="0.55" />
-    </svg>
-  );
-}
+const NAV: { title?: string; items: [Section, string, ReactNode][] }[] = [
+  { items: [["overview", "Overview", <PulseIcon key="i" />]] },
+  {
+    title: "Access",
+    items: [
+      ["users", "Users", <UsersIcon key="i" />],
+      ["roles", "Roles", <RolesIcon key="i" />],
+      ["mappings", "Mappings", <MapIcon key="i" />],
+    ],
+  },
+  { title: "Infrastructure", items: [["targets", "Targets", <TargetIcon key="i" />]] },
+  { title: "Directory", items: [["ldap", "LDAP", <DirectoryIcon key="i" />]] },
+  {
+    title: "Audit",
+    items: [
+      ["sessions", "Sessions", <PlayIcon key="i" />],
+      ["log", "Admin log", <LogIcon key="i" />],
+    ],
+  },
+];
 
-/** HostMark, hedef satırlarındaki küçük sunucu işareti. */
-function HostMark() {
+function Brand({ size = 20 }: { size?: number }) {
   return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <rect x="2.2" y="2.8" width="11.6" height="4.6" rx="1.3" stroke="currentColor" strokeWidth="1.3" />
-      <rect x="2.2" y="8.6" width="11.6" height="4.6" rx="1.3" stroke="currentColor" strokeWidth="1.3" />
-      <circle cx="4.9" cy="5.1" r="0.75" fill="currentColor" />
-      <circle cx="4.9" cy="10.9" r="0.75" fill="currentColor" />
-    </svg>
+    <span className="brand">
+      <GateMark size={size} />
+      <span className="brand-word">postern</span>
+    </span>
   );
 }
 
@@ -53,7 +76,8 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   // unreachable, "oturum yok" ile "sunucuya ulaşamıyorum"u AYIRIR.
   const [unreachable, setUnreachable] = useState("");
-  const [tab, setTab] = useState<Tab>("home");
+  const [top, setTop] = useState<Top>("home");
+  const [section, setSection] = useState<Section>("overview");
   const [terminal, setTerminal] = useState<string | null>(null);
 
   const loadMe = useCallback(() => {
@@ -66,8 +90,7 @@ export default function App() {
         // ⚠️ Eskiden HER hata "giriş yapmamışsın" ekranına düşüyordu.
         // Yani veritabanı çökmüşken kullanıcıya "oturum aç" deniyor, o
         // da IdP'ye gidip geri dönüyor ve aynı arızaya düşüyordu —
-        // çıkışı olmayan bir döngü. Reddetmek dürüst olmalı: ne
-        // olduğunu bilmiyorsak öyle diyeceğiz.
+        // çıkışı olmayan bir döngü. Reddetmek dürüst olmalı.
         setMe(null);
         if (!(e instanceof ApiError && e.status === 401)) {
           setUnreachable(toMessage(e));
@@ -86,10 +109,7 @@ export default function App() {
     return (
       <main className="center">
         <div className="center-card">
-          <span className="brand">
-            <GateMark size={18} />
-            postern
-          </span>
+          <Brand size={22} />
           <p className="state">Loading…</p>
         </div>
       </main>
@@ -100,10 +120,7 @@ export default function App() {
     return (
       <main className="center">
         <div className="center-card">
-          <span className="brand">
-            <GateMark size={18} />
-            postern
-          </span>
+          <Brand size={22} />
           <h1>Cannot reach the bastion</h1>
           <p className="msg msg-error" role="alert">
             {unreachable}
@@ -124,10 +141,7 @@ export default function App() {
     return (
       <main className="center">
         <div className="center-card">
-          <span className="brand">
-            <GateMark size={18} />
-            postern
-          </span>
+          <Brand size={22} />
           <h1>Sign in</h1>
           <p>
             Access is granted by your identity provider. postern never sees your
@@ -141,11 +155,6 @@ export default function App() {
     );
   }
 
-  const tabs: [Tab, string][] = me.admin
-    ? [["home", "Home"], ["users", "Users"], ["targets", "Targets"], ["roles", "Roles"],
-       ["mappings", "Mappings"], ["settings", "LDAP"], ["sessions", "Sessions"], ["log", "Admin log"]]
-    : [["home", "Home"]];
-
   const closeTerminal = () => {
     // Onay: açık bir kabuk kapatmak geri alınamaz ve kullanıcı komutun
     // ortasında olabilir.
@@ -154,14 +163,18 @@ export default function App() {
     }
   };
 
+  // Home HERKESİN ekranı; geri kalan her şey yönetim ve Settings'in
+  // altında. Admin olmayan için Settings sekmesi HİÇ çizilmiyor —
+  // görünüp 403 vermek, olmayan bir yetkiyi vaat etmektir.
+  const tops: [Top, string][] = me.admin
+    ? [["home", "Home"], ["settings", "Settings"]]
+    : [["home", "Home"]];
+
   return (
     <div className="shell">
       <header className="topbar">
         <div className="topbar-inner">
-          <span className="brand">
-            <GateMark />
-            postern
-          </span>
+          <Brand />
           <div className="account">
             <span className="who">{me.name}</span>
             {me.admin && <span className="badge badge-accent">admin</span>}
@@ -174,15 +187,14 @@ export default function App() {
 
       <nav className="tabs" aria-label="Sections">
         <div className="tabs-inner">
-          {tabs.map(([t, label]) => (
+          {tops.map(([t, label]) => (
             <button
               key={t}
-              onClick={() => setTab(t)}
+              onClick={() => setTop(t)}
               // ⚠️ disabled DEĞİL aria-current. disabled, bulunulan
               // sekmeyi sekme sırasından ÇIKARIYOR ve ekran okuyucuya
-              // "kullanılamaz" dedirtiyordu — klavye kullanıcısı olduğu
-              // yere odaklanamıyordu.
-              aria-current={tab === t ? "page" : undefined}
+              // "kullanılamaz" dedirtiyordu.
+              aria-current={top === t ? "page" : undefined}
             >
               {label}
             </button>
@@ -192,20 +204,20 @@ export default function App() {
 
       <main className="app">
         {/*
-          Terminal sekmeden BAĞIMSIZ ve monte kalıyor.
+          Terminal üst sekmeden BAĞIMSIZ ve monte kalıyor.
 
-          Eskiden yalnızca "home" sekmesinde çiziliyordu, yani oturumlara
-          bakmak için sekme değiştiren kullanıcının çalışan kabuğu
+          Eskiden yalnızca kendi sekmesinde çiziliyordu, yani başka bir
+          ekrana bakmak için sekme değiştiren kullanıcının çalışan kabuğu
           uyarısız ölüyordu (unmount ws.close çağırıyor). Gizlemek
           yeterli: React ağacı korunuyor, WebSocket yaşıyor.
         */}
         {terminal && (
-          <div hidden={tab !== "home"}>
+          <div hidden={top !== "home"}>
             <Terminal target={terminal} onClose={closeTerminal} />
           </div>
         )}
 
-        {tab === "home" && !terminal && (
+        {top === "home" && !terminal && (
           <section className="narrow">
             <div className="page-head">
               <h2>Your targets</h2>
@@ -226,7 +238,7 @@ export default function App() {
                   {me.targets.map((t) => (
                     <li key={t} className="row">
                       <span className="row-name">
-                        <HostMark />
+                        <HostIcon />
                         {t}
                       </span>
                       {me.terminal_enabled && (
@@ -259,13 +271,38 @@ export default function App() {
           </section>
         )}
 
-        {tab === "users" && <Users />}
-        {tab === "targets" && <Targets />}
-        {tab === "roles" && <Roles />}
-        {tab === "mappings" && <Mappings />}
-        {tab === "settings" && <Settings />}
-        {tab === "sessions" && <Sessions />}
-        {tab === "log" && <AdminLog />}
+        {top === "settings" && me.admin && (
+          <div className="settings">
+            <nav className="side-nav" aria-label="Settings sections">
+              {NAV.map((group, gi) => (
+                <div className="side-group" key={group.title ?? `g${gi}`}>
+                  {group.title && <div className="side-title">{group.title}</div>}
+                  {group.items.map(([s, label, icon]) => (
+                    <button
+                      key={s}
+                      onClick={() => setSection(s)}
+                      aria-current={section === s ? "page" : undefined}
+                    >
+                      {icon}
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </nav>
+
+            <div>
+              {section === "overview" && <Overview />}
+              {section === "users" && <Users />}
+              {section === "roles" && <Roles />}
+              {section === "mappings" && <Mappings />}
+              {section === "targets" && <Targets />}
+              {section === "ldap" && <Settings />}
+              {section === "sessions" && <Sessions />}
+              {section === "log" && <AdminLog />}
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );

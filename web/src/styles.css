@@ -3,113 +3,142 @@
  *
  * NEDEN AYRI DOSYA: her şey React'in style={{}} niteliğindeydi ve inline
  * stil nesneleri medya sorgusu, :focus-visible ve prefers-color-scheme
- * İFADE EDEMİYOR. Yani dar ekran, klavye odağı ve karanlık tema
- * düzeltmeleri bir stil dosyası olmadan yazılamıyordu.
+ * İFADE EDEMİYOR.
  *
  * Çerçeve yok, düz CSS + özel özellikler. Sebebi CSP: script-src 'self'
- * CDN'den gelen hiçbir şeye izin vermiyor ve npm'den gelen bir çerçeve
- * ~600 satırlık bir panel için büyük bir sıçrama olurdu — üstelik npm
- * bağımlılıklarını ne gosec ne govulncheck tarıyor.
+ * CDN'den gelen hiçbir şeye izin vermiyor; npm'den gelen bir UI çerçevesi
+ * ise gosec/govulncheck'in taramadığı bir bağımlılık ağacı demek.
  *
- * ⚠️ YAZI TİPİ DE AYNI SEBEPLE SİSTEMDEN: default-src 'self' font-src'yi
- * de kapsıyor, yani Google Fonts yüklenmez. Tasarım sistem yığınıyla
- * çalışmak ZORUNDA; ölçek, ağırlık ve boşluk ritmi işi yapıyor.
+ * ⚠️ YAZI TİPİ SİSTEMDEN: default-src 'self' font-src'yi de kapsıyor,
+ * yani harici bir font yüklenmez. Karakteri renk, katman, boşluk ritmi
+ * ve ölçek veriyor — font değil.
+ *
+ * PALET: terminal Monokai Material olduğu için arayüz de o ailenin
+ * sıcak grafiti ve moru üzerine kuruldu. Karanlık temadaki vurgu
+ * (#AB9DF2) doğrudan Monokai'nin moru; aydınlıkta aynı morun koyu,
+ * doygun karşılığı kullanılıyor. Böylece terminal panele yapıştırılmış
+ * bir yabancı değil, aynı ailenin parçası.
  */
 
 /* ============================================================
-   1. Belirteçler
+   1. Belirteçler — aydınlık
    ============================================================ */
 :root {
   color-scheme: light dark;
 
-  /* Yüzeyler: canvas < surface. Kartın kenarlığı değil, ZEMİN FARKI
-     ayırıyor onu sayfadan; kenarlık yalnızca sınırı keskinleştiriyor. */
-  --canvas: #f6f7f9;
+  /* Dört katman: canvas < surface < raised < overlay. Kartı sayfadan
+     ayıran şey kenarlık değil ZEMİN FARKI + çok yumuşak bir gölge. */
+  --canvas: #f6f5f9;
   --surface: #ffffff;
-  --sunken: #f1f3f6;
-  --hover: #f7f8fa;
+  --raised: #ffffff;
+  --sunken: #f2f0f6;
+  --hover: #f8f7fb;
+  --active: #efedf5;
 
-  --line: #e2e5ea;
-  --line-soft: #edeff3;
-  --line-strong: #d3d8df;
+  --line: #e5e2ee;
+  --line-soft: #efedf5;
+  --line-strong: #d5d1e1;
 
-  --ink: #171a1f;
-  --muted: #4a5260;
-  --faint: #79818f;
+  --ink: #17151c;
+  --muted: #514c60;
+  --faint: #77718a;
 
-  --accent: #17509f;
+  --accent: #542eb2;
+  --accent-hi: #6540c8;
   --accent-fg: #ffffff;
-  --accent-soft: #dfe9fa;
-  --accent-line: #c2d6f5;
+  --accent-soft: #efe9fc;
+  --accent-line: #d5c7f5;
 
-  --danger: #970c2a;
-  --danger-bg: #fdedf1;
-  --danger-line: #f0c3ce;
-  --ok: #0d5225;
-  --ok-bg: #e9f5ec;
-  --ok-line: #bfe0c9;
-  --warn: #684500;
-  --warn-bg: #fdf4e3;
-  --warn-line: #ebd7a6;
+  --danger: #960e33;
+  --danger-bg: #fdecf1;
+  --danger-line: #f2c2d1;
+  --ok: #0e5527;
+  --ok-bg: #e8f5ec;
+  --ok-line: #bee0c8;
+  --warn: #6b4500;
+  --warn-bg: #fdf3e2;
+  --warn-line: #ecd7a5;
+  --info: #0c4e5c;
+  --info-bg: #e5f4f7;
+  --info-line: #b6dfe7;
 
-  /* Terminal İKİ TEMADA DA koyu: bir kabuk çıktısı beyaz zeminde
+  /* Terminal İKİ TEMADA DA Monokai: kabuk çıktısı beyaz zeminde
      okunmuyor ve ANSI renkleri koyu zemine göre seçilmiş. */
-  --terminal-bg: #0f1216;
-  --terminal-fg: #e6e9ee;
+  --terminal-bg: #221f22;
 
-  --radius: 6px;
-  --radius-lg: 10px;
+  --radius-sm: 6px;
+  --radius: 9px;
+  --radius-lg: 13px;
 
   --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
     Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
     "Liberation Mono", monospace;
 
-  /* Gölge: kart için DEĞİL, yalnızca yüzen katmanlar için (yapışkan
-     sütun, üst bant). Kartlar düz kalıyor — gölgeli kart yığını
-     sekiz sekmelik bir panelde gürültü. */
-  --shadow-edge: 6px 0 6px -6px rgba(16, 20, 28, 0.16);
+  /* Gölgeler ÇOK yumuşak. Belirgin gölge bir yönetim panelinde ucuz
+     durur; buradaki iş yüzeyleri ayırmak, onları havaya kaldırmak değil. */
+  --shadow-sm: 0 1px 2px rgba(23, 21, 28, 0.05), 0 1px 1px rgba(23, 21, 28, 0.03);
+  --shadow-md: 0 4px 12px rgba(23, 21, 28, 0.08), 0 1px 3px rgba(23, 21, 28, 0.05);
+  --shadow-lg: 0 16px 40px rgba(23, 21, 28, 0.14), 0 2px 8px rgba(23, 21, 28, 0.06);
+  /* Yükseltilmiş yüzeyin üst kenarındaki 1px'lik iç ışık. Aydınlıkta
+     görünmez, karanlıkta yüzeyi "camsı" yapan ayrıntı bu. */
+  --edge-hi: inset 0 1px 0 rgba(255, 255, 255, 0);
+  --ring: 0 0 0 3px rgba(91, 52, 192, 0.16);
 }
 
+/* ============================================================
+   2. Belirteçler — karanlık
+   ============================================================ */
 /*
- * Karanlık tema.
- *
  * ⚠️ Her yüzeyde background VE color BİRLİKTE tanımlı. Daha önce yalnız
  * color verilip arka planın tarayıcıya bırakılması, siyah üstüne siyah
  * metin üretmişti — o hata bir kez oldu, ikinci kez olmasın.
+ *
+ * Zemin nötr gri DEĞİL, hafif mor-sıcak grafit: Monokai'nin #221F22
+ * terminali nötr gri bir panele yapıştırıldığında yamalı duruyordu.
  */
 @media (prefers-color-scheme: dark) {
   :root {
-    --canvas: #0e1014;
-    --surface: #14171c;
-    --sunken: #1a1e25;
-    --hover: #1b1f27;
+    --canvas: #131217;
+    --surface: #1a1820;
+    --raised: #211f29;
+    --sunken: #201e27;
+    --hover: #252330;
+    --active: #2b2836;
 
-    --line: #272c35;
-    --line-soft: #1f232b;
-    --line-strong: #363d49;
+    --line: #2d2a37;
+    --line-soft: #232029;
+    --line-strong: #3d3950;
 
-    --ink: #e7eaef;
-    --muted: #a3abb7;
-    --faint: #7f8794;
+    --ink: #f0eef5;
+    --muted: #b6b0c6;
+    --faint: #837d94;
 
-    --accent: #74a9f8;
-    --accent-fg: #0b1220;
-    --accent-soft: #111a2b;
-    --accent-line: #2c3f5e;
+    --accent: #ab9df2;
+    --accent-hi: #bcb0f6;
+    --accent-fg: #17122a;
+    --accent-soft: #1e1830;
+    --accent-line: #3d3363;
 
-    /* Açık temadaki crimson/green karanlıkta kontrastı geçemiyor. */
-    --danger: #ff8ba5;
-    --danger-bg: #331a22;
-    --danger-line: #5c2b38;
-    --ok: #7fd39a;
-    --ok-bg: #12291b;
-    --ok-line: #27492f;
-    --warn: #e6c176;
-    --warn-bg: #2e2611;
-    --warn-line: #4d411d;
+    /* Monokai ailesinin durum renkleri: terminalle birebir aynı. */
+    --danger: #ff7d9c;
+    --danger-bg: #2a1119;
+    --danger-line: #5b2939;
+    --ok: #a9dc76;
+    --ok-bg: #1b2916;
+    --ok-line: #33512a;
+    --warn: #ffd866;
+    --warn-bg: #2e2612;
+    --warn-line: #514322;
+    --info: #78dce8;
+    --info-bg: #10282d;
+    --info-line: #234a52;
 
-    --shadow-edge: 6px 0 6px -6px rgba(0, 0, 0, 0.55);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
+    --shadow-md: 0 6px 18px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 20px 48px rgba(0, 0, 0, 0.62), 0 2px 10px rgba(0, 0, 0, 0.5);
+    --edge-hi: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+    --ring: 0 0 0 3px rgba(171, 157, 242, 0.22);
   }
 }
 
@@ -125,71 +154,77 @@ body {
   font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 /*
- * Bağlantılar.
- *
- * ⚠️ Bu seçici HİÇ YOKTU ve linkler iki temada da tarayıcı varsayılanına
- * düşüyordu: açık temada #0000EE, karanlıkta Chrome'un lavantası.
- * İkisi de paletin dışında; üstelik karanlık taraf yalnızca tarayıcının
- * color-scheme'i doğru okumasına bağlı kalıyordu.
+ * Bağlantılar. Seçici HİÇ YOKTU ve linkler iki temada da tarayıcı
+ * varsayılanına düşüyordu (#0000EE / Chrome lavantası) — paletin dışı.
  */
 a { color: var(--accent); text-underline-offset: 2px; }
 a:hover { text-decoration-thickness: 2px; }
 
 code, kbd, samp { font-family: var(--mono); font-size: 0.92em; }
 
-h1, h2, h3, h4 { margin: 0; font-weight: 650; letter-spacing: -0.011em; }
+h1, h2, h3, h4 { margin: 0; font-weight: 640; letter-spacing: -0.014em; }
 
 /*
- * Odak halkası. Inline stille yazılamıyordu, dolayısıyla klavye
- * kullanıcısı nerede olduğunu göremiyordu.
+ * Odak halkası: 2px çizgi + yumuşak hale. Inline stille yazılamıyordu,
+ * dolayısıyla klavye kullanıcısı nerede olduğunu göremiyordu.
  */
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-  border-radius: 3px;
+  border-radius: 4px;
 }
 
+::selection { background: var(--accent-soft); color: var(--ink); }
+
 /* ============================================================
-   2. Kabuk: üst bant + sekmeler + içerik
+   3. Kabuk: üst bant + birincil sekmeler
    ============================================================ */
-.shell { min-height: 100vh; }
+.shell { min-height: 100vh; display: flex; flex-direction: column; }
 
 .topbar {
-  background: var(--surface);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter: saturate(1.4) blur(10px);
   border-bottom: 1px solid var(--line);
 }
 .topbar-inner,
 .tabs-inner,
 .app {
-  max-width: 76rem;
+  max-width: 84rem;
   margin: 0 auto;
-  padding-inline: 1.25rem;
+  padding-inline: 1.5rem;
+  width: 100%;
 }
 .topbar-inner {
   display: flex;
   align-items: center;
   gap: 1rem;
-  min-height: 3.25rem;
+  min-height: 3.5rem;
 }
 
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.55rem;
   font-size: 15px;
-  font-weight: 650;
-  letter-spacing: -0.015em;
+  font-weight: 640;
+  letter-spacing: -0.025em;
+  color: var(--ink);
   margin-right: auto;
 }
-.brand svg { display: block; color: var(--accent); }
+.brand svg { display: block; }
+.brand-word { display: inline-block; }
 
 .account {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.55rem;
   font-size: 13px;
   color: var(--muted);
   min-width: 0;
@@ -203,26 +238,18 @@ h1, h2, h3, h4 { margin: 0; font-weight: 650; letter-spacing: -0.011em; }
 }
 
 /*
- * Sekmeler: alt çizgi göstergesi.
+ * Birincil sekmeler: alt çizgi göstergesi.
  *
- * Dolgulu düğme yerine alt çizgi, çünkü sekiz özdeş dolgulu düğme bir
- * gezinme değil alet çubuğu gibi okunuyordu — hangisinin "bulunduğun
- * yer", hangisinin "eylem" olduğu ayırt edilmiyordu.
- *
- * Kaydırma KAPTA, sayfada değil: sarmalanan sekiz sekme telefonda üç
- * satır yer kaplıyordu; taşan bir satır ise SAYFAYI kaydırtıyordu.
+ * Dolgulu düğme yerine alt çizgi, çünkü özdeş dolgulu düğmeler bir
+ * gezinme değil alet çubuğu gibi okunuyordu — "bulunduğun yer" ile
+ * "basılacak şey" ayırt edilmiyordu.
  */
 .tabs {
   position: relative;
   background: var(--surface);
   border-bottom: 1px solid var(--line);
 }
-.tabs-inner {
-  display: flex;
-  gap: 1.25rem;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
+.tabs-inner { display: flex; gap: 1.5rem; overflow-x: auto; scrollbar-width: none; }
 .tabs-inner::-webkit-scrollbar { display: none; }
 
 .tabs-inner button {
@@ -232,7 +259,7 @@ h1, h2, h3, h4 { margin: 0; font-weight: 650; letter-spacing: -0.011em; }
   border: 0;
   border-bottom: 2px solid transparent;
   border-radius: 0;
-  padding: 0.7rem 0;
+  padding: 0.72rem 0;
   margin-bottom: -1px;
   font: inherit;
   font-size: 13.5px;
@@ -240,15 +267,14 @@ h1, h2, h3, h4 { margin: 0; font-weight: 650; letter-spacing: -0.011em; }
   color: var(--muted);
   cursor: pointer;
   white-space: nowrap;
+  box-shadow: none;
 }
 .tabs-inner button:hover { color: var(--ink); background: none; }
 
 /*
  * Seçili sekme aria-current ile işaretli, disabled ile DEĞİL.
- *
  * disabled kullanmak sekmeyi sekme sırasından çıkarıyor ve ekran
- * okuyucuya "kullanılamaz" dedirtiyordu: klavye kullanıcısı BULUNDUĞU
- * sekmeye odaklanamıyordu.
+ * okuyucuya "kullanılamaz" dedirtiyordu.
  */
 .tabs-inner button[aria-current="page"] {
   color: var(--ink);
@@ -258,40 +284,77 @@ h1, h2, h3, h4 { margin: 0; font-weight: 650; letter-spacing: -0.011em; }
 }
 .tabs-inner button:focus-visible { outline-offset: -3px; }
 
-/* Sağ kenarda kaybolma: kaydırılacak sekme kaldığını gösterir. */
-.tabs::after {
-  content: "";
-  position: absolute;
-  inset-block: 0;
-  right: 0;
-  width: 2rem;
-  pointer-events: none;
-  background: linear-gradient(to right, transparent, var(--surface));
-}
-@media (min-width: 56rem) {
-  .tabs::after { display: none; }
-}
-
-.app { padding-block: 1.75rem 4rem; }
+.app { padding-block: 1.75rem 4rem; flex: 1; }
 
 /* ============================================================
-   3. Sayfa başlığı
+   4. Ayarlar düzeni: sol dikey gezinme + içerik
+   ============================================================ */
+.settings {
+  display: grid;
+  grid-template-columns: 15rem minmax(0, 1fr);
+  gap: 2rem;
+  align-items: start;
+}
+
+.side-nav {
+  position: sticky;
+  top: 4.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.side-group { display: flex; flex-direction: column; gap: 0.15rem; }
+.side-title {
+  padding: 0 0.6rem 0.35rem;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  /* ⚠️ --faint DEĞİL: aydınlık temada 4.29:1 veriyordu, yani AA'nın
+     bile altında. Bu başlıklar kenar menüsünün iskeleti — okunmazsa
+     gruplama da okunmuyor. */
+  color: var(--muted);
+}
+.side-nav button {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  box-shadow: none;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--muted);
+  text-align: left;
+  cursor: pointer;
+}
+.side-nav button svg { flex: none; opacity: 0.8; }
+.side-nav button:hover { background: var(--hover); color: var(--ink); }
+.side-nav button[aria-current="page"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.side-nav button[aria-current="page"] svg { opacity: 1; }
+
+/* ============================================================
+   5. Sayfa başlığı
    ============================================================ */
 .page-head { margin-bottom: 1.25rem; }
 .page-head h2 { font-size: 20px; line-height: 1.3; }
 .page-head h3 { font-size: 16px; line-height: 1.35; }
-
-/* Dar sütun: liste kısaysa tam genişlik, ad ile eylem arasında yüzlerce
-   piksel boşluk bırakıyor. Tablolar geniş kalıyor, bu yalnızca ana sayfa. */
-.narrow { max-width: 46rem; }
 .page-sub {
   margin: 0.3rem 0 0;
   color: var(--muted);
   font-size: 13px;
-  max-width: 62ch;
+  max-width: 68ch;
 }
 
-/* Başlık + sağdaki eylem (Refresh gibi) aynı satırda. */
 .page-bar {
   display: flex;
   flex-wrap: wrap;
@@ -302,32 +365,28 @@ h1, h2, h3, h4 { margin: 0; font-weight: 650; letter-spacing: -0.011em; }
 }
 .page-bar .page-head { margin-bottom: 0; }
 
+.narrow { max-width: 48rem; }
+
 /* ============================================================
-   4. Kart
+   6. Kart
    ============================================================ */
 .card {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm), var(--edge-hi);
   margin-bottom: 1.5rem;
   overflow: hidden;
 }
 .card-head {
-  padding: 0.9rem 1.1rem;
+  padding: 0.95rem 1.15rem;
   border-bottom: 1px solid var(--line);
 }
 .card-head h3 { font-size: 14px; font-weight: 600; }
-.card-head p {
-  margin: 0.25rem 0 0;
-  font-size: 12.5px;
-  color: var(--muted);
-  max-width: 62ch;
-}
-.card-body { padding: 1.1rem; }
-
-/* Kart altı dipnot: tablonun kapsamı hakkındaki uyarılar burada. */
+.card-head p { margin: 0.25rem 0 0; font-size: 12.5px; color: var(--muted); max-width: 68ch; }
+.card-body { padding: 1.15rem; }
 .card-foot {
-  padding: 0.65rem 1.1rem;
+  padding: 0.7rem 1.15rem;
   border-top: 1px solid var(--line-soft);
   background: var(--sunken);
   color: var(--muted);
@@ -336,37 +395,114 @@ h1, h2, h3, h4 { margin: 0; font-weight: 650; letter-spacing: -0.011em; }
 .card-foot p { margin: 0; }
 
 /* ============================================================
-   5. Tablolar
+   7. Tablo araç çubuğu: arama + sayaç
+   ============================================================ */
+.table-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 0.9rem;
+  align-items: center;
+  padding: 0.7rem 1.15rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.search {
+  position: relative;
+  flex: 1 1 16rem;
+  min-width: 0;
+  max-width: 26rem;
+  display: flex;
+  align-items: center;
+}
+.search svg {
+  position: absolute;
+  left: 0.6rem;
+  color: var(--faint);
+  pointer-events: none;
+}
+.search input {
+  width: 100%;
+  padding-left: 2rem;
+  background: var(--sunken);
+  border-color: transparent;
+}
+.search input:focus { background: var(--surface); border-color: var(--accent); }
+.search-clear {
+  position: absolute;
+  right: 0.3rem;
+  padding: 0.2rem 0.4rem;
+  border: 0;
+  background: none;
+  color: var(--faint);
+  box-shadow: none;
+  font-size: 15px;
+  line-height: 1;
+}
+.search-clear:hover { color: var(--ink); background: var(--hover); }
+
+.count { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tools-spacer { flex: 1; }
+
+/* ============================================================
+   8. Tablolar
    ============================================================ */
 /*
- * Her tablo kendi yatay kaydırma kabında. Sekiz sütunluk damgalı
+ * Her tablo kendi yatay kaydırma kabında: sekiz sütunluk damgalı
  * tablolar telefonda SAYFAYI kaydırtıyordu; kaydırma tabloda kalmalı.
+ *
+ * position:relative ŞART: içerideki .sr-only mutlak konumlu. Konumlanmış
+ * bir ata olmazsa kapsayıcı blok viewport olur, öğe overflow kırpmasından
+ * KAÇAR ve sayfaya yatay kaydırma çubuğu bindirir.
  */
-.table-wrap {
-  overflow-x: auto;
-  /* position:relative ŞART: içerideki .sr-only mutlak konumlu. Konumlandırılmış
-     bir ata olmazsa kapsayıcı blok viewport olur ve öğe overflow kırpmasından
-     KAÇAR — tablo geniş olduğunda sayfanın tamamına yatay kaydırma çubuğu
-     bindiriyordu (yedi yönetim sayfasında birden). */
-  position: relative;
-}
+.table-wrap { overflow-x: auto; position: relative; }
 
 table { border-collapse: collapse; width: 100%; }
 
 th {
   text-align: left;
-  padding: 0.6rem 1.1rem;
+  padding: 0;
   background: var(--sunken);
   border-bottom: 1px solid var(--line);
   color: var(--muted);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 650;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   white-space: nowrap;
 }
+th .th-pad { display: block; padding: 0.62rem 1.15rem; }
+
+/* Sıralanabilir başlık: başlığın TAMAMI düğme. Küçük bir ok simgesine
+   nişan almak gerekmesin. */
+th button.sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0.62rem 1.15rem;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: inherit;
+  cursor: pointer;
+}
+th button.sort:hover { background: var(--active); color: var(--ink); }
+th button.sort:focus-visible { outline-offset: -3px; }
+/* Ok yalnızca sıralı sütunda GÖRÜNÜR ama yeri hep ayrılmış: aksi hâlde
+   sıralayınca sütun genişliği zıplıyor. */
+.sort-arrow { opacity: 0; transition: opacity 0.1s; }
+th[aria-sort] .sort-arrow { opacity: 1; }
+th[aria-sort] { color: var(--ink); }
+th button.sort:hover .sort-arrow { opacity: 0.45; }
+
 td {
-  padding: 0.7rem 1.1rem;
+  padding: 0.72rem 1.15rem;
   border-bottom: 1px solid var(--line-soft);
   vertical-align: middle;
   white-space: nowrap;
@@ -374,71 +510,91 @@ td {
 tbody tr:last-child td { border-bottom: 0; }
 tbody tr:hover { background: var(--hover); }
 
-td.wrap, th.wrap { white-space: normal; min-width: 16rem; }
+td.wrap, th.wrap { white-space: normal; min-width: 15rem; }
 td.num, th.num { font-variant-numeric: tabular-nums; }
-
-/* Zaman damgası: hizalansın diye tabular, ikincil olduğu için soluk. */
 td time { font-variant-numeric: tabular-nums; color: var(--muted); }
-
-/* Eylem sütunu sağa yaslı ve DARALTILMIŞ: geniş tabloda birincil
-   eylem, yatay kaydırmanın ardında kalmasın diye içerik minimumda. */
 th.actions, td.actions { text-align: right; width: 1%; }
+th.actions .th-pad { padding-inline: 1.15rem; }
+
+/* Arama hiçbir satırla eşleşmediğinde: "kayıt yok" ile "aramanla
+   eşleşen yok" AYNI ŞEY DEĞİL. */
+.no-match { padding: 2.5rem 1.15rem; text-align: center; color: var(--muted); font-size: 13px; }
 
 /* ============================================================
-   6. Düğmeler
+   9. Düğmeler
    ============================================================ */
 button, .btn {
   font: inherit;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 520;
   line-height: 1;
-  padding: 0.48rem 0.75rem;
+  padding: 0.5rem 0.8rem;
   border: 1px solid var(--line-strong);
-  border-radius: var(--radius);
-  background: var(--surface);
+  border-radius: var(--radius-sm);
+  background: var(--raised);
   color: var(--ink);
+  box-shadow: var(--shadow-sm), var(--edge-hi);
   cursor: pointer;
   white-space: nowrap;
+  /*
+   * ⚠️ ARKA PLANDA GEÇİŞ YOK, ve bu ölçülmüş bir kusurun sonucu.
+   *
+   * `transition: background` varken işletim sistemi teması AÇIK panelde
+   * değiştiğinde geçiş TAKILIYOR: öğe eski temanın rengini kalıcı olarak
+   * gösteriyor. Kenar menüsündeki seçili bölüm, koyu temada açık temanın
+   * leylak zeminiyle kalıyordu — açık mor metinle 2.01:1, yani
+   * okunamaz. Hangi bölümde olduğunu söyleyen tek gösterge.
+   *
+   * 120ms'lik bir soluklaşmanın bedeli bu değil. Anında değişen bir
+   * hover zaten daha çevik hissettiriyor.
+   */
 }
 button:hover:not(:disabled), .btn:hover { background: var(--hover); }
-button:active:not(:disabled) { background: var(--sunken); }
-button:disabled { opacity: 0.5; cursor: not-allowed; }
+button:active:not(:disabled) { background: var(--active); }
+button:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
 
 .btn-primary {
-  background: var(--accent);
+  background: linear-gradient(180deg, var(--accent-hi), var(--accent));
   border-color: var(--accent);
   color: var(--accent-fg);
-  font-weight: 550;
+  font-weight: 570;
+  box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.16);
 }
-.btn-primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
+.btn-primary:hover:not(:disabled) { background: linear-gradient(180deg, var(--accent-hi), var(--accent-hi)); }
+.btn-primary:disabled { background: var(--accent); }
 
-/* Sessiz düğme: tablo satırındaki ikincil eylemler. Kenarlıksız
-   olmaları satır başına üç kutu çizilmesini önlüyor. */
+/* Sessiz düğme: satır içi ikincil eylemler. Kenarlıksız olmaları satır
+   başına üç kutu çizilmesini önlüyor. */
 .btn-quiet {
   background: none;
   border-color: transparent;
+  box-shadow: none;
   color: var(--muted);
-  padding-inline: 0.5rem;
+  padding-inline: 0.55rem;
 }
-.btn-quiet:hover:not(:disabled) { background: var(--sunken); color: var(--ink); }
+.btn-quiet:hover:not(:disabled) { background: var(--active); color: var(--ink); }
 .btn-danger { color: var(--danger); }
 .btn-danger:hover:not(:disabled) { background: var(--danger-bg); border-color: var(--danger-line); }
 
 /* ============================================================
-   7. Form denetimleri
+   10. Form denetimleri
    ============================================================ */
 input, select, textarea {
   font: inherit;
   font-size: 13px;
-  padding: 0.45rem 0.55rem;
+  padding: 0.5rem 0.6rem;
   border: 1px solid var(--line-strong);
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--ink);
   max-width: 100%;
 }
 input::placeholder { color: var(--faint); }
-input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+input:focus, select:focus, textarea:focus {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: var(--ring);
+}
 textarea { font-family: var(--mono); width: 100%; line-height: 1.45; }
 
 label {
@@ -446,47 +602,40 @@ label {
   flex-direction: column;
   gap: 0.3rem;
   font-size: 12px;
-  font-weight: 550;
+  font-weight: 560;
   color: var(--muted);
 }
-label > input, label > select, label > textarea {
-  color: var(--ink);
-  font-weight: 400;
-}
+label > input, label > select, label > textarea { color: var(--ink); font-weight: 400; }
 
-.field-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  align-items: flex-end;
-}
-.field-row + .field-row { margin-top: 0.75rem; }
+.field-row { display: flex; flex-wrap: wrap; gap: 0.8rem; align-items: flex-end; }
+.field-row + .field-row { margin-top: 0.8rem; }
 .field-row label { min-width: 11rem; flex: 1 1 11rem; }
 
-/* Hücre içi mini form (seçim kutusu + düğme). Dar ekranda sarmalanır:
-   sarmalamayan bir hücre tabloyu telefonda kaydırılamaz kadar
-   genişletiyordu. */
 .cell-form { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
 .cell-form select { min-width: 8rem; }
 
 /* ============================================================
-   8. Rozetler ve rol çipleri
+   11. Rozetler ve çipler
    ============================================================ */
 .badge {
   display: inline-flex;
   align-items: center;
-  padding: 0.1rem 0.4rem;
+  gap: 0.3rem;
+  padding: 0.13rem 0.45rem;
   border-radius: 999px;
   border: 1px solid var(--line);
   background: var(--sunken);
   color: var(--muted);
   font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-weight: 620;
+  letter-spacing: 0.015em;
   white-space: nowrap;
 }
 .badge-accent { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent); }
 .badge-ok { background: var(--ok-bg); border-color: var(--ok-line); color: var(--ok); }
+.badge-warn { background: var(--warn-bg); border-color: var(--warn-line); color: var(--warn); }
+.badge-danger { background: var(--danger-bg); border-color: var(--danger-line); color: var(--danger); }
+.badge-info { background: var(--info-bg); border-color: var(--info-line); color: var(--info); }
 .badge-mono { font-family: var(--mono); font-weight: 500; letter-spacing: 0; }
 
 /*
@@ -494,15 +643,15 @@ label > input, label > select, label > textarea {
  *
  * Hedefler virgülle birleştirilmiş TEK metindi ve tek tek geri
  * alınamıyordu: yanlış verilmiş bir hedefi kaldırmak için rolü silip
- * yeniden kurmak gerekiyordu — yani o rolü taşıyan herkesin erişimini
- * bir süreliğine kesmek. Her hedef kendi rozetinde, kendi düğmesiyle.
+ * yeniden kurmak gerekiyordu — o rolü taşıyan herkesin erişimini bir
+ * süreliğine kesmek demek. Her hedef kendi çipinde, kendi düğmesiyle.
  */
 .chips { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
 .chip {
   display: inline-flex;
   align-items: center;
   gap: 0.15rem;
-  padding: 0.1rem 0.15rem 0.1rem 0.5rem;
+  padding: 0.13rem 0.18rem 0.13rem 0.5rem;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--sunken);
@@ -514,48 +663,68 @@ label > input, label > select, label > textarea {
   border: 0;
   border-radius: 999px;
   background: none;
+  box-shadow: none;
   color: var(--muted);
   font-size: 11px;
   line-height: 1;
 }
 .chip button:hover:not(:disabled) { background: var(--danger-bg); color: var(--danger); }
 
+/* Etiket çipi: key=value. Anahtar soluk, değer koyu — gözle ayrılsınlar. */
+.label-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--sunken);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  overflow: hidden;
+}
+.label-chip .k { padding: 0.13rem 0.3rem 0.13rem 0.55rem; color: var(--muted); }
+.label-chip .v { padding: 0.13rem 0.55rem 0.13rem 0.3rem; color: var(--ink); background: var(--surface); }
+.label-chip button {
+  padding: 0.1rem 0.35rem;
+  border: 0; border-radius: 0; background: none; box-shadow: none;
+  color: var(--muted); font-size: 11px; line-height: 1;
+}
+.label-chip button:hover:not(:disabled) { background: var(--danger-bg); color: var(--danger); }
+
 /* ============================================================
-   9. Durum satırları
+   12. Durum satırları
    ============================================================ */
 /*
  * ⚠️ Renk TEK BAŞINA sinyal değil: her birinin bir de metin öneki var.
- * Eskiden hata ile başarıyı ayıran tek şey crimson/green farkıydı —
- * renk körü bir kullanıcı için ikisi aynıydı.
+ * Eskiden hata ile başarıyı ayıran tek şey renk farkıydı — renk körü bir
+ * kullanıcı için ikisi aynıydı.
  */
 .msg {
-  padding: 0.6rem 0.85rem;
+  padding: 0.65rem 0.9rem;
   border-radius: var(--radius);
   border: 1px solid transparent;
   border-left-width: 3px;
   margin: 0 0 1rem;
   font-size: 13px;
 }
-.msg::before { font-weight: 650; margin-right: 0.35rem; }
+.msg::before { font-weight: 660; margin-right: 0.35rem; }
 
 .msg-error { background: var(--danger-bg); color: var(--danger); border-color: var(--danger-line); border-left-color: var(--danger); }
 .msg-error::before { content: "Error:"; }
-
 .msg-ok { background: var(--ok-bg); color: var(--ok); border-color: var(--ok-line); border-left-color: var(--ok); }
 .msg-ok::before { content: "OK:"; }
-
 .msg-warn { background: var(--warn-bg); color: var(--warn); border-color: var(--warn-line); border-left-color: var(--warn); }
 .msg-warn::before { content: "Warning:"; }
 
 .muted { color: var(--muted); }
 .small { font-size: 12.5px; }
-.note { color: var(--muted); font-size: 12.5px; max-width: 68ch; }
+.note { color: var(--muted); font-size: 12.5px; max-width: 72ch; }
 
 /* Yükleniyor / boş durum. İkisi FARKLI şeyler: "henüz gelmedi" ile
    "gerçekten yok" aynı ekranı göstermek yanlış bilgi vermektir. */
 .state {
   margin: 0;
-  padding: 2.25rem 1.25rem;
+  padding: 2.5rem 1.25rem;
   text-align: center;
   color: var(--muted);
   font-size: 13px;
@@ -565,7 +734,7 @@ label > input, label > select, label > textarea {
 }
 
 /* ============================================================
-   10. Ana sayfa: hedef listesi
+   13. Satır listesi (ana sayfa hedefleri)
    ============================================================ */
 .rows { list-style: none; margin: 0; padding: 0; }
 .row {
@@ -574,11 +743,12 @@ label > input, label > select, label > textarea {
   gap: 0.5rem 1rem;
   align-items: center;
   justify-content: space-between;
-  padding: 0.85rem 1.1rem;
+  padding: 0.9rem 1.15rem;
   border-bottom: 1px solid var(--line-soft);
 }
 .row:last-child { border-bottom: 0; }
 .row:hover { background: var(--hover); }
+.row-main { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
 .row-name {
   display: inline-flex;
   align-items: center;
@@ -591,73 +761,205 @@ label > input, label > select, label > textarea {
 .row-name svg { flex: none; color: var(--faint); }
 
 /* ============================================================
-   11. Giriş / tam sayfa durumlar
+   14. Giriş / tam sayfa durumlar
    ============================================================ */
-.center {
-  min-height: 100vh;
-  display: grid;
-  place-items: center;
-  padding: 1.5rem;
-}
+.center { min-height: 100vh; display: grid; place-items: center; padding: 1.5rem; }
 .center-card {
   width: 100%;
-  max-width: 24rem;
+  max-width: 25rem;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  padding: 1.75rem;
-  text-align: left;
+  box-shadow: var(--shadow-lg), var(--edge-hi);
+  padding: 1.9rem;
 }
-.center-card .brand { margin: 0 0 1.1rem; font-size: 16px; }
-.center-card h1 { font-size: 17px; margin-bottom: 0.35rem; }
-.center-card p { margin: 0 0 1.25rem; color: var(--muted); font-size: 13px; }
+.center-card .brand { margin: 0 0 1.2rem; font-size: 16px; }
+.center-card h1 { font-size: 18px; margin-bottom: 0.4rem; }
+.center-card p { margin: 0 0 1.3rem; color: var(--muted); font-size: 13px; }
 .center-card .btn,
-.center-card button { width: 100%; text-align: center; padding-block: 0.6rem; }
+.center-card > button { width: 100%; text-align: center; padding-block: 0.62rem; }
 .center-card .btn { display: block; text-decoration: none; }
 
 /* ============================================================
-   12. Terminal ve kayıt oynatıcı
+   15. Terminal ve kayıt oynatıcı
    ============================================================ */
+/* Terminal kabı Monokai zeminiyle aynı: kenarda açık bir çerçeve kalırsa
+   koyu terminal "yapıştırılmış" görünüyor. */
 .surface-dark {
   background: var(--terminal-bg);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
   overflow: hidden;
 }
-.terminal-host { padding: 0.6rem; }
+.terminal-host { padding: 0.7rem; }
+
+/*
+ * ⚠️ xterm'in KENDİ zeminini eziyoruz.
+ *
+ * xterm.css `.xterm .xterm-viewport { background-color: #000 }` diyor ve
+ * DOM renderer'da tema nesnesinin `background` alanı oraya
+ * UYGULANMIYOR — yani terminal Monokai renkleriyle ama DÜZ SİYAH
+ * zeminde açılıyordu. Ölçüldü: viewport'un hesaplanan rengi rgb(0,0,0).
+ *
+ * !important yerine DAHA YÜKSEK ÖZGÜLLÜK: hangi stil dosyasının önce
+ * yükleneceği bizim elimizde değil (xterm.css bileşenden, bu dosya
+ * main'den geliyor), ama üç sınıflık seçici sıralamadan bağımsız
+ * kazanıyor.
+ */
+.surface-dark .xterm .xterm-viewport,
+.surface-dark .xterm .xterm-screen {
+  background-color: var(--terminal-bg);
+}
+.terminal-live { height: 66vh; min-height: 20rem; }
 
 .panel {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  padding: 1.1rem;
+  box-shadow: var(--shadow-sm), var(--edge-hi);
+  padding: 1.15rem;
   margin-bottom: 1.5rem;
 }
 .panel h3 { font-size: 14px; font-weight: 600; margin-bottom: 0.2rem; }
-.panel > p.note, .panel > p.muted { margin: 0.2rem 0 0.9rem; }
-
-.panel-header {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  align-items: center;
-  margin-bottom: 0.85rem;
-}
+.panel > p.note, .panel > p.muted { margin: 0.2rem 0 0.95rem; }
+.panel-header { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; margin-bottom: 0.9rem; }
 .panel-header h3 { margin: 0; }
 .panel-header .spacer { flex: 1; }
+.panel-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem; min-width: 0; }
+.panel-title code { font-size: 12px; overflow-wrap: anywhere; }
 
-.player-controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  align-items: center;
-  margin-bottom: 0.85rem;
-}
+.player-controls { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; margin-bottom: 0.9rem; }
 .player-controls input[type="range"] { flex: 1; min-width: 8rem; accent-color: var(--accent); }
 .player-time { font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
 
-/* Yalnız ekran okuyucu için. Eylem sütunlarının başlıkları görsel
-   olarak boş ama adsız kalmamalı. */
+/* ============================================================
+   16. Sihirbaz (LDAP)
+   ============================================================ */
+.steps { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 1.25rem; }
+.step {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: none;
+  font-size: 12.5px;
+  font-weight: 540;
+  color: var(--muted);
+}
+.step:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
+.step[aria-current="step"] {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent);
+  font-weight: 620;
+}
+.step-n {
+  display: grid;
+  place-items: center;
+  width: 1.25rem; height: 1.25rem;
+  border-radius: 999px;
+  background: var(--sunken);
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.step[aria-current="step"] .step-n { background: var(--accent); color: var(--accent-fg); }
+.step-done .step-n { background: var(--ok-bg); color: var(--ok); }
+
+.wizard-nav { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; margin-top: 1.2rem; }
+.wizard-nav .spacer { flex: 1; }
+
+/* Anahtar/değer listesi (özet ve test çıktısı). <ul> madde imleriyle
+   çiziliyordu; bunlar liste değil, alan-değer çiftleri. */
+.kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.4rem 1rem; margin: 0.8rem 0 0; font-size: 13px; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
+
+.setting-name { color: var(--ink); font-weight: 560; }
+.setting-hint { margin-top: 0.15rem; color: var(--muted); font-size: 12px; font-weight: 400; }
+
+/* ============================================================
+   17. Canlı izleme
+   ============================================================ */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.9rem;
+  margin-bottom: 1.5rem;
+}
+.stat {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm), var(--edge-hi);
+  padding: 0.95rem 1.05rem;
+}
+.stat .k {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: 0.4rem;
+}
+.stat .n {
+  display: block;
+  font-size: 26px;
+  font-weight: 660;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.stat .sub { display: block; margin-top: 0.35rem; font-size: 12px; color: var(--muted); }
+
+/* Canlı göstergesi: yalnızca renk değil, adı da yazıyor. */
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.live-dot {
+  width: 7px; height: 7px;
+  border-radius: 999px;
+  background: var(--faint);
+  flex: none;
+}
+.live-on .live-dot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); animation: pulse 2.4s ease-in-out infinite; }
+.live-on { color: var(--ok); }
+.live-off .live-dot { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-bg); }
+.live-off { color: var(--warn); }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+/* Hareket duyarlılığı: nabız süsleme, bilgi değil. */
+@media (prefers-reduced-motion: reduce) {
+  .live-on .live-dot { animation: none; }
+}
+
+.feed { list-style: none; margin: 0; padding: 0; max-height: 30rem; overflow-y: auto; }
+.feed li {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 0.7rem;
+  align-items: baseline;
+  padding: 0.6rem 1.15rem;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 13px;
+}
+.feed li:last-child { border-bottom: 0; }
+.feed .at { font-family: var(--mono); font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.feed .what { min-width: 0; overflow-wrap: anywhere; }
+.feed .what b { font-weight: 600; }
+
+/* Yalnız ekran okuyucu için. Eylem sütunlarının başlıkları görsel olarak
+   boş ama adsız kalmamalı. */
 .sr-only {
   position: absolute;
   width: 1px; height: 1px;
@@ -668,40 +970,36 @@ label > input, label > select, label > textarea {
   border: 0;
 }
 
-/* Ayar tablosunda alan adı ile açıklaması. Açıklama alt satırda ve
-   soluk: aynı hücrede eşit ağırlıkta iki metin, hangisinin alanın adı
-   olduğunu belirsiz bırakıyordu. */
-.setting-name { color: var(--ink); font-weight: 550; }
-.setting-hint { margin-top: 0.15rem; color: var(--muted); font-size: 12px; font-weight: 400; }
-
-/* Anahtar/değer listesi (LDAP testi çıktısı). <ul> madde imleriyle
-   çiziliyordu; bunlar liste değil, alan-değer çiftleri. */
-.kv {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.3rem 0.9rem;
-  margin: 0.75rem 0 0;
-  font-size: 13px;
-}
-.kv dt { color: var(--muted); }
-.kv dd { margin: 0; font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
-
-.panel-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem; min-width: 0; }
-.panel-title code { font-size: 12px; overflow-wrap: anywhere; }
-
-/* Canlı terminal yüksekliği. Inline stildeydi ve sabit "#111" zeminiyle
-   birlikte temadan bağımsız kalıyordu. */
-.terminal-live { height: 68vh; min-height: 20rem; }
-
 /* ============================================================
-   13. Dar ekran
+   18. Dar ekran
    ============================================================ */
+@media (max-width: 60rem) {
+  /* Sol dikey gezinme dar ekranda yatay şeride dönüşüyor: 15rem'lik bir
+     sütun 375px'te içeriğe yer bırakmıyor. */
+  .settings { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+  .side-nav {
+    position: static;
+    flex-direction: row;
+    gap: 0.5rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-bottom: 0.35rem;
+    border-bottom: 1px solid var(--line);
+  }
+  .side-nav::-webkit-scrollbar { display: none; }
+  .side-group { flex-direction: row; gap: 0.35rem; }
+  .side-title { display: none; }
+  .side-nav button { width: auto; white-space: nowrap; }
+}
+
 @media (max-width: 40rem) {
   .topbar-inner, .tabs-inner, .app { padding-inline: 1rem; }
   .app { padding-block: 1.25rem 3rem; }
   .page-head h2 { font-size: 18px; }
   .field-row > label { flex-basis: 100%; min-width: 0; }
   .field-row > button, .field-row > .btn { width: 100%; }
-  .center-card { padding: 1.35rem; }
-  th, td { padding-inline: 0.85rem; }
+  .center-card { padding: 1.4rem; }
+  th button.sort, th .th-pad, td { padding-inline: 0.9rem; }
+  .table-tools { padding-inline: 0.9rem; }
+  .search { max-width: none; }
 }

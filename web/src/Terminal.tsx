@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { monokaiMaterial, terminalFont } from "./theme/terminal";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
@@ -15,14 +16,14 @@ export default function Terminal({ target, onClose }: { target: string; onClose:
 
     const term = new XTerm({
       convertEol: false,
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-      fontSize: 13,
-      theme: { background: "#111", foreground: "#eee" },
+      // Tema ve yazı ayarları TEK KAYNAKTAN (theme/terminal.ts): canlı
+      // izleyen ile kaydından izleyen operatör aynı renkleri görmeli.
+      theme: monokaiMaterial,
+      ...terminalFont,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(hostRef.current);
-    fit.fit();
 
     // ws:// veya wss:// — sayfanın şemasını izle. Sunucu https ise
     // terminal de tls üzerinden gider (config zaten https zorunlu kılıyor).
@@ -31,6 +32,10 @@ export default function Terminal({ target, onClose }: { target: string; onClose:
     ws.binaryType = "arraybuffer";
 
     const sendResize = () => {
+      // Sıfır ya da negatif boyut GÖNDERİLMEZ. Sunucu bunu zaten
+      // sınırlıyor (proxy.clampDim) ama bozuk bir ölçümü tele koymanın
+      // bir faydası yok: hedefteki kabuk de bu boyutu görüyor.
+      if (term.cols < 1 || term.rows < 1) return;
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
       }
@@ -62,14 +67,32 @@ export default function Terminal({ target, onClose }: { target: string; onClose:
       if (ws.readyState === WebSocket.OPEN) ws.send(new TextEncoder().encode(data));
     });
 
-    const onWindowResize = () => {
+    /*
+     * ⚠️ İLK fit() open() İLE AYNI TİKTE ÇAĞRILAMAZ.
+     *
+     * Ölçülen kusur: `term.open(); fit.fit();` sırayla çağrıldığında
+     * xterm'in karakter ölçüm öğesi henüz yerleşmemiş oluyor ve fit
+     * saçma bir hücre genişliği buluyor. Kayda düşen kanıt: pty 80x24
+     * açılıp hemen ardından "2x16"ya küçültülüyordu — hedefteki kabuk
+     * karşılama metnini iki karakterde bir sarıyordu.
+     *
+     * ResizeObserver bunu iki yönden çözüyor: ilk çağrısı yerleşimden
+     * SONRA geliyor, ve pencere boyutu değişmeden kabın genişliği
+     * değiştiğinde de (kenar menüsünün kırılma noktası, terminalin
+     * açılması) terminal kendini düzeltiyor. Yalnız window.resize
+     * dinlemek bu ikinci durumu kaçırıyordu.
+     */
+    const ro = new ResizeObserver(() => {
+      // Kap ölçülemez durumdayken (gizli sekme, 0 genişlik) fit
+      // çağırmak yine saçma bir boyut üretir; dokunma.
+      if (!hostRef.current || hostRef.current.clientWidth === 0) return;
       fit.fit();
       sendResize();
-    };
-    window.addEventListener("resize", onWindowResize);
+    });
+    ro.observe(hostRef.current);
 
     return () => {
-      window.removeEventListener("resize", onWindowResize);
+      ro.disconnect();
       dataSub.dispose();
       ws.close();
       term.dispose();

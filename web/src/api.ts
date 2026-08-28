@@ -13,7 +13,12 @@ export type Me = {
 };
 export type User = { name: string; os_user: string; admin: boolean; roles: string[]; keys: number };
 export type Role = { name: string; targets: string[] };
-export type Target = { name: string; host: string; port: number; fingerprint: string };
+export type Target = {
+  name: string; host: string; port: number; fingerprint: string;
+  // Sunucu nil map yerine {} döndürüyor: null gelseydi Object.entries
+  // her satırda patlardı.
+  labels: Record<string, string>;
+};
 export type Session = {
   id: string; user: string; target: string; os_user: string;
   src_ip: string; started_at: string; ended_at: string | null;
@@ -120,9 +125,19 @@ export const api = {
     req<void>("DELETE", `/api/admin/roles/${encodeURIComponent(role)}/targets/${encodeURIComponent(target)}`),
 
   targets: () => req<Target[]>("GET", "/api/admin/targets"),
-  createTarget: (t: { name: string; host: string; port?: number; host_key: string }) =>
+  createTarget: (t: {
+    name: string; host: string; port?: number; host_key: string;
+    labels?: Record<string, string>;
+  }) =>
     req<void>("POST", "/api/admin/targets", t),
   deleteTarget: (name: string) => req<void>("DELETE", `/api/admin/targets/${encodeURIComponent(name)}`),
+  setTargetLabel: (name: string, key: string, value: string) =>
+    req<void>("PUT",
+      `/api/admin/targets/${encodeURIComponent(name)}/labels/${encodeURIComponent(key)}`,
+      { value }),
+  removeTargetLabel: (name: string, key: string) =>
+    req<void>("DELETE",
+      `/api/admin/targets/${encodeURIComponent(name)}/labels/${encodeURIComponent(key)}`),
 
   mappings: () => req<Mapping[]>("GET", "/api/admin/mappings"),
   addMapping: (group: string, role: string) =>

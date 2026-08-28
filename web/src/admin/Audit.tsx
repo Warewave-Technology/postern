@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api, LogEntry, Session } from "../api";
 import { ActionButton, ErrorLine, ListState, useList } from "./common";
 import CastPlayer from "./CastPlayer";
+import DataTable, { Column } from "./DataTable";
 
 /*
  * Sunucunun döndürdüğü en fazla satır sayısı (internal/httpapi/admin.go:
@@ -10,7 +11,9 @@ import CastPlayer from "./CastPlayer";
  * bu kadar" dedirtir — oysa 201'inci oturum da olmuş olabilir ve onu
  * aramaya bile kalkmaz.
  *
- * Sunucu tarafını buradan değiştiremiyoruz; en azından söyleyebiliyoruz.
+ * ⚠️ SIRALAMA VE ARAMA İSTEMCİDE, dolayısıyla yalnızca GELEN satırlar
+ * üzerinde. Sınıra dayanmış bir listede arama, elde olmayanı bulamaz —
+ * kart eteğindeki uyarı tam da bunun için duruyor.
  */
 const SESSION_CAP = 200;
 const LOG_CAP = 500;
@@ -20,12 +23,7 @@ const LOG_CAP = 500;
  *
  * toLocaleString() "8/28/2026, 9:31:56 AM" üretiyordu; iki damgalı bir
  * satır tabloyu ~200px genişletiyor ve sağdaki EYLEM sütununu yatay
- * kaydırmanın ardına itiyordu. Yani listedeki birincil işi yapmak için
- * önce tabloyu kaydırmak gerekiyordu.
- *
- * Yıl kasten yok: liste zaten en yeniden eskiye ve tam değer hem
- * title'da hem dateTime'da duruyor — rapora ya da log sorgusuna
- * kopyalayacak kişi onu kaybetmiyor.
+ * kaydırmanın ardına itiyordu.
  */
 const stampFmt = new Intl.DateTimeFormat(undefined, {
   day: "2-digit",
@@ -52,11 +50,72 @@ function Timestamp({ value }: { value: string }) {
   );
 }
 
+/**
+ * sortableTime, sıralama için sayısal damga.
+ *
+ * ⚠️ METİN SIRALAMASI YANLIŞ OLURDU: gösterilen biçimde yıl yok ve
+ * "28 Aug" ile "3 Sep" alfabetik sıralandığında Ağustos, Eylül'den
+ * sonra gelir. Sıralama ham değerin zamanına bakıyor.
+ */
+function sortableTime(v: string | null): number {
+  if (!v) return 0;
+  const t = new Date(v).getTime();
+  return Number.isNaN(t) ? 0 : t;
+}
+
 export function Sessions() {
   const { items, error, denied, loading, refresh } = useList<Session>(api.sessions);
   // Oynatılan oturum. Aynı anda tek kayıt: iki terminali yan yana
   // izlemenin bir faydası yok, ikisini birden beslemenin maliyeti var.
   const [playing, setPlaying] = useState<string | null>(null);
+
+  const columns: Column<Session>[] = [
+    {
+      key: "id",
+      header: "ID",
+      value: (s) => s.id,
+      // Kısaltılmış kimliğin tamamı title'da: bir olayı sunucu
+      // günlüğünde aratacak olan kişiye 12 hane yetmiyor.
+      render: (s) => <code title={s.id}>{s.id.slice(0, 12)}…</code>,
+    },
+    { key: "user", header: "User", value: (s) => s.user },
+    { key: "target", header: "Target", value: (s) => s.target },
+    { key: "os_user", header: "OS user", value: (s) => s.os_user },
+    { key: "src", header: "Src", value: (s) => s.src_ip },
+    {
+      key: "started",
+      header: "Started",
+      value: (s) => sortableTime(s.started_at),
+      render: (s) => <Timestamp value={s.started_at} />,
+    },
+    {
+      key: "ended",
+      header: "Ended",
+      // Süren oturum sıralamada EN SONA: 0 verseydik "hâlâ açık" olanlar
+      // en eski oturumlarla karışırdı.
+      value: (s) => (s.ended_at ? sortableTime(s.ended_at) : Number.MAX_SAFE_INTEGER),
+      render: (s) =>
+        s.ended_at ? (
+          <Timestamp value={s.ended_at} />
+        ) : (
+          <span className="badge badge-ok">running</span>
+        ),
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      srHeader: true,
+      className: "actions",
+      render: (s) => (
+        <button
+          onClick={() => setPlaying(s.id)}
+          aria-label={`watch the recording of ${s.user} on ${s.target}, started ${s.started_at}`}
+        >
+          Watch
+        </button>
+      ),
+    },
+  ];
 
   return (
     <section>
@@ -89,68 +148,23 @@ export function Sessions() {
       />
 
       {items.length > 0 && (
-        <div className="card">
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>User</th>
-                  <th>Target</th>
-                  <th>OS user</th>
-                  <th>Src</th>
-                  <th>Started</th>
-                  <th>Ended</th>
-                  <th className="actions">
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((s) => (
-                  <tr key={s.id}>
-                    {/* Kısaltılmış kimliğin tamamı title'da: bir olayı
-                        sunucu günlüğünde aratacak olan kişiye 12 hane
-                        yetmiyor. */}
-                    <td>
-                      <code title={s.id}>{s.id.slice(0, 12)}…</code>
-                    </td>
-                    <td>{s.user}</td>
-                    <td>{s.target}</td>
-                    <td>{s.os_user}</td>
-                    <td>{s.src_ip}</td>
-                    <td>
-                      <Timestamp value={s.started_at} />
-                    </td>
-                    <td>
-                      {s.ended_at ? (
-                        <Timestamp value={s.ended_at} />
-                      ) : (
-                        <span className="badge badge-ok">running</span>
-                      )}
-                    </td>
-                    <td className="actions">
-                      <button
-                        onClick={() => setPlaying(s.id)}
-                        aria-label={`watch the recording of ${s.user} on ${s.target}, started ${s.started_at}`}
-                      >
-                        Watch
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="card-foot">
+        <DataTable
+          rows={items}
+          columns={columns}
+          rowKey={(s) => s.id}
+          initialSort={{ key: "started", dir: "desc" }}
+          noun="session"
+          searchLabel="search sessions by user, target or address"
+          searchPlaceholder="Search sessions…"
+          foot={
             <p>
-              postern lists at most the {SESSION_CAP} most recent sessions.
+              postern lists at most the {SESSION_CAP} most recent sessions, and
+              sorting and search work on what was returned.
               {items.length >= SESSION_CAP &&
                 " This list is at that limit, so older sessions exist and are not shown here."}
             </p>
-          </div>
-        </div>
+          }
+        />
       )}
     </section>
   );
@@ -158,6 +172,35 @@ export function Sessions() {
 
 export function AdminLog() {
   const { items, error, denied, loading, refresh } = useList<LogEntry>(api.adminLog);
+
+  const columns: Column<LogEntry>[] = [
+    {
+      key: "at",
+      header: "At",
+      value: (e) => sortableTime(e.at),
+      render: (e) => <Timestamp value={e.at} />,
+    },
+    { key: "actor", header: "Actor", value: (e) => e.actor },
+    {
+      key: "via",
+      header: "Via",
+      value: (e) => e.via,
+      render: (e) => <span className="badge">{e.via}</span>,
+    },
+    {
+      key: "action",
+      header: "Action",
+      value: (e) => e.action,
+      render: (e) => <code>{e.action}</code>,
+    },
+    { key: "entity", header: "Entity", value: (e) => e.entity },
+    {
+      key: "details",
+      header: "Details",
+      className: "wrap",
+      value: (e) => e.details,
+    },
+  ];
 
   return (
     <section>
@@ -183,53 +226,27 @@ export function AdminLog() {
       />
 
       {items.length > 0 && (
-        <div className="card">
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>At</th>
-                  <th>Actor</th>
-                  <th>Via</th>
-                  <th>Action</th>
-                  <th>Entity</th>
-                  <th className="wrap">Details</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((e) => (
-                  // ⚠️ Anahtar dizinden DEĞİL satırın kendi alanlarından.
-                  // Liste komple yeniden çekiliyor ve en yeni başta
-                  // geliyor: yeni bir kayıt eklendiğinde dizin anahtarları
-                  // bir kayıyor, React da eski satırın durumunu yeni
-                  // satıra devrediyordu.
-                  <tr key={`${e.at}|${e.actor}|${e.via}|${e.action}|${e.entity}|${e.details}`}>
-                    <td>
-                      <Timestamp value={e.at} />
-                    </td>
-                    <td>{e.actor}</td>
-                    <td>
-                      <span className="badge">{e.via}</span>
-                    </td>
-                    <td>
-                      <code>{e.action}</code>
-                    </td>
-                    <td>{e.entity}</td>
-                    <td className="wrap">{e.details}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="card-foot">
+        <DataTable
+          rows={items}
+          columns={columns}
+          // ⚠️ Anahtar dizinden DEĞİL satırın kendi alanlarından. Liste
+          // komple yeniden çekiliyor ve en yeni başta geliyor: yeni bir
+          // kayıt eklendiğinde dizin anahtarları bir kayıyor ve React
+          // eski satırın durumunu yeni satıra devrediyordu.
+          rowKey={(e) => `${e.at}|${e.actor}|${e.via}|${e.action}|${e.entity}|${e.details}`}
+          initialSort={{ key: "at", dir: "desc" }}
+          noun="entry"
+          searchLabel="search the admin log by actor, action or entity"
+          searchPlaceholder="Search the log…"
+          foot={
             <p>
-              postern lists at most the {LOG_CAP} most recent entries.
+              postern lists at most the {LOG_CAP} most recent entries, and
+              sorting and search work on what was returned.
               {items.length >= LOG_CAP &&
                 " This list is at that limit, so older entries exist and are not shown here."}
             </p>
-          </div>
-        </div>
+          }
+        />
       )}
     </section>
   );

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, Role, User, toMessage } from "../api";
 import { ActionButton, ErrorLine, ListState, OkLine, WarnLine, useList } from "./common";
+import DataTable, { Column } from "./DataTable";
 
 // Kullanıcılar.
 //
@@ -118,6 +119,125 @@ export default function Users() {
   // eklemeye çalışan bir form bırakırdı.
   const keysUser = items.find((u) => u.name === keysFor) ?? null;
 
+  const columns: Column<User>[] = [
+    { key: "name", header: "Name", value: (u) => u.name },
+    { key: "os_user", header: "OS user", value: (u) => u.os_user },
+    {
+      key: "admin",
+      header: "Admin",
+      // Sıralama adminleri BİR ARADA toplasın: "kimler admin" sorusu
+      // tek tıkla cevaplanabilsin.
+      value: (u) => (u.admin ? 1 : 0),
+      render: (u) =>
+        u.admin ? (
+          <span className="badge badge-accent">admin</span>
+        ) : (
+          <span className="muted">—</span>
+        ),
+    },
+    {
+      key: "roles",
+      header: "Roles",
+      className: "wrap",
+      value: (u) => u.roles.join(" "),
+      render: (u) =>
+        u.roles.length === 0 ? (
+          <span className="muted">no roles</span>
+        ) : (
+          <span className="chips">
+            {u.roles.map((r) => (
+              <span key={r} className="chip">
+                <code>{r}</code>
+                <ActionButton
+                  onClick={() => revoke(u.name, r)}
+                  confirm={`Revoke "${r}" from ${u.name}? They immediately lose every target that role grants.`}
+                  label={`revoke role ${r} from ${u.name}`}
+                >
+                  revoke
+                </ActionButton>
+              </span>
+            ))}
+          </span>
+        ),
+    },
+    {
+      key: "assign",
+      header: "Assign role",
+      render: (u) => {
+        // Zaten atanmış rol kutuda GÖRÜNMÜYOR: sunucu isteği kabul
+        // ediyor (upsert) ama tabloda hiçbir şey değişmiyor —
+        // değişmeyen satıra bakan yönetici atamanın tutmadığını sanıp
+        // aynı düğmeye tekrar basıyordu.
+        const free = roles.items.filter((r) => !u.roles.includes(r.name));
+        const choice = picked[u.name] ?? "";
+        return (
+          <div className="cell-form">
+            <select
+              aria-label={`role to assign to ${u.name}`}
+              value={choice}
+              onChange={(e) => setPicked((p) => ({ ...p, [u.name]: e.target.value }))}
+              disabled={free.length === 0}
+            >
+              <option value="">
+                {roles.items.length === 0
+                  ? "no roles defined"
+                  : free.length === 0
+                    ? "all roles assigned"
+                    : "choose a role…"}
+              </option>
+              {free.map((r) => (
+                <option key={r.name} value={r.name}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+            <ActionButton
+              onClick={() => assign(u.name, choice)}
+              label={choice ? `assign ${choice} to ${u.name}` : `assign a role to ${u.name}`}
+              disabled={!choice}
+            >
+              Assign
+            </ActionButton>
+          </div>
+        );
+      },
+    },
+    {
+      key: "keys",
+      header: "Keys",
+      className: "num",
+      value: (u) => u.keys,
+      render: (u) => (
+        <div className="cell-form">
+          {u.keys === 0 ? <span className="muted">none</span> : u.keys}
+          <button
+            onClick={() => toggleKeys(u.name)}
+            aria-expanded={keysFor === u.name}
+            aria-label={`manage SSH keys for ${u.name}`}
+          >
+            {keysFor === u.name ? "Close" : "Keys"}
+          </button>
+        </div>
+      ),
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      srHeader: true,
+      className: "actions",
+      render: (u) => (
+        <ActionButton
+          variant="danger"
+          onClick={() => remove(u.name)}
+          confirm={`Delete the user "${u.name}"? Their SSH keys and role assignments go with them. If ${u.name} has recorded sessions the server refuses this outright — revoking their keys and roles is how access is cut without losing the audit trail.`}
+          label={`delete user ${u.name}`}
+        >
+          Delete
+        </ActionButton>
+      ),
+    },
+  ];
+
   return (
     <section>
       <div className="page-head">
@@ -151,125 +271,15 @@ export default function Users() {
       />
 
       {items.length > 0 && (
-        <div className="card">
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>OS user</th>
-                  <th>Admin</th>
-                  <th className="wrap">Roles</th>
-                  <th>Assign role</th>
-                  <th>Keys</th>
-                  <th className="actions">
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((u) => {
-                  // Zaten atanmış rol kutuda GÖRÜNMÜYOR: sunucu isteği kabul
-                  // ediyor (upsert) ama tabloda hiçbir şey değişmiyor —
-                  // değişmeyen satıra bakan yönetici atamanın tutmadığını sanıp
-                  // aynı düğmeye tekrar basıyordu.
-                  const free = roles.items.filter((r) => !u.roles.includes(r.name));
-                  const choice = picked[u.name] ?? "";
-
-                  return (
-                    <tr key={u.name}>
-                      <td>{u.name}</td>
-                      <td>{u.os_user}</td>
-                      {/* Admin sütunu SALT OKUNUR: bayrak yalnızca hosttaki CLI'dan
-                          değişir — panel kendine yetki dağıtamaz. */}
-                      <td>
-                        {u.admin ? (
-                          <span className="badge badge-accent">admin</span>
-                        ) : (
-                          <span className="muted">—</span>
-                        )}
-                      </td>
-                      <td className="wrap">
-                        {u.roles.length === 0 ? (
-                          <span className="muted">no roles</span>
-                        ) : (
-                          <span className="chips">
-                            {u.roles.map((r) => (
-                              <span key={r} className="chip">
-                                <code>{r}</code>
-                                <ActionButton
-                                  onClick={() => revoke(u.name, r)}
-                                  confirm={`Revoke "${r}" from ${u.name}? They immediately lose every target that role grants.`}
-                                  label={`revoke role ${r} from ${u.name}`}
-                                >
-                                  revoke
-                                </ActionButton>
-                              </span>
-                            ))}
-                          </span>
-                        )}
-                      </td>
-                      <td>
-                        <div className="cell-form">
-                          <select
-                            aria-label={`role to assign to ${u.name}`}
-                            value={choice}
-                            onChange={(e) =>
-                              setPicked((p) => ({ ...p, [u.name]: e.target.value }))
-                            }
-                            disabled={free.length === 0}
-                          >
-                            <option value="">
-                              {roles.items.length === 0
-                                ? "no roles defined"
-                                : free.length === 0
-                                  ? "all roles assigned"
-                                  : "choose a role…"}
-                            </option>
-                            {free.map((r) => (
-                              <option key={r.name} value={r.name}>
-                                {r.name}
-                              </option>
-                            ))}
-                          </select>
-                          <ActionButton
-                            onClick={() => assign(u.name, choice)}
-                            label={choice ? `assign ${choice} to ${u.name}` : `assign a role to ${u.name}`}
-                            disabled={!choice}
-                          >
-                            Assign
-                          </ActionButton>
-                        </div>
-                      </td>
-                      <td>
-                        <div className="cell-form">
-                          {u.keys === 0 ? <span className="muted">none</span> : u.keys}
-                          <button
-                            onClick={() => toggleKeys(u.name)}
-                            aria-expanded={keysFor === u.name}
-                            aria-label={`manage SSH keys for ${u.name}`}
-                          >
-                            {keysFor === u.name ? "Close" : "Keys"}
-                          </button>
-                        </div>
-                      </td>
-                      <td className="actions">
-                        <ActionButton
-                          variant="danger"
-                          onClick={() => remove(u.name)}
-                          confirm={`Delete the user "${u.name}"? Their SSH keys and role assignments go with them. If ${u.name} has recorded sessions the server refuses this outright — revoking their keys and roles is how access is cut without losing the audit trail.`}
-                          label={`delete user ${u.name}`}
-                        >
-                          Delete
-                        </ActionButton>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <DataTable
+          rows={items}
+          columns={columns}
+          rowKey={(u) => u.name}
+          initialSort={{ key: "name", dir: "asc" }}
+          noun="user"
+          searchLabel="search users by name, OS user or role"
+          searchPlaceholder="Search users, or a role like sysadmin…"
+        />
       )}
 
       {keysUser && (

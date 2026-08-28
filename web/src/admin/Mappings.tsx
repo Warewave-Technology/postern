@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { api, Mapping, Role, UnmappedGroup, toMessage } from "../api";
 import { ActionButton, ErrorLine, ListState, OkLine, useList } from "./common";
+import DataTable, { Column } from "./DataTable";
 
 // IdP grubu → postern rolü eşlemesi.
 //
@@ -67,6 +68,62 @@ export default function Mappings() {
   const mapped = new Set(items.map((m) => m.group.toLowerCase()));
   const pending = unmapped.items.filter((g) => !mapped.has(g.name.toLowerCase()));
 
+  const mappingCols: Column<Mapping>[] = [
+    {
+      key: "group",
+      header: "IdP group",
+      value: (m) => m.group,
+      render: (m) => <code>{m.group}</code>,
+    },
+    {
+      key: "role",
+      header: "Role",
+      value: (m) => m.role,
+      render: (m) => <code>{m.role}</code>,
+    },
+    { key: "by", header: "Mapped by", value: (m) => m.created_by },
+    {
+      key: "actions",
+      header: "Actions",
+      srHeader: true,
+      className: "actions",
+      render: (m) => (
+        <ActionButton
+          variant="danger"
+          confirm={`Remove the mapping ${m.group} → ${m.role}? Anyone who already holds ${m.role} keeps it until their next sign-in.`}
+          label={`remove mapping ${m.group} to ${m.role}`}
+          onClick={() => remove(m)}
+        >
+          Remove
+        </ActionButton>
+      ),
+    },
+  ];
+
+  const pendingCols: Column<UnmappedGroup>[] = [
+    {
+      key: "name",
+      header: "Group",
+      value: (g) => g.name,
+      render: (g) => <code>{g.name}</code>,
+    },
+    // Sıralama SAYISAL: "12" ile "9" metin olarak sıralandığında 12 önce
+    // gelir ve "en çok görülen grup" yanlış çıkar.
+    { key: "seen", header: "Times seen", className: "num", value: (g) => g.seen_count },
+    { key: "last", header: "Last seen", value: (g) => g.last_seen },
+    {
+      key: "actions",
+      header: "Actions",
+      srHeader: true,
+      className: "actions",
+      render: (g) => (
+        <button onClick={() => mapThisGroup(g.name)} aria-label={`map group ${g.name}`}>
+          Map this group
+        </button>
+      ),
+    },
+  ];
+
   return (
     <section>
       <div className="page-head">
@@ -87,39 +144,15 @@ export default function Mappings() {
         emptyText="No mappings — nobody can sign in through the IdP yet."
       />
       {items.length > 0 && (
-        <div className="card">
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>IdP group</th>
-                  <th>Role</th>
-                  <th>Mapped by</th>
-                  <th className="actions"><span className="sr-only">Actions</span></th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((m) => (
-                  <tr key={`${m.group}/${m.role}`}>
-                    <td><code>{m.group}</code></td>
-                    <td><code>{m.role}</code></td>
-                    <td>{m.created_by}</td>
-                    <td className="actions">
-                      <ActionButton
-                        variant="danger"
-                        confirm={`Remove the mapping ${m.group} → ${m.role}? Anyone who already holds ${m.role} keeps it until their next sign-in.`}
-                        label={`remove mapping ${m.group} to ${m.role}`}
-                        onClick={() => remove(m)}
-                      >
-                        Remove
-                      </ActionButton>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <DataTable
+          rows={items}
+          columns={mappingCols}
+          rowKey={(m) => `${m.group}/${m.role}`}
+          initialSort={{ key: "group", dir: "asc" }}
+          noun="mapping"
+          searchLabel="search mappings by group or role"
+          searchPlaceholder="Search mappings…"
+        />
       )}
 
       <div className="panel">
@@ -177,37 +210,15 @@ export default function Mappings() {
         emptyText="Nothing unmapped so far — every group seen in a login matched a role."
       />
       {pending.length > 0 && (
-        <div className="card">
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Group</th>
-                  <th className="num">Times seen</th>
-                  <th>Last seen</th>
-                  <th className="actions"><span className="sr-only">Actions</span></th>
-                </tr>
-              </thead>
-              <tbody>
-                {pending.map((g) => (
-                  <tr key={g.name}>
-                    <td><code>{g.name}</code></td>
-                    <td className="num">{g.seen_count}</td>
-                    <td>{g.last_seen}</td>
-                    <td className="actions">
-                      <button
-                        onClick={() => mapThisGroup(g.name)}
-                        aria-label={`map group ${g.name}`}
-                      >
-                        Map this group
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <DataTable
+          rows={pending}
+          columns={pendingCols}
+          rowKey={(g) => g.name}
+          initialSort={{ key: "seen", dir: "desc" }}
+          noun="group"
+          searchLabel="search unmapped groups"
+          searchPlaceholder="Search groups…"
+        />
       )}
     </section>
   );

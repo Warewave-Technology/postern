@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api, Role, Target, toMessage } from "../api";
 import { ActionButton, ErrorLine, ListState, WarnLine, useList } from "./common";
+import DataTable, { Column } from "./DataTable";
 
 export default function Roles() {
   const { items, error, denied, loading, refresh, setError } = useList<Role>(api.roles);
@@ -52,6 +53,94 @@ export default function Roles() {
       ? `Delete the role "${r.name}"? It grants no targets, but every user and group mapping holding it loses it immediately.`
       : `Delete the role "${r.name}"? Everyone holding it immediately loses access to: ${r.targets.join(", ")}.`;
 
+  const columns: Column<Role>[] = [
+    { key: "name", header: "Name", value: (r) => r.name },
+    {
+      key: "targets",
+      header: "Targets",
+      className: "wrap",
+      // Arama hedef adlarını da kapsıyor: "hangi rol db-01'e eriyor"
+      // sorusunun cevabı tek kutuya yazılabilsin.
+      value: (r) => r.targets.join(" "),
+      render: (r) =>
+        r.targets.length === 0 ? (
+          <span className="muted">no targets</span>
+        ) : (
+          <span className="chips">
+            {r.targets.map((t) => (
+              <span key={t} className="chip">
+                <code>{t}</code>
+                <ActionButton
+                  onClick={() => revoke(r.name, t)}
+                  confirm={`Revoke "${t}" from the role "${r.name}"? Everyone holding this role loses access to that host.`}
+                  label={`revoke ${t} from role ${r.name}`}
+                >
+                  revoke
+                </ActionButton>
+              </span>
+            ))}
+          </span>
+        ),
+    },
+    {
+      key: "grant",
+      header: "Grant target",
+      render: (r) => {
+        // Verilmiş hedefi tekrar sunmak anlamsız: sunucu onu sessizce
+        // yutuyor (ON CONFLICT DO NOTHING), yani hiçbir şey
+        // değiştirmeyen tıklama başarı gibi görünüyordu.
+        const free = targets.items.filter((t) => !r.targets.includes(t.name));
+        const choice = picked[r.name] ?? "";
+        return (
+          <div className="cell-form">
+            <select
+              aria-label={`target to grant to role ${r.name}`}
+              value={choice}
+              onChange={(e) => setPicked((p) => ({ ...p, [r.name]: e.target.value }))}
+              disabled={free.length === 0}
+            >
+              <option value="">
+                {targets.items.length === 0
+                  ? "no targets registered"
+                  : free.length === 0
+                    ? "all targets granted"
+                    : "choose a target…"}
+              </option>
+              {free.map((t) => (
+                <option key={t.name} value={t.name}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+            <ActionButton
+              onClick={() => grant(r.name, choice)}
+              label={choice ? `grant ${choice} to role ${r.name}` : `grant a target to role ${r.name}`}
+              disabled={!choice}
+            >
+              Grant
+            </ActionButton>
+          </div>
+        );
+      },
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      srHeader: true,
+      className: "actions",
+      render: (r) => (
+        <ActionButton
+          variant="danger"
+          onClick={() => remove(r.name)}
+          confirm={deleteConfirm(r)}
+          label={`delete role ${r.name}`}
+        >
+          Delete
+        </ActionButton>
+      ),
+    },
+  ];
+
   return (
     <section>
       <div className="page-head">
@@ -83,99 +172,15 @@ export default function Roles() {
       />
 
       {items.length > 0 && (
-        <div className="card">
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th className="wrap">Targets</th>
-                  <th>Grant target</th>
-                  <th className="actions">
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((r) => {
-                  // Verilmiş hedefi tekrar sunmak anlamsız: sunucu onu
-                  // sessizce yutuyor (ON CONFLICT DO NOTHING), yani hiçbir
-                  // şey değiştirmeyen tıklama başarı gibi görünüyordu.
-                  const free = targets.items.filter((t) => !r.targets.includes(t.name));
-                  const choice = picked[r.name] ?? "";
-
-                  return (
-                    <tr key={r.name}>
-                      <td>{r.name}</td>
-                      <td className="wrap">
-                        {r.targets.length === 0 ? (
-                          <span className="muted">no targets</span>
-                        ) : (
-                          <span className="chips">
-                            {r.targets.map((t) => (
-                              <span key={t} className="chip">
-                                <code>{t}</code>
-                                <ActionButton
-                                  onClick={() => revoke(r.name, t)}
-                                  confirm={`Revoke "${t}" from the role "${r.name}"? Everyone holding this role loses access to that host.`}
-                                  label={`revoke ${t} from role ${r.name}`}
-                                >
-                                  revoke
-                                </ActionButton>
-                              </span>
-                            ))}
-                          </span>
-                        )}
-                      </td>
-                      <td>
-                        <div className="cell-form">
-                          <select
-                            aria-label={`target to grant to role ${r.name}`}
-                            value={choice}
-                            onChange={(e) =>
-                              setPicked((p) => ({ ...p, [r.name]: e.target.value }))
-                            }
-                            disabled={free.length === 0}
-                          >
-                            <option value="">
-                              {targets.items.length === 0
-                                ? "no targets registered"
-                                : free.length === 0
-                                  ? "all targets granted"
-                                  : "choose a target…"}
-                            </option>
-                            {free.map((t) => (
-                              <option key={t.name} value={t.name}>
-                                {t.name}
-                              </option>
-                            ))}
-                          </select>
-                          <ActionButton
-                            onClick={() => grant(r.name, choice)}
-                            label={choice ? `grant ${choice} to role ${r.name}` : `grant a target to role ${r.name}`}
-                            disabled={!choice}
-                          >
-                            Grant
-                          </ActionButton>
-                        </div>
-                      </td>
-                      <td className="actions">
-                        <ActionButton
-                          variant="danger"
-                          onClick={() => remove(r.name)}
-                          confirm={deleteConfirm(r)}
-                          label={`delete role ${r.name}`}
-                        >
-                          Delete
-                        </ActionButton>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <DataTable
+          rows={items}
+          columns={columns}
+          rowKey={(r) => r.name}
+          initialSort={{ key: "name", dir: "asc" }}
+          noun="role"
+          searchLabel="search roles by name or granted target"
+          searchPlaceholder="Search roles…"
+        />
       )}
 
       <div className="panel">

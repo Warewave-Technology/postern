@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { monokaiMaterial, terminalFont } from "../theme/terminal";
 import { Terminal as XTerm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { ApiError, api, toMessage } from "../api";
@@ -102,9 +103,10 @@ export default function CastPlayer({ sessionId, onClose }: { sessionId: string; 
       // Oynatıcıda klavye girdisi YOK: bu bir kayıt, bir oturum değil.
       disableStdin: true,
       scrollback: 5000,
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-      fontSize: 13,
-      theme: { background: "#111", foreground: "#eee" },
+      // Tema ve yazı ayarları TEK KAYNAKTAN (theme/terminal.ts): canlı
+      // izleyen ile kaydından izleyen operatör aynı renkleri görmeli.
+      theme: monokaiMaterial,
+      ...terminalFont,
     });
     term.open(hostRef.current);
     termRef.current = term;

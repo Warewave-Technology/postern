@@ -62,11 +62,11 @@ describe("App önyükleme", () => {
   });
 });
 
-describe("App sekmeleri", () => {
+describe("App gezinmesi", () => {
   // ⚠️ Bulunulan sekme disabled ile işaretleniyordu: bu onu sekme
   // sırasından ÇIKARIYOR ve ekran okuyucuya "kullanılamaz" dedirtiyor.
   // Klavye kullanıcısı olduğu yere odaklanamıyordu.
-  it("secili sekme odaklanabilir kalir ve aria-current tasir", async () => {
+  it("secili ust sekme odaklanabilir kalir ve aria-current tasir", async () => {
     vi.spyOn(api, "me").mockResolvedValue({ ...me, admin: true });
 
     render(<App />);
@@ -75,18 +75,41 @@ describe("App sekmeleri", () => {
     expect(home).not.toBeDisabled();
     expect(home).toHaveAttribute("aria-current", "page");
 
-    const users = screen.getByRole("button", { name: "Users" });
-    expect(users).not.toHaveAttribute("aria-current");
+    const settings = screen.getByRole("button", { name: "Settings" });
+    expect(settings).not.toHaveAttribute("aria-current");
   });
 
-  it("admin olmayana yonetim sekmeleri gosterilmez", async () => {
+  // Home HERKESİN ekranı; yönetim bölümlerinin tamamı Settings altında.
+  // Admin olmayana Settings sekmesi HİÇ çizilmiyor: görünüp 403 vermek,
+  // olmayan bir yetkiyi vaat etmektir.
+  it("admin olmayana Settings sekmesi gosterilmez", async () => {
     vi.spyOn(api, "me").mockResolvedValue(me);
 
     render(<App />);
     await screen.findByRole("button", { name: "Home" });
 
+    expect(screen.queryByRole("button", { name: "Settings" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Users" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Admin log" })).not.toBeInTheDocument();
+  });
+
+  it("Settings acilinca sol bolum listesi cikar ve secili bolum isaretli olur", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({ ...me, admin: true });
+    // Overview açılışta oturumları çekiyor; canlı akış jsdom'da yok ve
+    // bileşen yoklamaya düşüyor (kendi hata yolu).
+    vi.spyOn(api, "sessions").mockResolvedValue([]);
+
+    render(<App />);
+    await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
+
+    const overview = await screen.findByRole("button", { name: "Overview" });
+    expect(overview).toHaveAttribute("aria-current", "page");
+    expect(overview).not.toBeDisabled();
+
+    // Bölümlerin tamamı burada; üst sekmelerde değil.
+    for (const label of ["Users", "Roles", "Mappings", "Targets", "LDAP", "Sessions", "Admin log"]) {
+      expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
+    }
   });
 });
 
