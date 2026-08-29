@@ -101,10 +101,14 @@ func TestLDAPGroupsBySearch(t *testing.T) {
 		t.Fatalf("Test: %v", err)
 	}
 
-	groups, err := src.Groups(ctx, auth.Identity{Username: ldapUser})
+	res, err := src.Groups(ctx, auth.Identity{Username: ldapUser})
 	if err != nil {
 		t.Fatalf("Groups: %v", err)
 	}
+	if res.Presence != auth.GroupsPresent {
+		t.Fatalf("varlık = %s, beklenen present", res.Presence)
+	}
+	groups := res.Groups
 
 	// CN çıkarımı: "cn=sysadmins,ou=groups,..." → "sysadmins".
 	// OIDC claim'inden gelen adla aynı isim uzayına düşmeli.
@@ -120,14 +124,23 @@ func TestLDAPGroupsBySearch(t *testing.T) {
 		}
 	}
 
-	// Dizinde olmayan kullanıcı: hata DEĞİL, boş liste. Dizin arızası ile
-	// "bu kişi burada yok" karıştırılmamalı.
-	empty, err := src.Groups(ctx, auth.Identity{Username: "hic-yok"})
+	/*
+	 * Dizinde olmayan kullanıcı: hata DEĞİL, ama BOŞ LİSTE DE DEĞİL.
+	 *
+	 * Bu satır eskiden "gruplar boş" diye geçiyordu ve tam olarak
+	 * ölçülen arızayı gizliyordu: giriş yolu boş listeyi "hiçbir gruba
+	 * üye değil" sanıp bütün SSO rollerini siliyordu. Üç değerli cevapta
+	 * bu hâlin ADI var.
+	 */
+	absent, err := src.Groups(ctx, auth.Identity{Username: "hic-yok"})
 	if err != nil {
 		t.Fatalf("bilinmeyen kullanıcı hata verdi: %v", err)
 	}
-	if len(empty) != 0 {
-		t.Errorf("bilinmeyen kullanıcı için gruplar = %v", empty)
+	if absent.Presence != auth.GroupsAbsent {
+		t.Errorf("bilinmeyen kullanıcı için varlık = %s, beklenen absent", absent.Presence)
+	}
+	if len(absent.Groups) != 0 {
+		t.Errorf("bulunamayan kullanıcı için gruplar = %v", absent.Groups)
 	}
 }
 
@@ -152,10 +165,11 @@ func TestLDAPGroupsByUserAttribute(t *testing.T) {
 		t.Fatalf("ldap.New: %v", err)
 	}
 
-	groups, err := src.Groups(context.Background(), auth.Identity{Username: ldapUser})
+	gres, err := src.Groups(context.Background(), auth.Identity{Username: ldapUser})
 	if err != nil {
 		t.Fatalf("Groups: %v", err)
 	}
+	groups := gres.Groups
 	if len(groups) != 2 {
 		t.Fatalf("gruplar = %v, beklenen 2 tane", groups)
 	}
@@ -177,10 +191,11 @@ func TestLDAPGroupNameFromDN(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	groups, err := src.Groups(context.Background(), auth.Identity{Username: ldapUser})
+	gres, err := src.Groups(context.Background(), auth.Identity{Username: ldapUser})
 	if err != nil {
 		t.Fatal(err)
 	}
+	groups := gres.Groups
 	for _, g := range groups {
 		if len(g) < len("cn=x,ou=groups") {
 			t.Errorf("DN modunda kısa ad döndü: %q", g)
@@ -254,7 +269,7 @@ func TestLDAPGroupsDriveProvisioning(t *testing.T) {
 	}
 
 	// IdP'nin verdiği kimlik; gruplar artık token'dan DEĞİL dizinden.
-	groups, err := src.Groups(ctx, auth.Identity{Username: ldapUser})
+	gres, err := src.Groups(ctx, auth.Identity{Username: ldapUser})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +277,10 @@ func TestLDAPGroupsDriveProvisioning(t *testing.T) {
 	u, err := db.ProvisionUser(ctx, store.ProvisionRequest{
 		Username: ldapUser,
 		Email:    "yigit@warewave.io",
-		Groups:   groups,
+		Groups:   gres.Groups,
+		// ⚠️ Cevabın GÜVENİLİR olduğu ayrıca söyleniyor: boş bir grup
+		// listesi tek başına "yetkisi yok" demek değil.
+		GroupsResolved: gres.Presence == auth.GroupsPresent,
 		// Kimlik (issuer, subject) ile bağlanıyor (göç 011).
 		Issuer:  "https://idp.test",
 		Subject: "sub-" + ldapUser,

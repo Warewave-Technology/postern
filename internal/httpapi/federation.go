@@ -482,11 +482,15 @@ func (s *Server) adminVerifyLDAP(w http.ResponseWriter, r *http.Request) {
 
 	out := map[string]any{"ok": true}
 	if in.User != "" {
-		groups, gerr := src.Groups(r.Context(), auth.Identity{Username: in.User})
+		gres, gerr := src.Groups(r.Context(), auth.Identity{Username: in.User})
 		if gerr != nil {
 			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": gerr.Error()})
 			return
 		}
+		// Teşhis ucu da üç değerli cevabı taşımalı: boş liste ile
+		// "böyle bir kullanıcı yok" panelde ayrı şeyler.
+		out["presence"] = gres.Presence.String()
+		groups := gres.Groups
 		roles, unmapped, rerr := s.store.RolesForGroups(r.Context(), groups)
 		if rerr != nil {
 			s.storeErr(w, "ldap.verify", rerr)

@@ -81,6 +81,10 @@ func (f *syncFixture) provision(t *testing.T, username, email string, groups []s
 
 	if _, err := f.db.ProvisionUser(context.Background(), store.ProvisionRequest{
 		Username: username, Email: email, Groups: groups,
+		// Bu yardımcı "dizin cevap verdi" hâlini kuruyor: senkron
+		// testlerinin başlangıç durumu, rolleri gerçekten olan bir
+		// kullanıcı.
+		GroupsResolved: true,
 		// Kimlik (issuer, subject) ile bağlanıyor; username tek başına
 		// eşleştirme anahtarı DEĞİL (bkz. göç 011).
 		Issuer: "https://idp.test", Subject: "sub-" + username,

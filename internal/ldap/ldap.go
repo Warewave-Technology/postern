@@ -238,35 +238,40 @@ func (s *Source) Test(ctx context.Context) error {
 	return nil
 }
 
-// Groups, kullanıcının grup adlarını döner (auth.GroupSource).
-//
-// Kullanıcı dizinde bulunamazsa BOŞ liste döner, hata değil: bu kişinin
-// erişimi yok demektir ve JIT sağlama zaten "eşleşen grup yoksa girme"
-// diyecek. Hata döndürmek, dizin arızası ile "bu kişi burada yok"u
-// karıştırırdı.
-func (s *Source) Groups(ctx context.Context, id auth.Identity) ([]string, error) {
+/*
+ * Groups, kullanıcının gruplarını ÜÇ DEĞERLİ cevapla döner
+ * (auth.GroupSource).
+ *
+ * ⚠️ ARTIK Lookup'IN ÜSTÜNE KURULU. Eskiden burada ayrı bir arama vardı
+ * ve kullanıcı bulunamadığında boş dilim dönüyordu — yorumu "dizin
+ * arızası ile 'bu kişi burada yok' karıştırılmasın" diyordu ama
+ * gerçekleştirme, "burada yok" ile "burada ve hiçbir grupta değil"i
+ * karıştırıyordu. Ölçülen bedeli: adı dizinde tutmayan kullanıcı her
+ * girişte bütün SSO rollerini kaybediyordu.
+ *
+ * Lookup bu ayrımı zaten yapıyor ve senkronizasyon ona dayanıyor; giriş
+ * yolunun ondan farklı bir gerçeğe bakması için bir sebep yoktu.
+ */
+func (s *Source) Groups(ctx context.Context, id auth.Identity) (auth.GroupResult, error) {
 	if id.Username == "" {
-		return nil, nil
+		// Kullanıcı adı yoksa soracak bir şey yok. "Yok" değil,
+		// "bilinmiyor": bu kimlikle dizine hiç sorulmadı.
+		return auth.GroupResult{Presence: auth.GroupsUnknown}, nil
 	}
 
-	conn, err := s.connect(ctx)
+	res, err := s.Lookup(ctx, id)
 	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-
-	userDN, attrGroups, err := s.findUser(conn, id.Username)
-	if err != nil {
-		return nil, err
-	}
-	if userDN == "" {
-		return nil, nil
+		return auth.GroupResult{Presence: auth.GroupsUnknown}, err
 	}
 
-	if s.cfg.GroupAttribute != "" {
-		return s.normalizeAll(attrGroups), nil
+	switch res.Presence {
+	case PresencePresent:
+		return auth.GroupResult{Presence: auth.GroupsPresent, Groups: res.Groups}, nil
+	case PresenceAbsent:
+		return auth.GroupResult{Presence: auth.GroupsAbsent}, nil
+	default:
+		return auth.GroupResult{Presence: auth.GroupsUnknown}, nil
 	}
-	return s.searchGroups(conn, userDN)
 }
 
 // findUser, kullanıcının DN'ini ve (varsa) grup özniteliğini döner.

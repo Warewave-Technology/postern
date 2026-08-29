@@ -221,12 +221,27 @@ func newSettingsTestLDAPCmd() *cobra.Command {
 			// Kullanıcı verildiyse gerçek bir arama yap: filtrenin
 			// çalıştığını görmenin tek yolu.
 			if username != "" {
-				groups, err := src.Groups(ctx, authIdentity(username))
+				res, err := src.Groups(ctx, authIdentity(username))
 				if err != nil {
 					return err
 				}
+				// ⚠️ ÜÇ AYRI CEVAP, ÜÇ AYRI MESAJ. Eskiden üçü de "found
+				// no groups" diye çıkıyordu ve "dizin bu kullanıcıyı
+				// tanımıyor" ile "tanıyor ama grubu yok" aynı satıra
+				// düşüyordu; ilkinde operatör grup ayarlarını
+				// kurcalayarak saatler harcıyordu.
+				switch res.Presence {
+				case auth.GroupsAbsent:
+					fmt.Fprintf(out, "user %q: the directory answered, and it has no such user "+
+						"(check user_base and user_filter; postern looks the name up as given)\n", username)
+					return nil
+				case auth.GroupsUnknown:
+					fmt.Fprintf(out, "user %q: the directory could not answer for this name\n", username)
+					return nil
+				}
+				groups := res.Groups
 				if len(groups) == 0 {
-					fmt.Fprintf(out, "user %q: found no groups (check user_filter and group settings)\n", username)
+					fmt.Fprintf(out, "user %q: found in the directory, but in no groups within scope\n", username)
 					return nil
 				}
 				fmt.Fprintf(out, "user %q groups: %s\n", username, strings.Join(groups, ", "))

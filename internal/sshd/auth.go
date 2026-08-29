@@ -200,7 +200,7 @@ func (s *Server) keyboardInteractive(nConn deadlineSetter, conn ssh.ConnMetadata
 // kullanıcıyı oluştur), yoksa doğrulanmış e-postayla eşleştirme.
 func (s *Server) resolveIdentity(ctx context.Context, id auth.Identity) (model.User, error) {
 	if id.Username != "" {
-		groups, err := s.groups.Groups(ctx, id)
+		res, err := s.groups.Groups(ctx, id)
 		if err != nil {
 			// Dizin arızası yetki yokluğu değildir (httpapi'deki notun
 			// aynısı): sessizce yetkisiz bırakmak yerine reddet.
@@ -208,12 +208,23 @@ func (s *Server) resolveIdentity(ctx context.Context, id auth.Identity) (model.U
 			return model.User{}, err
 		}
 
+		// ⚠️ "BULAMADIM" BİR YETKİ KARARI DEĞİL. Kaynak kullanıcıyı
+		// tanımıyorsa roller olduğu gibi bırakılıyor; sessizce silmek,
+		// dizindeki bir ad uyuşmazlığını toplu yetki kaybına
+		// çeviriyordu. Operatörün bunu görmesi şart, yoksa yalnızca
+		// "hiçbir hedefe erişimin yok" ekranı kalıyor.
+		if res.Presence != auth.GroupsPresent {
+			s.logger.Warn("directory did not resolve this user; roles left untouched",
+				"idp_user", id.Username, "presence", res.Presence.String())
+		}
+
 		u, err := s.db.ProvisionUser(ctx, store.ProvisionRequest{
-			Username: id.Username,
-			Email:    id.Email,
-			Groups:   groups,
-			Issuer:   id.Issuer,
-			Subject:  id.Subject,
+			Username:       id.Username,
+			Email:          id.Email,
+			Groups:         res.Groups,
+			GroupsResolved: res.Presence == auth.GroupsPresent,
+			Issuer:         id.Issuer,
+			Subject:        id.Subject,
 		})
 		if err == nil {
 			return u, nil
@@ -233,9 +244,17 @@ func (s *Server) resolveIdentity(ctx context.Context, id auth.Identity) (model.U
 			return model.User{}, fmt.Errorf("access denied")
 		}
 		if errors.Is(err, store.ErrAccessDenied) {
-			s.logger.Warn("oob login denied: no mapped groups",
-				"idp_user", id.Username, "groups", len(id.Groups))
-			s.publish(events.AuthDenied, id.Username, "", "no mapped directory groups")
+			// İki ayrı sebep, iki ayrı mesaj: "grubu role eşleşmiyor"
+			// ile "dizin bu kullanıcıyı hiç tanımıyor" farklı şeyler ve
+			// ikincisinde eşleme tablosuna bakan yönetici hiçbir şey
+			// bulamaz.
+			reason := "no mapped directory groups"
+			if res.Presence != auth.GroupsPresent {
+				reason = "directory could not resolve this user (" + res.Presence.String() + ")"
+			}
+			s.logger.Warn("oob login denied", "idp_user", id.Username,
+				"reason", reason, "presence", res.Presence.String())
+			s.publish(events.AuthDenied, id.Username, "", reason)
 			return model.User{}, fmt.Errorf("access denied")
 		}
 		s.logger.Error("oob provisioning failed", "idp_user", id.Username, "error", err)

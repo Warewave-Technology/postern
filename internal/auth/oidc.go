@@ -302,15 +302,67 @@ func extractGroups(idToken *oidc.IDToken, claim string) ([]string, error) {
 // LDAP'ın kazandırdığı şey tazelik: token'daki claim giriş anında
 // dondurulmuştur, LDAP ise her sorguda güncel cevap verir.
 type GroupSource interface {
-	Groups(ctx context.Context, id Identity) ([]string, error)
+	Groups(ctx context.Context, id Identity) (GroupResult, error)
+}
+
+/*
+ * GroupPresence, kaynağın kullanıcı hakkında ne SÖYLEYEBİLDİĞİ.
+ *
+ * ⚠️ ÜÇ DEĞER, ÇÜNKÜ İKİSİ YETMİYOR. Eskiden bu arayüz düz bir dilim
+ * döndürüyordu ve boş dilim iki ayrı cevabı birden taşıyordu: "kullanıcı
+ * dizinde var, hiçbir grupta değil" ile "kullanıcı dizinde HİÇ YOK".
+ *
+ * Birincisi gerçek bir cevap ve yetkinin bitmesi demek. İkincisi çoğu
+ * zaman bir yapılandırma hatası: IdP kullanıcıyı "yigit" biliyor, dizinde
+ * kayıt "yigit.basalma". Ölçüldü — ikisi aynı yola düşünce giriş anında
+ * ProvisionUser → SyncRoles bütün SSO rollerini siliyordu; ne bekleme
+ * süresi, ne tavan, ne uyarı. Senkronizasyon döngüsündeki patlama
+ * yarıçapı korumalarının hiçbiri bu yolda yok.
+ */
+type GroupPresence int
+
+const (
+	// GroupsUnknown: kaynak cevap VEREMEDİ. Hiçbir şey çıkarılamaz ve
+	// hiçbir yetki kararı verilemez. Sıfır değer bilerek bu: cevabı
+	// doldurmayı unutan bir kod yolu, yetki silen tarafa değil
+	// "bilmiyorum" tarafına düşer.
+	GroupsUnknown GroupPresence = iota
+	// GroupsPresent: kaynak cevap verdi ve kullanıcıyı TANIYOR. Gruplar
+	// güvenilir; boş olması "hiçbir gruba üye değil" demektir.
+	GroupsPresent
+	// GroupsAbsent: kaynak BAŞARIYLA cevap verdi ve kullanıcıyı
+	// tanımıyor. Bu "yetkisi yok" DEĞİL, "soruyu yanlış sorduk ya da
+	// kişi burada değil" demek; kararı korumalı senkronizasyon yolu
+	// verir, giriş yolu değil.
+	GroupsAbsent
+)
+
+func (p GroupPresence) String() string {
+	switch p {
+	case GroupsPresent:
+		return "present"
+	case GroupsAbsent:
+		return "absent"
+	default:
+		return "unknown"
+	}
+}
+
+// GroupResult, bir grup sorgusunun cevabı.
+type GroupResult struct {
+	Presence GroupPresence
+	Groups   []string
 }
 
 // ClaimGroups, grupları kimliğin kendisinden okur — yani ID token'dan.
 // LDAP yapılandırılmadığında kullanılan varsayılan kaynak.
 type ClaimGroups struct{}
 
-func (ClaimGroups) Groups(_ context.Context, id Identity) ([]string, error) {
-	return id.Groups, nil
+// ⚠️ CLAIM KAYNAĞI HER ZAMAN "PRESENT". Kimlik belirteci kullanıcının
+// KENDİSİNDEN geliyor ve IdP onu az önce doğruladı; "bu kişi kaynakta yok"
+// diye bir hâl yok. Boş grup listesi burada gerçek bir cevaptır.
+func (ClaimGroups) Groups(_ context.Context, id Identity) (GroupResult, error) {
+	return GroupResult{Presence: GroupsPresent, Groups: id.Groups}, nil
 }
 
 // SwitchableGroupSource, çalışırken değiştirilebilen grup kaynağı.
@@ -332,7 +384,7 @@ func NewSwitchableGroupSource(initial GroupSource) *SwitchableGroupSource {
 	return &SwitchableGroupSource{src: initial}
 }
 
-func (s *SwitchableGroupSource) Groups(ctx context.Context, id Identity) ([]string, error) {
+func (s *SwitchableGroupSource) Groups(ctx context.Context, id Identity) (GroupResult, error) {
 	s.mu.RLock()
 	src := s.src
 	s.mu.RUnlock()

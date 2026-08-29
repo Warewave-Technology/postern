@@ -1647,8 +1647,9 @@ func TestProvisionUserRequiresMappedGroup(t *testing.T) {
 	// Hiçbir grubu eşleşmiyor: kullanıcı oluşturulmamalı.
 	_, err := s.ProvisionUser(ctx, ProvisionRequest{
 		Username: "ayse.yilmaz", Email: "ayse@warewave.io",
-		Groups: []string{"hr", "marketing"},
-		Issuer: "https://idp.local", Subject: "sub-ayse",
+		GroupsResolved: true,
+		Groups:         []string{"hr", "marketing"},
+		Issuer:         "https://idp.local", Subject: "sub-ayse",
 	})
 	if !errors.Is(err, ErrAccessDenied) {
 		t.Fatalf("eşleşmesiz sağlama: %v, beklenen ErrAccessDenied", err)
@@ -1664,8 +1665,9 @@ func TestProvisionUserRequiresMappedGroup(t *testing.T) {
 	// Eşleşiyor: kullanıcı oluşur, os_user = username, sso_only doğar.
 	u, err := s.ProvisionUser(ctx, ProvisionRequest{
 		Username: "yigit.basalma", Email: "yigit@warewave.io",
-		Groups: []string{"sysadmins", "hr"},
-		Issuer: "https://idp.local", Subject: "sub-yigit",
+		GroupsResolved: true,
+		Groups:         []string{"sysadmins", "hr"},
+		Issuer:         "https://idp.local", Subject: "sub-yigit",
 	})
 	if err != nil {
 		t.Fatalf("ProvisionUser: %v", err)
@@ -1697,7 +1699,7 @@ func TestProvisionUserSyncsExistingUser(t *testing.T) {
 	}
 
 	req := ProvisionRequest{Username: "yigit.basalma", Email: "yigit@warewave.io",
-		Issuer: "https://idp.local", Subject: "sub-yigit"}
+		Issuer: "https://idp.local", Subject: "sub-yigit", GroupsResolved: true}
 
 	req.Groups = []string{"sysadmins", "dbteam"}
 	u, err := s.ProvisionUser(ctx, req)
@@ -1763,7 +1765,8 @@ func TestProvisionUserRefusesSubjectCollision(t *testing.T) {
 	// Gerçek kullanıcı giriyor ve hesabı kimliğine bağlanıyor.
 	first, err := s.ProvisionUser(ctx, ProvisionRequest{
 		Username: "yigit.basalma", Email: "yigit@warewave.io",
-		Groups: []string{"sysadmins"}, Issuer: issuer, Subject: "sub-gercek",
+		GroupsResolved: true,
+		Groups:         []string{"sysadmins"}, Issuer: issuer, Subject: "sub-gercek",
 	})
 	if err != nil {
 		t.Fatalf("ilk giriş: %v", err)
@@ -1777,7 +1780,8 @@ func TestProvisionUserRefusesSubjectCollision(t *testing.T) {
 	// SALDIRGAN: IdP'de adını aynı yapmış, BAŞKA bir sub.
 	_, err = s.ProvisionUser(ctx, ProvisionRequest{
 		Username: "yigit.basalma", Email: "saldirgan@warewave.io",
-		Groups: []string{"sysadmins"}, Issuer: issuer, Subject: "sub-saldirgan",
+		GroupsResolved: true,
+		Groups:         []string{"sysadmins"}, Issuer: issuer, Subject: "sub-saldirgan",
 	})
 	if err == nil {
 		t.Fatal("HESAP DEVRALINDI: adı çakışan ikinci kimlik hesaba girdi")
@@ -1825,7 +1829,8 @@ func TestProvisionUserFollowsRenamedIdentity(t *testing.T) {
 	const issuer, subject = "https://idp.local", "sub-sabit"
 
 	first, err := s.ProvisionUser(ctx, ProvisionRequest{
-		Username: "yigit.basalma", Groups: []string{"sysadmins"},
+		Username: "yigit.basalma", GroupsResolved: true,
+		Groups: []string{"sysadmins"},
 		Issuer: issuer, Subject: subject,
 	})
 	if err != nil {
@@ -1834,7 +1839,8 @@ func TestProvisionUserFollowsRenamedIdentity(t *testing.T) {
 
 	// Aynı sub, YENİ kullanıcı adı (IdP'de evlenip soyadı değişmiş).
 	second, err := s.ProvisionUser(ctx, ProvisionRequest{
-		Username: "yigit.yeniadi", Groups: []string{"sysadmins"},
+		Username: "yigit.yeniadi", GroupsResolved: true,
+		Groups: []string{"sysadmins"},
 		Issuer: issuer, Subject: subject,
 	})
 	if err != nil {
@@ -1888,7 +1894,8 @@ func TestProvisionUserRefusesReservedAccountNames(t *testing.T) {
 	for _, name := range []string{"root", "postgres", "backup", "www-data", "nobody", "sshd"} {
 		t.Run(name, func(t *testing.T) {
 			_, err := s.ProvisionUser(ctx, ProvisionRequest{
-				Username: name, Groups: []string{"sysadmins"},
+				Username: name, GroupsResolved: true,
+				Groups: []string{"sysadmins"},
 				Issuer: "https://idp.local", Subject: "sub-" + name,
 			})
 			if !errors.Is(err, ErrAccessDenied) {
@@ -1902,7 +1909,8 @@ func TestProvisionUserRefusesReservedAccountNames(t *testing.T) {
 
 	// Sıradan bir ad etkilenmemeli.
 	if _, err := s.ProvisionUser(ctx, ProvisionRequest{
-		Username: "yigit.basalma", Groups: []string{"sysadmins"},
+		Username: "yigit.basalma", GroupsResolved: true,
+		Groups: []string{"sysadmins"},
 		Issuer: "https://idp.local", Subject: "sub-normal",
 	}); err != nil {
 		t.Errorf("sıradan ad reddedildi: %v", err)
@@ -1933,7 +1941,8 @@ func TestProvisionUserAuditsAutomaticAccountCreation(t *testing.T) {
 	}
 
 	if _, err := s.ProvisionUser(ctx, ProvisionRequest{
-		Username: "yeni.kullanici", Groups: []string{"sysadmins"},
+		Username: "yeni.kullanici", GroupsResolved: true,
+		Groups: []string{"sysadmins"},
 		Issuer: "https://idp.local", Subject: "sub-yeni",
 	}); err != nil {
 		t.Fatalf("sağlama başarısız: %v", err)
@@ -1962,5 +1971,95 @@ func TestProvisionUserAuditsAutomaticAccountCreation(t *testing.T) {
 	// verildiğini söylemiyor.
 	if !strings.Contains(entry.Details, "ops") {
 		t.Errorf("details = %q, verilen rolü içermeli", entry.Details)
+	}
+}
+
+/*
+ * Grupları ÖĞRENEMEDİĞİMİZDE roller olduğu gibi kalmalı.
+ *
+ * Ölçülmüş arıza: IdP kullanıcıyı "yigit" biliyor, dizinde kayıt
+ * "yigit.basalma". Dizin "böyle biri yok" diye BAŞARIYLA cevap veriyor,
+ * kaynak boş bir grup listesi döndürüyor ve buradaki kod onu "hiçbir
+ * gruba üye değil" diye okuyup bütün SSO rollerini siliyordu — her
+ * girişte, bekleme süresi olmadan, tavan olmadan, uyarı olmadan.
+ * Senkronizasyon döngüsündeki patlama yarıçapı korumaları bu yolda yok.
+ */
+func TestProvisionUserKeepsRolesWhenGroupsUnresolved(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	seedMappingFixtures(t, s)
+	if err := s.AddGroupMapping(ctx, "sysadmins", "ops", "yigit"); err != nil {
+		t.Fatal(err)
+	}
+
+	req := ProvisionRequest{
+		Username: "yigit.basalma", Email: "yigit@warewave.io",
+		Issuer: "https://idp.local", Subject: "sub-yigit",
+		GroupsResolved: true, Groups: []string{"sysadmins"},
+	}
+	if _, err := s.ProvisionUser(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+
+	// Şimdi kaynak kullanıcıyı bulamıyor: gruplar bilinmiyor.
+	req.GroupsResolved = false
+	req.Groups = nil
+	u, err := s.ProvisionUser(ctx, req)
+	if err != nil {
+		t.Fatalf("bağlı kullanıcı reddedildi: %v", err)
+	}
+	if len(u.Roles) != 1 || u.Roles[0].Name != "ops" {
+		t.Fatalf("roller silinmiş: %+v — dizin cevabı 'bulamadım'ken yetki kararı verilmemeliydi", u.Roles)
+	}
+}
+
+// Grupları öğrenemediğimizde YENİ bir karar da verilmemeli: hesap
+// açmak ya da var olan bir hesabı bu kimliğe bağlamak, tam olarak
+// elimizde olmayan bilgiyi gerektiriyor.
+func TestProvisionUserRefusesNewAccountWhenGroupsUnresolved(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	_, err := s.ProvisionUser(ctx, ProvisionRequest{
+		Username: "yeni.kisi", Email: "yeni@warewave.io",
+		Issuer: "https://idp.local", Subject: "sub-yeni",
+		GroupsResolved: false,
+	})
+	if !errors.Is(err, ErrAccessDenied) {
+		t.Fatalf("hata = %v, beklenen ErrAccessDenied", err)
+	}
+	if _, uerr := s.User(ctx, "yeni.kisi"); !errors.Is(uerr, ErrNotFound) {
+		t.Error("gruplar bilinmezken hesap açılmış")
+	}
+}
+
+// Buna karşılık: kaynak kullanıcıyı TANIYOR ve hiçbir grubu yoksa, bu
+// gerçek bir cevaptır ve SSO rolleri temizlenir. ProvisionUser'ın
+// sözleşmesi bu; düzeltme onu değiştirmemeli.
+func TestProvisionUserStillRevokesWhenPresentWithNoGroups(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	seedMappingFixtures(t, s)
+	if err := s.AddGroupMapping(ctx, "sysadmins", "ops", "yigit"); err != nil {
+		t.Fatal(err)
+	}
+
+	req := ProvisionRequest{
+		Username: "yigit.basalma", Issuer: "https://idp.local", Subject: "sub-yigit",
+		GroupsResolved: true, Groups: []string{"sysadmins"},
+	}
+	if _, err := s.ProvisionUser(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+
+	req.Groups = nil // dizin cevap verdi: artık hiçbir grupta değil
+	u, err := s.ProvisionUser(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(u.Roles) != 0 {
+		t.Fatalf("roller = %+v, beklenen 0 — gerçek bir cevap iptal ettirmeli", u.Roles)
 	}
 }

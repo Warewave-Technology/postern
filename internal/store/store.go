@@ -819,6 +819,22 @@ type ProvisionRequest struct {
 	// Groups, IdP'nin bildirdiği ham grup adları.
 	Groups []string
 
+	/*
+	 * GroupsResolved, grupların GERÇEKTEN öğrenilip öğrenilmediği.
+	 *
+	 * ⚠️ SIFIR DEĞERİ false VE BU KASITLI. false iken SSO rollerine
+	 * HİÇ DOKUNULMAZ. Alanı doldurmayı unutan bir çağrı yolu, rolleri
+	 * TAZELEMEMİŞ olur — rolleri SİLMİŞ değil. İki yanlıştan geri
+	 * dönülebilir olanı bu.
+	 *
+	 * Neden gerekti: kaynak "kullanıcıyı bulamadım" dediğinde de boş
+	 * bir grup listesi geliyordu ve buradaki kod onu "hiçbir gruba üye
+	 * değil" diye okuyup bütün SSO rollerini siliyordu. Giriş yolunda
+	 * ne bekleme süresi ne tavan var; senkronizasyon döngüsündeki
+	 * korumaların hiçbiri burada çalışmıyor.
+	 */
+	GroupsResolved bool
+
 	// Issuer ve Subject, IdP kimliğinin KALICI anahtarı (OIDC "iss" ve
 	// "sub"). Username DEĞİL bunlar eşleştirme anahtarıdır: username
 	// birçok sağlayıcıda değiştirilebilir ve geri dönüştürülebilir.
@@ -875,9 +891,13 @@ func (s *Store) BindIdPSubject(ctx context.Context, username, issuer, subject st
 // Var olan kullanıcı için: eşleşme kalmadıysa kullanıcı SİLİNMEZ (denetim
 // kaydı ona bağlı) ama SSO rolleri temizlenir — erişim biter, iz kalır.
 func (s *Store) ProvisionUser(ctx context.Context, req ProvisionRequest) (model.User, error) {
-	roles, unmapped, err := s.RolesForGroups(ctx, req.Groups)
-	if err != nil {
-		return model.User{}, err
+	var roles, unmapped []string
+	if req.GroupsResolved {
+		var err error
+		roles, unmapped, err = s.RolesForGroups(ctx, req.Groups)
+		if err != nil {
+			return model.User{}, err
+		}
 	}
 
 	// Teşhis kaydı: yönetici neyi eşlemediğini görsün. Hatası girişi
@@ -908,12 +928,28 @@ func (s *Store) ProvisionUser(ctx context.Context, req ProvisionRequest) (model.
 	}
 	if berr == nil {
 		// Bu IdP kimliği zaten bir hesaba bağlı. Kullanıcı adı IdP'de
-		// değişmiş olabilir — sorun değil, aynı kişi. Rolleri tazele ve
-		// O hesabı dön.
-		if serr := s.SyncRoles(ctx, bound.Name, roles); serr != nil {
-			return model.User{}, serr
+		// değişmiş olabilir — sorun değil, aynı kişi.
+		//
+		// Roller YALNIZCA gruplar öğrenilebildiyse tazelenir. Aksi
+		// hâlde hesap olduğu gibi dönüyor: kimlik doğrulandı, yetki
+		// hakkında yeni bir şey öğrenmedik, o hâlde yetkiye
+		// dokunmuyoruz. İptal kararı korumalı senkronizasyon
+		// yolunundur.
+		if req.GroupsResolved {
+			if serr := s.SyncRoles(ctx, bound.Name, roles); serr != nil {
+				return model.User{}, serr
+			}
 		}
 		return s.User(ctx, bound.Name)
+	}
+
+	// Buradan sonrası YENİ bir karar: hesap açmak ya da var olan bir
+	// hesabı bu kimliğe bağlamak. Grupları öğrenemediysek o kararı
+	// verecek bilgi elimizde yok ve varsayılan REDDETMEK.
+	if !req.GroupsResolved {
+		return model.User{}, fmt.Errorf(
+			"store.ProvisionUser[%s]: group membership could not be resolved: %w",
+			req.Username, ErrAccessDenied)
 	}
 
 	existing, err := s.User(ctx, req.Username)

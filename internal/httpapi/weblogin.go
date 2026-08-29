@@ -359,7 +359,7 @@ func (s *Server) resolveIdentity(ctx context.Context, log *slog.Logger, id auth.
 		// Gruplar kaynaktan: OIDC claim'i ya da LDAP. Kaynak arayüzün
 		// arkasında olduğu için buradaki kod hangisini kullandığını
 		// bilmiyor — LDAP eklendiğinde bu satır değişmedi.
-		groups, err := s.groups.Groups(ctx, id)
+		res, err := s.groups.Groups(ctx, id)
 		if err != nil {
 			// Dizin arızası yetki YOKLUĞU değildir: kullanıcıyı sessizce
 			// yetkisiz bırakmak yerine girişi reddediyoruz. Aksi halde
@@ -369,12 +369,20 @@ func (s *Server) resolveIdentity(ctx context.Context, log *slog.Logger, id auth.
 			return model.User{}, err
 		}
 
+		// ⚠️ Bkz. sshd tarafındaki aynı not: "bulamadım" yetki kararı
+		// değildir ve roller o hâlde tazelenmez.
+		if res.Presence != auth.GroupsPresent {
+			log.Warn("directory did not resolve this user; roles left untouched",
+				"idp_user", id.Username, "presence", res.Presence.String())
+		}
+
 		u, err := s.store.ProvisionUser(ctx, store.ProvisionRequest{
-			Username: id.Username,
-			Email:    id.Email,
-			Groups:   groups,
-			Issuer:   id.Issuer,
-			Subject:  id.Subject,
+			Username:       id.Username,
+			Email:          id.Email,
+			Groups:         res.Groups,
+			GroupsResolved: res.Presence == auth.GroupsPresent,
+			Issuer:         id.Issuer,
+			Subject:        id.Subject,
 		})
 		switch {
 		case err == nil:
@@ -395,8 +403,12 @@ func (s *Server) resolveIdentity(ctx context.Context, log *slog.Logger, id auth.
 			// Kimlik geçerli ama hiçbir grubu role eşleşmiyor. Bu bir
 			// yapılandırma boşluğu olabilir: eşlenmemiş gruplar teşhis
 			// tablosunda, yönetici panelden görecek.
-			log.Warn("login denied: no mapped groups",
-				"idp_user", id.Username, "groups", len(id.Groups))
+			log.Warn("login denied",
+				"idp_user", id.Username, "presence", res.Presence.String(),
+				"reason", map[bool]string{
+					true:  "no mapped directory groups",
+					false: "directory could not resolve this user",
+				}[res.Presence == auth.GroupsPresent])
 			return model.User{}, err
 		default:
 			log.Error("provisioning failed", "idp_user", id.Username, "error", err)
