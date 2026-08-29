@@ -3,6 +3,7 @@ import { Me, MyTarget, api } from "./api";
 import { ErrorLine, ListState, useList } from "./admin/common";
 import { ExternalIcon, HostIcon, SearchIcon, ShellIcon } from "./icons";
 import { Fields, describe as explain, matches, parse } from "./query";
+import MyKeys from "./MyKeys";
 
 /**
  * Home — herkesin ekranı: erişebildiğin makineler.
@@ -117,8 +118,8 @@ export default function Home({ me }: { me: Me }) {
 
           {shown.length === 0 ? (
             <p className="state">
-              Nothing matches that filter. Try a label like <code>env: prod</code>,
-              or clear the box.
+              Nothing matches that filter. Try a label like{" "}
+              <code>env: prod</code>, or clear the box.
             </p>
           ) : (
             <div className="card-grid">
@@ -184,6 +185,8 @@ export default function Home({ me }: { me: Me }) {
           )}
         </>
       )}
+
+      <MyKeys />
 
       <p className="note">
         {me.terminal_enabled ? (

@@ -221,6 +221,14 @@ func (s *Server) Handler() http.Handler {
 	// API: oturum ister.
 	mux.Handle("GET /api/me", noStore(s.requireSession(http.HandlerFunc(s.handleMe))))
 
+	// Kendi anahtarlarım. Yazma uçları same-origin: siteler arası bir
+	// POST, kurbanın hesabına anahtar ekletmeye çalışabilirdi.
+	mux.Handle("GET /api/me/keys", noStore(s.requireSession(http.HandlerFunc(s.handleMyKeys))))
+	mux.Handle("POST /api/me/keys",
+		s.requireSession(s.sameOrigin(http.HandlerFunc(s.handleAddMyKey))))
+	mux.Handle("POST /api/me/keys/remove",
+		s.requireSession(s.sameOrigin(http.HandlerFunc(s.handleRemoveMyKey))))
+
 	// Yönetim: oturum + admin + same-origin (admin.go, federation.go).
 	s.registerAdminRoutes(mux)
 	s.registerFederationRoutes(mux)

@@ -169,6 +169,24 @@ export type SyncRun = {
 // AuthMethods, sunucunun yapılandırılmış giriş yolları.
 export type AuthMethods = { oidc: boolean; local: boolean };
 
+// MyKey, kullanıcının kendi açık anahtarı.
+export type MyKey = { fingerprint: string; comment: string; added_at: string };
+
+/*
+ * MyKeys, kendi anahtarlarım ve ekleme kuralının durumu.
+ *
+ * reauth_required: bu hesap ilk anahtarını çoktan eklemiş; yeni bir
+ * anahtar eklemek yeniden kimlik doğrulama istiyor.
+ * reauth_possible: postern'in bu hesap için doğrulayabileceği bir
+ * kimlik bilgisi var mı. Yoksa panel boş yere sır sormamalı, yolu
+ * yöneticiye göstermeli.
+ */
+export type MyKeys = {
+  keys: MyKey[];
+  reauth_required: boolean;
+  reauth_possible: boolean;
+};
+
 export type RecordingState = "none" | "missing" | "partial" | "complete";
 
 export type SessionDetail = Session & {
@@ -381,6 +399,14 @@ export const api = {
   verifyLDAP: (cfg: LDAPCandidate) =>
     req<LDAPTestResult>("POST", "/api/admin/ldap/verify", cfg),
   authMethods: () => req<AuthMethods>("GET", "/api/auth/methods"),
+  myKeys: () => req<MyKeys>("GET", "/api/me/keys"),
+  addMyKey: (authorized_key: string, reauth?: string) =>
+    req<{ ok: boolean }>("POST", "/api/me/keys", {
+      authorized_key,
+      reauth: reauth ?? "",
+    }),
+  removeMyKey: (authorized_key: string) =>
+    req<{ ok: boolean }>("POST", "/api/me/keys/remove", { authorized_key }),
   localLogin: (username: string, secret: string) =>
     req<{ ok: boolean }>("POST", "/auth/local", { username, secret }),
   syncSettings: () => req<SyncSettings>("GET", "/api/admin/sync/settings"),

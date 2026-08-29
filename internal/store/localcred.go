@@ -124,6 +124,36 @@ func (s *Store) RemoveLocalCredential(ctx context.Context, username string) erro
 	return nil
 }
 
+/*
+ * FirstKeyAdded, hesabın ilk anahtarını EKLEMİŞ olup olmadığı.
+ *
+ * ⚠️ SAYIYA DEĞİL DAMGAYA BAKIYOR. "Şu an anahtarı var mı" diye sorsaydık
+ * sil-ve-ekle kuralı tamamen atlardı: oturumu ele geçiren kişi mevcut
+ * anahtarı siler, sayaç sıfırlanır, yeni anahtarı bedavaya ekler. Damga
+ * bir kez konuyor ve bir daha kalkmıyor.
+ */
+func (s *Store) FirstKeyAdded(ctx context.Context, username string) (bool, error) {
+	var at sql.NullInt64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT first_key_added_at FROM users WHERE username = $1;`, username).Scan(&at)
+	if err != nil {
+		return false, translateErr("store.FirstKeyAdded", err)
+	}
+	return at.Valid, nil
+}
+
+// MarkFirstKeyAdded, damgayı koyar. Zaten varsa DOKUNMAZ — ilk anahtarın
+// anı, sonradan eklenenlerle kaymamalı.
+func (s *Store) MarkFirstKeyAdded(ctx context.Context, username string, at time.Time) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE users SET first_key_added_at = COALESCE(first_key_added_at, $1)
+		WHERE username = $2;`, at.Unix(), username)
+	if err != nil {
+		return translateErr("store.MarkFirstKeyAdded", err)
+	}
+	return nil
+}
+
 // LocalCredentialHolder, yerel kimlik bilgisi olan bir hesabın özeti.
 type LocalCredentialHolder struct {
 	Username   string

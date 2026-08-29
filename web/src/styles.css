@@ -2232,3 +2232,45 @@ label > textarea {
   font-size: 12px;
   color: var(--muted);
 }
+
+/* Kendi anahtarlarım kartı. */
+.mykeys {
+  margin-top: 20px;
+}
+.key-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+.key-list li {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--raised);
+  overflow-wrap: anywhere;
+}
+.key-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 560px;
+}
+.key-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.key-form textarea {
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  resize: vertical;
+}
+.key-form button {
+  align-self: flex-start;
+}
