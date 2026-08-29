@@ -35,6 +35,23 @@ type Observation struct {
 	// DOKUNMAZ (bkz. göç 005) — ama rapor bunu ayrıca söylemeli, yoksa
 	// operatör "iptal edildi" okuyup erişimin tamamen bittiğini sanar.
 	ManualRoles int
+
+	/*
+	 * SSORoles, kullanıcının ŞU AN sahip olduğu SSO kaynaklı rol sayısı.
+	 *
+	 * ⚠️ TAVANLARIN DOĞRU SAYMASI İÇİN ŞART. Bu alan yokken "sıfıra
+	 * düşecek" sayacı, dizinde bulunamayan HERKESİ sayıyordu — çoktan
+	 * iptal edilmiş, yıllar önce ayrılmış kullanıcılar dahil. Onlar
+	 * users tablosundan hiç çıkmıyor (DeleteUser oturum kaydı olanı
+	 * reddediyor, sso_only hiç temizlenmiyor), yani her koşuda yeniden
+	 * sayılıyorlardı.
+	 *
+	 * Sonucu ölçüldü: mezun sayısı MinZeroFloor'u ve MaxZeroFraction'ı
+	 * geçtiği anda koşu iptal ediliyor — ve bir daha ASLA geçmiyor,
+	 * çünkü sayı yalnızca büyüyor. Patlama yarıçapı koruması, kalıcı ve
+	 * sessiz bir "hiç kimse iptal edilemez" moduna dönüşüyordu.
+	 */
+	SSORoles int
 }
 
 // Limits, patlama yarıçapı tavanları.
@@ -116,16 +133,22 @@ func BuildPlan(now time.Time, obs []Observation, limits Limits) Plan {
 	}
 
 	unknown := 0
-	zeroing := 0 // iptal EDİLECEK ya da sıfıra düşecek olanlar
+	zeroing := 0 // GERÇEKTEN sıfıra düşecek olanlar
 
 	for _, o := range obs {
 		switch o.Presence {
 		case ldap.PresenceUnknown:
 			unknown++
 		case ldap.PresenceAbsent:
-			zeroing++
+			// ⚠️ KAYBEDECEK BİR ŞEYİ OLANLAR sayılıyor. Sıfır SSO rolüyle
+			// gelen bir kullanıcı bu koşuda hiçbir şey kaybetmez;
+			// onu saymak, tavanı geçmiş bir kesinti varmış gibi
+			// gösterir ve bir daha asla düşmeyen bir sayaç üretir.
+			if o.SSORoles > 0 {
+				zeroing++
+			}
 		case ldap.PresencePresent:
-			if len(o.MappedRoles) == 0 {
+			if len(o.MappedRoles) == 0 && o.SSORoles > 0 {
 				zeroing++
 			}
 		}
@@ -156,6 +179,12 @@ func BuildPlan(now time.Time, obs []Observation, limits Limits) Plan {
 			plan.Unknown = append(plan.Unknown, o.Username)
 
 		case ldap.PresenceAbsent:
+			// Kaybedecek bir şeyi yoksa bu koşunun onunla işi yok:
+			// boş bir SyncRoles yazmak ne bir şey değiştirir ne de
+			// tavanlarda yer tutmalı.
+			if o.SSORoles == 0 {
+				continue
+			}
 			// Grace penceresi: kısa bir çoğaltma gecikmesi yetkileri
 			// silmesin. MissingSince sıfırsa bu, kullanıcının ilk kez
 			// bulunamadığı koşu demektir — henüz bekleme başlamadı.
@@ -171,7 +200,7 @@ func BuildPlan(now time.Time, obs []Observation, limits Limits) Plan {
 
 		case ldap.PresencePresent:
 			ur := UserRoles{Username: o.Username, Roles: o.MappedRoles, ManualRoles: o.ManualRoles}
-			if len(o.MappedRoles) == 0 {
+			if len(o.MappedRoles) == 0 && o.SSORoles > 0 {
 				ur.Revoking = true
 				revoking++
 			}

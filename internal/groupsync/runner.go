@@ -211,6 +211,7 @@ func (r *Runner) run(ctx context.Context, runID int64, dryRun bool, limits Limit
 			Presence:     res.Presence,
 			MissingSince: c.MissingSince,
 			ManualRoles:  c.ManualRoles,
+			SSORoles:     c.SSORoles,
 		}
 
 		if res.Presence == ldap.PresencePresent {

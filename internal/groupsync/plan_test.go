@@ -13,16 +13,30 @@ var now = time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
 // long, Grace süresini kesin aşan bir geçmiş an.
 func long() time.Time { return now.Add(-24 * time.Hour) }
 
+// ⚠️ Yardımcılar SSORoles=1 kuruyor: bu testlerin hepsi "şu an rolü OLAN
+// bir kullanıcı" senaryosunu anlatıyor. Sıfır rolle gelen kullanıcının
+// kaybedecek bir şeyi yoktur ve tavanlarda yer tutmamalıdır — onun için
+// ayrı yardımcı var (alumnus).
 func present(name string, roles ...string) Observation {
-	return Observation{Username: name, Presence: ldap.PresencePresent, MappedRoles: roles}
+	return Observation{Username: name, Presence: ldap.PresencePresent,
+		MappedRoles: roles, SSORoles: 1}
 }
 
 func absent(name string, since time.Time) Observation {
-	return Observation{Username: name, Presence: ldap.PresenceAbsent, MissingSince: since}
+	return Observation{Username: name, Presence: ldap.PresenceAbsent,
+		MissingSince: since, SSORoles: 1}
 }
 
 func unknown(name string) Observation {
-	return Observation{Username: name, Presence: ldap.PresenceUnknown}
+	return Observation{Username: name, Presence: ldap.PresenceUnknown, SSORoles: 1}
+}
+
+// alumnus, çoktan iptal edilmiş ve dizinden çıkmış kullanıcı: users
+// tablosundan hiç silinemiyor (denetim kaydı ona bağlı), sso_only da hiç
+// temizlenmiyor, yani her koşuda yeniden gözlemleniyor.
+func alumnus(name string) Observation {
+	return Observation{Username: name, Presence: ldap.PresenceAbsent,
+		MissingSince: long(), SSORoles: 0}
 }
 
 // EN ÖNEMLİ TEST: dizin cevap veremiyorsa KİMSENİN yetkisi iptal
@@ -143,7 +157,8 @@ func TestGraceWindowHolds(t *testing.T) {
 // bittiğini sanar.
 func TestManualRolesAreReportedSeparately(t *testing.T) {
 	obs := []Observation{
-		{Username: "x", Presence: ldap.PresenceAbsent, MissingSince: long(), ManualRoles: 2},
+		{Username: "x", Presence: ldap.PresenceAbsent, MissingSince: long(),
+			ManualRoles: 2, SSORoles: 1},
 	}
 	plan := BuildPlan(now, obs, DefaultLimits())
 
@@ -257,4 +272,70 @@ func TestUnknownCeilingHasNoFloorOnPurpose(t *testing.T) {
 	if len(plan.Apply) != 0 {
 		t.Errorf("iptal edilen koşuda %d uygulama var", len(plan.Apply))
 	}
+}
+
+/*
+ * Mezunlar tavanı KİLİTLEMEMELİ.
+ *
+ * Ölçülmüş arıza: işten ayrılmış kullanıcı users tablosundan hiç
+ * çıkmıyor — DeleteUser oturum kaydı olanı reddediyor ve sso_only'yi
+ * temizleyen bir yol yok. Dolayısıyla her koşuda yeniden "dizinde yok"
+ * diye gözlemleniyorlar. Sayaç onları da katınca, mezun sayısı tavanı
+ * geçtiği anda koşu iptal ediliyor ve bir daha ASLA düzelmiyor: sayı
+ * yalnızca büyüyor. Patlama yarıçapı koruması, kalıcı ve sessiz bir
+ * "hiç kimse iptal edilemez" moduna dönüşüyordu.
+ */
+func TestAlumniDoNotLatchTheCeiling(t *testing.T) {
+	// 20 aktif kullanıcı, 14 mezun. Eski sayımla 14/34 = %41 > %10 ve
+	// 14 >= 3 — yani her koşu iptal olurdu.
+	var obs []Observation
+	for i := range 20 {
+		obs = append(obs, present(string(rune('a'+i)), "ops"))
+	}
+	for i := range 14 {
+		obs = append(obs, alumnus("mezun"+string(rune('a'+i))))
+	}
+	// Ve aralarında GERÇEK bir ayrılan: rolü var, dizinden çıkmış.
+	obs = append(obs, absent("ayrilan", long()))
+
+	plan := BuildPlan(now, obs, DefaultLimits())
+
+	if plan.Abort != "" {
+		t.Fatalf("mezunlar koşuyu kilitledi: %s", plan.Abort)
+	}
+	var revoked []string
+	for _, a := range plan.Apply {
+		if a.Revoking {
+			revoked = append(revoked, a.Username)
+		}
+	}
+	if len(revoked) != 1 || revoked[0] != "ayrilan" {
+		t.Fatalf("iptal edilenler = %v, [ayrilan] bekleniyordu", revoked)
+	}
+	// Mezunlar plana hiç girmemeli: boş bir yazma ne bir şey değiştirir
+	// ne de raporu doğru kılar.
+	for _, a := range plan.Apply {
+		if strings.HasPrefix(a.Username, "mezun") {
+			t.Errorf("kaybedecek bir şeyi olmayan %q plana girmiş", a.Username)
+		}
+	}
+}
+
+// Buna karşılık: mezunlar GERÇEK bir kesintiyi maskelememeli. Rolü olan
+// herkes aynı anda düşerse koşu yine iptal edilmeli.
+func TestAlumniDoNotMaskARealOutage(t *testing.T) {
+	var obs []Observation
+	for i := range 14 {
+		obs = append(obs, alumnus("mezun"+string(rune('a'+i))))
+	}
+	for i := range 10 {
+		obs = append(obs, present(string(rune('a'+i)))) // var, grubu yok
+	}
+
+	plan := BuildPlan(now, obs, DefaultLimits())
+
+	if plan.Abort == "" {
+		t.Fatal("rolü olan herkes sıfıra düşerken koşu iptal edilmedi")
+	}
+	t.Logf("iptal sebebi: %s", plan.Abort)
 }
