@@ -201,3 +201,47 @@ func (s *Store) LocalCredentialHolders(ctx context.Context) ([]LocalCredentialHo
 	}
 	return out, nil
 }
+
+/*
+ * SetGroupAdmin, dizin GRUBUNDAN gelen yönetici yetkisini uygular.
+ *
+ * ⚠️ CLI'IN VERDİĞİNE DOKUNMAZ. WHERE koşulundaki
+ * `admin_via IS DISTINCT FROM 'cli'` bunun için: acil durum diye elle
+ * açılmış bir yöneticinin, dizinde o grubu görülmediği için sessizce
+ * yetkisini kaybetmesi, tam olarak kaçınılması gereken şey — ve
+ * kaybettiği an, onu geri verecek kişinin de kapısı kapanmış olurdu.
+ *
+ * Rol modelindeki source='sso' / 'manual' ayrımının aynısı: her
+ * mekanizma yalnızca KENDİ verdiğini geri alabiliyor.
+ */
+func (s *Store) SetGroupAdmin(ctx context.Context, username string, admin bool) error {
+	var (
+		via any = nil
+		val     = admin
+	)
+	if admin {
+		via = "group"
+	}
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE users SET is_admin = $1, admin_via = $2
+		WHERE username = $3 AND admin_via IS DISTINCT FROM 'cli';`,
+		val, via, username)
+	if err != nil {
+		return translateErr("store.SetGroupAdmin", err)
+	}
+	// Satır güncellenmemiş olabilir (CLI yöneticisi) — bu bir hata
+	// değil, kuralın kendisi.
+	return nil
+}
+
+// AdminVia, yönetici yetkisinin kaynağını döner: "cli", "group" ya da
+// boş (yönetici değil).
+func (s *Store) AdminVia(ctx context.Context, username string) (string, error) {
+	var via sql.NullString
+	err := s.db.QueryRowContext(ctx,
+		`SELECT admin_via FROM users WHERE username = $1;`, username).Scan(&via)
+	if err != nil {
+		return "", translateErr("store.AdminVia", err)
+	}
+	return via.String, nil
+}

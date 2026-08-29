@@ -205,3 +205,78 @@ func TestFirstKeyStampIsNotMoved(t *testing.T) {
 		t.Fatalf("damga kaymış: %v (beklenen %d)", at, old.Unix())
 	}
 }
+
+/*
+ * ⚠️ GRUP MANTIĞI, CLI'IN VERDİĞİ YÖNETİCİLİĞİ GERİ ALAMAZ.
+ *
+ * Acil durum için elle açılmış bir yöneticinin, dizinde o grubu
+ * görülmediği için sessizce yetkisini kaybetmesi tam olarak kaçınılması
+ * gereken şey — ve kaybettiği an, yetkiyi geri verecek kişinin de kapısı
+ * kapanmış olurdu. Rol modelindeki source='manual' korumasının aynısı.
+ */
+func TestGroupAdminCannotRevokeCLIAdmin(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	if _, err := s.CreateUser(ctx, "ops", "ops@warewave.io", "ops"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetUserAdmin(ctx, "ops", true); err != nil {
+		t.Fatal(err)
+	}
+	if via, err := s.AdminVia(ctx, "ops"); err != nil || via != "cli" {
+		t.Fatalf("kaynak = %q (%v), \"cli\" bekleniyordu", via, err)
+	}
+
+	// Dizin "bu kişi admin grubunda değil" diyor.
+	if err := s.SetGroupAdmin(ctx, "ops", false); err != nil {
+		t.Fatal(err)
+	}
+
+	u, err := s.User(ctx, "ops")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !u.Admin {
+		t.Fatal("grup mantığı CLI'ın verdiği yöneticiliği kaldırdı — " +
+			"acil durum hesabı dizindeki bir eksiklik yüzünden kapanır")
+	}
+}
+
+// Buna karşılık grup, KENDİ verdiğini geri alabilmeli: dizinden
+// çıkarılan kişi yönetici kalmamalı.
+func TestGroupAdminRevokesItsOwnGrant(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	if _, err := s.CreateUser(ctx, "ayse", "ayse@warewave.io", "ayse"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetGroupAdmin(ctx, "ayse", true); err != nil {
+		t.Fatal(err)
+	}
+	u, err := s.User(ctx, "ayse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !u.Admin {
+		t.Fatal("grup yöneticiliği uygulanmadı")
+	}
+	if via, _ := s.AdminVia(ctx, "ayse"); via != "group" {
+		t.Fatalf("kaynak = %q, \"group\" bekleniyordu", via)
+	}
+
+	if err := s.SetGroupAdmin(ctx, "ayse", false); err != nil {
+		t.Fatal(err)
+	}
+	u, err = s.User(ctx, "ayse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Admin {
+		t.Fatal("gruptan çıkarılan kişi hâlâ yönetici")
+	}
+	if via, _ := s.AdminVia(ctx, "ayse"); via != "" {
+		t.Fatalf("kaynak = %q, boş bekleniyordu", via)
+	}
+}

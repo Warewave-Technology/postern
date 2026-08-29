@@ -45,6 +45,9 @@ func (s *Server) registerFederationRoutes(mux *http.ServeMux) {
 	// host üzerinde `postern sync runs` ile görülebiliyordu — yani
 	// pratikte hiç görülmüyordu.
 	mux.Handle("GET /api/admin/sync/runs", admin(s.adminSyncRuns))
+	// Yönetici grubunun ÖNİZLEMESİ: kaydetmeden önce kimlere yetki
+	// verildiğini gösterir.
+	mux.Handle("POST /api/admin/ldap/admin-group/preview", admin(s.adminAdminGroupPreview))
 }
 
 // --- grup eşlemeleri ---
@@ -419,6 +422,7 @@ var knownSettingKeys = map[string]bool{
 	ldap.KeyGroupNameFrom:  true,
 	ldap.KeyGroupScope:     true,
 	ldap.KeyAuthEnabled:    true,
+	ldap.KeyAdminGroup:     true,
 
 	// Dizin senkronizasyonu LDAP'ın bir özelliği ve LDAP panelden
 	// yönetiliyor; ayarlarının yalnızca YAML'da olması, en çok

@@ -1301,8 +1301,16 @@ func (s *Store) RemovePublicKey(ctx context.Context, username string, keyBlob []
 // SetUserAdmin, uygulama yönetim yetkisini verir ya da alır.
 // Kullanıcı yoksa ErrNotFound.
 func (s *Store) SetUserAdmin(ctx context.Context, username string, admin bool) error {
+	// admin_via = 'cli': bu yetkiyi grup mantığı geri ALAMAZ. Acil durum
+	// için elle açılan bir yöneticinin, dizinde o grubu görülmediği için
+	// sessizce yetkisini kaybetmesi tam olarak kaçınılması gereken şey.
+	via := any(nil)
+	if admin {
+		via = "cli"
+	}
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE users SET is_admin = $1 WHERE username = $2;`, admin, username)
+		`UPDATE users SET is_admin = $1, admin_via = $2 WHERE username = $3;`,
+		admin, via, username)
 	if err != nil {
 		return translateErr("store.SetUserAdmin", err)
 	}

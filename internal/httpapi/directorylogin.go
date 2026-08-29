@@ -171,6 +171,9 @@ func (s *Server) directoryLogin(w http.ResponseWriter, r *http.Request,
 		s.storeErr(w, "auth.directory", serr)
 		return
 	}
+	// Yönetici yetkisi de dizinden: gruplar BURADA gerçekten çözüldü,
+	// yani uygulamak güvenli (bkz. applyGroupAdmin'deki not).
+	s.applyGroupAdmin(r.Context(), u.Name, res.Groups)
 
 	token, err := s.webSessions.Create(u.Name)
 	if err != nil {

@@ -414,6 +414,23 @@ func (s *Server) resolveIdentity(ctx context.Context, log *slog.Logger, id auth.
 		})
 		switch {
 		case err == nil:
+			/*
+			 * ⚠️ Yönetici yetkisi de aynı kaynaktan. İKİ KAPI TEK
+			 * KURAL: dizinle giren ile IdP ile giren aynı yoldan
+			 * yönetici olmalı, yoksa "hangi kapıdan girdiğine göre
+			 * yetkin değişir" gibi açıklanamaz bir davranış çıkar.
+			 *
+			 * YALNIZCA sağlama BAŞARILI olduğunda ve gruplar gerçekten
+			 * çözüldüğünde: reddedilmiş bir kullanıcıya yetki
+			 * uygulamak ya da bir dizin arızasında herkesin
+			 * yöneticiliğini kaldırmak, ikisi de kabul edilemez.
+			 */
+			if res.Presence == auth.GroupsPresent {
+				s.applyGroupAdmin(ctx, u.Name, res.Groups)
+				if fresh, ferr := s.store.User(ctx, u.Name); ferr == nil {
+					u = fresh
+				}
+			}
 			return u, nil
 		case errors.Is(err, store.ErrIdentityConflict):
 			// Kullanıcı adı var olan bir hesapla eşleşiyor ama o hesap
