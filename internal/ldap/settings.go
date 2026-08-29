@@ -25,6 +25,7 @@ const (
 	KeyGroupBase      = "ldap.group_base"
 	KeyGroupFilter    = "ldap.group_filter"
 	KeyGroupNameFrom  = "ldap.group_name_from"
+	KeyGroupScope     = "ldap.group_scope"
 )
 
 // SecretKeys, şifrelenerek saklanması gereken ayarlar.
@@ -67,6 +68,7 @@ func LoadConfig(ctx context.Context, db *store.Store) (Config, error) {
 		KeyGroupBase:      &cfg.GroupBase,
 		KeyGroupFilter:    &cfg.GroupFilter,
 		KeyGroupNameFrom:  &cfg.GroupNameFrom,
+		KeyGroupScope:     &cfg.GroupScope,
 	} {
 		v, err := get(key)
 		if err != nil {

@@ -200,3 +200,81 @@ func TestCheckScheme(t *testing.T) {
 		})
 	}
 }
+
+/*
+ * Grup KAPSAMI: aynı adlı grup başka bir OU'da açılarak rol basılamamalı.
+ *
+ * Ölçülmüş açık: normalize() grup adını DN'in yalnızca ilk bileşeninden
+ * okuyor ve LDAP'ta benzersizlik EBEVEYN BAŞINA. cn=sysadmins zaten
+ * varken bir alt-OU'da ikincisi açılabiliyor, ve ikisi de "sysadmins"e
+ * çözülüyordu. Grup açma yetkisi devredilmiş her kurumda bu, istediğin
+ * rolü kendine basmak demekti.
+ */
+func TestGroupScopeDirectRefusesNestedGroups(t *testing.T) {
+	const base = "ou=groups,dc=corp,dc=local"
+
+	inside := []string{
+		"cn=sysadmins," + base,
+		"CN=SysAdmins,OU=Groups,DC=Corp,DC=Local", // harf duyarsız
+		"cn=x, ou=groups, dc=corp, dc=local",      // boşluklu
+	}
+	for _, dn := range inside {
+		if !inGroupScope(dn, base, ScopeDirect) {
+			t.Errorf("doğrudan çocuk kapsam dışı sayıldı: %q", dn)
+		}
+	}
+
+	outside := []string{
+		"cn=sysadmins,ou=teams," + base,  // BİR seviye daha derin
+		"cn=sysadmins,ou=a,ou=b," + base, // daha da derin
+		base,                             // tabanın kendisi grup değil
+		"cn=sysadmins,dc=corp,dc=local",
+		`cn=sysadmins,ou=evil\,ou=groups,dc=corp,dc=local`, // kaçış tuzağı
+	}
+	for _, dn := range outside {
+		if inGroupScope(dn, base, ScopeDirect) {
+			t.Errorf("KAPSAM DIŞINDAKİ grup doğrudan çocuk sayıldı: %q", dn)
+		}
+	}
+
+	// subtree kipinde iç içe olan yine sayılır — ama o kip yalnızca
+	// group_name_from="dn" ile açılabiliyor (bkz. New).
+	if !inGroupScope("cn=sysadmins,ou=teams,"+base, base, ScopeSubtree) {
+		t.Error("subtree kipinde iç içe grup sayılmadı")
+	}
+}
+
+// subtree + cn birlikte REDDEDİLMELİ: ikisi birlikte tam olarak
+// kapatılan açığı geri getirir.
+func TestNewRefusesSubtreeScopeWithCNNames(t *testing.T) {
+	cfg := Config{
+		URL: "ldaps://dc.corp.local", UserBase: "ou=people,dc=x",
+		UserFilter: "(uid=%s)", GroupAttribute: "memberOf",
+		GroupBase: "ou=groups,dc=x", GroupScope: ScopeSubtree,
+	}
+	if _, err := New(cfg); err == nil {
+		t.Error("group_scope=subtree, group_name_from=cn ile kabul edildi — " +
+			"alt-OU'daki aynı adlı grup yine rol basardı")
+	}
+
+	cfg.GroupNameFrom = "dn"
+	if _, err := New(cfg); err != nil {
+		t.Errorf("subtree + dn reddedildi: %v — tam DN ile çakışma olamaz", err)
+	}
+}
+
+// Ayar hiç yazılmamışsa KORUYAN taraf seçilmeli.
+func TestNewDefaultsToDirectScope(t *testing.T) {
+	cfg := Config{
+		URL: "ldaps://dc.corp.local", UserBase: "ou=people,dc=x",
+		UserFilter: "(uid=%s)", GroupAttribute: "memberOf",
+		GroupBase: "ou=groups,dc=x",
+	}
+	src, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if src.cfg.GroupScope != ScopeDirect {
+		t.Fatalf("varsayılan kapsam = %q, %q bekleniyordu", src.cfg.GroupScope, ScopeDirect)
+	}
+}

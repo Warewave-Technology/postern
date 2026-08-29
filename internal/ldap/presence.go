@@ -47,6 +47,15 @@ func (p Presence) String() string {
 type LookupResult struct {
 	Presence Presence
 	Groups   []string
+
+	// OutOfScope, kullanıcının üye olduğu ama grup KAPSAMI dışında
+	// kaldığı için sayılmayan grupların ham DN'leri.
+	//
+	// Teşhis için: kapsam varsayılanı "direct" olduğunda, gruplarını bir
+	// OU daha derinde tutan bir kurulum yükseltmeden sonra rol
+	// kaybeder. Bunu sessizce yapmak, operatörü kaybolan yetkinin
+	// sebebini arayarak saatlerce dolaştırırdı.
+	OutOfScope []string
 }
 
 // Lookup, kullanıcının dizinde olup olmadığını ve gruplarını döner.
@@ -73,7 +82,7 @@ func (s *Source) Lookup(ctx context.Context, id auth.Identity) (LookupResult, er
 	}
 	defer conn.Close()
 
-	userDN, attrGroups, err := s.findUser(conn, id.Username)
+	userDN, attrGroups, outOfScope, err := s.findUser(conn, id.Username)
 	if err != nil {
 		return LookupResult{Presence: PresenceUnknown}, err
 	}
@@ -84,16 +93,21 @@ func (s *Source) Lookup(ctx context.Context, id auth.Identity) (LookupResult, er
 	}
 
 	if s.cfg.GroupAttribute != "" {
-		return LookupResult{Presence: PresencePresent, Groups: s.normalizeAll(attrGroups)}, nil
+		return LookupResult{
+			Presence:   PresencePresent,
+			Groups:     s.normalizeAll(attrGroups),
+			OutOfScope: outOfScope,
+		}, nil
 	}
 
-	groups, err := s.searchGroups(conn, userDN)
+	groups, searchOutOfScope, err := s.searchGroups(conn, userDN)
 	if err != nil {
 		// Kullanıcıyı BULDUK ama gruplarını okuyamadık. Present demek,
 		// "grupları yok" diye okunup yetkilerinin silinmesine yol açardı.
 		return LookupResult{Presence: PresenceUnknown}, err
 	}
-	return LookupResult{Presence: PresencePresent, Groups: groups}, nil
+	return LookupResult{Presence: PresencePresent, Groups: groups,
+		OutOfScope: searchOutOfScope}, nil
 }
 
 // Probe, dizinin ŞU AN veri döndürüp döndürmediğini sorar.

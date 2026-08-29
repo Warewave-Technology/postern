@@ -321,6 +321,12 @@ func (s *Server) adminTestLDAP(w http.ResponseWriter, r *http.Request) {
 		res["groups"] = nonNil(lr.Groups)
 		res["roles"] = nonNil(roles)
 		res["unmapped"] = nonNil(unmapped)
+		// ⚠️ KAPSAM DIŞI KALANLAR AYRICA SÖYLENİYOR. group_scope
+		// varsayılanı "direct"; gruplarını bir OU daha derinde tutan bir
+		// kurulum yükseltmeden sonra rol kaybeder ve bunu sessizce
+		// yapmak, operatörü kaybolan yetkinin sebebini arayarak
+		// dolaştırır.
+		res["out_of_scope"] = nonNil(lr.OutOfScope)
 	}
 
 	writeJSON(w, http.StatusOK, res)
@@ -349,6 +355,7 @@ var knownSettingKeys = map[string]bool{
 	ldap.KeyGroupBase:      true,
 	ldap.KeyGroupFilter:    true,
 	ldap.KeyGroupNameFrom:  true,
+	ldap.KeyGroupScope:     true,
 
 	// Dizin senkronizasyonu LDAP'ın bir özelliği ve LDAP panelden
 	// yönetiliyor; ayarlarının yalnızca YAML'da olması, en çok

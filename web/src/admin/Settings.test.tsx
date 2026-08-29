@@ -146,3 +146,59 @@ describe("LDAP kullanici sorgusu", () => {
     expect(screen.getAllByText("none").length).toBeGreaterThan(0);
   });
 });
+
+/*
+ * Kapsam dışı kalan gruplar EKRANDA yazmalı.
+ *
+ * group_scope varsayılanı "direct" olduğu için, gruplarını bir OU daha
+ * derinde tutan mevcut bir kurulum yükseltmeden sonra rol kaybediyor.
+ * Bunu sessizce yapmak, operatörü kaybolan yetkinin sebebini arayarak
+ * saatlerce dolaştırır — teşhis aracının söylemesi gereken tam olarak bu.
+ */
+describe("grup kapsami uyarisi", () => {
+  it("kapsam disinda kalan gruplari sayar ve adlarini gosterir", async () => {
+    vi.spyOn(api, "settings").mockResolvedValue(configured);
+    vi.spyOn(api, "syncSettings").mockResolvedValue(sync);
+    vi.spyOn(api, "testLDAP").mockResolvedValue({
+      ok: true,
+      presence: "present",
+      groups: ["dbas"],
+      roles: ["dba"],
+      unmapped: [],
+      out_of_scope: ["cn=lab,ou=teams,ou=groups,dc=corp"],
+    });
+
+    await runLookup("ayse");
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/not counted because they sit outside/i),
+      ).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByText(/cn=lab,ou=teams,ou=groups,dc=corp/),
+    ).toBeInTheDocument();
+  });
+
+  it("kapsam disinda grup yoksa uyari cikmaz", async () => {
+    vi.spyOn(api, "settings").mockResolvedValue(configured);
+    vi.spyOn(api, "syncSettings").mockResolvedValue(sync);
+    vi.spyOn(api, "testLDAP").mockResolvedValue({
+      ok: true,
+      presence: "present",
+      groups: ["dbas"],
+      roles: ["dba"],
+      unmapped: [],
+      out_of_scope: [],
+    });
+
+    await runLookup("ayse");
+
+    await waitFor(() =>
+      expect(screen.getByText(/mapped to roles/i)).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByText(/sit outside the group scope/i),
+    ).not.toBeInTheDocument();
+  });
+});

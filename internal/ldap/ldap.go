@@ -68,7 +68,40 @@ type Config struct {
 	// farklı OU'lardaki aynı adlı iki grup birleşir. Bu kabul edilemezse
 	// "dn" seçilir ve eşlemeler tam DN yazılır.
 	GroupNameFrom string
+
+	/*
+	 * GroupScope, grubun taban DN'e göre nerede durabileceği:
+	 * "direct" (varsayılan) ya da "subtree".
+	 *
+	 * ⚠️ VARSAYILAN "direct" VE BU BİR GÜVENLİK KARARI.
+	 *
+	 * GroupNameFrom="cn" iken grup adı DN'in yalnızca ilk bileşeninden
+	 * okunuyor. Ölçüldü:
+	 *
+	 *     normalize("cn=sysadmins,ou=teams,ou=groups,dc=corp") → "sysadmins"
+	 *
+	 * LDAP'ta benzersizlik EBEVEYN BAŞINA. Yani cn=sysadmins zaten
+	 * varken, bir alt-OU'da aynı adla ikinci bir grup açılabiliyor ve
+	 * postern ikisini de aynı role çözüyordu. Grup açma yetkisi
+	 * devredilmiş her kurumda (self-servis portal, departman OU'su,
+	 * yüklenici alt ağacı) bu, "istediğim rolü kendime basarım"
+	 * demekti.
+	 *
+	 * "direct" bunu kapatır: grup, taban DN'in DOĞRUDAN çocuğu olmak
+	 * zorunda, ve orada benzersizliği dizinin kendisi garanti ediyor.
+	 *
+	 * "subtree" YALNIZCA GroupNameFrom="dn" ile geçerli — orada eşleme
+	 * anahtarı tam DN olduğu için çakışma zaten imkânsız. cn ile
+	 * birlikte reddediliyor (bkz. New).
+	 */
+	GroupScope string
 }
+
+// Grup kapsam değerleri.
+const (
+	ScopeDirect  = "direct"
+	ScopeSubtree = "subtree"
+)
 
 // Source, LDAP'a soran GroupSource gerçekleştirmesi.
 type Source struct {
@@ -115,6 +148,34 @@ func New(cfg Config) (*Source, error) {
 	}
 	if cfg.GroupNameFrom != "cn" && cfg.GroupNameFrom != "dn" {
 		return nil, fmt.Errorf("ldap.New: group_name_from must be \"cn\" or \"dn\" (got %q)", cfg.GroupNameFrom)
+	}
+
+	// ⚠️ VARSAYILAN "direct". Sıfır değeri geniş kapsam olsaydı, ayarı
+	// hiç duymamış her kurulum yetki yükseltmesine açık kalırdı —
+	// güvenlik ayarının varsayılanı, unutulduğunda KORUYAN taraf olmalı.
+	if cfg.GroupScope == "" {
+		cfg.GroupScope = ScopeDirect
+	}
+	if cfg.GroupScope != ScopeDirect && cfg.GroupScope != ScopeSubtree {
+		return nil, fmt.Errorf("ldap.New: group_scope must be %q or %q (got %q)",
+			ScopeDirect, ScopeSubtree, cfg.GroupScope)
+	}
+	/*
+	 * subtree + cn REDDEDİLİYOR.
+	 *
+	 * Bu ikisi birlikte, grup adını DN'in ilk bileşeninden okuyup onu
+	 * dizinin herhangi bir derinliğinden kabul etmek demek. LDAP'ta
+	 * benzersizlik ebeveyn başına olduğu için, alt-OU'ya açılan
+	 * cn=sysadmins gerçek olanla aynı role çözülür. Ölçüldü.
+	 *
+	 * "dn" ile subtree güvenli: eşleme anahtarı tam DN, çakışma yok.
+	 */
+	if cfg.GroupScope == ScopeSubtree && cfg.GroupNameFrom != "dn" {
+		return nil, fmt.Errorf(
+			"ldap.New: group_scope %q needs group_name_from \"dn\"; with %q the group name "+
+				"is only the first DN component, and a group of the same name in any sub-OU "+
+				"would resolve to the same role",
+			ScopeSubtree, cfg.GroupNameFrom)
 	}
 
 	return &Source{cfg: cfg}, nil
@@ -275,7 +336,7 @@ func (s *Source) Groups(ctx context.Context, id auth.Identity) (auth.GroupResult
 }
 
 // findUser, kullanıcının DN'ini ve (varsa) grup özniteliğini döner.
-func (s *Source) findUser(conn *goldap.Conn, username string) (string, []string, error) {
+func (s *Source) findUser(conn *goldap.Conn, username string) (string, []string, []string, error) {
 	attrs := []string{"dn"}
 	if s.cfg.GroupAttribute != "" {
 		attrs = append(attrs, s.cfg.GroupAttribute)
@@ -290,33 +351,38 @@ func (s *Source) findUser(conn *goldap.Conn, username string) (string, []string,
 
 	res, err := conn.Search(req)
 	if err != nil {
-		return "", nil, fmt.Errorf("ldap: user search: %w", err)
+		return "", nil, nil, fmt.Errorf("ldap: user search: %w", err)
 	}
 	if len(res.Entries) == 0 {
-		return "", nil, nil
+		return "", nil, nil, nil
 	}
 	if len(res.Entries) > 1 {
 		// Belirsiz kimlik: hangi kişinin grupları alınacağı bilinemez.
 		// Sessizce ilkini seçmek yanlış kişiye yetki vermek olurdu.
-		return "", nil, fmt.Errorf("ldap: user %q matches %d entries; tighten user_filter", username, len(res.Entries))
+		return "", nil, nil, fmt.Errorf("ldap: user %q matches %d entries; tighten user_filter", username, len(res.Entries))
 	}
 
 	entry := res.Entries[0]
-	var groups []string
+	var groups, outOfScope []string
 	if s.cfg.GroupAttribute != "" {
 		// KAPSAM SÜZGECİ: yalnızca group_base ALTINDAKİ gruplar sayılır.
 		// Gerekçe New()'deki group_base kontrolünde.
 		for _, dn := range entry.GetAttributeValues(s.cfg.GroupAttribute) {
-			if underBase(dn, s.cfg.GroupBase) {
+			if inGroupScope(dn, s.cfg.GroupBase, s.cfg.GroupScope) {
 				groups = append(groups, dn)
+				continue
 			}
+			// Kapsam dışında kalanı ATMIYORUZ, ayırıyoruz: operatör
+			// yükseltmeden sonra "grubum neden düştü" diye sorduğunda
+			// cevabı teşhis ekranında görmeli.
+			outOfScope = append(outOfScope, dn)
 		}
 	}
-	return entry.DN, groups, nil
+	return entry.DN, groups, outOfScope, nil
 }
 
 // searchGroups, üyeliğin grubun üstünde durduğu şemalar için.
-func (s *Source) searchGroups(conn *goldap.Conn, userDN string) ([]string, error) {
+func (s *Source) searchGroups(conn *goldap.Conn, userDN string) ([]string, []string, error) {
 	req := goldap.NewSearchRequest(
 		s.cfg.GroupBase, goldap.ScopeWholeSubtree, goldap.NeverDerefAliases,
 		0, int(dialTimeout.Seconds()), false,
@@ -326,14 +392,23 @@ func (s *Source) searchGroups(conn *goldap.Conn, userDN string) ([]string, error
 
 	res, err := conn.Search(req)
 	if err != nil {
-		return nil, fmt.Errorf("ldap: group search: %w", err)
+		return nil, nil, fmt.Errorf("ldap: group search: %w", err)
 	}
 
+	// ⚠️ KAPSAM SÜZGECİ BURADA DA. Arama tabanı group_base olsa bile
+	// ScopeWholeSubtree alt-OU'lardaki grupları getiriyor; memberOf
+	// yolundaki kuralın burada uygulanmaması, aynı yetki yükseltmesini
+	// ikinci bir kapıdan açık bırakırdı.
 	out := make([]string, 0, len(res.Entries))
+	var outOfScope []string
 	for _, e := range res.Entries {
+		if !inGroupScope(e.DN, s.cfg.GroupBase, s.cfg.GroupScope) {
+			outOfScope = append(outOfScope, e.DN)
+			continue
+		}
 		out = append(out, s.normalize(e.DN))
 	}
-	return out, nil
+	return out, outOfScope, nil
 }
 
 func (s *Source) normalizeAll(values []string) []string {
@@ -390,6 +465,34 @@ func (s *Source) normalize(value string) string {
  * "herhalde uygundur" diye kabul etmek, bu fonksiyonun koruduğu şeyi
  * tam olarak geri verirdi.
  */
+/*
+ * inGroupScope, bir grup DN'inin yapılandırılmış kapsamda olup
+ * olmadığını söyler.
+ *
+ * "direct": taban DN'in DOĞRUDAN çocuğu. Ad çakışmasını dizinin kendi
+ * benzersizlik kuralına devrediyor — aynı ebeveyn altında iki
+ * cn=sysadmins olamaz.
+ *
+ * "subtree": altındaki her yer. Yalnızca tam DN ile eşleme yapılırken
+ * güvenli.
+ */
+func inGroupScope(dn, base, scope string) bool {
+	if scope == ScopeSubtree {
+		return underBase(dn, base)
+	}
+
+	b, berr := goldap.ParseDN(base)
+	if berr != nil || len(b.RDNs) == 0 {
+		return false
+	}
+	d, derr := goldap.ParseDN(dn)
+	if derr != nil {
+		return false
+	}
+	// Tam bir bileşen daha uzun VE tabanın altında: doğrudan çocuk.
+	return len(d.RDNs) == len(b.RDNs)+1 && b.AncestorOfFold(d)
+}
+
 func underBase(dn, base string) bool {
 	b, err := goldap.ParseDN(base)
 	if err != nil || len(b.RDNs) == 0 {

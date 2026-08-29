@@ -585,6 +585,21 @@ export default function Settings() {
                     </p>
                   )}
 
+                  {!!test?.out_of_scope?.length && (
+                    <p className="msg msg-warn" role="status">
+                      <b>
+                        {test.out_of_scope.length} group(s) are not counted
+                        because they sit outside the group scope.
+                      </b>{" "}
+                      postern reads the group name from the first component of
+                      the DN, and LDAP only guarantees that name is unique under
+                      one parent — so a group of the same name in any sub-OU
+                      would resolve to the same role. Only direct children of
+                      the group base count. Not counted:{" "}
+                      <code>{test.out_of_scope.join(", ")}</code>
+                    </p>
+                  )}
+
                   {test?.presence === "present" && (
                     <dl className="kv">
                       <dt>groups</dt>

@@ -145,6 +145,10 @@ export type LDAPTestResult = {
   groups?: string[];
   roles?: string[];
   unmapped?: string[];
+  // Kullanıcının üye olduğu ama grup kapsamı dışında kaldığı için
+  // sayılmayan gruplar. Boş olmayan bir liste, yükseltmede rol kaybı
+  // demek — ekranda sessiz kalmamalı.
+  out_of_scope?: string[];
 };
 
 export type RecordingState = "none" | "missing" | "partial" | "complete";
