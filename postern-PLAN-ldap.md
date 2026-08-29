@@ -94,7 +94,8 @@ yüzeyin en sona kalması için seçildi.
 
 ### S6.0 — Bugün kırık olanı düzelt (yeni özellik yok)
 
-> **Durum:** 0.1, 0.3, 0.4 bitti ve commit'lendi (`4235ab9`, `569f56b`, `1ba63e3`).
+> **Durum:** S6.0 tamamlandı (`4235ab9`, `569f56b`, `1ba63e3`, `bf7eec0`, `a5e4a83`).
+> S6.1 tamamlandı (`5ce17a9` P0, `3f0b0fb` yerel kapı).
 
 Bunlar LDAP dönüşümünden bağımsız olarak değerli; sonrasını de-riske ediyor.
 
@@ -112,7 +113,7 @@ kurum, `direct`'e geçince rol kaybeder. Bu yüzden 0.2 şunlarla birlikte
 gider: `postern doctor ldap-groups` (hangi eşlemenin kapsam dışı kalacağını
 listeler), senkron raporunda ayrı bir satır, ve sürüm notlarında en üstte.
 
-### S6.1 — Kendi kullanıcı veritabanı ve yerel kapı
+### S6.1 — Kendi kullanıcı veritabanı ve yerel kapı ✅
 
 P0 tek başına gönderilemez: kapısı olmayan bir panel açmak olurdu. Bu yüzden
 ayırma işi yerel kapıyla birlikte gidiyor.
@@ -136,7 +137,7 @@ ayırma işi yerel kapıyla birlikte gidiyor.
 atayabiliyor (`admin.go:306`), dolayısıyla bir yerel giriş yönetilen her
 makinede oturuma dönüşebilir.
 
-### S6.2 — SSH kapısında LDAP kimliği
+### S6.2 — SSH kapısında LDAP kimliği ← SIRADAKİ
 
 - **Migration 015**: `user_identities` (OIDC ve LDAP'ı tek tabloda toplayan
   `kind` + `issuer` + `subject`), `directory_keys` (`key_blob` **tek sütun
