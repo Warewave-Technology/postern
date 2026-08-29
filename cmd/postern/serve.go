@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"github.com/warewave/postern/internal/groupsync"
+	"github.com/warewave/postern/internal/proxy"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -166,6 +168,155 @@ func newServeCmd() *cobra.Command {
 				return fmt.Errorf("ldap configuration is invalid: %w", gerr)
 			}
 
+			/*
+			 * Oturum açılışında yetki tazeleme.
+			 *
+			 * ⚠️ İKİ KAPI, TEK KURAL: bu fonksiyon proxy.Deps üzerinden
+			 * hem SSH kanalına hem web terminaline gidiyor.
+			 *
+			 * Üç cevap, üç ayrı karar:
+			 *   present + açık  → roller tazelenir
+			 *   present + KAPALI → oturum reddedilir (rol silinmez)
+			 *   absent           → oturum reddedilir (rol silinmez)
+			 *   unknown          → hiçbir şey; saklanan rollerle devam
+			 *
+			 * Kapalı hesabın reddedilmesi, eski "SSO kullanıcısı
+			 * anahtarla giremez" kuralının koruduğu şeyin yerine geçen
+			 * asıl mekanizma. Bir hesabı devre dışı bırakmak işten
+			 * ayrılmanın İLK adımı ve AD'de bu ne girişi siler ne de
+			 * grup üyeliklerini kaldırır — yalnızca gruplara bakan bir
+			 * tazeleme o hesabı içeri alırdı.
+			 *
+			 * Unknown'da reddetmiyoruz: bir dizin kesintisi herkesi
+			 * dışarıda bırakırdı. Bedeli açık ve kabul edilmiş —
+			 * dizinden silinip dizini de düşüren biri saklanan
+			 * rolleriyle girebilir.
+			 */
+			refreshTTL := 30 * time.Second
+			var refreshMu sync.Mutex
+			type refreshVerdict struct {
+				at  time.Time
+				err error
+			}
+			refreshCache := map[string]refreshVerdict{}
+
+			freshen := func(c context.Context, username string) error {
+				/*
+				 * ⚠️ ÖNBELLEK BİR YÜK KORUMASI. Tazeleme
+				 * policy.Authorize'dan ÖNCE çalışıyor, yani kimliği
+				 * doğrulanmış HERHANGİ bir anahtar sahibi — hiç rolü
+				 * olmayan biri bile — var olan bir hedefin adını
+				 * yazarak dizine tam bir TCP+TLS+bind maliyeti
+				 * çıkartabiliyor (ldap.connect'te havuz yok). Kanal
+				 * sınırı bunu bağlantı başına 10'a indiriyor ama
+				 * bağlantı sayısı 256; önbelleksiz bu bir yükseltici
+				 * olurdu.
+				 *
+				 * KARAR önbellekleniyor, yalnızca "sorduk mu" değil:
+				 * aksi hâlde TTL boyunca kapalı hesabın reddi de
+				 * atlanırdı.
+				 */
+				refreshMu.Lock()
+				v, ok := refreshCache[username]
+				fresh := ok && time.Since(v.at) < refreshTTL
+				refreshMu.Unlock()
+				if fresh {
+					return v.err
+				}
+
+				verdict := func(err error) error {
+					refreshMu.Lock()
+					refreshCache[username] = refreshVerdict{at: time.Now(), err: err}
+					refreshMu.Unlock()
+					return err
+				}
+
+				if !auth.CanResolveByUsername(groupSwitch) {
+					// Kaynağa adla sorulamıyor (gruplar token'dan
+					// okunuyor). Boş bir cevabı "grubu yok" sanmak
+					// bütün SSO rollerini silerdi.
+					return verdict(nil)
+				}
+
+				res, err := groupSwitch.Groups(c, auth.Identity{Username: username})
+				if err != nil {
+					// Arıza önbelleklenmiyor: dizin geri geldiğinde
+					// TTL beklenmesin.
+					return err
+				}
+
+				switch res.Presence {
+				case auth.GroupsPresent:
+					if res.Disabled {
+						logger.Warn("session refused: account is disabled in the directory",
+							"user", username, "reason", res.DisabledReason)
+						return verdict(fmt.Errorf("%w: %s", proxy.ErrDirectoryRefused, res.DisabledReason))
+					}
+				case auth.GroupsAbsent:
+					logger.Warn("session refused: the directory has no such user",
+						"user", username)
+					return verdict(fmt.Errorf("%w: not in the directory", proxy.ErrDirectoryRefused))
+				default:
+					logger.Warn("session: directory could not answer; using stored roles",
+						"user", username)
+					return verdict(nil)
+				}
+
+				roles, _, rerr := db.RolesForGroups(c, res.Groups)
+				if rerr != nil {
+					return rerr
+				}
+				if serr := db.SyncRoles(c, username, roles); serr != nil {
+					return serr
+				}
+				return verdict(nil)
+			}
+			s.UseRoleRefresher(freshen)
+
+			/*
+			 * ⚠️ SENKRONİZASYON DÖNGÜSÜ PANELE BAĞLI DEĞİL.
+			 *
+			 * P0'da HTTP yüzeyi OIDC'den ayrılırken döngü web bloğunun
+			 * içinde kalmıştı ve sonucu ölçüldü: LDAP'ı CLI'dan kuran,
+			 * http bölümü olmayan bir kurulumda — yani tam olarak
+			 * desteklediğimiz "SSH bastion + dizin" kurulumunda —
+			 * HİÇBİR ŞEY iptal etmiyordu. Oturum açılışındaki kontrol
+			 * bir oturumu reddeder ama rolleri temizlemez; temizleyen
+			 * tek şey bu döngü.
+			 */
+			syncFallback := groupsync.Settings{
+				Enabled: cfg.Sync.Enabled,
+				Config: groupsync.Config{
+					Interval: cfg.Sync.IntervalOrDefault(),
+					Timeout:  cfg.Sync.TimeoutOrDefault(),
+					DryRun:   cfg.Sync.DryRun,
+					Limits: groupsync.Limits{
+						Grace:              cfg.Sync.GraceOrDefault(),
+						MaxZeroFraction:    cfg.Sync.MaxZeroFractionOrDefault(),
+						MinZeroFloor:       cfg.Sync.MinZeroFloorOrDefault(),
+						MaxUnknownFraction: cfg.Sync.MaxUnknownFractionOrDefault(),
+						MaxRevokePerRun:    cfg.Sync.MaxRevokePerRunOrDefault(),
+					},
+				},
+			}
+			{
+				runner := groupsync.NewRunner(db,
+					func(c context.Context) (groupsync.Directory, error) {
+						// HER koşuda yeniden açılıyor: LDAP ayarı
+						// panelden değişebiliyor ve yakalanmış bir
+						// kaynak, çoktan değiştirilmiş bir dizine
+						// sorgu atmaya devam ederdi.
+						return ldap.SourceFromStore(c, db)
+					},
+					syncFallback.Config, logger)
+
+				runner.UseSettings(func(c context.Context) (groupsync.Settings, error) {
+					return groupsync.LoadSettings(c, db, syncFallback)
+				})
+
+				go runner.Start(ctx)
+			}
+
 			// Kimlik sağlayıcı: yalnızca yapılandırıldıysa. Yoksa
 			// tarayıcı giriş akışı ve SSH'taki OOB kapısı HİÇ
 			// kurulmuyor — kapalı özellik, kapalı yüzey.
@@ -241,42 +392,8 @@ func newServeCmd() *cobra.Command {
 				 * yoksa dosyadaki değer geçerli, yani mevcut kurulumlar
 				 * yükseltmeden sonra ayar kaybetmiyor.
 				 */
-				syncFallback := groupsync.Settings{
-					Enabled: cfg.Sync.Enabled,
-					Config: groupsync.Config{
-						Interval: cfg.Sync.IntervalOrDefault(),
-						Timeout:  cfg.Sync.TimeoutOrDefault(),
-						DryRun:   cfg.Sync.DryRun,
-						Limits: groupsync.Limits{
-							Grace:              cfg.Sync.GraceOrDefault(),
-							MaxZeroFraction:    cfg.Sync.MaxZeroFractionOrDefault(),
-							MinZeroFloor:       cfg.Sync.MinZeroFloorOrDefault(),
-							MaxUnknownFraction: cfg.Sync.MaxUnknownFractionOrDefault(),
-							MaxRevokePerRun:    cfg.Sync.MaxRevokePerRunOrDefault(),
-						},
-					},
-				}
-				// Panel de ETKİN değeri gösterebilsin: saklanan ayar
-				// yokken geçerli olan bu.
+				// Panel de ETKİN değeri gösterebilsin.
 				webAPI.SetSyncDefaults(syncFallback)
-
-				{
-					runner := groupsync.NewRunner(db,
-						func(c context.Context) (groupsync.Directory, error) {
-							// HER koşuda yeniden açılıyor: LDAP ayarı
-							// panelden değişebiliyor ve yakalanmış bir
-							// kaynak, çoktan değiştirilmiş bir dizine
-							// sorgu atmaya devam ederdi.
-							return ldap.SourceFromStore(c, db)
-						},
-						syncFallback.Config, logger)
-
-					runner.UseSettings(func(c context.Context) (groupsync.Settings, error) {
-						return groupsync.LoadSettings(c, db, syncFallback)
-					})
-
-					go runner.Start(ctx)
-				}
 
 				// Web terminali yalnızca açıkça istendiğinde: rota bile
 				// kurulmaz. Bağımlılıklar sshd'ninkilerle AYNI — iki kapı

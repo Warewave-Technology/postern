@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -120,3 +121,58 @@ func TestVerifyRefusesWrongSecretAndBrokenVerifier(t *testing.T) {
 		}
 	}
 }
+
+/*
+ * ⚠️ TOKEN'DAN OKUYAN KAYNAK ADLA SORGULANAMAZ.
+ *
+ * Bu ayrım olmadan oturum açılışındaki tazeleme şöyle patlıyordu: boş
+ * bir kimlikle sorulan ClaimGroups "present, hiç grup yok" diye cevap
+ * veriyor, çağıran onu gerçek bir cevap sanıp bütün SSO rollerini
+ * siliyor. Yani tazeleme niyetiyle yazılan kod, bu üründe iki kez
+ * düzeltilmiş olan "bilgisizliği cevap sanmak" hatasını üçüncü kez
+ * yapardı.
+ */
+func TestClaimGroupsCannotBeResolvedByUsername(t *testing.T) {
+	if CanResolveByUsername(ClaimGroups{}) {
+		t.Fatal("ClaimGroups adla sorgulanabilir sayıldı — anahtarla açılan " +
+			"oturumda token yok ve boş cevap 'grubu yok' diye okunurdu")
+	}
+
+	// Boş kimlikle sorulunca ne döndüğünü de gösterelim: "present, boş".
+	// Yeteneği sormadan buna güvenmek tam olarak tehlikeli olan şey.
+	res, err := ClaimGroups{}.Groups(context.Background(), Identity{Username: "yigit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Presence != GroupsPresent || len(res.Groups) != 0 {
+		t.Fatalf("beklenmeyen cevap: %+v", res)
+	}
+}
+
+// Değiştirilebilir kaynak, O ANDAKİ kaynağın yeteneğini bildirmeli:
+// panelden dizinden claim'e dönen bir kurulumda yakalanmış bir "evet"
+// yanlış olurdu.
+func TestSwitchableSourceReportsCurrentCapability(t *testing.T) {
+	sw := NewSwitchableGroupSource(ClaimGroups{})
+	if CanResolveByUsername(sw) {
+		t.Fatal("claim kaynağıyla başlayan sarmalayıcı 'adla sorgulanabilir' dedi")
+	}
+
+	sw.Set(fakeDirectory{})
+	if !CanResolveByUsername(sw) {
+		t.Fatal("dizin kaynağına dönünce yetenek güncellenmedi")
+	}
+
+	sw.Set(ClaimGroups{})
+	if CanResolveByUsername(sw) {
+		t.Fatal("claim'e geri dönünce yetenek hâlâ 'evet'")
+	}
+}
+
+// fakeDirectory, adla sorgulanabilen bir kaynak.
+type fakeDirectory struct{}
+
+func (fakeDirectory) Groups(context.Context, Identity) (GroupResult, error) {
+	return GroupResult{Presence: GroupsPresent, Groups: []string{"sysadmins"}}, nil
+}
+func (fakeDirectory) ResolvesByUsername() bool { return true }

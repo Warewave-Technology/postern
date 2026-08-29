@@ -299,6 +299,13 @@ func (s *Source) Test(ctx context.Context) error {
 	return nil
 }
 
+// ResolvesByUsername, dizin kaynağı adla sorgulanabilir (auth.UsernameResolver).
+//
+// Zaten yaptığı tek şey bu: user_filter'daki %s kullanıcı adıyla
+// değiştiriliyor. Token'a ihtiyacı yok, dolayısıyla anahtarla açılan bir
+// oturumda da sorulabiliyor.
+func (s *Source) ResolvesByUsername() bool { return true }
+
 /*
  * Groups, kullanıcının gruplarını ÜÇ DEĞERLİ cevapla döner
  * (auth.GroupSource).
@@ -327,7 +334,12 @@ func (s *Source) Groups(ctx context.Context, id auth.Identity) (auth.GroupResult
 
 	switch res.Presence {
 	case PresencePresent:
-		return auth.GroupResult{Presence: auth.GroupsPresent, Groups: res.Groups}, nil
+		return auth.GroupResult{
+			Presence:       auth.GroupsPresent,
+			Groups:         res.Groups,
+			Disabled:       res.Disabled,
+			DisabledReason: res.DisabledReason,
+		}, nil
 	case PresenceAbsent:
 		return auth.GroupResult{Presence: auth.GroupsAbsent}, nil
 	default:
@@ -336,11 +348,14 @@ func (s *Source) Groups(ctx context.Context, id auth.Identity) (auth.GroupResult
 }
 
 // findUser, kullanıcının DN'ini ve (varsa) grup özniteliğini döner.
-func (s *Source) findUser(conn *goldap.Conn, username string) (string, []string, []string, error) {
+func (s *Source) findUser(conn *goldap.Conn, username string) (userEntry, error) {
 	attrs := []string{"dn"}
 	if s.cfg.GroupAttribute != "" {
 		attrs = append(attrs, s.cfg.GroupAttribute)
 	}
+	// Hesabın açık olup olmadığı, grup üyeliğinden AYRI bir soru
+	// (bkz. liveness.go). Aynı aramada geliyor: ikinci bir tur yok.
+	attrs = append(attrs, livenessAttrs...)
 
 	req := goldap.NewSearchRequest(
 		s.cfg.UserBase, goldap.ScopeWholeSubtree, goldap.NeverDerefAliases,
@@ -351,15 +366,15 @@ func (s *Source) findUser(conn *goldap.Conn, username string) (string, []string,
 
 	res, err := conn.Search(req)
 	if err != nil {
-		return "", nil, nil, fmt.Errorf("ldap: user search: %w", err)
+		return userEntry{}, fmt.Errorf("ldap: user search: %w", err)
 	}
 	if len(res.Entries) == 0 {
-		return "", nil, nil, nil
+		return userEntry{}, nil
 	}
 	if len(res.Entries) > 1 {
 		// Belirsiz kimlik: hangi kişinin grupları alınacağı bilinemez.
 		// Sessizce ilkini seçmek yanlış kişiye yetki vermek olurdu.
-		return "", nil, nil, fmt.Errorf("ldap: user %q matches %d entries; tighten user_filter", username, len(res.Entries))
+		return userEntry{}, fmt.Errorf("ldap: user %q matches %d entries; tighten user_filter", username, len(res.Entries))
 	}
 
 	entry := res.Entries[0]
@@ -378,7 +393,27 @@ func (s *Source) findUser(conn *goldap.Conn, username string) (string, []string,
 			outOfScope = append(outOfScope, dn)
 		}
 	}
-	return entry.DN, groups, outOfScope, nil
+	disabled, why := accountDisabled(entry)
+	return userEntry{
+		DN: entry.DN, Groups: groups, OutOfScope: outOfScope,
+		Disabled: disabled, DisabledReason: why,
+	}, nil
+}
+
+// userEntry, findUser'ın dizinden okuduğu her şey.
+//
+// Ayrı bir tip: dönüş değeri sayısı arttıkça hangisinin ne olduğu
+// çağrı yerinde kaybolmaya başlamıştı.
+type userEntry struct {
+	DN         string
+	Groups     []string
+	OutOfScope []string
+
+	// Disabled, hesabın dizinde kapatılmış olduğu. DisabledReason hangi
+	// özniteliğin söylediğini taşıyor — operatör "neden giremiyorum"
+	// sorusunun cevabını logda görmeli.
+	Disabled       bool
+	DisabledReason string
 }
 
 // searchGroups, üyeliğin grubun üstünde durduğu şemalar için.

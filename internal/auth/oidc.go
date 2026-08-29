@@ -352,6 +352,44 @@ func (p GroupPresence) String() string {
 type GroupResult struct {
 	Presence GroupPresence
 	Groups   []string
+
+	/*
+	 * Disabled, kaynağın bu hesabı KAPATTIĞINI söylemesi.
+	 *
+	 * ⚠️ GroupsPresent İLE BİRLİKTE GELİR ve gelmesi normaldir: bir
+	 * hesabı devre dışı bırakmak dizinde girişi silmez, grup
+	 * üyeliklerini de kaldırmaz. Yalnızca Presence'a bakan bir çağıran,
+	 * işten ayrılmada ve olay müdahalesinde atılan İLK adımı görmezden
+	 * gelmiş olur.
+	 */
+	Disabled       bool
+	DisabledReason string
+}
+
+/*
+ * UsernameResolver, kullanıcıyı YALNIZCA ADIYLA çözebilen kaynak.
+ *
+ * ⚠️ AYRIM HAYATİ. Grupları token'dan okuyan kaynak (ClaimGroups) bunu
+ * yapamaz: elinde bir belirteç yokken sorulacak bir şey yoktur. Oysa
+ * anahtarla açılan bir SSH oturumunda token YOK — yalnızca postern'in
+ * kendi kaydındaki kullanıcı adı var.
+ *
+ * Bu ayrım olmadan tazeleme şöyle patlıyordu: boş bir kimlikle sorulan
+ * ClaimGroups "present, hiç grup yok" diye cevap veriyor ve çağıran onu
+ * gerçek bir cevap sanıp bütün SSO rollerini siliyor. Yani tazeleme
+ * niyetiyle yazılan kod, tam da bu oturumda iki kez düzelttiğimiz
+ * "bilgisizliği cevap sanmak" hatasını üçüncü kez yapardı.
+ */
+type UsernameResolver interface {
+	ResolvesByUsername() bool
+}
+
+// CanResolveByUsername, kaynağa adla sorulup sorulamayacağı.
+// Arayüzü uygulamayan kaynak SORULAMAZ sayılır — varsayılan, bilmediğimiz
+// bir kaynağa güvenmemek.
+func CanResolveByUsername(src GroupSource) bool {
+	r, ok := src.(UsernameResolver)
+	return ok && r.ResolvesByUsername()
 }
 
 // ClaimGroups, grupları kimliğin kendisinden okur — yani ID token'dan.
@@ -393,6 +431,16 @@ func (s *SwitchableGroupSource) Groups(ctx context.Context, id Identity) (GroupR
 
 // Set, kaynağı değiştirir. Süregelen sorgular eski kaynakla biter;
 // sonrakiler yenisini kullanır.
+// ResolvesByUsername, o ANDAKİ kaynağın yeteneğini bildirir. Panelden
+// kaynak değiştiğinde cevap da değişiyor — yakalanmış bir "evet",
+// dizinden claim'e dönen bir kurulumda yanlış olurdu.
+func (s *SwitchableGroupSource) ResolvesByUsername() bool {
+	s.mu.RLock()
+	src := s.src
+	s.mu.RUnlock()
+	return CanResolveByUsername(src)
+}
+
 func (s *SwitchableGroupSource) Set(src GroupSource) {
 	s.mu.Lock()
 	s.src = src

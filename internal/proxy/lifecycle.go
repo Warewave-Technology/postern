@@ -50,6 +50,17 @@ var (
 	ErrUnavailable = errors.New("proxy: session unavailable")
 )
 
+/*
+ * ErrDirectoryRefused, kimlik kaynağının bu kullanıcı için oturumu
+ * reddettiği: dizinde YOK ya da hesap KAPATILMIŞ.
+ *
+ * Arızadan ayrı bir hata olması şart. "Cevap veremedim" ile "bu kişi
+ * artık burada değil" aynı yola düşerse, bir dizin kesintisi ya herkesi
+ * dışarıda bırakır ya da kapatılmış hesapları içeri alır — hangi tarafa
+ * eğdiğimize bakmaksızın yanlış.
+ */
+var ErrDirectoryRefused = errors.New("proxy: the directory no longer vouches for this user")
+
 // Deps, oturum açmak için gereken altyapı. Hem sshd.Server hem
 // httpapi.Server bunu kurar.
 type Deps struct {
@@ -75,6 +86,23 @@ type Deps struct {
 	// yani hiçbir şey çağırmadıkça postern hedefte kullanıcının oturumu
 	// dışında bir şey çalıştırmaz.
 	Probe ProbePolicy
+
+	/*
+	 * FreshenRoles, oturum AÇILIRKEN kullanıcının rollerini aktif kimlik
+	 * kaynağından tazeler. nil ise tazeleme yapılmaz.
+	 *
+	 * ⚠️ NEDEN BURADA: iki kapı (SSH kanalı ve web terminali) tek
+	 * fonksiyondan geçiyor, yani kural ikisine birden uygulanıyor —
+	 * "iki kapı, tek gerçek". Kimlik doğrulama geri çağrısında değil,
+	 * çünkü orası el sıkışmanın içi: bir handshake'te birden çok kez
+	 * çağrılıyor ve orada ağ isteği yapmak, kimliği doğrulanmamış bir
+	 * bağlantıyı dizine karşı bir yükseltici hâline getirirdi.
+	 *
+	 * ErrDirectoryRefused dönerse oturum REDDEDİLİR; başka bir hata
+	 * yalnızca loglanır ve saklanan rollerle devam edilir (dizin arızası
+	 * yetki yokluğu değildir).
+	 */
+	FreshenRoles func(ctx context.Context, username string) error
 
 	// Events, canlı izleme akışı. nil ise olay yayınlanmaz.
 	//
@@ -266,6 +294,55 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 		}
 		log.Error("user lookup failed", "error", err)
 		return nil, fmt.Errorf("proxy.Open: %w", ErrUnavailable)
+	}
+
+	/*
+	 * ⚠️ YETKİ TAZELİĞİ BURADA SAĞLANIYOR.
+	 *
+	 * Eskiden bunu sağlayan şey bir REDDETMEYDİ: SSO'ya bağlı kullanıcı
+	 * anahtarla giremiyordu, çünkü anahtar kapısı kimlik sağlayıcıya
+	 * bakmıyor ve roller yalnızca SSO girişinde tazeleniyordu. SSH'ın
+	 * anahtara sabitlenmesiyle o reddetme, dizin kullanıcılarının SSH'ını
+	 * tamamen kapatır hâle geldi.
+	 *
+	 * Yerine tazeliği buraya taşıdık: kimlik ZATEN doğrulanmış, kanal
+	 * sayısı sınırlı (listen.max_channels_per_conn), ve bir oturum açmak
+	 * insan hızında bir olay. Yani ne kimliksiz bir yükseltici ne de
+	 * sıcak bir yol.
+	 *
+	 * Hata oturumu düşürmüyor: tazeleyemedik diye erişimi kesmek, dizin
+	 * arızasını yetki kaybına çevirmek olurdu. Tazeleme fonksiyonunun
+	 * kendisi "bulamadım" ile "cevap veremedim"i ayırt ediyor.
+	 */
+	if u.SSOOnly && deps.FreshenRoles != nil {
+		ferr := deps.FreshenRoles(ctx, u.Name)
+		switch {
+		case errors.Is(ferr, ErrDirectoryRefused):
+			/*
+			 * ⚠️ OTURUM REDDEDİLİYOR, ROL SİLİNMİYOR.
+			 *
+			 * Kaynak bu hesabı ya tanımıyor ya da kapatmış. İkisi de
+			 * "bu kişi artık burada değil" demek ve anahtar kapısında
+			 * bunu yok saymak, hesabı devre dışı bırakmayı — işten
+			 * ayrılmanın İLK adımını — etkisiz kılardı.
+			 *
+			 * Hiçbir şey YAZMIYORUZ: iptal, patlama yarıçapı
+			 * korumaları olan senkronizasyon döngüsünün işi. Burada
+			 * yalnızca bu oturuma hayır deniyor, ki bu bir arızada
+			 * geri alınabilir bir karardır.
+			 */
+			log.Warn("session refused: directory no longer vouches for this user",
+				"reason", ferr)
+			return nil, fmt.Errorf("proxy.Open: %w", ErrAccessDenied)
+		case ferr != nil:
+			log.Warn("role refresh failed; continuing with stored roles", "error", ferr)
+		default:
+			if refreshed, rerr := deps.Store.User(ctx, u.Name); rerr == nil {
+				u = refreshed
+			} else {
+				log.Error("user reload after refresh failed", "error", rerr)
+			}
+		}
 	}
 
 	d := policy.Authorize(u, target, "")

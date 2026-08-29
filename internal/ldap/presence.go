@@ -48,6 +48,18 @@ type LookupResult struct {
 	Presence Presence
 	Groups   []string
 
+	/*
+	 * Disabled, dizinin bu hesabı KAPATTIĞINI söylemesi.
+	 *
+	 * ⚠️ PresencePresent İLE BİRLİKTE GELEBİLİR ve gelmesi normal:
+	 * bir hesabı devre dışı bırakmak girişi silmez, grup üyeliklerini
+	 * de kaldırmaz. Yalnızca gruplara bakan bir çağıran o hesabı
+	 * "burada ve şu rollere sahip" diye okur — işten ayrılma ve olay
+	 * müdahalesinde atılan İLK adımı görmezden gelmiş olur.
+	 */
+	Disabled       bool
+	DisabledReason string
+
 	// OutOfScope, kullanıcının üye olduğu ama grup KAPSAMI dışında
 	// kaldığı için sayılmayan grupların ham DN'leri.
 	//
@@ -82,11 +94,11 @@ func (s *Source) Lookup(ctx context.Context, id auth.Identity) (LookupResult, er
 	}
 	defer conn.Close()
 
-	userDN, attrGroups, outOfScope, err := s.findUser(conn, id.Username)
+	ue, err := s.findUser(conn, id.Username)
 	if err != nil {
 		return LookupResult{Presence: PresenceUnknown}, err
 	}
-	if userDN == "" {
+	if ue.DN == "" {
 		// findUser boş DN'i yalnızca arama BAŞARILI olup sıfır giriş
 		// döndürdüğünde veriyor — aranan tam da bu.
 		return LookupResult{Presence: PresenceAbsent}, nil
@@ -94,20 +106,24 @@ func (s *Source) Lookup(ctx context.Context, id auth.Identity) (LookupResult, er
 
 	if s.cfg.GroupAttribute != "" {
 		return LookupResult{
-			Presence:   PresencePresent,
-			Groups:     s.normalizeAll(attrGroups),
-			OutOfScope: outOfScope,
+			Presence:       PresencePresent,
+			Groups:         s.normalizeAll(ue.Groups),
+			OutOfScope:     ue.OutOfScope,
+			Disabled:       ue.Disabled,
+			DisabledReason: ue.DisabledReason,
 		}, nil
 	}
 
-	groups, searchOutOfScope, err := s.searchGroups(conn, userDN)
+	groups, searchOutOfScope, err := s.searchGroups(conn, ue.DN)
 	if err != nil {
 		// Kullanıcıyı BULDUK ama gruplarını okuyamadık. Present demek,
 		// "grupları yok" diye okunup yetkilerinin silinmesine yol açardı.
 		return LookupResult{Presence: PresenceUnknown}, err
 	}
 	return LookupResult{Presence: PresencePresent, Groups: groups,
-		OutOfScope: searchOutOfScope}, nil
+		OutOfScope:     searchOutOfScope,
+		Disabled:       ue.Disabled,
+		DisabledReason: ue.DisabledReason}, nil
 }
 
 // Probe, dizinin ŞU AN veri döndürüp döndürmediğini sorar.

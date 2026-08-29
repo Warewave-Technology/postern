@@ -29,15 +29,33 @@ func (s *Server) publicKeyCallback(conn ssh.ConnMetadata, key ssh.PublicKey) (*s
 		return nil, fmt.Errorf("auth.publicKeyCallback[%s]: %w", conn.RemoteAddr(), err)
 	}
 
-	// SSO'ya bağlı kullanıcı anahtarla giremez.
-	//
-	// İki şeyi birden korur: IdP'de kapatılan hesabın erişimi GERÇEKTEN
-	// biter (anahtar kapısı IdP'ye bakmıyordu), ve yetki tazeliği korunur
-	// (roller yalnızca SSO girişinde senkronize ediliyor).
-	if u.SSOOnly {
-		s.logger.Warn("public key rejected for sso-only user",
+	/*
+	 * ⚠️ SSO'YA BAĞLI KULLANICI, YETKİSİ TAZELENEBİLİYORSA anahtarla
+	 * girebilir.
+	 *
+	 * Eskiden koşulsuz reddediliyordu ve gerekçesi doğruydu: anahtar
+	 * kapısı kimlik sağlayıcıya bakmıyor, roller yalnızca SSO girişinde
+	 * senkronize ediliyordu, yani anahtar bayat bir yetkiyi süresiz
+	 * taşıyabilirdi.
+	 *
+	 * Artık tazelik oturum AÇILIRKEN sağlanıyor (proxy.Open,
+	 * FreshenRoles): kimlik doğrulanmış, kanal sayısı sınırlı, ve iki
+	 * kapı da aynı fonksiyondan geçiyor. O yüzden reddetmeye gerek
+	 * kalmadı — SSH'ın anahtara sabitlendiği bir üründe bu reddetme
+	 * dizin kullanıcılarının SSH'ını tamamen kapatırdı.
+	 *
+	 * AMA KOŞULSUZ AÇMIYORUZ. Tazeleme ancak grup kaynağı kullanıcı
+	 * ADIYLA sorgulanabiliyorsa mümkün; grupları token'dan okuyan bir
+	 * kurulumda (ClaimGroups) anahtarla açılan oturumda sorulacak bir
+	 * şey yok. Orada eski gerekçe hâlâ geçerli ve reddetme duruyor.
+	 */
+	if u.SSOOnly && !auth.CanResolveByUsername(s.groups) {
+		s.logger.Warn("public key rejected: sso-only user and roles cannot be refreshed without a token",
 			"user", u.Name, "remote", conn.RemoteAddr().String())
-		return nil, fmt.Errorf("auth.publicKeyCallback[%s]: user %s is sso-only: access denied", conn.RemoteAddr(), u.Name)
+		return nil, fmt.Errorf(
+			"auth.publicKeyCallback[%s]: user %s is governed by the identity provider "+
+				"and their roles cannot be refreshed from a key session: access denied",
+			conn.RemoteAddr(), u.Name)
 	}
 
 	return &ssh.Permissions{
