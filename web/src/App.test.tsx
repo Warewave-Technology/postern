@@ -22,9 +22,14 @@ describe("App önyükleme", () => {
   // döngü. 401 ile 500 ayrı ekranlar olmalı.
   it("401'de giris ekrani gosterir", async () => {
     vi.spyOn(api, "me").mockRejectedValue(new ApiError(401, "unauthenticated"));
+    vi.spyOn(api, "authMethods").mockResolvedValue({ oidc: true });
 
     render(<App />);
-    await waitFor(() => expect(screen.getByText(/Sign in with your identity provider/i)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Sign in with your identity provider/i),
+      ).toBeInTheDocument(),
+    );
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
@@ -34,7 +39,9 @@ describe("App önyükleme", () => {
     render(<App />);
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
 
-    expect(screen.queryByText(/Sign in with your identity provider/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Sign in with your identity provider/i),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
   });
 
@@ -42,14 +49,22 @@ describe("App önyükleme", () => {
     vi.spyOn(api, "me").mockRejectedValue(new TypeError("Failed to fetch"));
 
     render(<App />);
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/reach postern/i));
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(/reach postern/i),
+    );
   });
 
   it("Retry istegi yeniden gonderir", async () => {
-    const spy = vi.spyOn(api, "me").mockRejectedValue(new ApiError(500, "boom"));
+    const spy = vi
+      .spyOn(api, "me")
+      .mockRejectedValue(new ApiError(500, "boom"));
 
     render(<App />);
-    await waitFor(() => expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument());
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /retry/i }),
+      ).toBeInTheDocument(),
+    );
 
     spy.mockResolvedValue(me);
     vi.spyOn(api, "myTargets").mockResolvedValue(myTargets);
@@ -92,9 +107,15 @@ describe("App gezinmesi", () => {
     render(<App />);
     await screen.findByRole("button", { name: "Home" });
 
-    expect(screen.queryByRole("button", { name: "Settings" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Users" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Admin log" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Settings" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Users" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Admin log" }),
+    ).not.toBeInTheDocument();
   });
 
   it("Settings acilinca sol bolum listesi cikar ve secili bolum isaretli olur", async () => {
@@ -104,14 +125,24 @@ describe("App gezinmesi", () => {
     vi.spyOn(api, "sessions").mockResolvedValue([]);
 
     render(<App />);
-    await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Settings" }),
+    );
 
     const overview = await screen.findByRole("button", { name: "Overview" });
     expect(overview).toHaveAttribute("aria-current", "page");
     expect(overview).not.toBeDisabled();
 
     // Bölümlerin tamamı burada; üst sekmelerde değil.
-    for (const label of ["Users", "Roles", "Mappings", "Targets", "LDAP", "Sessions", "Admin log"]) {
+    for (const label of [
+      "Users",
+      "Roles",
+      "Mappings",
+      "Targets",
+      "LDAP",
+      "Sessions",
+      "Admin log",
+    ]) {
       expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
     }
   });
@@ -128,8 +159,12 @@ describe("App kabuk baglantisi", () => {
     render(<App />);
     await screen.findByText("web01");
 
-    expect(screen.queryByRole("link", { name: /open a shell/i })).not.toBeInTheDocument();
-    expect(screen.getByText(/browser terminal is switched off/i)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /open a shell/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/browser terminal is switched off/i),
+    ).toBeInTheDocument();
   });
 
   // ⚠️ DÜĞME DEĞİL BAĞLANTI ve yeni sekmede açılıyor: orta tık ve
@@ -140,7 +175,9 @@ describe("App kabuk baglantisi", () => {
     vi.spyOn(api, "myTargets").mockResolvedValue(myTargets);
 
     render(<App />);
-    const link = await screen.findByRole("link", { name: /open a shell on web01 in a new tab/i });
+    const link = await screen.findByRole("link", {
+      name: /open a shell on web01 in a new tab/i,
+    });
 
     expect(link).toHaveAttribute("href", "/shell/web01");
     expect(link).toHaveAttribute("target", "_blank");
@@ -161,7 +198,9 @@ describe("App kabuk baglantisi", () => {
 
     await userEvent.type(screen.getByLabelText(/filter targets/i), "env: prod");
 
-    await waitFor(() => expect(screen.queryByText("db01")).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryByText("db01")).not.toBeInTheDocument(),
+    );
     expect(screen.getByText("web01")).toBeInTheDocument();
   });
 });
@@ -188,6 +227,12 @@ describe("App oturum bitisi", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
+      if (url.includes("/api/auth/methods")) {
+        return new Response(JSON.stringify({ oidc: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
       // Hedef listesi: oturum bu arada düştü.
       return new Response(JSON.stringify({ error: "unauthenticated" }), {
         status: 401,
@@ -209,9 +254,55 @@ describe("App oturum bitisi", () => {
         screen.getByText(/Sign in with your identity provider/i),
       ).toBeInTheDocument();
       // Yönetim ekranı ARTIK GÖRÜNMEMELİ.
-      expect(screen.queryByRole("button", { name: "Settings" })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Settings" }),
+      ).not.toBeInTheDocument();
     } finally {
       globalThis.fetch = original;
     }
+  });
+});
+
+/*
+ * ÜRÜNÜN YENİ HÂLİ: kimlik sağlayıcısı olmayan kurulum.
+ *
+ * Panel bugüne kadar koşulsuz bir "kimlik sağlayıcınla gir" düğmesi
+ * çiziyordu, çünkü OIDC'siz bir panel diye bir şey yoktu — HTTP
+ * yüzeyinin tamamı `if cfg.OOBEnabled()` içindeydi. Artık dizini olan
+ * ama IdP'si olmayan kurum da paneli çalıştırabiliyor ve o kurulumda o
+ * düğme 404'e giderdi: kullanıcı ürünü bozuk sanardı.
+ */
+describe("giris yollari", () => {
+  it("oidc yoksa IdP dugmesini CIZMEZ ve ne yapilacagini soyler", async () => {
+    vi.spyOn(api, "me").mockRejectedValue(new ApiError(401, "unauthenticated"));
+    vi.spyOn(api, "authMethods").mockResolvedValue({ oidc: false });
+
+    render(<App />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/No sign-in method is configured/i),
+      ).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByText(/Sign in with your identity provider/i),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/postern admin bootstrap/)).toBeInTheDocument();
+  });
+
+  it("uc cevap vermezse dugme cizilmez", async () => {
+    vi.spyOn(api, "me").mockRejectedValue(new ApiError(401, "unauthenticated"));
+    vi.spyOn(api, "authMethods").mockRejectedValue(new ApiError(500, "boom"));
+
+    render(<App />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/^Sign in$/)).toBeInTheDocument(),
+    );
+    // Yanlış yönlendirmektense hiç yönlendirmemek: 404'e giden bir
+    // düğme, kullanıcıya ürünün bozuk olduğunu söyler.
+    expect(
+      screen.queryByText(/Sign in with your identity provider/i),
+    ).not.toBeInTheDocument();
   });
 });

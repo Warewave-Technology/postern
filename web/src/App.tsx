@@ -1,5 +1,12 @@
 import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, api, Me, onSessionLost, toMessage } from "./api";
+import {
+  ApiError,
+  AuthMethods,
+  api,
+  Me,
+  onSessionLost,
+  toMessage,
+} from "./api";
 import Users from "./admin/Users";
 import Targets from "./admin/Targets";
 import Roles from "./admin/Roles";
@@ -53,7 +60,10 @@ const NAV: { title?: string; items: [Section, string, ReactNode][] }[] = [
       ["mappings", "Mappings", <MapIcon key="i" />],
     ],
   },
-  { title: "Infrastructure", items: [["targets", "Targets", <TargetIcon key="i" />]] },
+  {
+    title: "Infrastructure",
+    items: [["targets", "Targets", <TargetIcon key="i" />]],
+  },
   { title: "Directory", items: [["ldap", "LDAP", <DirectoryIcon key="i" />]] },
   {
     title: "Audit",
@@ -83,6 +93,10 @@ export default function App() {
   // de giriş ekranını gösteriyor ama ikincisinde ne olduğunu söylemek
   // gerekiyor — yoksa kullanıcı çalışırken neden atıldığını bilmiyor.
   const [expired, setExpired] = useState(false);
+  // methods, sunucunun HANGİ giriş yollarını sunduğu. null = henüz
+  // sorulmadı; giriş ekranı bu cevaba göre çiziliyor, varsayıma göre
+  // değil.
+  const [methods, setMethods] = useState<AuthMethods | null>(null);
   const [top, setTop] = useState<Top>("home");
   const [section, setSection] = useState<Section>("overview");
 
@@ -135,6 +149,12 @@ export default function App() {
         }
       })
       .finally(() => setLoading(false));
+
+    // Giriş yollarını AYRI soruyoruz: /api/me 401 dönse de bu cevap
+    // gerekiyor, çünkü tam da o durumda giriş ekranı çiziliyor.
+    // Başarısızlığı ekranı bozmamalı — cevap gelmezse düğme
+    // çizilmiyor ve kullanıcı en azından yanlış yönlendirilmiyor.
+    api.authMethods().then(setMethods, () => setMethods(null));
   }, []);
 
   useEffect(() => {
@@ -187,11 +207,28 @@ export default function App() {
           <p>
             {expired
               ? "Your session is no longer valid, so the screen you were on was showing figures that had stopped being true. Sign in again to continue."
-              : "Access is granted by your identity provider. postern never sees your password."}
+              : methods?.oidc
+                ? "Access is granted by your identity provider. postern never sees your password."
+                : "This bastion has no identity provider configured."}
           </p>
-          <a className="btn btn-primary" href="/auth/login">
-            Sign in with your identity provider
-          </a>
+          {/*
+            ⚠️ DÜĞME SUNUCUNUN CEVABINA GÖRE. Eskiden koşulsuz
+            çiziliyordu çünkü OIDC'siz bir panel diye bir şey yoktu.
+            Artık var, ve o kurulumda bu düğme 404'e gider — kullanıcı
+            ürünün bozuk olduğunu düşünürdü.
+          */}
+          {methods?.oidc && (
+            <a className="btn btn-primary" href="/auth/login">
+              Sign in with your identity provider
+            </a>
+          )}
+          {methods && !methods.oidc && (
+            <p className="msg msg-warn" role="status">
+              No sign-in method is configured yet. On the bastion host, run{" "}
+              <code>postern admin bootstrap</code> to create the first
+              administrator.
+            </p>
+          )}
         </div>
       </main>
     );
@@ -214,7 +251,10 @@ export default function App() {
   // altında. Admin olmayan için Settings sekmesi HİÇ çizilmiyor —
   // görünüp 403 vermek, olmayan bir yetkiyi vaat etmektir.
   const tops: [Top, string][] = me.admin
-    ? [["home", "Home"], ["settings", "Settings"]]
+    ? [
+        ["home", "Home"],
+        ["settings", "Settings"],
+      ]
     : [["home", "Home"]];
 
   return (
@@ -258,7 +298,9 @@ export default function App() {
             <nav className="side-nav" aria-label="Settings sections">
               {NAV.map((group, gi) => (
                 <div className="side-group" key={group.title ?? `g${gi}`}>
-                  {group.title && <div className="side-title">{group.title}</div>}
+                  {group.title && (
+                    <div className="side-title">{group.title}</div>
+                  )}
                   {group.items.map(([s, label, icon]) => (
                     <button
                       key={s}
@@ -275,7 +317,9 @@ export default function App() {
 
             <div>
               {section === "overview" && <Overview />}
-              {section === "users" && <Users publicKeyLogin={me.public_key_login} />}
+              {section === "users" && (
+                <Users publicKeyLogin={me.public_key_login} />
+              )}
               {section === "roles" && <Roles />}
               {section === "mappings" && <Mappings />}
               {section === "targets" && <Targets />}

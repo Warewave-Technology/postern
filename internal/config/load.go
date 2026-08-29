@@ -132,13 +132,16 @@ func (c *Config) Validate() error {
 	}
 	// Senkronizasyon: yalnızca ANLAMSIZ olanı reddet.
 	if c.Sync.Enabled {
-		if !c.OOBEnabled() {
-			// Senkronizasyon LDAP'a bağlı ve LDAP ayarları OIDC'li
-			// kurulumla birlikte geliyor. OIDC'siz bir kurulumda döngü
-			// hiçbir zaman bir dizin bulamaz ve her koşuda "skipped"
-			// yazardı — açıkça reddetmek daha dürüst.
-			return fmt.Errorf("sync.enabled requires oidc and http to be configured")
-		}
+		// ⚠️ ARTIK OIDC ŞARTI YOK. Eskiden burada "sync.enabled requires
+		// oidc" vardı ve gerekçesi "LDAP ayarları OIDC'li kurulumla
+		// birlikte gelir"di — bu, LDAP'ın yalnızca OIDC'nin yanında var
+		// olabildiği döneme ait bir varsayım. Dizini olan ama kimlik
+		// sağlayıcısı olmayan kurulum tam da hedeflediğimiz kurulum ve
+		// senkronizasyona onun ihtiyacı daha fazla.
+		//
+		// LDAP'ın gerçekten yapılandırılıp yapılandırılmadığı bir
+		// VERİTABANI sorusu; config bunu göremez. Döngü kendisi
+		// "yapılandırılmamış" hâlini zaten bildiriyor.
 		if c.Sync.Interval < 0 || c.Sync.Grace < 0 || c.Sync.Timeout < 0 {
 			return fmt.Errorf("sync durations must not be negative")
 		}
@@ -172,30 +175,52 @@ func (c *Config) Validate() error {
 	// OOB girişi ya TAM açık ya tam kapalı. Yarım yapılandırma (issuer
 	// var, http yok gibi) en kötü ihtimalle çalışıyor GÖRÜNÜR: linkler
 	// üretilemez ama public key yolu işlediği için kimse fark etmez.
-	oobFields := map[string]string{
-		"http.addr":         c.HTTP.Addr,
-		"http.external_url": c.HTTP.ExternalURL,
-		"oidc.issuer_url":   c.OIDC.IssuerURL,
-		"oidc.client_id":    c.OIDC.ClientID,
-	}
-	var missing, present []string
-	for name, v := range oobFields {
-		if v == "" {
-			missing = append(missing, name)
-		} else {
-			present = append(present, name)
+	// ⚠️ ARTIK İKİ AYRI GRUP. Eskiden http.* ve oidc.* tek bir hep-ya-hiç
+	// kümesiydi ve bu, paneli kimlik sağlayıcıya zincirliyordu. Her grup
+	// kendi içinde hâlâ hep-ya-hiç: yarım yapılandırma en kötü ihtimalle
+	// çalışıyor GÖRÜNÜR (linkler üretilemez ama kimse fark etmez).
+	for _, g := range []struct {
+		label  string
+		fields map[string]string
+	}{
+		{"http", map[string]string{
+			"http.addr":         c.HTTP.Addr,
+			"http.external_url": c.HTTP.ExternalURL,
+		}},
+		{"oidc", map[string]string{
+			"oidc.issuer_url": c.OIDC.IssuerURL,
+			"oidc.client_id":  c.OIDC.ClientID,
+		}},
+	} {
+		var missing, present []string
+		for name, v := range g.fields {
+			if v == "" {
+				missing = append(missing, name)
+			} else {
+				present = append(present, name)
+			}
+		}
+		if len(present) > 0 && len(missing) > 0 {
+			sort.Strings(missing)
+			sort.Strings(present)
+			return fmt.Errorf("incomplete %s config: %s set but %s missing",
+				g.label, strings.Join(present, ", "), strings.Join(missing, ", "))
 		}
 	}
-	if len(present) > 0 && len(missing) > 0 {
-		sort.Strings(missing)
-		return fmt.Errorf("incomplete OIDC login config: %s set but %s missing",
-			strings.Join(present, ", "), strings.Join(missing, ", "))
+
+	// OIDC, HTTP yüzeyine MUHTAÇ: geri dönüş adresi (/auth/callback) o
+	// dinleyicide karşılanıyor. Tersi doğru değil — panel tek başına
+	// ayakta durabilir.
+	if c.OIDCEnabled() && !c.WebEnabled() {
+		return fmt.Errorf("oidc is configured but http is not: the callback " +
+			"has nowhere to land — configure http.addr and http.external_url")
 	}
 
-	// Terminal, OOB/web yapılandırması olmadan anlamsızdır: linkleri ve
-	// oturumu o katman kuruyor.
-	if c.HTTP.TerminalEnabled && !c.OOBEnabled() {
-		return fmt.Errorf("http.terminal_enabled requires the oidc and http sections")
+	// Terminal, HTTP yüzeyi olmadan anlamsızdır: oturumu ve WebSocket
+	// yükseltmesini o katman taşıyor. Kimlik sağlayıcıya bağlı DEĞİL —
+	// terminale giren kullanıcının nasıl doğrulandığı ayrı bir soru.
+	if c.HTTP.TerminalEnabled && !c.WebEnabled() {
+		return fmt.Errorf("http.terminal_enabled requires the http section")
 	}
 
 	// ⚠️ İKİ KAPI DA KAPALI OLAMAZ.
@@ -205,10 +230,15 @@ func (c *Config) Validate() error {
 	// içeri almaz. Bu, çalışır görünen ama kimsenin fark etmediği bir
 	// kilitlenme — açılışta söylemek, ilk kullanıcının "SSH cevap
 	// vermiyor" diye aramasından iyi.
-	if !c.Auth.PublicKeyLoginEnabled() && !c.OOBEnabled() {
-		return fmt.Errorf("auth.public_key_login is false and no oidc/http section is " +
-			"configured: nobody could sign in — configure browser login, or leave " +
-			"public key login on")
+	// ⚠️ ÜÇÜNCÜ KAPI SAYILIYOR. Panel ayaktayken postern'in kendi yerel
+	// yöneticisi de bir giriş yolu — ama o bir VERİTABANI kaydı ve
+	// config onu göremez. Bu yüzden burada yalnızca hiçbir kapının
+	// AÇILAMAYACAĞI hâl reddediliyor; "panel var ama yerel yönetici
+	// yok" hâlini açılışta uyaran çalışma zamanı kontrolü yapıyor.
+	if !c.Auth.PublicKeyLoginEnabled() && !c.OIDCEnabled() && !c.WebEnabled() {
+		return fmt.Errorf("auth.public_key_login is false, no oidc is configured and " +
+			"there is no http section: nobody could sign in — configure browser " +
+			"login, serve the panel, or leave public key login on")
 	}
 
 	// ⚠️ HTTPS KURALI TERMİNALE DEĞİL, WEB YÜZEYİNİN TAMAMINA BAĞLI.
@@ -223,7 +253,7 @@ func (c *Config) Validate() error {
 	//
 	// Terminalin kapalı olması bu yüzeyi güvenli yapmıyor, yalnızca bir
 	// parçasını kaldırıyor.
-	if c.OOBEnabled() && !isLoopbackURL(c.HTTP.ExternalURL) &&
+	if c.WebEnabled() && !isLoopbackURL(c.HTTP.ExternalURL) &&
 		!strings.HasPrefix(strings.ToLower(c.HTTP.ExternalURL), "https://") {
 		return fmt.Errorf("http.external_url must be https (got %q) — the session "+
 			"cookie, the admin API and every session recording are served from it",
@@ -251,6 +281,22 @@ func isLoopbackURL(raw string) bool {
 	return false
 }
 
-// OOBEnabled, OIDC destekli tarayıcı girişinin yapılandırılıp
-// yapılandırılmadığını söyler (Validate tam/boş garantisini verdi).
-func (c *Config) OOBEnabled() bool { return c.OIDC.IssuerURL != "" }
+/*
+ * WebEnabled, HTTP yüzeyinin (panel + yönetim API'si) yapılandırıldığı.
+ *
+ * ⚠️ OIDC'DEN AYRI. Eskiden tek bir yüklem vardı ve o da düpedüz
+ * "issuer_url dolu mu" demekti; bütün HTTP yüzeyi onun içinde
+ * kuruluyordu. Sonucu: dizini olan ama kimlik sağlayıcısı OLMAYAN bir
+ * kurum postern'i panelsiz çalıştırmak zorundaydı — yani ürünün
+ * yönetilebilir hâli bir Keycloak kurmaya bağlıydı.
+ *
+ * Bu ayrımın kazara bir port açmadığını doğrulamak gerekiyordu:
+ * http.addr ile oidc.* bugün HEP-YA-HİÇ doğrulanıyor, dolayısıyla
+ * "http.addr dolu, OIDC boş" bir yapılandırma zaten geçersizdi. Yeni
+ * dinleyici ancak operatör bunu bilerek yazarsa açılıyor.
+ */
+func (c *Config) WebEnabled() bool { return c.HTTP.Addr != "" }
+
+// OIDCEnabled, tarayıcı üzerinden OIDC girişinin yapılandırıldığı.
+// Kimlik sağlayıcı ARTIK tek giriş yolu değil; adı da onu söylüyor.
+func (c *Config) OIDCEnabled() bool { return c.OIDC.IssuerURL != "" }

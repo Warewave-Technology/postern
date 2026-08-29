@@ -237,6 +237,20 @@ func (s *Server) completeWebLogin(w http.ResponseWriter, r *http.Request, state,
 
 // handleLogout: POST /auth/logout — oturumu düşürür, cookie'yi geçersiz
 // kılar. Cookie yoksa da başarılıdır: çifte logout hata değil.
+/*
+ * handleAuthMethods, yapılandırılmış giriş yollarını söyler.
+ *
+ * Oturumsuz erişilir ve öyle olmak ZORUNDA: giriş ekranı henüz bir
+ * oturum yokken çizilecek. Sızdırdığı tek bilgi hangi kapıların açık
+ * olduğu — kullanıcı adı, hesap varlığı ya da yapılandırma değeri
+ * yok. Bu bilgi zaten giriş ekranının kendisinden görülüyor.
+ */
+func (s *Server) handleAuthMethods(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"oidc": s.oidc != nil,
+	})
+}
+
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(sessionCookie); err == nil {
 		s.webSessions.Destroy(c.Value)

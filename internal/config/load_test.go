@@ -174,14 +174,42 @@ func TestValidate(t *testing.T) {
 			errContains: "recording.dir",
 		},
 		{
-			// OOB ya tam ya hiç: yarım yapılandırma sessizce "çalışıyor
-			// görünür" (public key yolu işler, linkler asla üretilmez).
+			// OIDC grubu kendi içinde ya tam ya hiç: yarım yapılandırma
+			// sessizce "çalışıyor görünür" (public key yolu işler,
+			// linkler asla üretilmez).
 			name: "yarim oidc yapilandirmasi hata",
 			mutate: func(c *Config) {
 				c.OIDC.IssuerURL = "https://idp.example/realms/postern"
 			},
 			wantErr:     true,
-			errContains: "http.addr",
+			errContains: "oidc.client_id",
+		},
+		{
+			// ⚠️ OIDC, HTTP yüzeyine muhtaç: /auth/callback o
+			// dinleyicide karşılanıyor. Tersi DEĞİL — panel tek başına
+			// ayakta durabilir, bir sonraki vaka onu sınıyor.
+			name: "http'siz tam oidc hata",
+			mutate: func(c *Config) {
+				c.OIDC.IssuerURL = "https://idp.example/realms/postern"
+				c.OIDC.ClientID = "postern"
+				c.HTTP.Addr = ""
+				c.HTTP.ExternalURL = ""
+			},
+			wantErr:     true,
+			errContains: "callback has nowhere to land",
+		},
+		{
+			// Ürünün asıl hedefi: dizini olan ama kimlik sağlayıcısı
+			// OLMAYAN kurum paneli çalıştırabilmeli. Eskiden bu
+			// yapılandırma reddediliyordu ve postern'in yönetilebilir
+			// hâli bir Keycloak kurmaya bağlıydı.
+			name: "oidc'siz panel gecerli",
+			mutate: func(c *Config) {
+				c.OIDC = OIDCConfig{}
+				c.HTTP.Addr = "127.0.0.1:8088"
+				c.HTTP.ExternalURL = "https://bastion.example"
+			},
+			wantErr: false,
 		},
 		{
 			name: "tam oidc yapilandirmasi gecer",

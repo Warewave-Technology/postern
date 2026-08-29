@@ -180,9 +180,30 @@ func New(o *auth.OIDC, logins *auth.Logins, db *store.Store, logger *slog.Logger
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
-	// Kimlik akışları (oturumsuz erişilir).
-	mux.HandleFunc("GET /auth/login", s.handleWebLogin)
-	mux.HandleFunc("GET /auth/callback", s.handleCallback)
+	/*
+	 * Kimlik sağlayıcı akışları — YALNIZCA OIDC yapılandırıldıysa.
+	 *
+	 * Kapalı özellik, kapalı yüzey: rota kurulmadığında /auth/login
+	 * dürüstçe 404 oluyor. Eskiden bu rotalar koşulsuz kuruluyordu ve
+	 * kurulamazlardı bile, çünkü OIDC olmadan HTTP dinleyicisinin
+	 * kendisi hiç açılmıyordu. Panel artık kimlik sağlayıcısız da
+	 * ayakta durabildiği için ayrım gerçek bir şey ifade ediyor.
+	 */
+	if s.oidc != nil {
+		mux.HandleFunc("GET /auth/login", s.handleWebLogin)
+		mux.HandleFunc("GET /auth/callback", s.handleCallback)
+	}
+
+	/*
+	 * Hangi giriş kapıları açık — oturumsuz okunur.
+	 *
+	 * ⚠️ GİRİŞ EKRANI BUNU UYDURAMAZ. Panel bugüne kadar tek bir
+	 * "kimlik sağlayıcınla gir" düğmesi çiziyordu çünkü başka ihtimal
+	 * yoktu. Artık var: kimlik sağlayıcısı olmayan bir kurulumda o
+	 * düğme 404'e gider ve kullanıcı ürünün bozuk olduğunu düşünür.
+	 * Ekran ne olduğunu SUNUCUYA sormalı.
+	 */
+	mux.Handle("GET /api/auth/methods", noStore(http.HandlerFunc(s.handleAuthMethods)))
 	// Çıkış da same-origin: siteler arası bir POST kurbanı sessizce
 	// oturumdan atıyordu. Etkisi düşük ama bedeli sıfır.
 	mux.Handle("POST /auth/logout", s.sameOrigin(http.HandlerFunc(s.handleLogout)))
@@ -206,6 +227,23 @@ func (s *Server) Handler() http.Handler {
 	// index.html dönmek, istemciyi "200 ama beklediğim şey değil" ile baş
 	// başa bırakır. Kapalı bir özelliğin rotası burada dürüstçe 404 olur.
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+		writeErr(w, http.StatusNotFound, "not found")
+	})
+
+	/*
+	 * /auth altındaki eşleşmeyen yollar da SPA'ya DÜŞMEZ.
+	 *
+	 * Ölçülerek bulundu: kimlik sağlayıcı yapılandırılmamışken
+	 * /auth/login rotası kurulmuyor, ama SPA yakalayıcısı onu alıp
+	 * index.html döndürüyordu — yani KAPALI bir özellik 200 ile
+	 * uygulamanın kabuğunu veriyordu. /api için aynı gerekçeyle zaten
+	 * bir koruma vardı; bu yol unutulmuştu.
+	 *
+	 * Daha belirgin desenler (POST /auth/logout, OIDC açıkken
+	 * GET /auth/login) bunu gölgelemiyor: ServeMux en özgül eşleşmeyi
+	 * seçiyor.
+	 */
+	mux.HandleFunc("/auth/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "not found")
 	})
 

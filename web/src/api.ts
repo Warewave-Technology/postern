@@ -166,6 +166,9 @@ export type SyncRun = {
   dry_run: boolean;
 };
 
+// AuthMethods, sunucunun yapılandırılmış giriş yolları.
+export type AuthMethods = { oidc: boolean };
+
 export type RecordingState = "none" | "missing" | "partial" | "complete";
 
 export type SessionDetail = Session & {
@@ -377,6 +380,7 @@ export const api = {
    *  buna dayanıyor: sınanmamış değişiklik canlıya çıkmasın. */
   verifyLDAP: (cfg: LDAPCandidate) =>
     req<LDAPTestResult>("POST", "/api/admin/ldap/verify", cfg),
+  authMethods: () => req<AuthMethods>("GET", "/api/auth/methods"),
   syncSettings: () => req<SyncSettings>("GET", "/api/admin/sync/settings"),
   syncRuns: (limit = 20) =>
     req<SyncRun[]>("GET", `/api/admin/sync/runs?limit=${limit}`),

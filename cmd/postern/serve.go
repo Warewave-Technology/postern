@@ -121,11 +121,58 @@ func newServeCmd() *cobra.Command {
 			bus := events.New(0, 0)
 			s.UseEventBus(bus)
 
-			// OOB girişi yalnızca yapılandırıldıysa: OIDC discovery +
-			// login kaydı + HTTP dinleyicisi. Yoksa bastion eskisi gibi
-			// yalnızca public key kabul eder.
-			if cfg.OOBEnabled() {
-				oidcClient, err := auth.NewOIDC(ctx, auth.OIDCConfig{
+			/*
+			 * ⚠️ GRUP KAYNAĞI VE HTTP YÜZEYİ ARTIK OIDC'DEN BAĞIMSIZ.
+			 *
+			 * Eskiden buradaki her şey tek bir `if cfg.OOBEnabled()`
+			 * bloğunun içindeydi ve o yüklem düpedüz "issuer_url dolu
+			 * mu" demekti. Sonucu: dizini olan ama kimlik sağlayıcısı
+			 * OLMAYAN bir kurum paneli hiç çalıştıramıyordu — postern'in
+			 * yönetilebilir hâli bir Keycloak kurmaya bağlıydı, ki
+			 * ürünün "mevcut yapıya uyum sağla" iddiasının tam tersi.
+			 *
+			 * Şimdi üç ayrı soru var: grup kaynağı kim (her zaman),
+			 * kimlik sağlayıcı var mı (OIDCEnabled), panel servis
+			 * ediliyor mu (WebEnabled).
+			 */
+
+			// Grup kaynağı: LDAP ayarlanmışsa dizin, değilse ID
+			// token'ın claim'i. İKİ KAPI DA aynı kaynağı kullanır —
+			// SSH'tan giren ile web'den giren aynı yetkiyi almalı.
+			// PAYLAŞILAN sarmalayıcı: panelden ayar değişince tek
+			// Set çağrısı iki kapıyı birden günceller.
+			groupSwitch := auth.NewSwitchableGroupSource(auth.ClaimGroups{})
+			s.UseGroupSource(groupSwitch)
+
+			groupSource, gerr := ldap.SourceFromStore(ctx, db)
+			switch {
+			case gerr == nil:
+				groupSwitch.Set(groupSource)
+				logger.Info("group source: ldap directory")
+			case errors.Is(gerr, ldap.ErrNotConfigured):
+				if cfg.OIDCEnabled() {
+					logger.Info("group source: oidc claim")
+				} else {
+					// ⚠️ Ne dizin ne kimlik sağlayıcı: kimsenin grubu
+					// yok, dolayısıyla kimseye rol türetilemez. Sessiz
+					// kalmak, "hedef listem neden boş" sorusunu
+					// cevapsız bırakırdı.
+					logger.Warn("no group source: configure ldap, or nobody will be granted a role")
+				}
+			default:
+				// Yapılandırma VAR ama bozuk: sessizce claim'e
+				// düşmek, yöneticinin kurduğunu sandığı LDAP'ın hiç
+				// çalışmaması demek olurdu.
+				return fmt.Errorf("ldap configuration is invalid: %w", gerr)
+			}
+
+			// Kimlik sağlayıcı: yalnızca yapılandırıldıysa. Yoksa
+			// tarayıcı giriş akışı ve SSH'taki OOB kapısı HİÇ
+			// kurulmuyor — kapalı özellik, kapalı yüzey.
+			var oidcClient *auth.OIDC
+			var logins *auth.Logins
+			if cfg.OIDCEnabled() {
+				oidcClient, err = auth.NewOIDC(ctx, auth.OIDCConfig{
 					IssuerURL:    cfg.OIDC.IssuerURL,
 					ClientID:     cfg.OIDC.ClientID,
 					ClientSecret: cfg.OIDC.ClientSecret,
@@ -135,34 +182,15 @@ func newServeCmd() *cobra.Command {
 					return err
 				}
 
-				logins := auth.NewLogins(oidcClient)
+				logins = auth.NewLogins(oidcClient)
 				// Bekleyen giriş kotası: her deneme handshake içinde
 				// bekleyen bir goroutine demek ve kimlik doğrulaması
 				// gerektirmiyor.
 				logins.SetMaxPending(cfg.Listen.MaxPendingLoginsOrDefault())
 				s.EnableOOB(logins, 0)
+			}
 
-				// Grup kaynağı: LDAP ayarlanmışsa dizin, değilse ID
-				// token'ın claim'i. İKİ KAPI DA aynı kaynağı kullanır —
-				// SSH'tan giren ile web'den giren aynı yetkiyi almalı.
-				// PAYLAŞILAN sarmalayıcı: panelden ayar değişince tek
-				// Set çağrısı iki kapıyı birden günceller.
-				groupSwitch := auth.NewSwitchableGroupSource(auth.ClaimGroups{})
-				s.UseGroupSource(groupSwitch)
-
-				groupSource, err := ldap.SourceFromStore(ctx, db)
-				switch {
-				case err == nil:
-					groupSwitch.Set(groupSource)
-					logger.Info("group source: ldap directory")
-				case errors.Is(err, ldap.ErrNotConfigured):
-					logger.Info("group source: oidc claim")
-				default:
-					// Yapılandırma VAR ama bozuk: sessizce claim'e
-					// düşmek, yöneticinin kurduğunu sandığı LDAP'ın hiç
-					// çalışmaması demek olurdu.
-					return fmt.Errorf("ldap configuration is invalid: %w", err)
-				}
+			if cfg.WebEnabled() {
 
 				// ⚠️ WARN, Info DEĞİL. Bu ayar postern'in hedefteki
 				// davranışını değiştiriyor: kullanıcının bağlantısında,
@@ -312,7 +340,13 @@ func newServeCmd() *cobra.Command {
 					}
 				}()
 
-				logger.Info("oob login enabled", "issuer", cfg.OIDC.IssuerURL)
+				if cfg.OIDCEnabled() {
+					logger.Info("oob login enabled", "issuer", cfg.OIDC.IssuerURL)
+				} else {
+					// Panel var ama kimlik sağlayıcı yok: giriş yolu
+					// postern'in kendi yerel yöneticisi olacak.
+					logger.Info("panel enabled without an identity provider")
+				}
 			}
 
 			return s.ListenAndServe(ctx)
