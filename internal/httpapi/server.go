@@ -94,6 +94,11 @@ type Server struct {
 	// Yerel giriş kapısının yük korumaları (bkz. locallogin.go).
 	localSlots chan struct{}
 	localLimit *localLimiter
+
+	// bindSlots, dizine karşı eşzamanlı bind sayısını sınırlar. Yerel
+	// yuvalardan AYRI: orada postern'in belleği, burada KURUMUN dizini
+	// korunuyor.
+	bindSlots chan struct{}
 }
 
 /*
@@ -166,6 +171,7 @@ func New(o *auth.OIDC, logins *auth.Logins, db *store.Store, logger *slog.Logger
 		closing:     make(chan struct{}),
 		localSlots:  make(chan struct{}, localLoginSlots),
 		localLimit:  newLocalLimiter(),
+		bindSlots:   make(chan struct{}, directoryBindSlots),
 		logins:      logins,
 		logger:      logger,
 		store:       db,

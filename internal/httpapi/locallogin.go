@@ -112,17 +112,35 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	/*
-	 * ⚠️ KULLANICI VARLIĞI SIZDIRILMIYOR.
+	 * ⚠️ HANGİ KAYNAĞA SORULACAĞI AÇIKÇA KARARLAŞTIRILIYOR.
 	 *
-	 * Hesap yoksa da doğrulama YAPILIYOR (sabit bir sahte doğrulayıcıya
-	 * karşı) ve dönen hata birebir aynı. Aksi hâlde yanıt süresi ve
-	 * metni, "bu kullanıcı adı var" bilgisini kimliği doğrulanmamış
-	 * herkese verirdi.
+	 * Hesabın YEREL bir kimlik bilgisi varsa yerel doğrulayıcı, yoksa
+	 * ve dizin parolası açıksa bind. Sıra bu yönde olmak zorunda:
+	 * tersi olsaydı, yerel yöneticinin sırrı dizine gönderilmeye
+	 * çalışılırdı — kurumsal olmayan bir sırrı kurumsal bir sisteme
+	 * yollamak.
+	 *
+	 * ⚠️ Bu yönlendirme GEÇİCİ. Ürün kararı "aynı anda tek aktif
+	 * kaynak, biri açıksa yerel kapanır" yönünde; o anahtar geldiğinde
+	 * burası bir if değil, aktif kaynağın kendisi olacak.
 	 */
 	verifier, err := s.store.LocalCredential(r.Context(), in.Username)
 	switch {
 	case err == nil:
+		// Yerel yol: aşağıda.
 	case errors.Is(err, store.ErrNotFound):
+		if s.directoryAuthEnabled(r.Context()) {
+			s.directoryLogin(w, r, log, in.Username, in.Secret)
+			return
+		}
+		/*
+		 * ⚠️ KULLANICI VARLIĞI SIZDIRILMIYOR.
+		 *
+		 * Hesap yoksa da doğrulama YAPILIYOR (üretilmiş bir sahte
+		 * doğrulayıcıya karşı) ve dönen hata birebir aynı. Aksi hâlde
+		 * yanıt süresi ve metni, "bu kullanıcı adı var" bilgisini
+		 * kimliği doğrulanmamış herkese verirdi.
+		 */
 		verifier = decoyVerifier()
 	default:
 		log.Error("local login lookup failed", "error", err)

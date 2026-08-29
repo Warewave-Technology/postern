@@ -418,6 +418,7 @@ var knownSettingKeys = map[string]bool{
 	ldap.KeyGroupFilter:    true,
 	ldap.KeyGroupNameFrom:  true,
 	ldap.KeyGroupScope:     true,
+	ldap.KeyAuthEnabled:    true,
 
 	// Dizin senkronizasyonu LDAP'ın bir özelliği ve LDAP panelden
 	// yönetiliyor; ayarlarının yalnızca YAML'da olması, en çok

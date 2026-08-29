@@ -26,6 +26,17 @@ const (
 	KeyGroupFilter    = "ldap.group_filter"
 	KeyGroupNameFrom  = "ldap.group_name_from"
 	KeyGroupScope     = "ldap.group_scope"
+
+	/*
+	 * KeyAuthEnabled, dizin PAROLASIYLA panel girişinin açık olduğu.
+	 *
+	 * ⚠️ VARSAYILAN KAPALI ve bu bir güvenlik kararı: bu ayarı açmak
+	 * postern'in kullanıcının KURUMSAL parolasını görmesi demek.
+	 * Yapılandırmayı yapan kişinin bilerek açtığı bir kapı olmalı,
+	 * LDAP'ı grup kaynağı olarak kuranın yanında gelen bir yan etki
+	 * değil.
+	 */
+	KeyAuthEnabled = "ldap.auth_enabled"
 )
 
 // SecretKeys, şifrelenerek saklanması gereken ayarlar.

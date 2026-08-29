@@ -26,6 +26,8 @@ uid: yigit.basalma
 cn: Yigit Basalma
 sn: Basalma
 mail: yigit@warewave.io
+# Bind testleri için. Yalnızca test verisi; slapd bunu hash'leyerek saklar.
+userPassword: dizin-parolasi
 ou: cn=sysadmins,ou=groups,dc=warewave,dc=io
 ou: cn=dbteam,ou=groups,dc=warewave,dc=io
 
@@ -35,6 +37,7 @@ uid: ayse.yilmaz
 cn: Ayse Yilmaz
 sn: Yilmaz
 mail: ayse@warewave.io
+userPassword: ayse-parolasi
 ou: cn=hr,ou=groups,dc=warewave,dc=io
 
 dn: cn=sysadmins,ou=groups,dc=warewave,dc=io

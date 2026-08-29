@@ -8,7 +8,9 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	goldap "github.com/go-ldap/ldap/v3"
 	"path/filepath"
 	"testing"
 	"time"
@@ -318,4 +320,98 @@ func TestLDAPGroupsDriveProvisioning(t *testing.T) {
 	}
 
 	_ = apiURL
+}
+
+/*
+ * Dizin parolasıyla kimlik doğrulama, GERÇEK bir OpenLDAP'a karşı.
+ *
+ * ⚠️ En kritik vaka boş parola. DN verip parolayı boş bırakmak
+ * "unauthenticated bind"dir ve sonucu SUNUCUNUN yapılandırmasına
+ * bağlıdır — ölçtük: bu OpenLDAP reddediyor, Active Directory ise
+ * varsayılan olarak kabul eder. postern bağlandığı dizinin nasıl
+ * ayarlandığını bilemeyeceği için kontrolü kendisi yapıyor.
+ */
+func TestLDAPAuthenticate(t *testing.T) {
+	url := startOpenLDAP(t)
+	src, err := ldap.New(ldapConfig(url))
+	if err != nil {
+		t.Fatalf("ldap.New: %v", err)
+	}
+	ctx := context.Background()
+
+	t.Run("dogru parola", func(t *testing.T) {
+		res, err := src.Authenticate(ctx, ldapUser, "dizin-parolasi")
+		if err != nil {
+			t.Fatalf("Authenticate: %v", err)
+		}
+		if !res.Authenticated {
+			t.Fatal("doğru parola reddedildi")
+		}
+		if res.Presence != ldap.PresencePresent {
+			t.Fatalf("varlık = %v", res.Presence)
+		}
+		if len(res.Groups) == 0 {
+			t.Error("gruplar boş: kimlik doğrulandıktan sonra da okunmalı")
+		}
+	})
+
+	t.Run("yanlis parola", func(t *testing.T) {
+		res, err := src.Authenticate(ctx, ldapUser, "yanlis")
+		if err != nil {
+			t.Fatalf("yanlış parola HATA döndürdü: %v — bu bir arıza değil, "+
+				"kimlik doğrulanamaması", err)
+		}
+		if res.Authenticated {
+			t.Fatal("yanlış parola kabul edildi")
+		}
+		if res.Presence != ldap.PresencePresent {
+			t.Errorf("kullanıcı bulunmuş olmalı: %v", res.Presence)
+		}
+	})
+
+	t.Run("bos parola bind'e ULASMIYOR", func(t *testing.T) {
+		res, err := src.Authenticate(ctx, ldapUser, "")
+		if !errors.Is(err, ldap.ErrEmptySecret) {
+			t.Fatalf("hata = %v, ErrEmptySecret bekleniyordu", err)
+		}
+		if res.Authenticated {
+			t.Fatal("boş parola kimlik doğrulanmış sayıldı")
+		}
+	})
+
+	/*
+	 * Sunucunun boş parolaya NE dediğini kayda geçiriyoruz.
+	 *
+	 * Bu bir iddia değil, bir ölçüm: sonucu ne olursa olsun test
+	 * geçiyor. Amacı, postern'deki kontrolün neden uzaktaki ayara
+	 * bırakılamayacağını belgelemek — aynı kod farklı dizinlerde
+	 * farklı cevap alıyor.
+	 */
+	t.Run("sunucunun kimliksiz bind politikasi", func(t *testing.T) {
+		conn, err := goldap.DialURL(url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+		dn := "uid=" + ldapUser + ",ou=people,dc=warewave,dc=io"
+		if berr := conn.UnauthenticatedBind(dn); berr != nil {
+			t.Logf("bu sunucu kimliksiz bind'i REDDEDİYOR: %v", berr)
+			return
+		}
+		t.Log("bu sunucu kimliksiz bind'i KABUL EDİYOR — postern'in kontrolü " +
+			"olmasaydı boş parola içeri girerdi")
+	})
+
+	t.Run("dizinde olmayan kullanici", func(t *testing.T) {
+		res, err := src.Authenticate(ctx, "hic-yok", "herhangi")
+		if err != nil {
+			t.Fatalf("Authenticate: %v", err)
+		}
+		if res.Presence != ldap.PresenceAbsent {
+			t.Fatalf("varlık = %v, absent bekleniyordu", res.Presence)
+		}
+		if res.Authenticated {
+			t.Fatal("olmayan kullanıcı kimlik doğrulanmış sayıldı")
+		}
+	})
 }
