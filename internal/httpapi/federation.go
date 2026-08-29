@@ -10,7 +10,9 @@ package httpapi
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/warewave/postern/internal/auth"
 	"github.com/warewave/postern/internal/groupsync"
@@ -39,6 +41,10 @@ func (s *Server) registerFederationRoutes(mux *http.ServeMux) {
 	// buna dayanıyor: sınanmamış bir değişiklik canlıya çıkmasın.
 	mux.Handle("POST /api/admin/ldap/verify", admin(s.adminVerifyLDAP))
 	mux.Handle("GET /api/admin/sync/settings", admin(s.adminSyncSettings))
+	// Koşuların SONUCU. Bu uç olmadan senkronizasyonun durduğu yalnızca
+	// host üzerinde `postern sync runs` ile görülebiliyordu — yani
+	// pratikte hiç görülmüyordu.
+	mux.Handle("GET /api/admin/sync/runs", admin(s.adminSyncRuns))
 }
 
 // --- grup eşlemeleri ---
@@ -342,6 +348,62 @@ func nonNil(v []string) []string {
 		return []string{}
 	}
 	return v
+}
+
+/*
+ * adminSyncRuns, son senkronizasyon koşuları.
+ *
+ * ⚠️ NEDEN VAR: patlama yarıçapı korumaları bir koşuyu iptal ettiğinde
+ * bunun tek izi sync_runs tablosuydu ve o tabloyu okuyan tek şey host
+ * üzerindeki `postern sync runs` komutuydu. Yani "hiç kimsenin yetkisi
+ * iptal edilmiyor" hâli, panele bakan bir operatör için TAMAMEN
+ * görünmezdi. Sessiz bir güvenlik arızasının en pahalı biçimi bu.
+ */
+func (s *Server) adminSyncRuns(w http.ResponseWriter, r *http.Request) {
+	const defaultLimit = 20
+	limit := defaultLimit
+	if v := r.URL.Query().Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 || n > 200 {
+			writeErr(w, http.StatusBadRequest, "limit must be a number between 1 and 200")
+			return
+		}
+		limit = n
+	}
+
+	runs, err := s.store.SyncRuns(r.Context(), limit)
+	if err != nil {
+		s.storeErr(w, "sync.runs", err)
+		return
+	}
+
+	type row struct {
+		ID           int64  `json:"id"`
+		StartedAt    string `json:"started_at"`
+		FinishedAt   string `json:"finished_at"`
+		Trigger      string `json:"trigger"`
+		Outcome      string `json:"outcome"`
+		Reason       string `json:"reason"`
+		Considered   int    `json:"considered"`
+		Unknown      int    `json:"unknown"`
+		Revoked      int    `json:"revoked"`
+		RolesChanged int    `json:"roles_changed"`
+		DryRun       bool   `json:"dry_run"`
+	}
+	out := make([]row, 0, len(runs))
+	for _, x := range runs {
+		fin := ""
+		if !x.FinishedAt.IsZero() {
+			fin = x.FinishedAt.UTC().Format(time.RFC3339)
+		}
+		out = append(out, row{
+			ID: x.ID, StartedAt: x.StartedAt.UTC().Format(time.RFC3339), FinishedAt: fin,
+			Trigger: x.Trigger, Outcome: x.Outcome, Reason: x.Reason,
+			Considered: x.Considered, Unknown: x.Unknown, Revoked: x.Revoked,
+			RolesChanged: x.RolesChanged, DryRun: x.DryRun,
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // knownSettingKeys, panelden yazılabilecek ayarlar.

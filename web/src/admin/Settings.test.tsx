@@ -202,3 +202,87 @@ describe("grup kapsami uyarisi", () => {
     ).not.toBeInTheDocument();
   });
 });
+
+/*
+ * İPTAL EDİLEN KOŞU EKRANDA GÖRÜNMELİ.
+ *
+ * Patlama yarıçapı korumaları bir koşuyu durdurduğunda, bunun tek izi
+ * sync_runs tablosuydu ve onu okuyan tek şey host üzerindeki bir
+ * komuttu. Yani "hiç kimsenin yetkisi iptal edilmiyor" hâli panele
+ * bakan operatör için tamamen görünmezdi — sessiz bir güvenlik
+ * arızasının en pahalı biçimi.
+ */
+describe("senkronizasyon kosu gorunurlugu", () => {
+  const run = (over: Partial<import("../api").SyncRun>) => ({
+    id: 1,
+    started_at: "2026-08-29T09:00:00Z",
+    finished_at: "2026-08-29T09:00:01Z",
+    trigger: "timer",
+    outcome: "ok",
+    reason: "",
+    considered: 10,
+    unknown: 0,
+    revoked: 0,
+    roles_changed: 0,
+    dry_run: false,
+    ...over,
+  });
+
+  it("iptal edilen kosuyu ve sebebini soyler", async () => {
+    vi.spyOn(api, "settings").mockResolvedValue(configured);
+    vi.spyOn(api, "syncSettings").mockResolvedValue(sync);
+    vi.spyOn(api, "syncRuns").mockResolvedValue([
+      run({
+        outcome: "aborted",
+        reason: "14 of 120 users would lose all SSO roles",
+      }),
+    ]);
+
+    render(<Settings />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/stopped by a safety ceiling/i),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/nobody is being revoked/i)).toBeInTheDocument();
+    // Sebep hem şeritte hem koşu listesinde geçiyor; ikisi de doğru.
+    expect(
+      screen.getAllByText(/14 of 120 users would lose all SSO roles/).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("uc kosu ust uste kuruysa uyarir", async () => {
+    vi.spyOn(api, "settings").mockResolvedValue(configured);
+    vi.spyOn(api, "syncSettings").mockResolvedValue(sync);
+    vi.spyOn(api, "syncRuns").mockResolvedValue([
+      run({ id: 3, dry_run: true }),
+      run({ id: 2, dry_run: true }),
+      run({ id: 1, dry_run: true }),
+    ]);
+
+    render(<Settings />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/last three runs were dry runs/i),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it("saglikli kosularda uyari cikmaz", async () => {
+    vi.spyOn(api, "settings").mockResolvedValue(configured);
+    vi.spyOn(api, "syncSettings").mockResolvedValue(sync);
+    vi.spyOn(api, "syncRuns").mockResolvedValue([run({}), run({ id: 2 })]);
+
+    render(<Settings />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/Directory sync/i)).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByText(/stopped by a safety ceiling/i),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/dry runs/i)).not.toBeInTheDocument();
+  });
+});

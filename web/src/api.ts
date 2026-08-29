@@ -151,6 +151,21 @@ export type LDAPTestResult = {
   out_of_scope?: string[];
 };
 
+// SyncRun, bir senkronizasyon koşusunun sonucu.
+export type SyncRun = {
+  id: number;
+  started_at: string;
+  finished_at: string;
+  trigger: string;
+  outcome: string;
+  reason: string;
+  considered: number;
+  unknown: number;
+  revoked: number;
+  roles_changed: number;
+  dry_run: boolean;
+};
+
 export type RecordingState = "none" | "missing" | "partial" | "complete";
 
 export type SessionDetail = Session & {
@@ -363,6 +378,8 @@ export const api = {
   verifyLDAP: (cfg: LDAPCandidate) =>
     req<LDAPTestResult>("POST", "/api/admin/ldap/verify", cfg),
   syncSettings: () => req<SyncSettings>("GET", "/api/admin/sync/settings"),
+  syncRuns: (limit = 20) =>
+    req<SyncRun[]>("GET", `/api/admin/sync/runs?limit=${limit}`),
   checkLDAPConnection: () =>
     req<{ ok: boolean; error?: string }>(
       "POST",

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { SyncSettings, api, toMessage } from "../api";
+import { SyncRun, SyncSettings, api, toMessage } from "../api";
 import { ActionButton, ErrorLine, OkLine } from "./common";
 
 /**
@@ -64,19 +64,22 @@ const LIMITS: Field[] = [
 
 export default function SyncPanel({ ldapReady }: { ldapReady: boolean }) {
   const [s, setS] = useState<SyncSettings | null>(null);
+  const [runs, setRuns] = useState<SyncRun[]>([]);
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
 
   const load = useCallback(
     () =>
-      api
-        .syncSettings()
-        .then((v) => {
+      Promise.all([
+        api.syncSettings().then((v) => {
           setS(v);
           setError(v.error ?? "");
-        })
-        .catch((e: unknown) => setError(toMessage(e))),
+        }),
+        // Koşu geçmişi ayrı düşebilir: ayarlar okunuyorsa ekran
+        // çizilmeli, geçmişin gelmemesi tüm paneli boş bırakmamalı.
+        api.syncRuns(10).then(setRuns, () => setRuns([])),
+      ]).catch((e: unknown) => setError(toMessage(e))),
     [],
   );
 
@@ -110,14 +113,37 @@ export default function SyncPanel({ ldapReady }: { ldapReady: boolean }) {
         <h3>Directory sync</h3>
         <p>
           Re-reads every user&apos;s groups on a timer and applies the result —
-          including taking roles away from people the directory no longer
-          places in them.
+          including taking roles away from people the directory no longer places
+          in them.
         </p>
       </div>
 
       <div className="card-body">
         <ErrorLine msg={error} />
         <OkLine msg={ok} />
+
+        {/*
+          ⚠️ KOŞULARIN SONUCU EKRANDA. Patlama yarıçapı korumaları bir
+          koşuyu iptal ettiğinde bunun tek izi sync_runs tablosuydu ve
+          onu okuyan tek şey host üzerindeki bir komuttu — yani "hiç
+          kimsenin yetkisi iptal edilmiyor" hâli panelden TAMAMEN
+          görünmüyordu. Sessiz bir güvenlik arızasının en pahalı biçimi.
+        */}
+        {runs[0]?.outcome === "aborted" && (
+          <p className="msg msg-warn" role="status">
+            <b>
+              The last run was stopped by a safety ceiling and applied nothing.
+            </b>{" "}
+            {runs[0].reason} — until this clears, nobody is being revoked.
+          </p>
+        )}
+        {runs.length >= 3 && runs.slice(0, 3).every((r) => r.dry_run) && (
+          <p className="msg msg-warn" role="status">
+            <b>The last three runs were dry runs.</b> Decisions were computed
+            and reported, and nothing was written. Turn dry run off when you are
+            done watching.
+          </p>
+        )}
 
         {!ldapReady && (
           <p className="msg msg-warn" role="status">
@@ -131,12 +157,12 @@ export default function SyncPanel({ ldapReady }: { ldapReady: boolean }) {
           basan kişi onu okumadan basmış olurdu.
         */}
         <div className="danger-note">
-          <b>This loop revokes access on its own.</b> Run it with{" "}
-          <b>dry run</b> on for a while first and read{" "}
-          <code>postern sync status</code>: it computes and reports every
-          decision without writing anything. The ceilings below exist because a
-          directory that answers wrongly — half-migrated, mid-outage, a filter
-          typo — would otherwise take everyone&apos;s access at once.
+          <b>This loop revokes access on its own.</b> Run it with <b>dry run</b>{" "}
+          on for a while first and read <code>postern sync status</code>: it
+          computes and reports every decision without writing anything. The
+          ceilings below exist because a directory that answers wrongly —
+          half-migrated, mid-outage, a filter typo — would otherwise take
+          everyone&apos;s access at once.
         </div>
 
         <div className="sync-toggles">
@@ -148,7 +174,9 @@ export default function SyncPanel({ ldapReady }: { ldapReady: boolean }) {
             />
             <span>
               <b>Enabled</b>
-              <span className="toggle-hint">the loop runs on the interval below</span>
+              <span className="toggle-hint">
+                the loop runs on the interval below
+              </span>
             </span>
           </label>
 
@@ -173,6 +201,31 @@ export default function SyncPanel({ ldapReady }: { ldapReady: boolean }) {
           </p>
         )}
 
+        {runs.length > 0 && (
+          <details className="run-log">
+            <summary>Recent runs ({runs.length})</summary>
+            <ul className="run-list">
+              {runs.map((r) => (
+                <li key={r.id}>
+                  <span
+                    className={
+                      r.outcome === "ok" ? "tag tag-ok" : "tag tag-warn"
+                    }
+                  >
+                    {r.outcome}
+                  </span>
+                  <code>{r.started_at}</code>
+                  <span className="muted">
+                    {r.considered} considered · {r.revoked} revoked ·{" "}
+                    {r.unknown} unknown{r.dry_run ? " · dry run" : ""}
+                  </span>
+                  {r.reason && <div className="run-reason">{r.reason}</div>}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+
         <div className="wizard-form">
           {LIMITS.map((f) => {
             const typed = edits[f.key];
@@ -191,7 +244,9 @@ export default function SyncPanel({ ldapReady }: { ldapReady: boolean }) {
                 <input
                   id={`sy-${f.key}`}
                   value={typed ?? current}
-                  onChange={(e) => setEdits({ ...edits, [f.key]: e.target.value })}
+                  onChange={(e) =>
+                    setEdits({ ...edits, [f.key]: e.target.value })
+                  }
                 />
                 <p className="wfield-hint">{f.hint}</p>
                 {typed !== undefined && typed !== current && (
