@@ -2206,3 +2206,29 @@ label > textarea {
   color: var(--muted);
   font-size: 12px;
 }
+
+/* Yerel giriş formu. Giriş kartının içinde, IdP düğmesinin altında.
+   Genişlik karta uyuyor; alanlar tam genişlik çünkü sır uzun ve
+   kırpılmış bir kutuda yazıldığını görmek zor. */
+.local-signin {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+  text-align: left;
+}
+.local-signin label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.local-signin input {
+  width: 100%;
+}
+.local-signin .note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}

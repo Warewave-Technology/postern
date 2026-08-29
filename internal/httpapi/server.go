@@ -90,6 +90,10 @@ type Server struct {
 	 */
 	closing   chan struct{}
 	closeOnce sync.Once
+
+	// Yerel giriş kapısının yük korumaları (bkz. locallogin.go).
+	localSlots chan struct{}
+	localLimit *localLimiter
 }
 
 /*
@@ -160,6 +164,8 @@ func New(o *auth.OIDC, logins *auth.Logins, db *store.Store, logger *slog.Logger
 	return &Server{
 		oidc:        o,
 		closing:     make(chan struct{}),
+		localSlots:  make(chan struct{}, localLoginSlots),
+		localLimit:  newLocalLimiter(),
 		logins:      logins,
 		logger:      logger,
 		store:       db,
@@ -204,6 +210,10 @@ func (s *Server) Handler() http.Handler {
 	 * Ekran ne olduğunu SUNUCUYA sormalı.
 	 */
 	mux.Handle("GET /api/auth/methods", noStore(http.HandlerFunc(s.handleAuthMethods)))
+
+	// Yerel kapı. sameOrigin ŞART: siteler arası bir POST, kurbanın
+	// tarayıcısında oturum açtırmaya çalışabilirdi.
+	mux.Handle("POST /auth/local", s.sameOrigin(http.HandlerFunc(s.handleLocalLogin)))
 	// Çıkış da same-origin: siteler arası bir POST kurbanı sessizce
 	// oturumdan atıyordu. Etkisi düşük ama bedeli sıfır.
 	mux.Handle("POST /auth/logout", s.sameOrigin(http.HandlerFunc(s.handleLogout)))

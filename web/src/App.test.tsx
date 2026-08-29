@@ -22,7 +22,10 @@ describe("App önyükleme", () => {
   // döngü. 401 ile 500 ayrı ekranlar olmalı.
   it("401'de giris ekrani gosterir", async () => {
     vi.spyOn(api, "me").mockRejectedValue(new ApiError(401, "unauthenticated"));
-    vi.spyOn(api, "authMethods").mockResolvedValue({ oidc: true });
+    vi.spyOn(api, "authMethods").mockResolvedValue({
+      oidc: true,
+      local: false,
+    });
 
     render(<App />);
     await waitFor(() =>
@@ -228,7 +231,7 @@ describe("App oturum bitisi", () => {
         });
       }
       if (url.includes("/api/auth/methods")) {
-        return new Response(JSON.stringify({ oidc: true }), {
+        return new Response(JSON.stringify({ oidc: true, local: false }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
@@ -273,21 +276,96 @@ describe("App oturum bitisi", () => {
  * düğme 404'e giderdi: kullanıcı ürünü bozuk sanardı.
  */
 describe("giris yollari", () => {
-  it("oidc yoksa IdP dugmesini CIZMEZ ve ne yapilacagini soyler", async () => {
+  it("oidc yoksa IdP dugmesini CIZMEZ, yerel formu cizer", async () => {
     vi.spyOn(api, "me").mockRejectedValue(new ApiError(401, "unauthenticated"));
-    vi.spyOn(api, "authMethods").mockResolvedValue({ oidc: false });
+    vi.spyOn(api, "authMethods").mockResolvedValue({
+      oidc: false,
+      local: true,
+    });
 
     render(<App />);
 
     await waitFor(() =>
-      expect(
-        screen.getByText(/No sign-in method is configured/i),
-      ).toBeInTheDocument(),
+      expect(screen.getByLabelText(/Sign-in secret/i)).toBeInTheDocument(),
     );
     expect(
       screen.queryByText(/Sign in with your identity provider/i),
     ).not.toBeInTheDocument();
     expect(screen.getByText(/postern admin bootstrap/)).toBeInTheDocument();
+  });
+
+  // Hiçbir kapı yoksa ekran çıkmaz sokak olmamalı.
+  it("hicbir kapi yoksa ne yapilacagini soyler", async () => {
+    vi.spyOn(api, "me").mockRejectedValue(new ApiError(401, "unauthenticated"));
+    vi.spyOn(api, "authMethods").mockResolvedValue({
+      oidc: false,
+      local: false,
+    });
+
+    render(<App />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/No sign-in method is available/i),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  /*
+   * Yerel kapı: sır doğruysa oturum açılır.
+   *
+   * ⚠️ Metinler "password" değil "secret" diyor ve bu kasıtlı —
+   * kullanıcının buraya kurumsal parolasını yazma refleksini
+   * beslememek gerekiyor.
+   */
+  it("yerel sirla giris yapar", async () => {
+    const meSpy = vi
+      .spyOn(api, "me")
+      .mockRejectedValueOnce(new ApiError(401, "unauthenticated"))
+      .mockResolvedValue(me);
+    vi.spyOn(api, "authMethods").mockResolvedValue({
+      oidc: false,
+      local: true,
+    });
+    vi.spyOn(api, "myTargets").mockResolvedValue(myTargets);
+    const login = vi.spyOn(api, "localLogin").mockResolvedValue({ ok: true });
+
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByLabelText(/Sign-in secret/i)).toBeInTheDocument(),
+    );
+
+    await userEvent.type(screen.getByLabelText(/Username/i), "ops");
+    await userEvent.type(screen.getByLabelText(/Sign-in secret/i), "AAAA-BBBB");
+    await userEvent.click(screen.getByRole("button", { name: /^Sign in$/i }));
+
+    await waitFor(() => expect(login).toHaveBeenCalledWith("ops", "AAAA-BBBB"));
+    expect(meSpy).toHaveBeenCalled();
+  });
+
+  it("yanlis sirda hata gosterir ve formda kalir", async () => {
+    vi.spyOn(api, "me").mockRejectedValue(new ApiError(401, "unauthenticated"));
+    vi.spyOn(api, "authMethods").mockResolvedValue({
+      oidc: false,
+      local: true,
+    });
+    vi.spyOn(api, "localLogin").mockRejectedValue(
+      new ApiError(401, "wrong username or secret"),
+    );
+
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByLabelText(/Sign-in secret/i)).toBeInTheDocument(),
+    );
+
+    await userEvent.type(screen.getByLabelText(/Username/i), "ops");
+    await userEvent.type(screen.getByLabelText(/Sign-in secret/i), "yanlis");
+    await userEvent.click(screen.getByRole("button", { name: /^Sign in$/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/wrong username or secret/i)).toBeInTheDocument(),
+    );
+    expect(screen.getByLabelText(/Sign-in secret/i)).toBeInTheDocument();
   });
 
   it("uc cevap vermezse dugme cizilmez", async () => {

@@ -248,6 +248,20 @@ func (s *Server) completeWebLogin(w http.ResponseWriter, r *http.Request, state,
 func (s *Server) handleAuthMethods(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"oidc": s.oidc != nil,
+		/*
+		 * ⚠️ BU ALAN YAPILANDIRMAYI SÖYLER, VERİTABANINI DEĞİL.
+		 *
+		 * "Yerel bir yönetici VAR mı" sorusunun cevabı buradan
+		 * verilemez: kimliği doğrulanmamış herkese kurulumda bir acil
+		 * durum hesabı bulunduğunu söylemek olurdu. Kapının açık olup
+		 * olmadığı ise dağıtımın kendi kararı ve zaten giriş
+		 * ekranından görülüyor.
+		 *
+		 * Yanlış sır, hesap olsa da olmasa da AYNI cevabı alıyor
+		 * (bkz. locallogin.go), dolayısıyla formu her zaman göstermek
+		 * hiçbir şey sızdırmıyor.
+		 */
+		"local": true,
 	})
 }
 
