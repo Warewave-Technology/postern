@@ -26,6 +26,12 @@ func TestRecordingIsServedToAdmins(t *testing.T) {
 	if err := db.SetUserAdmin(context.Background(), "yigit", true); err != nil {
 		t.Fatal(err)
 	}
+	// ⚠️ Bağlanmamış bir YÖNETİCİ hesabını ilk girişin
+	// sahiplenmesi artık açık izin istiyor: yalnızca adla
+	// devralma ölçülmüş bir saldırıydı (bkz. göç 020).
+	if err := db.AllowIdentityBind(context.Background(), "yigit", time.Now()); err != nil {
+		t.Fatal(err)
+	}
 
 	// --- oturumu SSH üzerinden aç ve tanınabilir bir çıktı üret ---
 	client, err := kiClient(sshAddr, hostPub, browserSignInForCode)

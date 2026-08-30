@@ -40,6 +40,12 @@ func TestFederationAPIMappings(t *testing.T) {
 	if err := db.SetUserAdmin(ctx, kcUser, true); err != nil {
 		t.Fatal(err)
 	}
+	// ⚠️ Bağlanmamış bir YÖNETİCİ hesabını ilk girişin
+	// sahiplenmesi artık açık izin istiyor: yalnızca adla
+	// devralma ölçülmüş bir saldırıydı (bkz. göç 020).
+	if err := db.AllowIdentityBind(ctx, kcUser, time.Now()); err != nil {
+		t.Fatal(err)
+	}
 
 	// Yeni eşleme ekle.
 	if status, body := adminReq(t, client, "POST", apiURL+"/api/admin/mappings",
@@ -101,6 +107,12 @@ func TestFederationAPISettings(t *testing.T) {
 	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
 	browserSignIn(t, client, apiURL)
 	if err := db.SetUserAdmin(ctx, kcUser, true); err != nil {
+		t.Fatal(err)
+	}
+	// ⚠️ Bağlanmamış bir YÖNETİCİ hesabını ilk girişin
+	// sahiplenmesi artık açık izin istiyor: yalnızca adla
+	// devralma ölçülmüş bir saldırıydı (bkz. göç 020).
+	if err := db.AllowIdentityBind(ctx, kcUser, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -191,6 +203,12 @@ func TestChangingLDAPURLDropsTheStoredBindPassword(t *testing.T) {
 	if err := db.SetUserAdmin(context.Background(), "yigit", true); err != nil {
 		t.Fatal(err)
 	}
+	// ⚠️ Bağlanmamış bir YÖNETİCİ hesabını ilk girişin
+	// sahiplenmesi artık açık izin istiyor: yalnızca adla
+	// devralma ölçülmüş bir saldırıydı (bkz. göç 020).
+	if err := db.AllowIdentityBind(context.Background(), "yigit", time.Now()); err != nil {
+		t.Fatal(err)
+	}
 
 	// Sır saklamak için mühür anahtarı gerekiyor: üretimde
 	// `postern secret init` kuruyor, testte burada.
@@ -250,6 +268,12 @@ func TestVerifyLDAPWontSendStoredPasswordElsewhere(t *testing.T) {
 	_, apiURL, _, db := oobBastion(t, 0)
 
 	if err := db.SetUserAdmin(context.Background(), "yigit", true); err != nil {
+		t.Fatal(err)
+	}
+	// ⚠️ Bağlanmamış bir YÖNETİCİ hesabını ilk girişin
+	// sahiplenmesi artık açık izin istiyor: yalnızca adla
+	// devralma ölçülmüş bir saldırıydı (bkz. göç 020).
+	if err := db.AllowIdentityBind(context.Background(), "yigit", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	box, err := secret.Init(filepath.Join(t.TempDir(), "secret.key"))

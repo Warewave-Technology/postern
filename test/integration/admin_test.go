@@ -53,6 +53,12 @@ func TestAdminAPIEndToEnd(t *testing.T) {
 	if err := db.SetUserAdmin(context.Background(), "yigit", true); err != nil {
 		t.Fatal(err)
 	}
+	// ⚠️ Bağlanmamış bir YÖNETİCİ hesabını ilk girişin
+	// sahiplenmesi artık açık izin istiyor: yalnızca adla
+	// devralma ölçülmüş bir saldırıydı (bkz. göç 020).
+	if err := db.AllowIdentityBind(context.Background(), "yigit", time.Now()); err != nil {
+		t.Fatal(err)
+	}
 
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
@@ -140,6 +146,12 @@ func TestAdminAPIForbidsNonAdmins(t *testing.T) {
 func TestAdminAPIRejectsCrossSite(t *testing.T) {
 	_, apiURL, _, db := oobBastion(t, 0)
 	if err := db.SetUserAdmin(context.Background(), "yigit", true); err != nil {
+		t.Fatal(err)
+	}
+	// ⚠️ Bağlanmamış bir YÖNETİCİ hesabını ilk girişin
+	// sahiplenmesi artık açık izin istiyor: yalnızca adla
+	// devralma ölçülmüş bir saldırıydı (bkz. göç 020).
+	if err := db.AllowIdentityBind(context.Background(), "yigit", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 

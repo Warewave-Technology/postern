@@ -42,6 +42,19 @@ var (
 	// İstemciye giden yanıt İKİSİNDE DE aynı: ayrım yalnızca logda.
 	ErrIdentityConflict = errors.New("store: identity conflict")
 
+	/*
+	 * ErrAdminBindRefused: adı eşleşen bir YÖNETİCİ hesabını, ilk kez
+	 * görülen bir kimliğe bağlama denemesi.
+	 *
+	 * ErrIdentityConflict'ten AYRI, çünkü operatörün yapacağı şey
+	 * farklı: orada bir devralma denemesi var ve incelenmeli; burada
+	 * meşru bir yönetici de olabilir ve yolu açık — yöneticiliği
+	 * geçici olarak kaldırıp bağlaması yeterli. Aynı sentinel altında
+	 * toplansaydı, ikisi de "incelenecek olay" diye loglanır ve
+	 * gerçekten incelenmesi gereken seyrek olay gürültüye karışırdı.
+	 */
+	ErrAdminBindRefused = errors.New("store: administrator account cannot be claimed by username")
+
 	// errNotImplementedS51, S5.1 iskeletinin bekleyen fonksiyonları.
 	errNotImplementedS51 = errors.New("store: not implemented")
 
@@ -843,6 +856,59 @@ type ProvisionRequest struct {
 	Subject string
 }
 
+/*
+ * consumeBindConsent, yönetici hesabı için verilmiş TEK KULLANIMLIK
+ * bağlama iznini harcar.
+ *
+ * ⚠️ Okuma ve silme TEK ifadede: iki adıma bölünseydi, aynı anda gelen
+ * iki giriş denemesi aynı izni tüketebilir ve izin BİR kez verilmişken
+ * İKİ hesap bağlanabilirdi.
+ */
+func (s *Store) consumeBindConsent(ctx context.Context, username string) (bool, error) {
+	// RETURNING yeni satırı verir (yani NULL); önemli olan SATIRIN
+	// dönüp dönmediği — dönmüşse izin vardı ve şu an harcandı.
+	var touched string
+	err := s.db.QueryRowContext(ctx, `
+		UPDATE users SET bind_consent_at = NULL
+		WHERE username = $1 AND bind_consent_at IS NOT NULL
+		RETURNING username;`, username).Scan(&touched)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, translateErr("store.consumeBindConsent", err)
+	}
+	return true, nil
+}
+
+// AllowIdentityBind, bir yönetici hesabının SIRADAKİ kimlik bağlamasına
+// izin verir. Tek kullanımlık.
+func (s *Store) AllowIdentityBind(ctx context.Context, username string, at time.Time) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE users SET bind_consent_at = $1 WHERE username = $2;`, at.Unix(), username)
+	if err != nil {
+		return translateErr("store.AllowIdentityBind", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("store.AllowIdentityBind[%s]: %w", username, ErrNotFound)
+	}
+	return nil
+}
+
+// hasIdPIdentity, hesabın bir IdP kimliğine BAĞLI olup olmadığı.
+//
+// "Bağlı değil" ile "yok" ayrımı çağıranın işi: burada kullanıcı zaten
+// bulunmuş oluyor.
+func (s *Store) hasIdPIdentity(ctx context.Context, username string) (bool, error) {
+	var subject sql.NullString
+	err := s.db.QueryRowContext(ctx,
+		`SELECT idp_subject FROM users WHERE username = $1;`, username).Scan(&subject)
+	if err != nil {
+		return false, translateErr("store.hasIdPIdentity", err)
+	}
+	return subject.Valid, nil
+}
+
 // UserByIdPSubject, (issuer, subject) çiftine bağlı kullanıcıyı döner.
 func (s *Store) UserByIdPSubject(ctx context.Context, issuer, subject string) (model.User, error) {
 	var username string
@@ -959,6 +1025,79 @@ func (s *Store) ProvisionUser(ctx context.Context, req ProvisionRequest) (model.
 	existing, err := s.User(ctx, req.Username)
 	switch {
 	case err == nil:
+		/*
+		 * ⚠️ YÖNETİCİ HESABI AD EŞLEŞMESİYLE DEVRALINAMAZ.
+		 *
+		 * ÖLÇÜLEN SALDIRI (demo ortamında uçtan uca çalıştırıldı):
+		 * "developers" grubundaki sıradan bir çalışan, IdP'de kendi
+		 * preferred_username'ini "ops" yaptı ve OOB girişini
+		 * çalıştırdı. Aşağıdaki bağlama başarılı oldu ve postern'in
+		 * CLI yönetici hesabı — is_admin=true, admin_via='cli' —
+		 * saldırganın kimliğine geçti. Ölçüm:
+		 *
+		 *   önce:  ops | admin=true | via=cli | idp_subject=YOK
+		 *   sonra: ops | admin=true | via=cli | idp_subject=f4b15fbf-…
+		 *
+		 * Rol eşlemesi bunu DURDURMAZ ve durdurması da beklenmemeli:
+		 * saldırgan kendi rollerini alıyor (developer), ama hesabın
+		 * is_admin bayrağı hiçbir eşlemeden gelmiyor — CLI'dan ya da
+		 * yönetici grubundan geliyor. Aşağıdaki len(roles)==0 kapısı
+		 * da yalnızca YENİ hesap dalında; var olan bir hesabı
+		 * devralmaya uygulanmıyor.
+		 *
+		 * ⚠️ Pencere 011'den beri bilerek açıktı (onboarding için) ve
+		 * o gün is_admin yalnızca CLI'dan geliyordu. Yöneticiliğin
+		 * gruptan da gelebilmesi (017), OIDC'ye hiç dokunmamış
+		 * yönetici hesaplarının sayısını artırdı — yani pencerenin
+		 * DEĞERİ arttı.
+		 *
+		 * Sıradan hesaplar için ilk bağlama hâlâ serbest: onboarding'i
+		 * kırmadan, yalnızca yetkiyi taşıyan hesapları kapatıyoruz.
+		 * Meşru bir yönetici bağlanacaksa yol açık ve iki komut:
+		 * yöneticiliği geçici olarak kaldır, bir kez giriş yaptır,
+		 * geri ver.
+		 */
+		/*
+		 * ⚠️ YALNIZCA HENÜZ BAĞLANMAMIŞ hesaplar için.
+		 *
+		 * Hesap ZATEN başka bir kimliğe bağlıysa doğru cevap
+		 * ErrIdentityConflict: orada bir devralma DENEMESİ var ve
+		 * incelenmeli. Buradaki mesaj ise "yöneticiliği kaldır, giriş
+		 * yaptır, geri ver" diyor — bağlı bir hesapta bu TAMAMEN
+		 * yanlış tavsiye olurdu, çünkü sorun yöneticilik değil, adın
+		 * başkasına ait olması. (Mevcut bir test bu sırayı yakaladı.)
+		 */
+		alreadyBound, berr := s.hasIdPIdentity(ctx, req.Username)
+		if berr != nil {
+			return model.User{}, berr
+		}
+		if existing.Admin && !alreadyBound {
+			/*
+			 * ⚠️ YÖNETİCİ HESABI, YALNIZCA ADLA DEVRALINAMAZ.
+			 *
+			 * Bağlama anında saldırganla meşru yöneticiyi ayırt eden
+			 * hiçbir kanıt yok: elde tek şey kullanıcı adı ve o da
+			 * birçok sağlayıcıda kullanıcının kendi değiştirebildiği
+			 * bir alan. Ayrım ancak host'taki operatörden gelebilir —
+			 * `postern user allow-bind`.
+			 *
+			 * İzin TEK KULLANIMLIK: aynı işlemde tüketiliyor. Kalıcı
+			 * olsaydı, bir kez açılan pencere açık kalırdı ve kimse
+			 * kapatmayı hatırlamazdı.
+			 */
+			consumed, cerr := s.consumeBindConsent(ctx, req.Username)
+			if cerr != nil {
+				return model.User{}, cerr
+			}
+			if !consumed {
+				return model.User{}, fmt.Errorf(
+					"store.ProvisionUser[%s]: an administrator account cannot be claimed "+
+						"by a matching username; allow it deliberately on the bastion host "+
+						"(`postern user allow-bind --name %s`) and have them sign in once: %w",
+					req.Username, req.Username, ErrAdminBindRefused)
+			}
+		}
+
 		// Ad eşleşiyor ama bu IdP kimliği bağlı değil.
 		//
 		// Hesap BAŞKA bir kimliğe bağlıysa BindIdPSubject reddeder —

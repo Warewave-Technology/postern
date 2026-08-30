@@ -32,6 +32,76 @@ func newUserCmd() *cobra.Command {
 	cmd.AddCommand(newUserAddCmd())
 	cmd.AddCommand(newUserListCmd())
 	cmd.AddCommand(newUserModifyCmd())
+	cmd.AddCommand(newUserAllowBindCmd())
+	return cmd
+}
+
+/*
+ * newUserAllowBindCmd, bir YÖNETİCİ hesabının sıradaki kimlik
+ * bağlamasına izin verir.
+ *
+ * ⚠️ NEDEN VAR — ölçülen saldırı: "developers" grubundaki sıradan bir
+ * çalışan, IdP'de kendi kullanıcı adını "ops" yapıp OOB girişini
+ * çalıştırdı ve postern'in CLI yönetici hesabını devraldı. Rol
+ * eşlemesi bunu durdurmuyor: saldırgan kendi rollerini alıyor, ama
+ * hesabın is_admin bayrağı hiçbir eşlemeden gelmiyor.
+ *
+ * Bağlama ANINDA saldırganla meşru yöneticiyi ayırt eden bir kanıt
+ * yok — elde tek şey kullanıcı adı ve o birçok sağlayıcıda kullanıcının
+ * kendi değiştirebildiği bir alan. Ayrım ancak buradan, host'tan
+ * gelebilir.
+ *
+ * ⚠️ TEK KULLANIMLIK ve bu bilinçli: kalıcı bir izin, bir kez açılan ve
+ * kimsenin kapatmayı hatırlamadığı bir pencere olurdu.
+ */
+func newUserAllowBindCmd() *cobra.Command {
+	var configPath, name string
+
+	cmd := &cobra.Command{
+		Use:   "allow-bind",
+		Short: "Let the next sign-in bind an identity to an administrator account",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			db, ctx, err := openStore(configPath)
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+
+			u, err := db.User(ctx, name)
+			if err != nil {
+				return err
+			}
+			// Sıradan hesapların ilk bağlaması zaten serbest: izin
+			// vermek anlamsız olurdu ve operatöre yanlış bir güvenlik
+			// hissi verirdi ("izin verdim, artık kapalı").
+			if !u.Admin {
+				return fmt.Errorf("%q is not an administrator; ordinary accounts "+
+					"already bind on first sign-in and need no permission", name)
+			}
+
+			if err := db.AllowIdentityBind(ctx, name, time.Now()); err != nil {
+				return err
+			}
+			if err := db.LogAdmin(ctx, store.AdminLogEntry{
+				Actor: cliActor(), Via: "cli", Action: "user.allow_bind", Entity: name,
+				Details: "the next sign-in may bind an identity to this administrator account",
+			}); err != nil {
+				return err
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(),
+				"the next sign-in as %q may claim this account\n", name)
+			fmt.Fprintln(cmd.OutOrStdout(),
+				"this is single use: have them sign in now, and check "+
+					"`postern log` afterwards to see which identity took it")
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
+	cmd.Flags().StringVar(&name, "name", "", "hesap adı (zorunlu)")
+	_ = cmd.MarkFlagRequired("name")
 	return cmd
 }
 

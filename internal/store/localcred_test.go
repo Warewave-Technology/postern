@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -468,10 +469,12 @@ func TestMigration018MovesDirectoryFlagIntoSource(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
-	// 018'i geri al, eski dünyayı kur, sonra tekrar uygula.
-	if err := s.Rollback(ctx); err != nil {
-		t.Fatalf("Rollback: %v", err)
-	}
+	// 018'in ALTINA in, eski dünyayı kur, sonra tekrar uygula.
+	//
+	// ⚠️ Tek bir Rollback YETMEZ ve bunu varsaymak testi kırılgan
+	// yapıyordu: 019 eklenince bu test "018'i geri aldım" sanarak
+	// 019'u geri alıyordu. Hedef sürüme kadar iniyoruz.
+	rollbackBelow(ctx, t, s, 18)
 	if err := s.SetSetting(ctx, "ldap.auth_enabled", "true", false, "test"); err != nil {
 		t.Fatal(err)
 	}
@@ -500,9 +503,7 @@ func TestMigration018LeavesSourceUnsetWhenFlagWasOff(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
-	if err := s.Rollback(ctx); err != nil {
-		t.Fatalf("Rollback: %v", err)
-	}
+	rollbackBelow(ctx, t, s, 18)
 	if err := s.SetSetting(ctx, "ldap.auth_enabled", "false", false, "test"); err != nil {
 		t.Fatal(err)
 	}
@@ -512,5 +513,265 @@ func TestMigration018LeavesSourceUnsetWhenFlagWasOff(t *testing.T) {
 
 	if v, err := s.Setting(ctx, "auth.source"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("auth.source = %q (%v) — kapalı bayrak dizin kapısını açtı", v, err)
+	}
+}
+
+/*
+ * ⚠️ 019: YALNIZCA HARF YAZIMIYLA AYRILAN İKİ HESAP OLAMAZ.
+ *
+ * Olabilseydi, "hangi Bob" sorusunun cevabı veritabanının sıralamasına
+ * kalırdı — ve o cevabı UserByNameFold ile ApplyAdminGroup kullanıyor,
+ * yani yönetici yetkisinin kime yazılacağını belirleyebilirdi.
+ */
+func TestUsernameIsUniqueRegardlessOfCase(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	if _, err := s.CreateUser(ctx, "bob", "bob@warewave.io", "bob"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateUser(ctx, "Bob", "bob2@warewave.io", "bob"); err == nil {
+		t.Fatal("yalnızca harf yazımıyla ayrılan ikinci hesap açıldı — " +
+			"dizinin tek kişi gördüğü yerde postern iki hesap tutuyor")
+	}
+
+	// Ve fold araması tek ve KESİN bir cevap veriyor.
+	got, err := s.UserByNameFold(ctx, "BOB")
+	if err != nil || got != "bob" {
+		t.Fatalf("UserByNameFold(BOB) = %q, %v", got, err)
+	}
+}
+
+/*
+ * ⚠️ ÇAKIŞMALI VERİDE GÖÇ, ANLAŞILIR BİR MESAJLA DURMALI.
+ *
+ * Düz bir CREATE UNIQUE INDEX, hangi hesapların soruna yol açtığını
+ * söylemeyen bir hata verirdi ve operatör yükseltmeyi karanlıkta
+ * ararken bırakırdı.
+ */
+func TestMigration019StopsOnCaseCollisions(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	rollbackBelow(ctx, t, s, 19)
+	// 019 geri alındı: artık çakışma yaratılabilir.
+	if _, err := s.CreateUser(ctx, "bob", "bob@warewave.io", "bob"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateUser(ctx, "Bob", "bob2@warewave.io", "bob"); err != nil {
+		t.Fatalf("019 öncesi ikinci hesap açılamadı: %v", err)
+	}
+
+	err := s.Migrate(ctx)
+	if err == nil {
+		t.Fatal("çakışmalı veride göç geçti — indeks sessizce oluşmuş olamaz")
+	}
+	if !strings.Contains(err.Error(), "differ only in letter case") ||
+		!strings.Contains(err.Error(), "bob") {
+		t.Fatalf("mesaj ne olduğunu ve hangi hesapları söylemiyor: %v", err)
+	}
+}
+
+/*
+ * ⚠️ ÖLÇÜLEN SALDIRININ REGRESYON TESTİ.
+ *
+ * Demo ortamında uçtan uca çalıştırıldı: "developers" grubundaki sıradan
+ * bir çalışan, IdP'de kendi preferred_username'ini "ops" yaptı ve OOB
+ * girişini çalıştırdı. postern'in CLI yönetici hesabı — is_admin=true,
+ * admin_via='cli' — saldırganın kimliğine geçti.
+ *
+ * Rol eşlemesi bunu durdurmuyor ve durdurması da beklenmemeli:
+ * saldırgan kendi rollerini alıyor, ama hesabın is_admin bayrağı
+ * hiçbir eşlemeden gelmiyor.
+ */
+func TestAdminAccountCannotBeClaimedByUsername(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	// Host'ta açılmış acil durum yöneticisi: SSO'ya hiç girmemiş.
+	if _, err := s.CreateUser(ctx, "ops", "ops@warewave.io", "ops"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetUserAdmin(ctx, "ops", true); err != nil {
+		t.Fatal(err)
+	}
+
+	// Rol eşlemesi olan bir grup: saldırgan MEŞRU bir çalışan, kendi
+	// rolleri var. Onu durduran şey rol eşlemesi olmamalı.
+	if _, err := s.CreateRole(ctx, "developer"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddGroupMapping(ctx, "developers", "developer", "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := s.ProvisionUser(ctx, ProvisionRequest{
+		Username:       "ops",
+		Email:          "sizan@warewave.io",
+		Groups:         []string{"developers"},
+		GroupsResolved: true,
+		Issuer:         "https://idp.example/realms/x",
+		Subject:        "f4b15fbf-04c0-4c95-8905-ed8c674eb1ff",
+	})
+	if !errors.Is(err, ErrAdminBindRefused) {
+		t.Fatalf("yönetici hesabı ad eşleşmesiyle devralındı (hata: %v)", err)
+	}
+
+	// Hesap DOKUNULMAMIŞ olmalı: ne bağlandı, ne yöneticiliği düştü.
+	var issuer, subject sql.NullString
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT idp_issuer, idp_subject FROM users WHERE username='ops';`).
+		Scan(&issuer, &subject); err != nil {
+		t.Fatal(err)
+	}
+	if issuer.Valid || subject.Valid {
+		t.Fatalf("hesap yine de bağlandı: issuer=%v subject=%v", issuer, subject)
+	}
+	if u, _ := s.User(ctx, "ops"); !u.Admin {
+		t.Fatal("reddedilen deneme hesabın yöneticiliğini düşürdü")
+	}
+}
+
+/*
+ * Ama SIRADAN bir hesabın ilk bağlanması hâlâ çalışmalı.
+ *
+ * Onboarding'in dayandığı yol bu: CLI ile ya da başka bir yoldan açılmış
+ * yetkisiz bir hesap, adı eşleşen ilk kimliğe bağlanıyor. Kapatsaydık
+ * her kullanıcı için host'ta bir işlem gerekirdi — ürünün kaçındığı şey.
+ */
+func TestOrdinaryAccountStillBindsOnFirstSignIn(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	if _, err := s.CreateUser(ctx, "suheda", "suheda@warewave.io", "suheda"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateRole(ctx, "developer"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddGroupMapping(ctx, "developers", "developer", "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	u, err := s.ProvisionUser(ctx, ProvisionRequest{
+		Username:       "suheda",
+		Groups:         []string{"developers"},
+		GroupsResolved: true,
+		Issuer:         "https://idp.example/realms/x",
+		Subject:        "11111111-2222-3333-4444-555555555555",
+	})
+	if err != nil {
+		t.Fatalf("sıradan hesabın ilk bağlanması reddedildi: %v", err)
+	}
+	if u.Name != "suheda" {
+		t.Fatalf("kullanıcı = %q", u.Name)
+	}
+	if via, _ := s.AdminVia(ctx, "suheda"); via != "" {
+		t.Fatalf("sıradan hesap yönetici oldu: %q", via)
+	}
+}
+
+// rollbackBelow, şema sürümü hedefin ALTINA inene kadar geri alır.
+//
+// Göç testleri "son göç benimki" varsayımına dayanamaz: bir sonraki göç
+// eklendiğinde test sessizce BAŞKA bir şeyi geri alır ve yanlış şeyi
+// doğrulamaya başlar.
+func rollbackBelow(ctx context.Context, t *testing.T, s *Store, target int) {
+	t.Helper()
+	for {
+		v, err := s.SchemaVersion(ctx)
+		if err != nil {
+			t.Fatalf("SchemaVersion: %v", err)
+		}
+		if v < target {
+			return
+		}
+		if err := s.Rollback(ctx); err != nil {
+			t.Fatalf("Rollback (sürüm %d): %v", v, err)
+		}
+	}
+}
+
+/*
+ * ⚠️ AÇIK İZİN, MEŞRU YÖNETİCİNİN YOLUNU AÇMALI — ve TEK KULLANIMLIK.
+ *
+ * Düz bir red, CLI ile açılmış bir yöneticinin IdP'den ilk girişini
+ * tamamen kapatıyordu (beş entegrasyon testi bunu gösterdi). İzin o
+ * yolu açıyor; kalıcı olsaydı bir kez açılan ve kimsenin kapatmayı
+ * hatırlamadığı bir pencere olurdu.
+ */
+func TestAllowBindOpensExactlyOneWindow(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	if _, err := s.CreateUser(ctx, "ops", "ops@warewave.io", "ops"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetUserAdmin(ctx, "ops", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateRole(ctx, "developer"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddGroupMapping(ctx, "developers", "developer", "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	req := func(subject string) ProvisionRequest {
+		return ProvisionRequest{
+			Username: "ops", Groups: []string{"developers"}, GroupsResolved: true,
+			Issuer: "https://idp.example/realms/x", Subject: subject,
+		}
+	}
+
+	// İzin yokken: red.
+	if _, err := s.ProvisionUser(ctx, req("sub-1")); !errors.Is(err, ErrAdminBindRefused) {
+		t.Fatalf("izinsiz bağlama reddedilmedi: %v", err)
+	}
+
+	if err := s.AllowIdentityBind(ctx, "ops", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	// İzinliyken: geçiyor.
+	if _, err := s.ProvisionUser(ctx, req("sub-1")); err != nil {
+		t.Fatalf("izin verilmiş bağlama reddedildi: %v", err)
+	}
+	if via, _ := s.AdminVia(ctx, "ops"); via != "cli" {
+		t.Fatalf("bağlama yöneticiliğin kaynağını değiştirdi: %q", via)
+	}
+
+	// ⚠️ VE PENCERE KAPANDI: ikinci bir kimlik aynı izni kullanamaz.
+	// Zaten bağlı olduğu için burada çatışma hatası bekleniyor.
+	_, err := s.ProvisionUser(ctx, req("sub-2"))
+	if err == nil {
+		t.Fatal("ikinci kimlik de hesabı aldı — izin tek kullanımlık değil")
+	}
+	if !errors.Is(err, ErrIdentityConflict) {
+		t.Fatalf("hata = %v, ErrIdentityConflict bekleniyordu", err)
+	}
+}
+
+// Sıradan hesap için izin ANLAMSIZ: onların ilk bağlaması zaten serbest
+// ve "izin verdim" demek yanlış bir güvenlik hissi verirdi.
+func TestAllowBindIsRefusedForOrdinaryAccounts(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	if _, err := s.CreateUser(ctx, "suheda", "s@warewave.io", "suheda"); err != nil {
+		t.Fatal(err)
+	}
+	// Store katmanı izni yazabilir (kısıt CLI'da), ama bağlama zaten
+	// izinsiz de çalışıyor olmalı — asıl doğrulanan bu.
+	if _, err := s.CreateRole(ctx, "developer"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddGroupMapping(ctx, "developers", "developer", "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ProvisionUser(ctx, ProvisionRequest{
+		Username: "suheda", Groups: []string{"developers"}, GroupsResolved: true,
+		Issuer: "https://idp.example/realms/x", Subject: "sub-ordinary",
+	}); err != nil {
+		t.Fatalf("sıradan hesabın ilk bağlanması izin istedi: %v", err)
 	}
 }

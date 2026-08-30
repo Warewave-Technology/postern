@@ -491,6 +491,21 @@ func (s *Server) resolveIdentity(ctx context.Context, log *slog.Logger, id auth.
 				}
 			}
 			return u, nil
+		case errors.Is(err, store.ErrAdminBindRefused):
+			/*
+			 * Adı bir YÖNETİCİ hesabıyla eşleşen, ilk kez görülen bir
+			 * kimlik. Ayrı loglanıyor: meşru bir yöneticinin ilk girişi
+			 * de buraya düşebilir ve onu "devralma denemesi" diye
+			 * kaydetmek, gerçek denemeleri gürültüye gömerdi.
+			 *
+			 * ⚠️ Dönen hata yine ErrAccessDenied: yanıt kodunun
+			 * farklılaşması, "bu kullanıcı adı postern'de bir yönetici"
+			 * bilgisini kimliği doğrulanmamış birine sızdırırdı.
+			 */
+			log.Warn("login denied: this username belongs to an administrator account "+
+				"and cannot be claimed by a first sign-in",
+				"idp_user", id.Username, "idp_issuer", id.Issuer)
+			return model.User{}, store.ErrAccessDenied
 		case errors.Is(err, store.ErrIdentityConflict):
 			// Kullanıcı adı var olan bir hesapla eşleşiyor ama o hesap
 			// BAŞKA bir IdP kimliğine bağlı — yapılandırma eksiği değil,

@@ -205,6 +205,11 @@ func dsn(conn string) (string, error) {
 // ⚠️ Şemaya harf duyarsız bir sütun eklenirse BURAYA da eklenmeli;
 // TestCIColumnsMatchesSchema ikisinin aynı hizada kalmasını denetler.
 var ciColumns = map[string]bool{
+	// 019: dizinler kullanıcı adlarını harf duyarsız eşliyor (uid ve
+	// sAMAccountName caseIgnoreMatch). postern'in daha gevşek olması,
+	// dizinin tek kişi gördüğü yerde iki hesap tutabilmesi demekti — ve
+	// "hangisi" sorusunun cevabı yönetici yetkisini belirleyebiliyordu.
+	"users.username":                true,
 	"targets.name":                  true,
 	"group_mappings.external_group": true,
 	"unmapped_groups.name":          true,

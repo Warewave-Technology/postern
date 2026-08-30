@@ -253,6 +253,18 @@ func (s *Server) resolveIdentity(ctx context.Context, id auth.Identity) (model.U
 		// "no mapped groups" diye görünüyordu ve araştıran yönetici
 		// hiçbir şeyi düzeltmeyecek olan grup eşlemesine yönlendiriliyordu.
 		// İstemciye giden yanıt aynı — ayrım yalnızca logda.
+		// ⚠️ Yönetici hesabını ad eşleşmesiyle devralma denemesi: AYRI
+		// mesaj. "Kimlik çatışması" diye loglansaydı, meşru bir
+		// yöneticinin ilk girişi de bir saldırı gibi görünürdü — ve
+		// tersi: gerçek deneme, rutin bir çatışma gibi.
+		if errors.Is(err, store.ErrAdminBindRefused) {
+			s.logger.Warn("oob login denied: this username belongs to an administrator account "+
+				"and cannot be claimed by a first sign-in",
+				"idp_user", id.Username, "idp_issuer", id.Issuer)
+			s.publish(events.AuthDenied, id.Username, "",
+				"administrator account cannot be claimed by a matching username")
+			return model.User{}, fmt.Errorf("access denied")
+		}
 		if errors.Is(err, store.ErrIdentityConflict) {
 			s.logger.Warn("oob login denied: username belongs to an account bound to a different identity",
 				"idp_user", id.Username, "idp_issuer", id.Issuer)
