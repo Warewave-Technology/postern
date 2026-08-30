@@ -45,6 +45,10 @@ export default function AdminGroup({ meName }: { meName?: string }) {
   }, []);
 
   const groupHolders = (status?.holders ?? []).filter((h) => h.via === "group");
+  // ⚠️ Bu grubun DOKUNAMADIĞI yöneticiler. Listelenmiyorlar (kartın
+  // sorusu onlar değil) ama sayıları söyleniyor: grubu boşaltmanın
+  // postern'i yöneticisiz bırakıp bırakmayacağı oradan okunuyor.
+  const hostHolders = (status?.holders ?? []).filter((h) => h.via !== "group");
   const shown = preview?.group === group.trim() ? preview.result : null;
 
   const runPreview = () => {
@@ -126,29 +130,38 @@ export default function AdminGroup({ meName }: { meName?: string }) {
                   </span>
                 )}
               </dd>
-              <dt>administrators</dt>
+              <dt>administrators from this group</dt>
               <dd>
-                {status.holders.length === 0 ? (
-                  <span className="muted">none</span>
+                {/*
+                  ⚠️ YALNIZCA BU GRUPTAN GELENLER.
+                  Kartın sorusu "bu grup kimi yönetici yapıyor". CLI'dan
+                  gelenleri aynı listeye koymak o soruyu bulandırıyordu:
+                  operatör, bu grubu değiştirerek etkileyemeyeceği
+                  isimleri listede görüyordu.
+                */}
+                {groupHolders.length === 0 ? (
+                  <span className="muted">
+                    nobody yet — they get it at their next sign-in
+                  </span>
                 ) : (
                   <ul className="problem-list">
-                    {status.holders.map((h) => (
-                      <li key={h.username}>
-                        {h.username}{" "}
-                        <span
-                          className={
-                            h.via === "cli" ? "badge badge-ok" : "badge"
-                          }
-                        >
-                          {h.via === "cli"
-                            ? "bastion host"
-                            : h.via === "group"
-                              ? `via ${status.group || "a group"}`
-                              : "source unknown"}
-                        </span>
-                      </li>
+                    {groupHolders.map((h) => (
+                      <li key={h.username}>{h.username}</li>
                     ))}
                   </ul>
+                )}
+                {/*
+                  Diğerleri LİSTELENMİYOR ama VARLIKLARI söyleniyor: bu
+                  grubu boşaltmanın postern'i yöneticisiz bırakıp
+                  bırakmayacağı sorusunun cevabı bu sayıda.
+                */}
+                {hostHolders.length > 0 && (
+                  <p className="note">
+                    {hostHolders.length} more administrator
+                    {hostHolders.length === 1 ? "" : "s"} come from the bastion
+                    host and this group does not affect them. They are listed
+                    under <b>Users</b>.
+                  </p>
                 )}
               </dd>
             </dl>

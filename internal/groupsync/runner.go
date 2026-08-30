@@ -198,11 +198,21 @@ func (r *Runner) run(ctx context.Context, runID int64, dryRun bool, limits Limit
 			return Report{Outcome: "failed", Reason: ctx.Err().Error()}, ctx.Err()
 		}
 
-		// ⚠️ POSTERN'İN sakladığı kullanıcı adı gönderiliyor, dizinin
-		// döndürdüğü değil: users.username harf DUYARLI karşılaştırılıyor
-		// (ciColumns'ta yok) ve dizinden gelen bir yazımı geri yazmak
-		// eşleşmeyi bozardı.
-		res, lerr := dir.Lookup(ctx, auth.Identity{Username: c.Username, Email: c.Email})
+		/*
+		 * ⚠️ KİMLİĞİ BAĞLIYSA ADLA DEĞİL, KİMLİKLE SOR.
+		 *
+		 * Adla arama, dizinde YENİDEN ADLANDIRILAN kişiyi SİLİNMİŞ
+		 * kişiden ayırt edemiyor: ikisi de PresenceAbsent döner ve
+		 * aşağıdaki plan ikincisini rol iptaline çevirir. Yani bir
+		 * soyadı güncellemesi, kimsenin baktığı bir yerde olmadan
+		 * erişim kaybına dönüşüyordu.
+		 *
+		 * Bağlı değilse ad kalıyor: postern'in SAKLADIĞI ad gönderiliyor,
+		 * dizinin döndürdüğü değil — users.username harf duyarlı
+		 * karşılaştırılıyor ve dizinden gelen bir yazımı geri yazmak
+		 * eşleşmeyi bozardı.
+		 */
+		res, lerr := lookupCandidate(ctx, dir, c)
 		if lerr != nil {
 			r.logger.Debug("directory lookup failed", "user", c.Username, "error", lerr)
 		}
@@ -414,4 +424,23 @@ func (r *Runner) refresh(ctx context.Context) (bool, time.Duration) {
 	r.mu.Unlock()
 
 	return s.Enabled, s.Config.Interval
+}
+
+/*
+ * lookupCandidate, adayı dizinde çözer — kimliği bağlıysa KİMLİKLE.
+ *
+ * Directory arayüzü kimlikle aramayı isteğe bağlı bırakıyor: claim
+ * tabanlı bir kaynak zaten bu döngüye hiç girmiyor, ama arayüzü
+ * genişletmek onu uygulayan her şeyi zorlardı. Desteklemeyen kaynak
+ * ada düşüyor — yani davranış eskisi gibi kalıyor.
+ */
+func lookupCandidate(ctx context.Context, dir Directory, c store.SyncCandidate) (ldap.LookupResult, error) {
+	if c.DirSubject != "" {
+		if bySubject, ok := dir.(interface {
+			LookupBySubject(context.Context, string) (ldap.LookupResult, error)
+		}); ok {
+			return bySubject.LookupBySubject(ctx, c.DirSubject)
+		}
+	}
+	return dir.Lookup(ctx, auth.Identity{Username: c.Username, Email: c.Email})
 }

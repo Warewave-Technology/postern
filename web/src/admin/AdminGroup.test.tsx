@@ -267,3 +267,48 @@ describe("gruptan vazgecme", () => {
     await waitFor(() => expect(set).toHaveBeenCalledWith("", ["yigit"]));
   });
 });
+
+/*
+ * ⚠️ KARTIN SORUSU "BU GRUP KİMİ YÖNETİCİ YAPIYOR".
+ *
+ * CLI'dan gelen yöneticileri aynı listeye koymak o soruyu bulandırıyordu:
+ * operatör, bu grubu değiştirerek etkileyemeyeceği isimleri listede
+ * görüyor ve grubu boşaltmanın onları da düşüreceğini sanıyordu.
+ *
+ * Ama varlıkları kaybolmamalı: bu grubu bırakmanın postern'i yöneticisiz
+ * bırakıp bırakmayacağının cevabı o sayıda.
+ */
+describe("liste kapsami", () => {
+  it("yalnizca gruptan gelenleri listeler, digerlerini SAYAR", async () => {
+    vi.spyOn(api, "adminGroup").mockResolvedValue(
+      status({
+        holders: [
+          { username: "ops", via: "cli" },
+          { username: "sre", via: "cli" },
+          { username: "yigit", via: "group" },
+        ],
+      }),
+    );
+    render(<AdminGroup meName="yigit" />);
+
+    const label = await screen.findByText(/administrators from this group/i);
+    const cell = label.nextElementSibling as HTMLElement;
+    expect(cell.textContent).toMatch(/yigit/);
+    // CLI'dan gelenler LİSTEDE değil...
+    expect(cell.querySelector("ul")?.textContent).not.toMatch(/ops|sre/);
+    // ...ama sayıları söyleniyor.
+    expect(cell.textContent).toMatch(/2 more administrators come from the bastion host/i);
+  });
+
+  it("gruptan kimse gelmiyorsa bunu soyler", async () => {
+    vi.spyOn(api, "adminGroup").mockResolvedValue(
+      status({ holders: [{ username: "ops", via: "cli" }] }),
+    );
+    render(<AdminGroup meName="ops" />);
+
+    const label = await screen.findByText(/administrators from this group/i);
+    expect((label.nextElementSibling as HTMLElement).textContent).toMatch(
+      /nobody yet/i,
+    );
+  });
+});

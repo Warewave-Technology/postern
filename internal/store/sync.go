@@ -19,25 +19,48 @@ type SyncCandidate struct {
 
 	SSORoles    int
 	ManualRoles int
+
+	/*
+	 * DirSubject, hesabın bağlı olduğu KARARLI dizin kimliği; bağlı
+	 * değilse boş.
+	 *
+	 * ⚠️ Döngü, varsa BUNUNLA aramalı. Adla arama, dizinde yeniden
+	 * adlandırılan kişiyi SİLİNMİŞ kişiden ayırt edemiyor — ikisi de
+	 * PresenceAbsent döner ve döngü ikincisini rol iptaline çevirir.
+	 * Yani İK'nın bir soyadı güncellemesi, kimsenin fark etmediği bir
+	 * yerde erişim kaybına dönüşüyordu.
+	 */
+	DirSubject string
 }
 
 // SyncCandidates, senkronizasyona TABİ kullanıcıları döner.
 //
-// ⚠️ YALNIZCA sso_only = TRUE. Bu kapsam daraltması özelliğin servis
-// hesapları (otomasyon, CI) için güvenli olmasının tek sebebi: onların
-// IdP'de karşılığı yok ve dizinde "bulunamamaları" normal. Göç 008 tam
-// olarak bu ayrımı yapmak için var.
+/*
+ * ⚠️ KAPSAM: sso_only OLANLAR ARTI DİZİNE BAĞLI OLANLAR.
+ *
+ * Eskiden yalnızca sso_only = TRUE idi ve bu, freshen'da düzeltilen
+ * hatanın buradaki eşiydi: yetkisi dizinden gelen bir kullanıcı
+ * (dir_subject dolu, sso_only false) HİÇ senkronize edilmiyordu. Yani
+ * dizinden silinen kişi, bir daha hiç giriş yapmadığı sürece rollerini
+ * süresiz koruyordu — ve döngünün var olma sebebi tam olarak o kişiydi.
+ *
+ * ⚠️ Servis hesapları (otomasyon, CI) HÂLÂ DIŞARIDA ve genişletme bunu
+ * bozmuyor: onların ne sso_only'si var ne dizin kimliği. Dizinde
+ * "bulunamamaları" normal ve döngünün onlara dokunmaması şart (göç 008
+ * tam olarak bu ayrım için).
+ */
 func (s *Store) SyncCandidates(ctx context.Context) ([]SyncCandidate, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT u.username,
 		       COALESCE(u.email, ''),
 		       u.dir_missing_since,
+		       COALESCE(u.dir_subject, ''),
 		       COUNT(*) FILTER (WHERE ur.source = 'sso')    AS sso_roles,
 		       COUNT(*) FILTER (WHERE ur.source = 'manual') AS manual_roles
 		FROM users u
 		LEFT JOIN user_roles ur ON ur.user_id = u.id
-		WHERE u.sso_only = TRUE
-		GROUP BY u.username, u.email, u.dir_missing_since
+		WHERE u.sso_only = TRUE OR u.dir_subject IS NOT NULL
+		GROUP BY u.username, u.email, u.dir_missing_since, u.dir_subject
 		ORDER BY u.username;`)
 	if err != nil {
 		return nil, translateErr("store.SyncCandidates", err)
@@ -48,7 +71,8 @@ func (s *Store) SyncCandidates(ctx context.Context) ([]SyncCandidate, error) {
 	for rows.Next() {
 		var c SyncCandidate
 		var missing sql.NullInt64
-		if err := rows.Scan(&c.Username, &c.Email, &missing, &c.SSORoles, &c.ManualRoles); err != nil {
+		if err := rows.Scan(&c.Username, &c.Email, &missing, &c.DirSubject,
+			&c.SSORoles, &c.ManualRoles); err != nil {
 			return nil, translateErr("store.SyncCandidates", err)
 		}
 		if missing.Valid {
