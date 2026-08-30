@@ -8,9 +8,11 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/warewave/postern/internal/auth"
 	"github.com/warewave/postern/internal/ldap"
+	"github.com/warewave/postern/internal/store"
 )
 
 /*
@@ -51,6 +53,8 @@ func (s *Server) registerAuthSourceRoutes(mux *http.ServeMux) {
 	}
 	mux.Handle("GET /api/admin/auth/source", admin(s.adminAuthSourceStatus))
 	mux.Handle("POST /api/admin/auth/source", admin(s.adminAuthSourceSet))
+	// Kaynağı çevirmeden ÖNCE kendi dizin kimliğini bağlamanın yolu.
+	mux.Handle("POST /api/admin/auth/bind-directory", admin(s.adminBindOwnDirectory))
 }
 
 /*
@@ -67,6 +71,16 @@ func (s *Server) adminAuthSourceStatus(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.storeErr(w, "auth.source", err)
 		return
+	}
+
+	// ⚠️ Eşlemelerin YENİ kaynakta karşılığı var mı? Asıl risk
+	// kaybolmaları değil — kaybolmuyorlar. Risk, YERİNDE KALIP
+	// HİÇBİRİNİN EŞLEŞMEMESİ: LDAP "sysadmins" der, OIDC claim'i
+	// bambaşka bir şey; sonuç "grup gelmiyor" ile birebir aynı görünür
+	// ve herkes sessizce rolsüz kalır.
+	stale, serr := s.staleMappings(r.Context())
+	if serr != nil {
+		s.logger.Error("mapping check failed", "error", serr)
 	}
 
 	type option struct {
@@ -87,6 +101,8 @@ func (s *Server) adminAuthSourceStatus(w http.ResponseWriter, r *http.Request) {
 		"source":  string(src),
 		"stored":  stored,
 		"options": opts,
+		// Aktif kaynakta karşılığı GÖRÜLMEMİŞ eşlemeler.
+		"unseen_mappings": stale,
 	})
 }
 
@@ -120,6 +136,45 @@ func (s *Server) adminAuthSourceSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	/*
+	 * ⚠️ KAYNAĞI ÇEVİREN KİŞİ, KENDİ KAPISINI KAPATIYOR OLABİLİR.
+	 *
+	 * Yerel sırla girmiş bir yönetici OIDC'ye geçtiğinde yerel kapı
+	 * kapanıyor ve o hesap — yönetici olduğu için — artık ad
+	 * eşleşmesiyle devralınamıyor. Yani kurulumu yapan kişi kendini
+	 * dışarıda bırakıyor.
+	 *
+	 * Dizin için çözüm temiz ve penceresiz: bind-directory ucu, oturum
+	 * ZATEN açıkken kimliği bağlıyor.
+	 *
+	 * OIDC için tarayıcı turu gerekiyor ve onu kaynağı çevirmeden
+	 * yapamıyoruz (kapı kapalı). O yüzden burada TEK KULLANIMLIK izin
+	 * bırakıyoruz: bir sonraki IdP girişi bu hesabı sahiplenebilir.
+	 * Pencere dar, denetleniyor ve arayüz "şimdi gir" diyor — ama
+	 * penceresiz değil ve bunu saklamıyoruz.
+	 */
+	note := ""
+	if want == auth.SourceOIDC {
+		actor := sessionUser(r)
+		bound, berr := s.store.HasIdPIdentity(r.Context(), actor)
+		if berr != nil {
+			s.storeErr(w, "auth.source", berr)
+			return
+		}
+		if !bound {
+			if aerr := s.store.AllowIdentityBind(r.Context(), actor, time.Now()); aerr != nil {
+				s.storeErr(w, "auth.source", aerr)
+				return
+			}
+			s.audit(r, "user.allow_bind", actor,
+				"switching to the identity provider left this account unbound; "+
+					"the next sign-in may claim it")
+			note = "your own account is not linked to the identity provider yet. " +
+				"Sign in through it now, as " + actor + ": the first sign-in claims " +
+				"this account, once."
+		}
+	}
+
 	if err := s.store.SetSetting(r.Context(), auth.KeyLoginSource,
 		string(want), false, sessionUser(r)); err != nil {
 		s.storeErr(w, "auth.source", err)
@@ -130,13 +185,14 @@ func (s *Server) adminAuthSourceSet(w http.ResponseWriter, r *http.Request) {
 		"panel sign-in now goes through "+string(want))
 	s.logger.Warn("login source changed", "actor", sessionUser(r), "source", want)
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":     true,
-		"source": string(want),
+	if note == "" {
 		// Kendi oturumunu kapatmış olabilir: SÖYLE. Kapatmadıysa da
 		// zararsız, kapattıysa ekranda tek açıklama bu olacak.
-		"note": "existing sessions keep working; the next sign-in goes through " +
-			string(want),
+		note = "existing sessions keep working; the next sign-in goes through " +
+			string(want)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "source": string(want), "note": note,
 	})
 }
 
@@ -226,4 +282,117 @@ func (s *Server) canSwitchTo(ctx context.Context, want auth.LoginSource) error {
 			"the panel with no administrator who can sign in")
 	}
 	return auth.ErrUnknownSource
+}
+
+/*
+ * adminBindOwnDirectory: POST /api/admin/auth/bind-directory
+ *
+ * ⚠️ SİHİRBAZIN EN ÖNEMLİ ADIMI. Kaynağı dizine çeviren yönetici, yerel
+ * kapısını kapatıyor; kendi dizin kimliğini ÖNCEDEN bağlamazsa geri
+ * giremez — ve yönetici hesabı olduğu için ad eşleşmesiyle de
+ * devralınamaz (ölçülmüş bir saldırı yüzünden, bkz. göç 020).
+ *
+ * ⚠️ NEDEN GÜVENLİ VE PENCERESİZ: bağlama, kimliği ZATEN doğrulanmış
+ * bir oturumun içinde yapılıyor ve kişi dizin parolasını da veriyor.
+ * İki taraf da o anda kanıtlanıyor — bir onay bayrağı, bir bekleme
+ * penceresi ya da bir yarış yok. Kaynak çevrilmeden önce yapıldığı için
+ * de kimse dışarıda kalmıyor.
+ */
+func (s *Server) adminBindOwnDirectory(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	if strings.TrimSpace(in.Username) == "" || in.Password == "" {
+		writeErr(w, http.StatusBadRequest,
+			"your directory username and password are both required")
+		return
+	}
+
+	actor := sessionUser(r)
+
+	res, err := ldap.AuthenticateFromStore(r.Context(), s.store, in.Username, in.Password)
+	if err != nil {
+		if errors.Is(err, ldap.ErrNotConfigured) {
+			writeErr(w, http.StatusBadRequest, "the directory is not configured yet")
+			return
+		}
+		s.logger.Error("bind-directory failed", "actor", actor, "error", err)
+		writeErr(w, http.StatusServiceUnavailable,
+			"the directory could not be reached; this is not a password problem")
+		return
+	}
+	if res.Presence != ldap.PresencePresent || !res.Authenticated || res.Disabled {
+		// Tek cevap, üç sebep — giriş kapısıyla aynı ketumluk.
+		s.logger.Warn("bind-directory refused", "actor", actor, "user", in.Username)
+		writeErr(w, http.StatusUnauthorized, "wrong username or password")
+		return
+	}
+	if res.Identity == "" {
+		writeErr(w, http.StatusBadRequest,
+			"your directory does not publish a stable identity for this account "+
+				"(objectGUID or entryUUID), so it cannot be linked; "+
+				"check the directory test screen")
+		return
+	}
+
+	if berr := s.store.BindDirIdentity(r.Context(), actor, res.Identity); berr != nil {
+		if errors.Is(berr, store.ErrConflict) {
+			writeErr(w, http.StatusConflict,
+				"this account is already linked to a directory identity, "+
+					"or that identity belongs to another account")
+			return
+		}
+		s.storeErr(w, "auth.bind_directory", berr)
+		return
+	}
+
+	s.audit(r, "user.dir_bind", actor,
+		"linked to directory identity "+res.Identity+" from the setup screen")
+	s.logger.Info("directory identity linked", "user", actor, "identity", res.Identity)
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "identity": res.Identity, "directory_username": in.Username,
+	})
+}
+
+/*
+ * staleMappings, aktif kaynakta HİÇ GÖRÜLMEMİŞ grup eşlemelerini döner.
+ *
+ * ⚠️ NEDEN "GÖRÜLMEMİŞ", "YOK" DEĞİL: bir grubun kaynakta var olup
+ * olmadığını genel olarak soramıyoruz (OIDC claim'i listelenemez, LDAP'ta
+ * da grup adı serbest metin). Elimizdeki tek dürüst ölçüt, o grup adının
+ * bugüne kadar HERHANGİ bir girişte görülmüş olması.
+ *
+ * Yani bu bir teşhis, bir iddia değil: "şu eşlemeleri yazdınız ama
+ * kimse o grupla gelmedi". Kaynak değiştikten sonra bütün liste burada
+ * belirir ve operatör sebebini görür.
+ */
+func (s *Server) staleMappings(ctx context.Context) ([]string, error) {
+	mappings, err := s.store.GroupMappings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	seen, err := s.store.SeenGroupNames(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]string, 0)
+	for _, m := range mappings {
+		found := false
+		for _, g := range seen {
+			if strings.EqualFold(strings.TrimSpace(g), strings.TrimSpace(m.ExternalGroup)) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			out = append(out, m.ExternalGroup)
+		}
+	}
+	return out, nil
 }

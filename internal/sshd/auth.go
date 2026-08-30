@@ -85,6 +85,41 @@ func (s *Server) keyboardInteractiveCallbackFor(nConn deadlineSetter) func(
 
 func (s *Server) keyboardInteractive(nConn deadlineSetter, conn ssh.ConnMetadata,
 	client ssh.KeyboardInteractiveChallenge) (*ssh.Permissions, error) {
+	/*
+	 * ⚠️ BU KAPI DA AKTİF KAYNAĞA BAĞLI.
+	 *
+	 * Eskiden bilerek bağlı DEĞİLDİ — "SSH ayrı bir kapı" gerekçesiyle.
+	 * Ama ölçülen saldırının geldiği dikiş tam burasıydı: panel LDAP'a
+	 * çevrilmiş bir kurulumda OIDC kapısı sessizce açık kalıyor ve
+	 * IdP'de kendi kullanıcı adını değiştiren biri, o kapıdan var olan
+	 * bir hesabı sahiplenebiliyordu.
+	 *
+	 * Tek aktif kaynak kuralı ürünün kendi kuralı; bu kapının onun
+	 * dışında kalması bir tutarsızlıktı. Kapatmanın bedeli, "panel LDAP
+	 * + SSH OIDC" karışımı — ki model onu zaten yasaklıyor.
+	 *
+	 * ⚠️ ANAHTAR KAPISI ETKİLENMİYOR: publicKeyCallback bu kontrolden
+	 * geçmiyor ve geçmemeli. Panelin kaynağını değiştirmek kimsenin
+	 * sunucu erişimini kesmemeli.
+	 */
+	// Bu fonksiyona yalnızca OOB kayıtlıyken gelinir, o da OIDC
+	// yapılandırılmışsa kuruluyor — yani "yapılandırılmış mı"nın cevabı
+	// burada her zaman evet. Sabit yazmak yerine kaynağından okuyoruz
+	// ki koşul değişirse burası sessizce yanlış olmasın.
+	oidcConfigured := s.logins != nil
+	src, _, serr := auth.ActiveLoginSource(context.Background(), s.db, oidcConfigured)
+	if serr != nil {
+		s.logger.Error("oob login: login source unreadable", "error", serr)
+		return nil, fmt.Errorf("auth.keyboardInteractiveCallback[%s]: %w",
+			conn.RemoteAddr(), serr)
+	}
+	if src != auth.SourceOIDC {
+		s.logger.Warn("oob login refused: the identity provider is not the active source",
+			"remote", conn.RemoteAddr(), "active", src)
+		return nil, fmt.Errorf("auth.keyboardInteractiveCallback[%s]: "+
+			"browser sign-in is not the active source", conn.RemoteAddr())
+	}
+
 	a, err := s.logins.Start(conn.RemoteAddr().String())
 	if err != nil {
 		// Kota dolması bir arıza DEĞİL, uygulanan bir sınır. Log'da

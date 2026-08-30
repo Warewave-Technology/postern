@@ -13,8 +13,10 @@ import Targets from "./admin/Targets";
 import Roles from "./admin/Roles";
 import { AdminLog, Sessions } from "./admin/Audit";
 import Mappings from "./admin/Mappings";
+import Pending from "./admin/Pending";
 import AuthSource from "./admin/AuthSource";
 import Settings from "./admin/Settings";
+import Setup from "./admin/Setup";
 import Overview from "./admin/Overview";
 import Home from "./Home";
 import ShellPage, { shellTargetFromPath } from "./ShellPage";
@@ -37,10 +39,12 @@ import {
 // yeter. URL'de yer tutmamanın bedeli, paylaşılabilir bağlantı olmaması.
 type Top = "home" | "settings";
 type Section =
+  | "setup"
   | "overview"
   | "users"
   | "roles"
   | "mappings"
+  | "pending"
   | "targets"
   | "signin"
   | "ldap"
@@ -62,6 +66,7 @@ const NAV: { title?: string; items: [Section, string, ReactNode][] }[] = [
       ["users", "Users", <UsersIcon key="i" />],
       ["roles", "Roles", <RolesIcon key="i" />],
       ["mappings", "Mappings", <MapIcon key="i" />],
+      ["pending", "Pending", <UsersIcon key="i" />],
     ],
   },
   {
@@ -196,6 +201,30 @@ export default function App() {
   const [methods, setMethods] = useState<AuthMethods | null>(null);
   const [top, setTop] = useState<Top>("home");
   const [section, setSection] = useState<Section>("overview");
+
+  /*
+   * ⚠️ KURULUM YAPILMAMIŞSA ORAYA AÇ.
+   *
+   * auth.source hiç yazılmamışsa kaynak config dosyasından TÜRETİLİYOR
+   * — yani kimse seçmemiş. Yöneticiyi Overview'a bırakıp "bir yerlerde
+   * bir ayar var" demek, kurulumun en kritik kararını keşfe bırakmak
+   * olurdu.
+   */
+  const [needsSetup, setNeedsSetup] = useState(false);
+  useEffect(() => {
+    if (!me?.admin) return;
+    api
+      .authSource()
+      .then((st) => {
+        if (!st.stored) {
+          setNeedsSetup(true);
+          setSection("setup");
+        }
+      })
+      .catch(() => {
+        /* kurulum rozeti bir kolaylık; hatası ekranı bozmamalı */
+      });
+  }, [me?.admin]);
 
   // ⚠️ Kabuk artık PANELİN İÇİNDE DEĞİL, kendi sekmesinde (/shell/…).
   // Panel içindeki terminal ekranın yarısını çevre kabuğa veriyordu ve
@@ -399,6 +428,17 @@ export default function App() {
         {top === "settings" && me.admin && (
           <div className="settings">
             <nav className="side-nav" aria-label="Settings sections">
+              {needsSetup && (
+                <div className="side-group">
+                  <button
+                    onClick={() => setSection("setup")}
+                    aria-current={section === "setup" ? "page" : undefined}
+                  >
+                    <KeyIcon />
+                    Set up sign-in
+                  </button>
+                </div>
+              )}
               {NAV.map((group, gi) => (
                 <div className="side-group" key={group.title ?? `g${gi}`}>
                   {group.title && (
@@ -419,12 +459,14 @@ export default function App() {
             </nav>
 
             <div>
+              {section === "setup" && <Setup meName={me.name} />}
               {section === "overview" && <Overview />}
               {section === "users" && (
                 <Users publicKeyLogin={me.public_key_login} />
               )}
               {section === "roles" && <Roles />}
               {section === "mappings" && <Mappings />}
+              {section === "pending" && <Pending />}
               {section === "targets" && <Targets />}
               {section === "signin" && <AuthSource />}
               {section === "ldap" && <Settings meName={me.name} />}

@@ -156,6 +156,28 @@ export type AdminGroupStatus = {
   enumerable_error?: string;
 };
 
+/**
+ * PendingUser, kimliği doğrulanmış ama henüz hesabı olmayan kişi.
+ *
+ * ⚠️ `subject` KARARLI kimlik; satır onunla anahtarlı. `username`,
+ * `email` ve `seen_groups` yalnızca GÖSTERİM — üçü de kaynakta
+ * değişebiliyor ve hiçbir karar onlara bakmıyor.
+ */
+export type PendingUser = {
+  id: string;
+  subject: string;
+  source: "dir" | "oidc";
+  username: string;
+  email: string;
+  seen_groups: string[];
+  state: "waiting" | "rejected";
+  first_seen: string;
+  last_seen: string;
+  decided_by?: string;
+  decided_at?: string;
+  reason?: string;
+};
+
 /** AdminGroupPreview, "bu grubu kaydedersem kim yönetici olur". */
 export type AdminGroupPreview = {
   ok: boolean;
@@ -230,6 +252,16 @@ export type AuthSourceStatus = {
   /** false ise kaynak SEÇİLMEDİ, config dosyasından türetildi. */
   stored: boolean;
   options: { source: string; eligible: boolean; why?: string }[];
+  /**
+   * postern'in bugüne kadar HİÇ GÖRMEDİĞİ grup adlarına yazılmış
+   * eşlemeler.
+   *
+   * ⚠️ Asıl risk eşlemelerin kaybolması değil — kaybolmuyorlar. Risk,
+   * yerinde kalıp hiçbirinin eşleşmemesi: kaynak değişince grup adları
+   * bambaşka bir biçimde gelir ve sonuç "grup gelmiyor" ile birebir
+   * aynı görünür. Bu liste o sessiz hâli görünür kılıyor.
+   */
+  unseen_mappings?: string[];
 };
 
 // MyKey, kullanıcının kendi açık anahtarı.
@@ -463,6 +495,15 @@ export const api = {
     req<LDAPTestResult>("POST", "/api/admin/ldap/verify", cfg),
   authMethods: () => req<AuthMethods>("GET", "/api/auth/methods"),
   authSource: () => req<AuthSourceStatus>("GET", "/api/admin/auth/source"),
+  /** ⚠️ Kaynağı çevirmeden ÖNCE çağrılır: oturum zaten açıkken kendi
+   *  dizin kimliğini bağlar, yani kurulumu yapan kişi kendini dışarıda
+   *  bırakmaz. */
+  bindOwnDirectory: (username: string, password: string) =>
+    req<{ ok: boolean; identity: string; directory_username: string }>(
+      "POST",
+      "/api/admin/auth/bind-directory",
+      { username, password },
+    ),
   setAuthSource: (source: string) =>
     req<{ ok: boolean; source: string; note: string }>(
       "POST",
@@ -505,6 +546,19 @@ export const api = {
       "/api/admin/ldap/admin-group",
       { group, confirm },
     ),
+  pending: () => req<PendingUser[]>("GET", "/api/admin/pending"),
+  approvePending: (id: string, os_user?: string) =>
+    req<{ ok: boolean; username: string; note: string }>(
+      "POST",
+      "/api/admin/pending/approve",
+      { id, os_user: os_user ?? "" },
+    ),
+  rejectPending: (id: string, reason: string) =>
+    req<{ ok: boolean }>("POST", "/api/admin/pending/reject", { id, reason }),
+  /** Reddi geri alır: satır tamamen silinir ve kişi yeniden başvurabilir. */
+  forgetPending: (id: string) =>
+    req<{ ok: boolean }>("POST", "/api/admin/pending/forget", { id }),
+
   sessions: () => req<Session[]>("GET", "/api/admin/sessions"),
   sessionDetail: (id: string) =>
     req<SessionDetail>("GET", `/api/admin/sessions/${encodeURIComponent(id)}`),

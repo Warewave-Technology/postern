@@ -93,6 +93,25 @@ export default function AuthSource() {
             </p>
           )}
 
+          {/*
+            ⚠️ Kaynak değişiminin sessiz maliyeti: eşlemeler yerinde
+            kalır ama hiçbiri tutmaz. Sonuç "grup gelmiyor" ile birebir
+            aynı görünür ve operatör yanlış yerde arar.
+          */}
+          {!!status.unseen_mappings?.length && (
+            <p className="msg msg-warn" role="status">
+              <b>
+                {status.unseen_mappings.length} mapping(s) name a group postern
+                has never seen.
+              </b>{" "}
+              Mappings survive a source change — but the group names do not:
+              a directory says <code>sysadmins</code>, a claim may say something
+              else entirely, and a mapping that no longer matches looks exactly
+              like a source that sends no groups at all. Not seen yet:{" "}
+              <code>{status.unseen_mappings.join(", ")}</code>
+            </p>
+          )}
+
           <div className="card">
             <div className="card-body">
               {status.options.map((o) => {

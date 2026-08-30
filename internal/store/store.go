@@ -1980,3 +1980,52 @@ var reservedOSUsers = map[string]bool{
 	"adm": true, "wheel": true, "sudo": true, "operator": true,
 	"halt": true, "shutdown": true, "ftp": true, "ntp": true, "dbus": true,
 }
+
+// HasIdPIdentity, hesabın bir OIDC kimliğine bağlı olup olmadığı.
+//
+// hasIdPIdentity'nin dışa açık eşi: sihirbaz "bu yönetici kaynağı
+// çevirince kendini kilitler mi" sorusunu buradan soruyor.
+func (s *Store) HasIdPIdentity(ctx context.Context, username string) (bool, error) {
+	return s.hasIdPIdentity(ctx, username)
+}
+
+/*
+ * SeenGroupNames, postern'in BUGÜNE KADAR gördüğü grup adları.
+ *
+ * İki kaynaktan: kullanıcılara gerçekten atanmış SSO rollerinin
+ * eşlemeleri, ve eşlenmemiş grup teşhis tablosu. İkisi birlikte,
+ * "bu ad hiç geldi mi" sorusunun elimizdeki en iyi cevabı.
+ *
+ * ⚠️ Kesin bir liste DEĞİL ve öyle sunulmamalı: bir kaynağa "hangi
+ * gruplar var" diye genel olarak sorulamıyor (OIDC claim'i
+ * listelenemez). Bu yüzden çağıran bunu bir teşhis olarak kullanıyor,
+ * bir iddia olarak değil.
+ */
+func (s *Store) SeenGroupNames(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT g.name FROM (
+		    SELECT name FROM unmapped_groups
+		    UNION
+		    SELECT gm.external_group AS name
+		    FROM group_mappings gm
+		    JOIN roles r      ON r.id = gm.role_id
+		    JOIN user_roles ur ON ur.role_id = r.id AND ur.source = 'sso'
+		) g;`)
+	if err != nil {
+		return nil, translateErr("store.SeenGroupNames", err)
+	}
+	defer rows.Close()
+
+	out := make([]string, 0)
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, translateErr("store.SeenGroupNames", err)
+		}
+		out = append(out, n)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, translateErr("store.SeenGroupNames", err)
+	}
+	return out, nil
+}
