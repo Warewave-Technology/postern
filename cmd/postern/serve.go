@@ -23,6 +23,7 @@ import (
 	"github.com/warewave/postern/internal/events"
 	"github.com/warewave/postern/internal/httpapi"
 	"github.com/warewave/postern/internal/ldap"
+	"github.com/warewave/postern/internal/model"
 	"github.com/warewave/postern/internal/secret"
 	"github.com/warewave/postern/internal/sshd"
 	"github.com/warewave/postern/internal/store"
@@ -262,7 +263,7 @@ func newServeCmd() *cobra.Command {
 					return verdict(nil)
 				}
 
-				roles, _, rerr := db.RolesForGroups(c, res.Groups)
+				roles, _, rerr := db.RolesForGroups(c, model.ResolvedGroups(res.Groups))
 				if rerr != nil {
 					return rerr
 				}

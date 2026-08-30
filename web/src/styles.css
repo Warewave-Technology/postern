@@ -2274,3 +2274,25 @@ label > textarea {
 .key-form button {
   align-self: flex-start;
 }
+
+/* Giriş kaynağı seçenekleri: açıklama solda, düğme sağda. Düğmeyi
+   açıklamanın altına almak, üç seçenekli bir listede hangi düğmenin
+   hangi seçeneğe ait olduğunu okunmaz hâle getiriyordu. */
+.source-row {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 0.9rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.source-row:last-child {
+  border-bottom: 0;
+}
+.source-row h3 {
+  margin: 0 0 0.25rem;
+  font-size: 0.95rem;
+}
+.source-row > div:last-child {
+  flex: 0 0 auto;
+}

@@ -17,6 +17,7 @@ import (
 	"github.com/warewave/postern/internal/auth"
 	"github.com/warewave/postern/internal/groupsync"
 	"github.com/warewave/postern/internal/ldap"
+	"github.com/warewave/postern/internal/model"
 	"github.com/warewave/postern/internal/store"
 )
 
@@ -323,14 +324,24 @@ func (s *Server) adminTestLDAP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		roles, unmapped, err := s.store.RolesForGroups(r.Context(), lr.Groups)
+		/*
+		 * ⚠️ TEŞHİS, GİRİŞİN GÖRDÜĞÜNÜ GÖSTERMELİ.
+		 *
+		 * Dizin "tanıyorum, hiçbir grupta değil" dediğinde giriş yolu
+		 * `unknown` grubunu uyguluyor. Burada ham boş listeyi gösterip
+		 * rolleri `unknown` üzerinden hesaplamak, ekranda "grup yok
+		 * ama rol var" gibi açıklanamaz bir çift üretirdi — teşhis
+		 * aracının yapabileceği en kötü şey.
+		 */
+		effective := model.ResolvedGroups(lr.Groups)
+		roles, unmapped, err := s.store.RolesForGroups(r.Context(), effective)
 		if err != nil {
 			s.storeErr(w, "ldap.test", err)
 			return
 		}
 		// Boş dilimler nil DEĞİL: JSON'da null ile [] farkı, panelde
 		// "veri yok" ile "cevap boş" farkına dönüşüyor.
-		res["groups"] = nonNil(lr.Groups)
+		res["groups"] = nonNil(effective)
 		res["roles"] = nonNil(roles)
 		res["unmapped"] = nonNil(unmapped)
 		// ⚠️ KAPSAM DIŞI KALANLAR AYRICA SÖYLENİYOR. group_scope
@@ -424,8 +435,15 @@ var knownSettingKeys = map[string]bool{
 	ldap.KeyGroupFilter:    true,
 	ldap.KeyGroupNameFrom:  true,
 	ldap.KeyGroupScope:     true,
-	ldap.KeyAuthEnabled:    true,
 
+	// ⚠️ auth.source ve ldap.admin_group BİLEREK YOK.
+	//
+	// auth.source panelin hangi kapısının açık olduğunu seçiyor ve
+	// yanlış seçim herkesi — düzeltecek kişiyi de — dışarıda bırakıyor.
+	// Doğrulamasız bir yazma ucundan geçmemeli; kendi ucu, geçilecek
+	// kaynağın gerçekten birini içeri alabildiğini kanıtlıyor
+	// (adminAuthSourceSet).
+	//
 	// ⚠️ ldap.admin_group BİLEREK YOK. Yönetici grubu bu genel uçtan
 	// yazılabilseydi onay ekranı tamamen atlanabilir olurdu: bir grup
 	// adı yazıp kaydetmek, kime yetki verdiğini hiç görmeden yetki
@@ -573,6 +591,12 @@ func (s *Server) adminVerifyLDAP(w http.ResponseWriter, r *http.Request) {
 		// "böyle bir kullanıcı yok" panelde ayrı şeyler.
 		out["presence"] = gres.Presence.String()
 		groups := gres.Groups
+		// ⚠️ `unknown` YALNIZCA kullanıcı gerçekten bulunduğunda.
+		// Bulunamayan biri için "unknown grubundasın" demek, aramanın
+		// sonucunu kullanıcının özelliği gibi göstermek olurdu.
+		if gres.Presence == auth.GroupsPresent {
+			groups = model.ResolvedGroups(groups)
+		}
 		roles, unmapped, rerr := s.store.RolesForGroups(r.Context(), groups)
 		if rerr != nil {
 			s.storeErr(w, "ldap.verify", rerr)

@@ -1,12 +1,11 @@
 package httpapi
 
 import (
-	"context"
 	"errors"
 	"net/http"
-	"strconv"
 
 	"github.com/warewave/postern/internal/ldap"
+	"github.com/warewave/postern/internal/model"
 	"github.com/warewave/postern/internal/store"
 )
 
@@ -28,26 +27,13 @@ import (
 // doğrulanmamış bir istek bunu tetikleyebiliyor.
 const directoryBindSlots = 8
 
-// directoryAuthEnabled, dizin parolasıyla girişin açık olup olmadığı.
-//
-// Her istekte okunuyor: ayar panelden değişebiliyor ve yakalanmış bir
-// "açık", kapatıldıktan sonra da parola kabul etmeye devam ederdi.
-func (s *Server) directoryAuthEnabled(ctx context.Context) bool {
-	v, err := s.store.Setting(ctx, ldap.KeyAuthEnabled)
-	if err != nil {
-		// Okuyamadıysak KAPALI sayıyoruz: bir veritabanı arızası,
-		// parola kabul eden bir kapıyı kendiliğinden açmamalı.
-		return false
-	}
-	on, perr := strconv.ParseBool(v)
-	return perr == nil && on
-}
-
 /*
  * directoryLogin, kullanıcıyı dizin parolasıyla doğrular ve oturum açar.
  *
- * Çağıran (handleLocalLogin) buraya yalnızca hesabın YEREL bir kimlik
- * bilgisi olmadığı ve dizin girişinin açık olduğu durumda düşüyor.
+ * Çağıran (handleLocalLogin) buraya yalnızca AKTİF KAYNAK dizinken
+ * düşüyor. Yani burada hiçbir hesap adı yerel doğrulayıcıya, hiçbir
+ * yerel sır dizine gitmiyor: hangi kapının açık olduğu isteğin
+ * içeriğine değil, ayara bağlı.
  */
 func (s *Server) directoryLogin(w http.ResponseWriter, r *http.Request,
 	log logger, username, password string) {
@@ -162,7 +148,9 @@ func (s *Server) directoryLogin(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	roles, _, rerr := s.store.RolesForGroups(r.Context(), res.Groups)
+	// Presence yukarıda Present olarak doğrulandı: boş liste burada
+	// "hiçbir grupta değil" demek, "bilmiyorum" değil.
+	roles, _, rerr := s.store.RolesForGroups(r.Context(), model.ResolvedGroups(res.Groups))
 	if rerr != nil {
 		s.storeErr(w, "auth.directory", rerr)
 		return

@@ -118,6 +118,23 @@ func (p *webPending) take(state string) (auth.AuthRequest, bool) {
 // handleWebLogin, tarayıcıyı IdP'ye yollar: GET /auth/login.
 // Login sayfası diye bir şey yok — giriş IdP'nin işi, bizimki yönlendirmek.
 func (s *Server) handleWebLogin(w http.ResponseWriter, r *http.Request) {
+	/*
+	 * ⚠️ YAPILANDIRILMIŞ OLMAK, AÇIK OLMAK DEĞİL.
+	 *
+	 * Rota yalnızca OIDC yapılandırıldıysa kuruluyor; ama aktif kaynak
+	 * başkasıysa bu kapı KAPALI olmalı. Aksi hâlde "yerel kapıya
+	 * geçtim" diyen bir kurulumda IdP kapısı sessizce açık kalırdı —
+	 * kapattığını sanan operatörün göremeyeceği bir yol.
+	 */
+	if src, ok := s.sourceOrRefuse(w, r); !ok {
+		return
+	} else if src != auth.SourceOIDC {
+		s.logger.Warn("oidc login attempted while another source is active",
+			"active", src)
+		writeErr(w, http.StatusNotFound, "not found")
+		return
+	}
+
 	req, err := s.oidc.Begin()
 	if err != nil {
 		s.logger.Error("web login begin failed", "error", err)
@@ -170,6 +187,28 @@ func (s *Server) clearLoginStateCookie(w http.ResponseWriter) {
 // state'i OOB kaydında bulamayınca buraya gelir.
 func (s *Server) completeWebLogin(w http.ResponseWriter, r *http.Request, state, code string) {
 	log := s.logger.With("remote", r.RemoteAddr)
+
+	/*
+	 * ⚠️ AÇILIŞTA DEĞİL, TESLİMDE DE KONTROL.
+	 *
+	 * handleWebLogin kapıyı zaten kapatıyor; ama akış başladıktan sonra
+	 * kaynak değişmiş olabilir ve o an havada olan bir akış, kapanmış
+	 * bir kapıdan oturum teslim ederdi. Kapatma ile yürürlüğe girmesi
+	 * arasında bir pencere bırakmıyoruz.
+	 *
+	 * ⚠️ Bu kontrol OOB (SSH) koluna GİRMİYOR ve girmemeli: orası
+	 * panelin değil, SSH'ın kapısı. Panel kaynağını değiştirmenin
+	 * kimsenin sunucu erişimini kesmemesi, ayarın açıkça sınırı.
+	 */
+	if src, ok := s.sourceOrRefuse(w, r); !ok {
+		return
+	} else if src != auth.SourceOIDC {
+		log.Warn("web callback arrived after the source changed", "active", src)
+		s.clearLoginStateCookie(w)
+		http.Error(w, "the sign-in method changed while you were signing in; start again",
+			http.StatusForbidden)
+		return
+	}
 
 	// ⚠️ Bu akışı BAŞLATAN tarayıcı mı geri döndü?
 	//
@@ -245,9 +284,23 @@ func (s *Server) completeWebLogin(w http.ResponseWriter, r *http.Request, state,
  * olduğu — kullanıcı adı, hesap varlığı ya da yapılandırma değeri
  * yok. Bu bilgi zaten giriş ekranının kendisinden görülüyor.
  */
-func (s *Server) handleAuthMethods(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleAuthMethods(w http.ResponseWriter, r *http.Request) {
+	src, ok := s.sourceOrRefuse(w, r)
+	if !ok {
+		return
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"oidc": s.oidc != nil,
+		/*
+		 * ⚠️ ARTIK "YAPILANDIRILDI MI" DEĞİL, "AÇIK MI".
+		 *
+		 * Eskiden bu alanlar yapılandırmayı söylüyordu ve aynı anda
+		 * ikisi birden true olabiliyordu. Aktif kaynak tek olduğuna
+		 * göre giriş ekranı da tek kapı göstermeli: kapalı bir kapının
+		 * düğmesini çizmek, kullanıcıyı çalışmayacak bir yola sokar.
+		 */
+		"source": string(src),
+		"oidc":   src == auth.SourceOIDC && s.oidc != nil,
 		/*
 		 * ⚠️ BU ALAN YAPILANDIRMAYI SÖYLER, VERİTABANINI DEĞİL.
 		 *
@@ -261,7 +314,13 @@ func (s *Server) handleAuthMethods(w http.ResponseWriter, _ *http.Request) {
 		 * (bkz. locallogin.go), dolayısıyla formu her zaman göstermek
 		 * hiçbir şey sızdırmıyor.
 		 */
-		"local": true,
+		"local": src == auth.SourceLocal,
+
+		// Dizin kapısı da kullanıcı adı + parola kutusu gösteriyor ama
+		// istenen parola KURUMSAL parola. Ekranın bunu ayırt edebilmesi
+		// gerekiyor: aynı forma bambaşka bir sır yazdırmak, sırların
+		// yanlış yere girilmesinin en kısa yolu.
+		"ldap": src == auth.SourceLDAP,
 	})
 }
 

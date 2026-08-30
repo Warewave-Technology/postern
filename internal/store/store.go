@@ -894,7 +894,11 @@ func (s *Store) ProvisionUser(ctx context.Context, req ProvisionRequest) (model.
 	var roles, unmapped []string
 	if req.GroupsResolved {
 		var err error
-		roles, unmapped, err = s.RolesForGroups(ctx, req.Groups)
+		// ⚠️ Kaynak cevap verdi ama hiç grup söylemediyse `unknown`.
+		// Onsuz, grup claim'i göndermeyen bir IdP'de HİÇ KİMSE hesap
+		// açamıyordu (aşağıdaki ErrAccessDenied) ve yöneticinin bunu
+		// düzeltecek bir tutamağı yoktu.
+		roles, unmapped, err = s.RolesForGroups(ctx, model.ResolvedGroups(req.Groups))
 		if err != nil {
 			return model.User{}, err
 		}

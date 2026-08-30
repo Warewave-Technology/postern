@@ -8,6 +8,7 @@ import (
 
 	"github.com/warewave/postern/internal/auth"
 	"github.com/warewave/postern/internal/ldap"
+	"github.com/warewave/postern/internal/model"
 	"github.com/warewave/postern/internal/store"
 )
 
@@ -32,7 +33,24 @@ func (s *Server) adminGroupName(ctx context.Context) string {
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(v)
+	name := strings.TrimSpace(v)
+
+	/*
+	 * ⚠️ `unknown` YÖNETİCİ GRUBU OLAMAZ ve kontrol EN DERİN yerde.
+	 *
+	 * `unknown`, kaynağın cevap verip hiçbir grup söylemediği herkesin
+	 * düştüğü ad (bkz. model.UnknownGroup). Yönetici grubu olarak
+	 * yazılırsa, GRUBU OLMAYAN HERKES yönetici olur — yani en az
+	 * ayrıcalıklı kullanıcı kümesi, en ayrıcalıklısına dönüşür. Yazma
+	 * uçları bunu zaten reddediyor; burada da durmasının sebebi, elle
+	 * yazılmış ya da eski bir satırın sessizce iş görmemesi.
+	 */
+	if strings.EqualFold(name, model.UnknownGroup) {
+		s.logger.Error("admin group is set to the catch-all group; ignoring",
+			"group", name)
+		return ""
+	}
+	return name
 }
 
 /*
@@ -281,6 +299,13 @@ func (s *Server) adminAdminGroupSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	group := strings.TrimSpace(in.Group)
+	if strings.EqualFold(group, model.UnknownGroup) {
+		writeErr(w, http.StatusBadRequest,
+			"`"+model.UnknownGroup+"` is where everyone whose source named no group "+
+				"lands — making it the administrator group would hand administrator "+
+				"to every account that has no groups at all")
+		return
+	}
 
 	// Kaydedildikten sonra yönetici olacak küme.
 	var want []string

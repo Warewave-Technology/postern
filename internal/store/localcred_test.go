@@ -452,3 +452,65 @@ func TestApplyAdminGroupDoesNotDowngradeCLIAdmin(t *testing.T) {
 		t.Fatal("acil durum hesabı, grup üyeliği üzerinden kapatıldı")
 	}
 }
+
+/*
+ * Göç 018: eski `ldap.auth_enabled` bayrağı, yeni tek değere TAŞINIR.
+ *
+ * Taşınmasaydı, dizin parolasıyla girişi açmış bir kurulum yükseltmeden
+ * sonra o kapıyı kapalı bulurdu: kimse giremezdi ve sebebi hiçbir yerde
+ * yazmazdı.
+ *
+ * ⚠️ Anahtar adları BURADA ELLE YAZILI, sabitlerden okunmuyor. Bir göç,
+ * veritabanında DURAN adlarla ilgilenir; sabit yeniden adlandırılırsa
+ * test onu takip edip sessizce başka bir şeyi doğrulamaya başlamamalı.
+ */
+func TestMigration018MovesDirectoryFlagIntoSource(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	// 018'i geri al, eski dünyayı kur, sonra tekrar uygula.
+	if err := s.Rollback(ctx); err != nil {
+		t.Fatalf("Rollback: %v", err)
+	}
+	if err := s.SetSetting(ctx, "ldap.auth_enabled", "true", false, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	got, err := s.Setting(ctx, "auth.source")
+	if err != nil {
+		t.Fatalf("auth.source okunamadı: %v", err)
+	}
+	if got != "ldap" {
+		t.Fatalf("auth.source = %q, \"ldap\" bekleniyordu", got)
+	}
+
+	// ⚠️ Eski bayrak SİLİNMİŞ olmalı: iki ayar aynı soruya cevap
+	// veriyor olsaydı, çeliştiklerinde anlamı tanımsız kalırdı.
+	if _, err := s.Setting(ctx, "ldap.auth_enabled"); !errors.Is(err, ErrNotFound) {
+		t.Fatal("eski bayrak duruyor — aynı soruya iki ayar cevap veriyor")
+	}
+}
+
+// Bayrak KAPALIYSA kaynak dizine çevrilmemeli: kapalı bir kapıyı
+// yükseltme sırasında açmak, tam tersi yönde bir hata olurdu.
+func TestMigration018LeavesSourceUnsetWhenFlagWasOff(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	if err := s.Rollback(ctx); err != nil {
+		t.Fatalf("Rollback: %v", err)
+	}
+	if err := s.SetSetting(ctx, "ldap.auth_enabled", "false", false, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	if v, err := s.Setting(ctx, "auth.source"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("auth.source = %q (%v) — kapalı bayrak dizin kapısını açtı", v, err)
+	}
+}

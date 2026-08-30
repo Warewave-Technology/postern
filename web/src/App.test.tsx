@@ -23,8 +23,10 @@ describe("App önyükleme", () => {
   it("401'de giris ekrani gosterir", async () => {
     vi.spyOn(api, "me").mockRejectedValue(new ApiError(401, "unauthenticated"));
     vi.spyOn(api, "authMethods").mockResolvedValue({
+      source: "oidc",
       oidc: true,
       local: false,
+      ldap: false,
     });
 
     render(<App />);
@@ -231,7 +233,7 @@ describe("App oturum bitisi", () => {
         });
       }
       if (url.includes("/api/auth/methods")) {
-        return new Response(JSON.stringify({ oidc: true, local: false }), {
+        return new Response(JSON.stringify({ source: "oidc", oidc: true, local: false, ldap: false }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
@@ -279,8 +281,10 @@ describe("giris yollari", () => {
   it("oidc yoksa IdP dugmesini CIZMEZ, yerel formu cizer", async () => {
     vi.spyOn(api, "me").mockRejectedValue(new ApiError(401, "unauthenticated"));
     vi.spyOn(api, "authMethods").mockResolvedValue({
+      source: "local",
       oidc: false,
       local: true,
+      ldap: false,
     });
 
     render(<App />);
@@ -298,8 +302,10 @@ describe("giris yollari", () => {
   it("hicbir kapi yoksa ne yapilacagini soyler", async () => {
     vi.spyOn(api, "me").mockRejectedValue(new ApiError(401, "unauthenticated"));
     vi.spyOn(api, "authMethods").mockResolvedValue({
+      source: "oidc",
       oidc: false,
       local: false,
+      ldap: false,
     });
 
     render(<App />);
@@ -324,8 +330,10 @@ describe("giris yollari", () => {
       .mockRejectedValueOnce(new ApiError(401, "unauthenticated"))
       .mockResolvedValue(me);
     vi.spyOn(api, "authMethods").mockResolvedValue({
+      source: "local",
       oidc: false,
       local: true,
+      ldap: false,
     });
     vi.spyOn(api, "myTargets").mockResolvedValue(myTargets);
     const login = vi.spyOn(api, "localLogin").mockResolvedValue({ ok: true });
@@ -346,8 +354,10 @@ describe("giris yollari", () => {
   it("yanlis sirda hata gosterir ve formda kalir", async () => {
     vi.spyOn(api, "me").mockRejectedValue(new ApiError(401, "unauthenticated"));
     vi.spyOn(api, "authMethods").mockResolvedValue({
+      source: "local",
       oidc: false,
       local: true,
+      ldap: false,
     });
     vi.spyOn(api, "localLogin").mockRejectedValue(
       new ApiError(401, "wrong username or secret"),
@@ -382,5 +392,57 @@ describe("giris yollari", () => {
     expect(
       screen.queryByText(/Sign in with your identity provider/i),
     ).not.toBeInTheDocument();
+  });
+});
+
+/*
+ * ⚠️ DİZİN KAPISI, YEREL KAPIYLA AYNI METNİ KULLANAMAZ.
+ *
+ * İkisi de kullanıcı adı + gizli bir değer istiyor; ama biri makine
+ * üretimi bir sır, diğeri KURUMSAL PAROLA. Aynı etiketle sunmak
+ * kullanıcıya "her zaman aynı şeyi yaz" öğretir ve o alışkanlık,
+ * kurumsal parolanın yanlış kutuya girildiği gün pahalıya patlar.
+ */
+describe("dizin kapisi", () => {
+  it("dizin kipinde parola ister, makine sirri degil", async () => {
+    vi.spyOn(api, "me").mockRejectedValue(new ApiError(401, "unauthenticated"));
+    vi.spyOn(api, "authMethods").mockResolvedValue({
+      source: "ldap",
+      oidc: false,
+      local: false,
+      ldap: true,
+    });
+
+    render(<App />);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText(/Directory password/i)).toBeInTheDocument(),
+    );
+    expect(screen.queryByLabelText(/Sign-in secret/i)).toBeNull();
+    // ⚠️ Ve bunun SSH'ı ilgilendirmediğini söylüyor: kullanıcı bu
+    // parolayı ssh'ta denemeye kalkmasın.
+    expect(screen.getByText(/Your SSH access does not use this password/i))
+      .toBeInTheDocument();
+  });
+
+  // Aynı anda tek kapı: sunucu iki kapıyı birden açık bildirmiyor, ama
+  // ekran da iki formu birden çizmemeli.
+  it("dizin kipinde yerel formu cizmez", async () => {
+    vi.spyOn(api, "me").mockRejectedValue(new ApiError(401, "unauthenticated"));
+    vi.spyOn(api, "authMethods").mockResolvedValue({
+      source: "ldap",
+      oidc: false,
+      local: false,
+      ldap: true,
+    });
+
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByLabelText(/Directory password/i)).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/postern admin bootstrap/)).toBeNull();
+    expect(
+      screen.queryByText(/Sign in with your identity provider/i),
+    ).toBeNull();
   });
 });

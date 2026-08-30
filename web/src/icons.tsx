@@ -225,3 +225,13 @@ export function BackIcon({ size = 14 }: P) {
     </svg>
   );
 }
+
+/** Anahtar: giriş kapısının hangi kaynağa açıldığı ekranı. */
+export function KeyIcon({ size = 15 }: P) {
+  return (
+    <svg {...base(size)}>
+      <circle cx="5.2" cy="10.8" r="2.6" />
+      <path d="M7.1 9 13 3.1M11 5.1l1.6 1.6M9.6 6.5l1.6 1.6" />
+    </svg>
+  );
+}

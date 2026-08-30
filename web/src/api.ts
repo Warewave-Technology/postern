@@ -203,8 +203,29 @@ export type SyncRun = {
   dry_run: boolean;
 };
 
-// AuthMethods, sunucunun yapılandırılmış giriş yolları.
-export type AuthMethods = { oidc: boolean; local: boolean };
+/*
+ * AuthMethods, ŞU AN AÇIK olan giriş yolları.
+ *
+ * ⚠️ "Yapılandırıldı mı" değil "açık mı". Aynı anda yalnızca bir kaynak
+ * aktif olabiliyor; giriş ekranı da tek kapı göstermeli, yoksa
+ * kullanıcıyı çalışmayacak bir yola sokar.
+ */
+export type AuthMethods = {
+  source: "local" | "oidc" | "ldap";
+  oidc: boolean;
+  local: boolean;
+  /** Dizin kapısı: aynı forma KURUMSAL parola yazılıyor. Yerelden
+   *  ayırt edilmesi şart — metinler farklı olmalı. */
+  ldap: boolean;
+};
+
+/** AuthSourceStatus, aktif kaynak ve her seçeneğin seçilebilirliği. */
+export type AuthSourceStatus = {
+  source: "local" | "oidc" | "ldap";
+  /** false ise kaynak SEÇİLMEDİ, config dosyasından türetildi. */
+  stored: boolean;
+  options: { source: string; eligible: boolean; why?: string }[];
+};
 
 // MyKey, kullanıcının kendi açık anahtarı.
 export type MyKey = { fingerprint: string; comment: string; added_at: string };
@@ -436,6 +457,13 @@ export const api = {
   verifyLDAP: (cfg: LDAPCandidate) =>
     req<LDAPTestResult>("POST", "/api/admin/ldap/verify", cfg),
   authMethods: () => req<AuthMethods>("GET", "/api/auth/methods"),
+  authSource: () => req<AuthSourceStatus>("GET", "/api/admin/auth/source"),
+  setAuthSource: (source: string) =>
+    req<{ ok: boolean; source: string; note: string }>(
+      "POST",
+      "/api/admin/auth/source",
+      { source },
+    ),
   myKeys: () => req<MyKeys>("GET", "/api/me/keys"),
   addMyKey: (authorized_key: string, reauth?: string) =>
     req<{ ok: boolean }>("POST", "/api/me/keys", {

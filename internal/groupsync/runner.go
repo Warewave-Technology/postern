@@ -10,6 +10,7 @@ import (
 
 	"github.com/warewave/postern/internal/auth"
 	"github.com/warewave/postern/internal/ldap"
+	"github.com/warewave/postern/internal/model"
 	"github.com/warewave/postern/internal/store"
 )
 
@@ -215,7 +216,7 @@ func (r *Runner) run(ctx context.Context, runID int64, dryRun bool, limits Limit
 		}
 
 		if res.Presence == ldap.PresencePresent {
-			roles, _, rerr := r.db.RolesForGroups(ctx, res.Groups)
+			roles, _, rerr := r.db.RolesForGroups(ctx, model.ResolvedGroups(res.Groups))
 			if rerr != nil {
 				// Rol çözümü başarısızsa bu kullanıcı hakkında bir şey
 				// bilmiyoruz demektir — "grupsuz" saymak yanlış olurdu.

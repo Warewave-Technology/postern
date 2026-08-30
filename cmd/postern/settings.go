@@ -14,6 +14,7 @@ import (
 	"github.com/warewave/postern/internal/auth"
 	"github.com/warewave/postern/internal/config"
 	"github.com/warewave/postern/internal/ldap"
+	"github.com/warewave/postern/internal/model"
 	"github.com/warewave/postern/internal/secret"
 	"github.com/warewave/postern/internal/store"
 )
@@ -116,6 +117,38 @@ func newSettingsSetCmd() *cobra.Command {
 				isSecret = true
 			}
 
+			/*
+			 * ⚠️ AKTİF GİRİŞ KAYNAĞI: ACİL ÇIKIŞ YOLU BURASI.
+			 *
+			 * Panel bu ayarı ancak geçilecek kaynağın gerçekten birini
+			 * içeri alabildiğini kanıtladıktan sonra değiştiriyor.
+			 * Burada o kontroller YOK ve olmamalı: bu komut tam da
+			 * panelin açılmadığı durumda çalışacak. Host'a
+			 * erişebilen kişi zaten en yüksek güven seviyesinde.
+			 *
+			 * Ama değerin kendisi doğrulanıyor: yazım hatası olan bir
+			 * kaynak adı, hiçbir kapının açılmadığı bir kurulum
+			 * üretirdi ve hata ancak bir sonraki giriş denemesinde
+			 * görülürdü.
+			 */
+			// ⚠️ `unknown`, grubu olmayan HERKESİN düştüğü ad. Yönetici
+			// grubu yapılırsa en az ayrıcalıklı küme en ayrıcalıklısına
+			// dönüşür. Panel de reddediyor; burada da reddediliyor,
+			// çünkü asıl tehlikeli yol "elle yazdım" olanı.
+			if key == ldap.KeyAdminGroup && strings.EqualFold(strings.TrimSpace(value), model.UnknownGroup) {
+				return fmt.Errorf("%q is the catch-all group for accounts whose source "+
+					"named no group; making it the administrator group would hand "+
+					"administrator to every one of them", model.UnknownGroup)
+			}
+
+			if key == auth.KeyLoginSource {
+				parsed, perr := auth.ParseLoginSource(value)
+				if perr != nil {
+					return perr
+				}
+				value = string(parsed)
+			}
+
 			// Sır değeri komut satırında GEÇMEZ: kabuk geçmişine ve
 			// süreç listesine (ps) düşer. Terminalden yankısız okunur.
 			if isSecret && value == "" {
@@ -156,6 +189,10 @@ func newSettingsSetCmd() *cobra.Command {
 			 * Panelde durum farklı ve orada olması gerektiği gibi: orası
 			 * gösterdiği listeyi onaylatıp yetkiyi ANINDA uyguluyor.
 			 */
+			if key == auth.KeyLoginSource {
+				explainLoginSource(cmd, db, ctx, auth.LoginSource(value))
+			}
+
 			if key == ldap.KeyAdminGroup {
 				_, revoked, err := db.ApplyAdminGroup(ctx, nil)
 				if err != nil {
@@ -319,4 +356,59 @@ func joinOrDash(v []string) string {
 		return "-"
 	}
 	return strings.Join(v, ", ")
+}
+
+/*
+ * explainLoginSource, kaynağı değiştirmenin SONUCUNU söyler.
+ *
+ * Panel bu geçişleri reddedebiliyor; CLI reddetmiyor (acil çıkışı
+ * kilitlemek onu acil çıkış olmaktan çıkarır). Geriye kalan tek doğru
+ * davranış, kapıyı kapatan bir değişikliği SESSİZ yapmamak: operatör
+ * "yerele döndüm" deyip panele giremediğinde sebebi burada yazıyor
+ * olsun.
+ */
+func explainLoginSource(cmd *cobra.Command, db *store.Store, ctx context.Context, src auth.LoginSource) {
+	out, errOut := cmd.OutOrStdout(), cmd.ErrOrStderr()
+
+	switch src {
+	case auth.SourceLocal:
+		fmt.Fprintln(out, "panel sign-in now uses postern's own credentials; "+
+			"the identity provider and directory doors are closed")
+		// ⚠️ Geri dönüş satırı bu dalda BASILMIYOR (aşağıdaki koşul):
+		// geri dönülecek yer zaten burası. Aynı komutu "bunu geri almak
+		// için" diye yazdırmak, okuyanın metne güvenini bir defada
+		// bitirir.
+		holders, err := db.LocalCredentialHolders(ctx)
+		if err != nil {
+			return
+		}
+		for _, h := range holders {
+			if h.IsAdmin {
+				return
+			}
+		}
+		// ⚠️ Yerele dönmek de kilitleyebilir ve sezgiye aykırı olduğu
+		// için asıl tehlikeli olan bu: yerel kapı yalnızca yerel
+		// kimlik bilgisi OLAN hesapları alıyor.
+		fmt.Fprintln(errOut, "warning: no local administrator has a sign-in secret — "+
+			"run `postern admin issue <name>` or nobody can sign in to the panel")
+
+	case auth.SourceOIDC:
+		fmt.Fprintln(out, "panel sign-in now goes through the identity provider; "+
+			"local secrets no longer open the panel")
+		fmt.Fprintln(out, "administrator comes from the group named in ldap.admin_group")
+
+	case auth.SourceLDAP:
+		fmt.Fprintln(out, "panel sign-in now uses directory usernames and passwords; "+
+			"local secrets no longer open the panel")
+		fmt.Fprintln(out, "the directory door does not create accounts: only directory "+
+			"users who already have a postern account can sign in")
+	default:
+		return
+	}
+
+	if src != auth.SourceLocal {
+		fmt.Fprintln(out, "to undo this from the host: "+
+			"postern settings set --key auth.source --value local")
+	}
 }

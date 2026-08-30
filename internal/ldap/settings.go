@@ -28,15 +28,13 @@ const (
 	KeyGroupScope     = "ldap.group_scope"
 
 	/*
-	 * KeyAuthEnabled, dizin PAROLASIYLA panel girişinin açık olduğu.
+	 * ⚠️ ldap.auth_enabled KALDIRILDI (göç 018).
 	 *
-	 * ⚠️ VARSAYILAN KAPALI ve bu bir güvenlik kararı: bu ayarı açmak
-	 * postern'in kullanıcının KURUMSAL parolasını görmesi demek.
-	 * Yapılandırmayı yapan kişinin bilerek açtığı bir kapı olmalı,
-	 * LDAP'ı grup kaynağı olarak kuranın yanında gelen bir yan etki
-	 * değil.
+	 * Aynı soruya iki ayar cevap veriyordu: "dizin parolasıyla giriş
+	 * açık mı" ve "aktif giriş kaynağı ne". İkisi çelişebiliyordu ve
+	 * çeliştiğinde anlamı tanımsızdı. Tek doğruluk kaynağı artık
+	 * auth.source (bkz. internal/auth/source.go).
 	 */
-	KeyAuthEnabled = "ldap.auth_enabled"
 
 	/*
 	 * KeyAdminGroup, YÖNETİCİ yetkisi veren grubun adı.

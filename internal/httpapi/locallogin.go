@@ -94,6 +94,53 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	/*
+	 * ⚠️ KAYNAK, KAYNAĞA ÖZEL KAYNAKLARDAN ÖNCE.
+	 *
+	 * Hız sınırı ve yuvalar kaynağa göre AYRI: yerel yolda korunan şey
+	 * postern'in belleği (argon2), dizin yolunda KURUMUN DİZİNİ. İkisini
+	 * de burada almak, dizin girişinin hem kotayı iki kez tüketmesine
+	 * (çağrılan taraf kendi kontrolünü yapıyor) hem de bir ağ bind'i
+	 * boyunca argon2 yuvası tutmasına yol açıyordu — dört eşzamanlı
+	 * dizin girişi, hiç argon2 çalışmadan yerel kapıyı meşgul ediyordu.
+	 */
+	src, ok := s.sourceOrRefuse(w, r)
+	if !ok {
+		return
+	}
+
+	/*
+	 * ⚠️ KAYNAK SEÇİMİ ARTIK BİR TAHMİN DEĞİL, BİR AYAR.
+	 *
+	 * Eskiden burada bir if vardı: hesabın yerel kimlik bilgisi varsa
+	 * yerel, yoksa dizin. Yani kaynağı, yazılan KULLANICI ADI
+	 * belirliyordu — ve bu, kurumsal parolanın nereye gideceğini
+	 * saldırganın seçebileceği anlamına geliyordu: postern'de yerel
+	 * kaydı olmayan bir ad yazan herkes, bind yolunu açabiliyordu.
+	 *
+	 * Şimdi kaynak tek ve önceden belli. Yerel kapı açıkken hiçbir
+	 * parola dizine gitmiyor; dizin kapısı açıkken hiçbir yerel
+	 * doğrulayıcı denenmiyor.
+	 */
+	switch src {
+	case auth.SourceLDAP:
+		s.directoryLogin(w, r, log, in.Username, in.Secret)
+		return
+	case auth.SourceOIDC:
+		/*
+		 * ⚠️ BU FORM HİÇ ÇİZİLMEMELİYDİ (bkz. handleAuthMethods) ama
+		 * uç yine de kapalı: arayüzün doğru çizilmesine güvenerek
+		 * açık bırakılan bir kapı, kapalı değildir.
+		 *
+		 * Denemeler yine de sayılıyor: kapalı bir kapıya yapılan
+		 * ısrarlı denemeler görülmeye değer.
+		 */
+		log.Warn("local sign-in attempted while the identity provider is the active source")
+		writeErr(w, http.StatusForbidden,
+			"password sign-in is closed; this postern signs in through its identity provider")
+		return
+	}
+
 	if !s.localLimit.allow(clientKey(r)) {
 		// 429: "yanlış sır" ile karıştırılmamalı, yoksa operatör
 		// elindeki sırrın bozuk olduğunu sanır.
@@ -111,28 +158,11 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	/*
-	 * ⚠️ HANGİ KAYNAĞA SORULACAĞI AÇIKÇA KARARLAŞTIRILIYOR.
-	 *
-	 * Hesabın YEREL bir kimlik bilgisi varsa yerel doğrulayıcı, yoksa
-	 * ve dizin parolası açıksa bind. Sıra bu yönde olmak zorunda:
-	 * tersi olsaydı, yerel yöneticinin sırrı dizine gönderilmeye
-	 * çalışılırdı — kurumsal olmayan bir sırrı kurumsal bir sisteme
-	 * yollamak.
-	 *
-	 * ⚠️ Bu yönlendirme GEÇİCİ. Ürün kararı "aynı anda tek aktif
-	 * kaynak, biri açıksa yerel kapanır" yönünde; o anahtar geldiğinde
-	 * burası bir if değil, aktif kaynağın kendisi olacak.
-	 */
 	verifier, err := s.store.LocalCredential(r.Context(), in.Username)
 	switch {
 	case err == nil:
 		// Yerel yol: aşağıda.
 	case errors.Is(err, store.ErrNotFound):
-		if s.directoryAuthEnabled(r.Context()) {
-			s.directoryLogin(w, r, log, in.Username, in.Secret)
-			return
-		}
 		/*
 		 * ⚠️ KULLANICI VARLIĞI SIZDIRILMIYOR.
 		 *

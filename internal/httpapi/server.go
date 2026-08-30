@@ -238,6 +238,7 @@ func (s *Server) Handler() http.Handler {
 	// Yönetim: oturum + admin + same-origin (admin.go, federation.go).
 	s.registerAdminRoutes(mux)
 	s.registerFederationRoutes(mux)
+	s.registerAuthSourceRoutes(mux)
 	s.registerEventRoutes(mux)
 	s.registerTargetRoutes(mux)
 
