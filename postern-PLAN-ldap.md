@@ -122,11 +122,34 @@ yüzeyin en sona kalması için seçildi.
 > bir dizinin ulaşılabilirliğine bağlamak onu acil çıkış olmaktan
 > çıkarırdı.
 >
-> **Sırada:** kararlı dizin kimliği (entryUUID/objectGUID) ile bağlama.
-> Bugün dizin kapısı JIT hesap AÇMIYOR, çünkü kararlı bir subject
-> olmadan hesap açmak kullanıcı adına dayalı bir bağ kurmak olurdu
-> (011'de kapatılan açık). S8'de TOTP, `mykeys.go`'daki yeniden
-> doğrulamaya bağlanacak.
+> **S7 tamamlandı** (2026-08-30): kararlı dizin kimliği ve üstüne kurulan
+> her şey.
+>
+> | # | İş | Commit |
+> |---|---|---|
+> | 1 | `accountExpires` / `shadowExpire` | `7dfde34` |
+> | 2 | Dizin kimliğinin bağlanması (subject ile eşleşme) | `b234af3` |
+> | 3 | `freshen` koşulu: `sso_only` → "dizine bağlı" | `b234af3` |
+> | 4 | Pending users (kimlikle anahtarlı, yapışkan red) | `fd76277` |
+> | 5 | İlk kurulum sihirbazı + çevirmeden önce bağla | `c717b00` |
+> | 6 | Kaynak değişiminde eşleşmeyen mapping uyarısı | `c717b00` |
+> | 7 | SSH tarayıcı kapısı `auth.source`'a bağlandı | `c717b00` |
+>
+> Öncesinde ölçülerek bulunan iki hata: öznitelik adının harfe duyarlı
+> eşlenmesi (`9d1c28e`) ve ad eşleşmesiyle yönetici hesabı devralma
+> (`ba5c2ac`).
+>
+> ⚠️ **8. madde yapılMADI ve yapılmamalı.** Plan "ada göre bağlamayı
+> tamamen kaldır" diyordu; kaldırılamaz. Operatörün önceden açtığı bir
+> hesabı (`postern user add`) dizin kimliğine bağlayan TEK köprü ad.
+> Kaldırsaydık o hesaplar kuyruğa düşer, onay ise hesabı YENİDEN açmaya
+> çalışıp benzersizlik ihlaline giderdi. Yol açık kalıyor ama dar:
+> yalnızca YETKİSİZ ve henüz bağlanmamış hesaplar, tek seferlik ve
+> denetim kaydıyla. Yönetici hesapları için kapı kapalı — açan tek şey,
+> gelen kimliğin kendisinin yönetici grubunda olması ya da
+> `postern user allow-bind`.
+>
+> **Sırada:** S8'de TOTP, `mykeys.go`'daki yeniden doğrulamaya bağlanacak.
 
 Bunlar LDAP dönüşümünden bağımsız olarak değerli; sonrasını de-riske ediyor.
 
