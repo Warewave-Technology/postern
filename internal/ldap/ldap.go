@@ -380,9 +380,24 @@ func (s *Source) findUser(conn *goldap.Conn, username string) (userEntry, error)
 	entry := res.Entries[0]
 	var groups, outOfScope []string
 	if s.cfg.GroupAttribute != "" {
+		/*
+		 * ⚠️ ÖZNİTELİK ADI HARFE DUYARSIZ EŞLENMELİ — GetEqualFold*.
+		 *
+		 * LDAP'ta öznitelik adları harfe duyarsız ve sunucu, istediğiniz
+		 * yazımla değil KENDİ ŞEMA YAZIMIYLA döndürüyor. go-ldap'ın düz
+		 * GetAttributeValues'i ise harfe duyarlı eşliyor.
+		 *
+		 * Ölçüldü (OpenLDAP, dc=warewave,dc=io): "OU" istendiğinde
+		 * sunucu özniteliği "ou" adıyla döndürüyor ve harfe duyarlı
+		 * arama SIFIR değer buluyor. Sonuç sessiz ve ağır: dizin
+		 * "present" diyor, panel yeşil kalıyor, ama kullanıcının bütün
+		 * grupları — dolayısıyla bütün rolleri — yok oluyor. Panelin
+		 * kendi ipucu "memberOf" yazıyor; "memberof" yazan operatör tam
+		 * bu tuzağa düşüyordu.
+		 */
 		// KAPSAM SÜZGECİ: yalnızca group_base ALTINDAKİ gruplar sayılır.
 		// Gerekçe New()'deki group_base kontrolünde.
-		for _, dn := range entry.GetAttributeValues(s.cfg.GroupAttribute) {
+		for _, dn := range entry.GetEqualFoldAttributeValues(s.cfg.GroupAttribute) {
 			if inGroupScope(dn, s.cfg.GroupBase, s.cfg.GroupScope) {
 				groups = append(groups, dn)
 				continue

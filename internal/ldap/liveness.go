@@ -50,7 +50,7 @@ const adAccountDisabled = 0x2
  * doğru taraf.
  */
 func accountDisabled(entry *goldap.Entry) (bool, string) {
-	if raw := entry.GetAttributeValue("userAccountControl"); raw != "" {
+	if raw := entry.GetEqualFoldAttributeValue("userAccountControl"); raw != "" {
 		// Ayrıştırılamayan değer "kapalı" sayılmıyor: bilmediğimiz bir
 		// biçim yüzünden birini dışarıda bırakmak, korumanın sağladığı
 		// faydadan pahalı.
@@ -58,10 +58,10 @@ func accountDisabled(entry *goldap.Entry) (bool, string) {
 			return true, "userAccountControl has ACCOUNTDISABLE"
 		}
 	}
-	if strings.EqualFold(entry.GetAttributeValue("nsAccountLock"), "TRUE") {
+	if strings.EqualFold(entry.GetEqualFoldAttributeValue("nsAccountLock"), "TRUE") {
 		return true, "nsAccountLock is TRUE"
 	}
-	if entry.GetAttributeValue("pwdAccountLockedTime") != "" {
+	if entry.GetEqualFoldAttributeValue("pwdAccountLockedTime") != "" {
 		return true, "pwdAccountLockedTime is set"
 	}
 	return false, ""

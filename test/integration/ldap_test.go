@@ -182,6 +182,45 @@ func TestLDAPGroupsByUserAttribute(t *testing.T) {
 	}
 }
 
+/*
+ * ⚠️ ÖZNİTELİK ADI HARFE DUYARSIZ EŞLENMELİ.
+ *
+ * ÖLÇÜLEN ARIZA: LDAP'ta öznitelik adları harfe duyarsız ve sunucu,
+ * istenen yazımla değil KENDİ ŞEMA YAZIMIYLA döndürüyor. go-ldap'ın düz
+ * GetAttributeValues'i harfe duyarlı eşlediği için, "OU" yazan bir ayar
+ * sunucudan gelen "ou" özniteliğini GÖREMİYORDU.
+ *
+ * Sonucu sessiz ve ağır: dizin "present" diyor, teşhis ekranı yeşil
+ * kalıyor, ama kullanıcının bütün grupları — dolayısıyla bütün rolleri —
+ * yok oluyor. Panelin kendi ipucunda yazan "memberOf"u "memberof" diye
+ * yazan operatör tam bu tuzağa düşüyordu.
+ */
+func TestLDAPGroupAttributeIsCaseInsensitive(t *testing.T) {
+	url := startOpenLDAP(t)
+
+	// Şemadaki yazım "ou". Üçü de AYNI özniteliktir.
+	for _, spelling := range []string{"ou", "OU", "oU"} {
+		t.Run(spelling, func(t *testing.T) {
+			cfg := ldapConfig(url)
+			cfg.GroupFilter = ""
+			cfg.GroupAttribute = spelling
+
+			src, err := ldap.New(cfg)
+			if err != nil {
+				t.Fatalf("ldap.New: %v", err)
+			}
+			gres, err := src.Groups(context.Background(), auth.Identity{Username: ldapUser})
+			if err != nil {
+				t.Fatalf("Groups: %v", err)
+			}
+			if len(gres.Groups) != 2 {
+				t.Fatalf("%q yazımıyla gruplar = %v; yazım farkı yüzünden "+
+					"kullanıcı bütün rollerini kaybederdi", spelling, gres.Groups)
+			}
+		})
+	}
+}
+
 // DN modu: eşlemeler tam DN yazılacaksa.
 func TestLDAPGroupNameFromDN(t *testing.T) {
 	url := startOpenLDAP(t)

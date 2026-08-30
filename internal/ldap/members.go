@@ -78,13 +78,13 @@ func (s *Source) MembersOf(ctx context.Context, group string) (GroupMembers, err
 	}
 
 	// memberUid doğrudan kullanıcı adı taşır (RFC 2307).
-	for _, uid := range entry.GetAttributeValues("memberUid") {
+	for _, uid := range entry.GetEqualFoldAttributeValues("memberUid") {
 		add(uid)
 	}
 	// member / uniqueMember DN taşır; kullanıcı adını ilk RDN'den
 	// çıkarıyoruz — user_filter'ın eşleştirdiği değer o.
 	for _, attr := range []string{"member", "uniqueMember"} {
-		for _, dn := range entry.GetAttributeValues(attr) {
+		for _, dn := range entry.GetEqualFoldAttributeValues(attr) {
 			parsed, perr := goldap.ParseDN(dn)
 			if perr != nil || len(parsed.RDNs) == 0 || len(parsed.RDNs[0].Attributes) == 0 {
 				continue
