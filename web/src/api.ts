@@ -135,6 +135,43 @@ export type SyncSettings = {
   error?: string;
 };
 
+/**
+ * AdminGroupStatus, "kim yönetici ve bunu kim verdi".
+ *
+ * `via` ekranda kalmak zorunda: gruptan gelen yetki panelden
+ * kaldırılamaz (bir sonraki eşitlemede geri gelir) ve CLI'ın verdiği hiç
+ * kaldırılamaz. Kaynağı göstermeyen bir liste, operatöre
+ * kaldıramayacağı bir yetkiyi kaldırabileceğini düşündürür.
+ */
+export type AdminGroupStatus = {
+  group: string;
+  holders: { username: string; via: string }[];
+  /** Dizin üyeliği SAYILABİLİYOR mu. OIDC claim'i "bu kişi bu
+   *  gruptaymış" der ama grubun ÜYELERİNİ listeleyemez — o kurulumda
+   *  onay ekranı kimseyi sayamaz. */
+  enumerable: boolean;
+  /** Sayılamamanın sebebi BOZUK bir LDAP yapılandırmasıysa, hatası.
+   *  Boşsa sebep yokluk: LDAP hiç kurulmamış, gruplar claim'den
+   *  geliyor. İkisi aynı cümleye düşerse yanlış teşhis konur. */
+  enumerable_error?: string;
+};
+
+/** AdminGroupPreview, "bu grubu kaydedersem kim yönetici olur". */
+export type AdminGroupPreview = {
+  ok: boolean;
+  error?: string;
+  group: string;
+  admins: string[];
+  /** admins'in postern hesabı OLMAYAN kısmı: yetkileri ancak ilk
+   *  girişlerinde oluşur. */
+  no_account: string[];
+  /** Grup üyesi görünüp de çözümlemeden geçemeyenler. Sessizce
+   *  atılmıyor, çünkü beklenen birinin listede olmaması bir bulgu. */
+  skipped: string[];
+  truncated: boolean;
+  note?: string;
+};
+
 export type LDAPTestResult = {
   ok: boolean;
   error?: string;
@@ -420,6 +457,21 @@ export const api = {
   testLDAP: (user?: string) =>
     req<LDAPTestResult>("POST", "/api/admin/ldap/test", { user: user ?? "" }),
 
+  adminGroup: () =>
+    req<AdminGroupStatus>("GET", "/api/admin/ldap/admin-group"),
+  previewAdminGroup: (group: string) =>
+    req<AdminGroupPreview>("POST", "/api/admin/ldap/admin-group/preview", {
+      group,
+    }),
+  /** ⚠️ confirm, panelin GÖSTERDİĞİ listedir ve sunucu onu yeniden
+   *  hesaplayıp karşılaştırır. Eşleşmezse 409 döner: onaylanan küme
+   *  artık geçerli değil, yeniden bakılmalı. */
+  setAdminGroup: (group: string, confirm: string[]) =>
+    req<{ ok: boolean; group: string; granted: string[]; revoked: string[] }>(
+      "POST",
+      "/api/admin/ldap/admin-group",
+      { group, confirm },
+    ),
   sessions: () => req<Session[]>("GET", "/api/admin/sessions"),
   sessionDetail: (id: string) =>
     req<SessionDetail>("GET", `/api/admin/sessions/${encodeURIComponent(id)}`),

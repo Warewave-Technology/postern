@@ -45,9 +45,12 @@ func (s *Server) registerFederationRoutes(mux *http.ServeMux) {
 	// host üzerinde `postern sync runs` ile görülebiliyordu — yani
 	// pratikte hiç görülmüyordu.
 	mux.Handle("GET /api/admin/sync/runs", admin(s.adminSyncRuns))
-	// Yönetici grubunun ÖNİZLEMESİ: kaydetmeden önce kimlere yetki
-	// verildiğini gösterir.
+	// Yönetici grubu. Önizleme kaydetmeden önce kimlere yetki
+	// verildiğini gösterir; yazma ucu ise GÖRÜLEN LİSTEYİ geri
+	// istediği için onay atlanamaz.
 	mux.Handle("POST /api/admin/ldap/admin-group/preview", admin(s.adminAdminGroupPreview))
+	mux.Handle("GET /api/admin/ldap/admin-group", admin(s.adminAdminGroupStatus))
+	mux.Handle("POST /api/admin/ldap/admin-group", admin(s.adminAdminGroupSet))
 }
 
 // --- grup eşlemeleri ---
@@ -422,7 +425,12 @@ var knownSettingKeys = map[string]bool{
 	ldap.KeyGroupNameFrom:  true,
 	ldap.KeyGroupScope:     true,
 	ldap.KeyAuthEnabled:    true,
-	ldap.KeyAdminGroup:     true,
+
+	// ⚠️ ldap.admin_group BİLEREK YOK. Yönetici grubu bu genel uçtan
+	// yazılabilseydi onay ekranı tamamen atlanabilir olurdu: bir grup
+	// adı yazıp kaydetmek, kime yetki verdiğini hiç görmeden yetki
+	// dağıtmak demekti. Kendi ucu var ve orası gördüğün listeyi geri
+	// istiyor (adminAdminGroupSet).
 
 	// Dizin senkronizasyonu LDAP'ın bir özelliği ve LDAP panelden
 	// yönetiliyor; ayarlarının yalnızca YAML'da olması, en çok

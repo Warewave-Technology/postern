@@ -8,6 +8,7 @@ import {
   WarnLine,
   useList,
 } from "./common";
+import AdminGroup from "./AdminGroup";
 import SyncPanel from "./SyncPanel";
 
 /**
@@ -198,7 +199,7 @@ function looksLikeDNS(err?: string): boolean {
   );
 }
 
-export default function Settings() {
+export default function Settings({ meName }: { meName?: string }) {
   const { items, error, denied, loading, refresh, setError } = useList<Setting>(
     api.settings,
   );
@@ -612,6 +613,11 @@ export default function Settings() {
                   )}
                 </div>
               </div>
+
+              {/* ⚠️ Dizin kurulduktan SONRA gelen soru: bu dizinde
+                  kim yönetici? Ayrı bir kart, çünkü diğer alanlardan
+                  farklı bir şey yapıyor — yetki dağıtıyor. */}
+              <AdminGroup meName={meName} />
 
               <SyncPanel ldapReady />
             </>

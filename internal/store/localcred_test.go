@@ -280,3 +280,175 @@ func TestGroupAdminRevokesItsOwnGrant(t *testing.T) {
 		t.Fatalf("kaynak = %q, boş bekleniyordu", via)
 	}
 }
+
+/*
+ * ApplyAdminGroup, kümeyi EŞİTLER: yeni gruptakine verir, eskiden kalana
+ * geri alır — ve CLI'ınkine dokunmaz.
+ *
+ * Bu testin asıl kapattığı sızıntı, "revoke" tarafı: yetki yalnızca
+ * girişte güncellenseydi, yönetici grubu değiştiğinde eski gruptan gelen
+ * kişi bir daha hiç giriş yapmasa da yönetici KALIRDI. "Grubu
+ * değiştirdim" ile "yetki değişti" arasındaki fark, kimsenin bakmadığı
+ * bir yerde süresiz açık kalırdı.
+ */
+func TestApplyAdminGroupSyncsTheSet(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	for _, name := range []string{"ayse", "mehmet", "ops"} {
+		if _, err := s.CreateUser(ctx, name, name+"@warewave.io", name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// ops acil durum yöneticisi, ayse eski gruptan geliyor.
+	if err := s.SetUserAdmin(ctx, "ops", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetGroupAdmin(ctx, "ayse", true); err != nil {
+		t.Fatal(err)
+	}
+
+	// Yeni grup: mehmet içeride, ayse dışarıda. Dizin adı FARKLI YAZIMLA
+	// dönüyor — eşleştirme harf duyarsız olmak zorunda.
+	granted, revoked, err := s.ApplyAdminGroup(ctx, []string{"Mehmet", "hiç-yok"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(granted) != 1 || granted[0] != "mehmet" {
+		t.Fatalf("verilenler = %v, [mehmet] bekleniyordu", granted)
+	}
+	if len(revoked) != 1 || revoked[0] != "ayse" {
+		t.Fatalf("alınanlar = %v, [ayse] bekleniyordu", revoked)
+	}
+
+	want := map[string]bool{"mehmet": true, "ops": true, "ayse": false}
+	for name, admin := range want {
+		u, err := s.User(ctx, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if u.Admin != admin {
+			t.Fatalf("%s admin = %v, %v bekleniyordu", name, u.Admin, admin)
+		}
+	}
+	// ⚠️ ops'un kaynağı 'cli' KALMALI: 'group'a düşseydi, bir sonraki
+	// eşitlemede acil durum hesabı da kapanırdı.
+	if via, _ := s.AdminVia(ctx, "ops"); via != "cli" {
+		t.Fatalf("ops kaynağı = %q, \"cli\" bekleniyordu", via)
+	}
+	if via, _ := s.AdminVia(ctx, "ayse"); via != "" {
+		t.Fatalf("ayse kaynağı = %q, boş bekleniyordu", via)
+	}
+}
+
+// Boş küme = grup ayarının temizlenmesi: gruptan gelen herkes düşer,
+// CLI'ınki yerinde kalır.
+func TestApplyAdminGroupWithNoMembersRevokesOnlyGroupGrants(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	for _, name := range []string{"ayse", "ops"} {
+		if _, err := s.CreateUser(ctx, name, name+"@warewave.io", name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.SetUserAdmin(ctx, "ops", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetGroupAdmin(ctx, "ayse", true); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, revoked, err := s.ApplyAdminGroup(ctx, nil); err != nil {
+		t.Fatal(err)
+	} else if len(revoked) != 1 || revoked[0] != "ayse" {
+		t.Fatalf("alınanlar = %v, [ayse] bekleniyordu", revoked)
+	}
+
+	if u, _ := s.User(ctx, "ayse"); u.Admin {
+		t.Fatal("grup temizlendi ama gruptan gelen yönetici yerinde kaldı")
+	}
+	if u, _ := s.User(ctx, "ops"); !u.Admin {
+		t.Fatal("grup temizliği CLI'ın verdiği yöneticiliği de aldı")
+	}
+}
+
+// Admins, yetkinin KAYNAĞINI da söylemeli: panel "bunu kaldırabilir
+// miyim" sorusunu ancak öyle cevaplayabilir.
+func TestAdminsReportsSource(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	for _, name := range []string{"ayse", "ops", "sade"} {
+		if _, err := s.CreateUser(ctx, name, name+"@warewave.io", name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.SetUserAdmin(ctx, "ops", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetGroupAdmin(ctx, "ayse", true); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.Admins(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	via := map[string]string{}
+	for _, h := range got {
+		via[h.Username] = h.Via
+	}
+	if len(got) != 2 {
+		t.Fatalf("yönetici sayısı = %d (%v), 2 bekleniyordu", len(got), got)
+	}
+	if via["ops"] != "cli" || via["ayse"] != "group" {
+		t.Fatalf("kaynaklar = %v", via)
+	}
+	if _, ok := via["sade"]; ok {
+		t.Fatal("yönetici olmayan kişi listede")
+	}
+}
+
+/*
+ * ⚠️ ACİL DURUM HESABI GRUBA GİRERSE, KAYNAĞI DÜŞMEMELİ.
+ *
+ * CLI ile açılmış yönetici yönetici grubunda da yer alıyorsa, yetkisinin
+ * kaynağı sessizce 'group'a dönebilirdi. Görünürde hiçbir şey değişmez —
+ * ta ki o kişi gruptan çıkarılana kadar: o gün, hiç kaybetmemesi gereken
+ * acil durum yetkisini de kaybeder ve geri verecek kimse kalmaz.
+ */
+func TestApplyAdminGroupDoesNotDowngradeCLIAdmin(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	if _, err := s.CreateUser(ctx, "ops", "ops@warewave.io", "ops"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetUserAdmin(ctx, "ops", true); err != nil {
+		t.Fatal(err)
+	}
+
+	// ops yönetici grubunda.
+	granted, _, err := s.ApplyAdminGroup(ctx, []string{"ops"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(granted) != 0 {
+		t.Fatalf("verilenler = %v, boş bekleniyordu (zaten CLI yöneticisi)", granted)
+	}
+	if via, _ := s.AdminVia(ctx, "ops"); via != "cli" {
+		t.Fatalf("kaynak = %q — CLI yöneticisi gruba girince kaynağı düştü", via)
+	}
+
+	// Ve gruptan çıkınca yetkisini KAYBETMEMELİ.
+	if _, revoked, err := s.ApplyAdminGroup(ctx, nil); err != nil {
+		t.Fatal(err)
+	} else if len(revoked) != 0 {
+		t.Fatalf("alınanlar = %v — gruptan çıkan acil durum hesabı kapandı", revoked)
+	}
+	if u, _ := s.User(ctx, "ops"); !u.Admin {
+		t.Fatal("acil durum hesabı, grup üyeliği üzerinden kapatıldı")
+	}
+}

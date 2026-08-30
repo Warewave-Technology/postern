@@ -137,6 +137,51 @@ func newSettingsSetCmd() *cobra.Command {
 			} else {
 				fmt.Fprintf(cmd.OutOrStdout(), "%s = %s\n", key, value)
 			}
+
+			/*
+			 * ⚠️ YÖNETİCİ GRUBU DEĞİŞTİYSE, ESKİ GRUPTAN GELEN YETKİLER
+			 * BURADA DÜŞÜYOR.
+			 *
+			 * Düşmeseydi sessiz bir sızıntı kalırdı: yetki yalnızca kişi
+			 * giriş yaptığında güncelleniyor, dolayısıyla eski gruptan
+			 * gelen kişi bir daha hiç giriş yapmasa da yönetici KALIRDI.
+			 * "Grubu değiştirdim" ile "yetki değişti" arasındaki fark,
+			 * kimsenin bakmadığı bir yerde süresiz açık dururdu.
+			 *
+			 * Yeni grubun üyeleri yetkilerini bir sonraki girişlerinde
+			 * alıyor: burada dizine sormuyoruz, çünkü bu komut dizin
+			 * ulaşılamazken de çalışabilmeli — acil çıkış yolunun bir
+			 * ağ bağlantısına bağlı olmaması onun bütün anlamı.
+			 *
+			 * Panelde durum farklı ve orada olması gerektiği gibi: orası
+			 * gösterdiği listeyi onaylatıp yetkiyi ANINDA uyguluyor.
+			 */
+			if key == ldap.KeyAdminGroup {
+				_, revoked, err := db.ApplyAdminGroup(ctx, nil)
+				if err != nil {
+					return fmt.Errorf("clearing previous group-granted admins: %w", err)
+				}
+				if len(revoked) > 0 {
+					fmt.Fprintf(cmd.OutOrStdout(),
+						"%d account(s) lost administrator granted by the previous group: %s\n",
+						len(revoked), strings.Join(revoked, ", "))
+				}
+				if value != "" {
+					fmt.Fprintln(cmd.OutOrStdout(),
+						"members of the new group become administrators at their next sign-in")
+				}
+
+				// Yönetici kalmadıysa SÖYLE. Reddetmiyoruz — host'ta
+				// olan kişi zaten `postern admin issue` ile çıkabilir ve
+				// acil çıkış yolunu kilitlemek onu acil çıkış olmaktan
+				// çıkarırdı. Ama sessiz kalmak, panelin kapandığını
+				// kimsenin fark etmemesi demekti.
+				if admins, aerr := db.Admins(ctx); aerr == nil && len(admins) == 0 {
+					fmt.Fprintln(cmd.ErrOrStderr(),
+						"warning: postern now has no administrator at all — "+
+							"run `postern admin issue <name>` to create one")
+				}
+			}
 			return nil
 		},
 	}

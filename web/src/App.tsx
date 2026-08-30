@@ -391,7 +391,7 @@ export default function App() {
               {section === "roles" && <Roles />}
               {section === "mappings" && <Mappings />}
               {section === "targets" && <Targets />}
-              {section === "ldap" && <Settings />}
+              {section === "ldap" && <Settings meName={me.name} />}
               {section === "sessions" && <Sessions theme={resolved} />}
               {section === "log" && <AdminLog />}
             </div>

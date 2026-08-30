@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -244,4 +245,151 @@ func (s *Store) AdminVia(ctx context.Context, username string) (string, error) {
 		return "", translateErr("store.AdminVia", err)
 	}
 	return via.String, nil
+}
+
+// AdminHolder, yönetici bayrağını taşıyan kişi ve bayrağın KAYNAĞI.
+//
+// Kaynağı da taşıması şart: panel "kim yönetici" sorusuna cevap
+// verirken "bunu kim verdi" sorusunu da cevaplamak zorunda. Aksi hâlde
+// grup üzerinden gelen yetki ile acil durum için elle açılmış hesap
+// ekranda ayırt edilemez ve operatör, kaldıramayacağı bir yetkiyi
+// kaldırabileceğini sanır.
+type AdminHolder struct {
+	Username string `json:"username"`
+	// Via: "cli", "group" ya da boş. Boş olan, admin_via sütunu
+	// eklenmeden önce yönetici yapılmış eski bir kayıttır (017 göçü
+	// mevcutları 'cli' sayıyor, yani pratikte boş kalmaması gerekir).
+	Via string `json:"via"`
+}
+
+// Admins, yönetici bayrağı taşıyan herkesi kaynağıyla döner.
+func (s *Store) Admins(ctx context.Context) ([]AdminHolder, error) {
+	// #nosec G202 -- birleştirilen parça sabit (dialect.go)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT username, admin_via FROM users
+		WHERE is_admin = TRUE
+		ORDER BY `+ciOrder("username")+`;`)
+	if err != nil {
+		return nil, translateErr("store.Admins", err)
+	}
+	defer rows.Close()
+
+	out := make([]AdminHolder, 0)
+	for rows.Next() {
+		var h AdminHolder
+		var via sql.NullString
+		if err := rows.Scan(&h.Username, &via); err != nil {
+			return nil, translateErr("store.Admins", err)
+		}
+		h.Via = via.String
+		out = append(out, h)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, translateErr("store.Admins", err)
+	}
+	return out, nil
+}
+
+/*
+ * ApplyAdminGroup, grup üzerinden yönetici kümesini TEK İŞLEMDE eşitler.
+ *
+ * ⚠️ NEDEN "bir sonraki girişte" DEĞİL, ŞİMDİ:
+ *
+ * Yetki eskiden yalnızca kişi giriş yaptığında güncelleniyordu. Bu,
+ * yönetici grubu DEĞİŞTİĞİNDE sessiz bir sızıntı bırakıyor: eski gruptan
+ * gelen kişi bir daha hiç giriş yapmasa da yönetici KALIYOR. "Grubu
+ * değiştirdim" ile "yetki değişti" arasındaki fark, kimsenin bakmadığı
+ * bir yerde süresiz açık duruyordu.
+ *
+ * Ayrıca onay ekranını dürüst yapan şey bu: ekran "bu kişiler yönetici
+ * oluyor" diyorsa, kaydettikten sonra gerçekten öyle olmalı — "herkes
+ * bir dahaki girişinde" değil.
+ *
+ * members'ın DB'de karşılığı olmayanları ATLANIR (hata değil): dizinde
+ * var ama postern'e hiç girmemiş kişinin hesabı yok. İlk girişinde
+ * applyGroupAdmin onu zaten yakalar.
+ *
+ * CLI'ın verdiği yöneticiliğe DOKUNMAZ — ne verirken ne alırken.
+ */
+func (s *Store) ApplyAdminGroup(ctx context.Context, members []string) (granted, revoked []string, err error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, nil, translateErr("store.ApplyAdminGroup", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // commit sonrası no-op
+
+	// Bütün kullanıcı adları TEK sorguda: ad eşleştirmesi harf duyarsız
+	// olmak zorunda (dizin "Ayse" derken DB'de "ayse" olabilir) ve bunu
+	// kişi başına lower() sorgusuyla yapmak, 200 üyelik bir grup için
+	// 200 tarama demekti.
+	rows, err := tx.QueryContext(ctx,
+		`SELECT username, admin_via FROM users;`)
+	if err != nil {
+		return nil, nil, translateErr("store.ApplyAdminGroup", err)
+	}
+	type row struct{ name, via string }
+	all := make([]row, 0)
+	for rows.Next() {
+		var r row
+		var via sql.NullString
+		if err := rows.Scan(&r.name, &via); err != nil {
+			rows.Close()
+			return nil, nil, translateErr("store.ApplyAdminGroup", err)
+		}
+		r.via = via.String
+		all = append(all, r)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, nil, translateErr("store.ApplyAdminGroup", err)
+	}
+	rows.Close()
+
+	// Hedef küme: dizin üyelerinin DB'deki gerçek yazımları.
+	want := make(map[string]bool, len(members))
+	for _, m := range members {
+		m = strings.TrimSpace(m)
+		if m == "" {
+			continue
+		}
+		for _, u := range all {
+			if strings.EqualFold(u.name, m) {
+				want[u.name] = true
+				break
+			}
+		}
+	}
+
+	granted = make([]string, 0)
+	revoked = make([]string, 0)
+
+	for _, u := range all {
+		switch {
+		case want[u.name] && u.via != "group":
+			// ⚠️ CLI koşulu burada da: elle açılmış yöneticinin kaynağı
+			// 'group'a düşerse, gruptan çıkarıldığı gün acil durum
+			// hesabı da kapanır.
+			res, err := tx.ExecContext(ctx, `
+				UPDATE users SET is_admin = TRUE, admin_via = 'group'
+				WHERE username = $1 AND admin_via IS DISTINCT FROM 'cli';`, u.name)
+			if err != nil {
+				return nil, nil, translateErr("store.ApplyAdminGroup", err)
+			}
+			if n, _ := res.RowsAffected(); n > 0 {
+				granted = append(granted, u.name)
+			}
+		case !want[u.name] && u.via == "group":
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE users SET is_admin = FALSE, admin_via = NULL
+				WHERE username = $1 AND admin_via = 'group';`, u.name); err != nil {
+				return nil, nil, translateErr("store.ApplyAdminGroup", err)
+			}
+			revoked = append(revoked, u.name)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, nil, translateErr("store.ApplyAdminGroup", err)
+	}
+	return granted, revoked, nil
 }
