@@ -446,3 +446,51 @@ describe("dizin kapisi", () => {
     ).toBeNull();
   });
 });
+
+/*
+ * ⚠️ KURULUM BİTMEDİYSE PANEL SADECE SİHİRBAZDAN İBARET.
+ *
+ * Menü maddesi olarak bırakıldığında atlanıyordu ve geriye kaynağı
+ * seçilmemiş — kapısı config dosyasından TÜRETİLEN — bir kurulum
+ * kalıyordu. Ürünün en kritik kararı keşfe bırakılamaz.
+ */
+describe("ilk kurulum zorunlulugu", () => {
+  it("kurulum bitmediyse baska hicbir sekme cizilmez", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({ ...me, admin: true, setup_required: true });
+    vi.spyOn(api, "authSource").mockResolvedValue({
+      source: "local",
+      stored: false,
+      options: [
+        { source: "local", eligible: true },
+        { source: "oidc", eligible: false, why: "not configured" },
+        { source: "ldap", eligible: false, why: "not configured" },
+      ],
+    });
+    vi.spyOn(api, "settings").mockResolvedValue([]);
+    vi.spyOn(api, "oidcSettings").mockResolvedValue({
+      issuer_url: "", client_id: "", client_secret_set: false,
+      managed_in_db: false, configured: false, live: false,
+    });
+    vi.spyOn(api, "adminGroup").mockResolvedValue({
+      group: "", holders: [], enumerable: false,
+    });
+
+    render(<App />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/Set up sign-in/i)).toBeInTheDocument(),
+    );
+    // Ne sekmeler, ne ana ekran.
+    expect(screen.queryByRole("button", { name: /^Settings$/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Home$/ })).toBeNull();
+  });
+
+  // Yönetici olmayan biri o sırada girerse: boş ekran değil, sebep.
+  it("yonetici olmayana sebebini soyler", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({ ...me, admin: false, setup_required: true });
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByText(/has not finished its first-run setup/i)).toBeInTheDocument(),
+    );
+  });
+});

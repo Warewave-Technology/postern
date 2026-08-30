@@ -203,28 +203,17 @@ export default function App() {
   const [section, setSection] = useState<Section>("overview");
 
   /*
-   * ⚠️ KURULUM YAPILMAMIŞSA ORAYA AÇ.
+   * ⚠️ KURULUM YAPILMAMIŞSA PANEL SADECE SİHİRBAZDAN İBARET.
    *
-   * auth.source hiç yazılmamışsa kaynak config dosyasından TÜRETİLİYOR
-   * — yani kimse seçmemiş. Yöneticiyi Overview'a bırakıp "bir yerlerde
-   * bir ayar var" demek, kurulumun en kritik kararını keşfe bırakmak
-   * olurdu.
+   * Bir menü maddesi olarak bırakıldığında atlanıyordu ve geriye
+   * kaynağı seçilmemiş — kapısı config dosyasından TÜRETİLEN — bir
+   * kurulum kalıyordu. Ürünün en kritik kararı, keşfedilmeyi bekleyen
+   * bir bağlantı olamaz.
+   *
+   * Karar SUNUCUDAN geliyor (setup_required): panelin kendi çıkarımı
+   * olsaydı, ikinci bir doğruluk kaynağı olurdu.
    */
-  const [needsSetup, setNeedsSetup] = useState(false);
-  useEffect(() => {
-    if (!me?.admin) return;
-    api
-      .authSource()
-      .then((st) => {
-        if (!st.stored) {
-          setNeedsSetup(true);
-          setSection("setup");
-        }
-      })
-      .catch(() => {
-        /* kurulum rozeti bir kolaylık; hatası ekranı bozmamalı */
-      });
-  }, [me?.admin]);
+  const needsSetup = me?.setup_required === true;
 
   // ⚠️ Kabuk artık PANELİN İÇİNDE DEĞİL, kendi sekmesinde (/shell/…).
   // Panel içindeki terminal ekranın yarısını çevre kabuğa veriyordu ve
@@ -405,79 +394,99 @@ export default function App() {
         </div>
       </header>
 
-      <nav className="tabs" aria-label="Sections">
-        <div className="tabs-inner">
-          {tops.map(([t, label]) => (
-            <button
-              key={t}
-              onClick={() => setTop(t)}
-              // ⚠️ disabled DEĞİL aria-current. disabled, bulunulan
-              // sekmeyi sekme sırasından ÇIKARIYOR ve ekran okuyucuya
-              // "kullanılamaz" dedirtiyordu.
-              aria-current={top === t ? "page" : undefined}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </nav>
+      {/*
+        ⚠️ KURULUM BİTMEDİYSE BAŞKA HİÇBİR ŞEY YOK.
+        Sekmeler ve bölümler çizilmiyor: yarım kurulmuş bir bastion'ın
+        yönetim ekranlarını gezdirmek, ayarları kaynağı seçilmeden
+        değiştirmeye davet etmek olurdu.
+      */}
+      {needsSetup && me.admin && (
+        <main className="app">
+          <Setup meName={me.name} dirBound={me.dir_bound} />
+        </main>
+      )}
 
-      <main className="app">
-        {top === "home" && <Home me={me} />}
-
-        {top === "settings" && me.admin && (
-          <div className="settings">
-            <nav className="side-nav" aria-label="Settings sections">
-              {needsSetup && (
-                <div className="side-group">
-                  <button
-                    onClick={() => setSection("setup")}
-                    aria-current={section === "setup" ? "page" : undefined}
-                  >
-                    <KeyIcon />
-                    Set up sign-in
-                  </button>
-                </div>
-              )}
-              {NAV.map((group, gi) => (
-                <div className="side-group" key={group.title ?? `g${gi}`}>
-                  {group.title && (
-                    <div className="side-title">{group.title}</div>
-                  )}
-                  {group.items.map(([s, label, icon]) => (
-                    <button
-                      key={s}
-                      onClick={() => setSection(s)}
-                      aria-current={section === s ? "page" : undefined}
-                    >
-                      {icon}
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              ))}
-            </nav>
-
-            <div>
-              {section === "setup" && (
-                <Setup meName={me.name} dirBound={me.dir_bound} />
-              )}
-              {section === "overview" && <Overview />}
-              {section === "users" && (
-                <Users publicKeyLogin={me.public_key_login} />
-              )}
-              {section === "roles" && <Roles />}
-              {section === "mappings" && <Mappings />}
-              {section === "pending" && <Pending />}
-              {section === "targets" && <Targets />}
-              {section === "signin" && <AuthSource />}
-              {section === "ldap" && <Settings meName={me.name} />}
-              {section === "sessions" && <Sessions theme={resolved} />}
-              {section === "log" && <AdminLog />}
-            </div>
+      {/* Kurulum bitmemiş ve YÖNETİCİ DEĞİLSE: girecek yer yok, ama
+          sebebini söylüyoruz — boş bir ekran arıza gibi görünürdü. */}
+      {needsSetup && !me.admin && (
+        <main className="center">
+          <div className="center-card">
+            <h1>Not set up yet</h1>
+            <p>
+              This bastion has not finished its first-run setup. An
+              administrator has to choose how people sign in before it can be
+              used.
+            </p>
           </div>
-        )}
-      </main>
+        </main>
+      )}
+
+      {!needsSetup && (
+        <>
+          <nav className="tabs" aria-label="Sections">
+            <div className="tabs-inner">
+              {tops.map(([t, label]) => (
+                <button
+                  key={t}
+                  onClick={() => setTop(t)}
+                  // ⚠️ disabled DEĞİL aria-current. disabled, bulunulan
+                  // sekmeyi sekme sırasından ÇIKARIYOR ve ekran okuyucuya
+                  // "kullanılamaz" dedirtiyordu.
+                  aria-current={top === t ? "page" : undefined}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </nav>
+
+          <main className="app">
+            {top === "home" && <Home me={me} />}
+
+            {top === "settings" && me.admin && (
+              <div className="settings">
+                <nav className="side-nav" aria-label="Settings sections">
+                  {NAV.map((group, gi) => (
+                    <div className="side-group" key={group.title ?? `g${gi}`}>
+                      {group.title && (
+                        <div className="side-title">{group.title}</div>
+                      )}
+                      {group.items.map(([s, label, icon]) => (
+                        <button
+                          key={s}
+                          onClick={() => setSection(s)}
+                          aria-current={section === s ? "page" : undefined}
+                        >
+                          {icon}
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  ))}
+                </nav>
+
+                <div>
+                  {section === "setup" && (
+                    <Setup meName={me.name} dirBound={me.dir_bound} />
+                  )}
+                  {section === "overview" && <Overview />}
+                  {section === "users" && (
+                    <Users publicKeyLogin={me.public_key_login} />
+                  )}
+                  {section === "roles" && <Roles />}
+                  {section === "mappings" && <Mappings />}
+                  {section === "pending" && <Pending />}
+                  {section === "targets" && <Targets />}
+                  {section === "signin" && <AuthSource />}
+                  {section === "ldap" && <Settings meName={me.name} />}
+                  {section === "sessions" && <Sessions theme={resolved} />}
+                  {section === "log" && <AdminLog />}
+                </div>
+              </div>
+            )}
+          </main>
+        </>
+      )}
     </div>
   );
 }

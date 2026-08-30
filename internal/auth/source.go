@@ -172,3 +172,27 @@ func AutoCreateEnabled(ctx context.Context, db *store.Store) bool {
 	on, perr := strconv.ParseBool(strings.TrimSpace(v))
 	return perr == nil && on
 }
+
+/*
+ * KeySetupCompleted, kurulum sihirbazının TAMAMLANDIĞI an.
+ *
+ * ⚠️ VAR OLMA SEBEBİ: sihirbaz "isteğe bağlı bir ekran" olarak
+ * bırakıldığında atlanıyordu, ve atlandığında geriye kaynağı
+ * seçilmemiş — yani kapısı config dosyasından TÜRETİLEN — bir kurulum
+ * kalıyordu. Ürünün en kritik kararı, keşfedilmeyi bekleyen bir menü
+ * maddesi olamaz.
+ *
+ * Zaman damgası, boolean değil: "ne zaman kuruldu" sorusunun cevabı
+ * denetim açısından bedava geliyor.
+ */
+const KeySetupCompleted = "setup.completed_at"
+
+// SetupCompleted, kurulum sihirbazının tamamlanmış olduğu.
+//
+// Okunamayan değer TAMAMLANMAMIŞ sayılıyor: bir veritabanı arızasında
+// sihirbazı göstermek, kurulmamış bir sistemi kurulmuş sanmaktan
+// zararsız.
+func SetupCompleted(ctx context.Context, db *store.Store) bool {
+	v, err := db.Setting(ctx, KeySetupCompleted)
+	return err == nil && strings.TrimSpace(v) != ""
+}

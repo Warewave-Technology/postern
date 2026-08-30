@@ -248,6 +248,7 @@ func (s *Server) Handler() http.Handler {
 	s.registerAuthSourceRoutes(mux)
 	s.registerPendingRoutes(mux)
 	s.registerOIDCRoutes(mux)
+	s.registerSetupRoutes(mux)
 	s.registerEventRoutes(mux)
 	s.registerTargetRoutes(mux)
 

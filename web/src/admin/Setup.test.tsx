@@ -28,6 +28,15 @@ beforeEach(() => {
   vi.spyOn(api, "mappings").mockResolvedValue([]);
   vi.spyOn(api, "unmappedGroups").mockResolvedValue([]);
   vi.spyOn(api, "roles").mockResolvedValue([]);
+  // OIDC ayarları artık veritabanında ve sihirbaz onları okuyor.
+  vi.spyOn(api, "oidcSettings").mockResolvedValue({
+    issuer_url: "",
+    client_id: "",
+    client_secret_set: false,
+    managed_in_db: false,
+    configured: false,
+    live: false,
+  });
   vi.spyOn(api, "adminGroup").mockResolvedValue({
     group: "sysadmins",
     holders: [{ username: "ops", via: "cli" }],
@@ -158,5 +167,160 @@ describe("zaten bagli yonetici", () => {
     expect(
       screen.getByRole("button", { name: /switch the panel to this source/i }),
     ).toBeEnabled();
+  });
+});
+
+
+/*
+ * ⚠️ SİHİRBAZ, KİMLİK SAĞLAYICIYI ARTIK KENDİSİ YAPILANDIRIYOR.
+ *
+ * Ayarlar config dosyasındayken sihirbazın OIDC adımı bir talimat
+ * metninden ibaretti: "dosyayı düzenle ve yeniden başlat". Bu, ürünün
+ * "kurulumdan sonra sunucuya hiç dokunma" hedefiyle çelişiyordu.
+ */
+describe("oidc yapilandirmasi", () => {
+  it("issuer ve client id'yi sunucuya yazar", async () => {
+    const save = vi
+      .spyOn(api, "setOIDCSettings")
+      .mockResolvedValue({ ok: true, live: true, error: "" });
+
+    render(<Setup meName="ops" />);
+    await waitFor(() =>
+      expect(screen.getByText(/Which source opens the panel/i)).toBeInTheDocument(),
+    );
+    await userEvent.click(screen.getByRole("radio", { name: /Identity provider/i }));
+    await userEvent.click(screen.getByRole("button", { name: /Configure it/i }));
+
+    await userEvent.type(
+      screen.getByLabelText(/Issuer address/i),
+      "https://idp.example/realms/x",
+    );
+    await userEvent.type(screen.getByLabelText(/Client id/i), "postern");
+    await userEvent.click(
+      screen.getByRole("button", { name: /save and contact the identity provider/i }),
+    );
+
+    // ⚠️ Sır BOŞ bırakıldı: gönderilmemeli. Boşu "temizle" saymak,
+    // sırsız public client kurulumunu kazayla silmenin yolu olurdu.
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith(
+        "https://idp.example/realms/x",
+        "postern",
+        undefined,
+      ),
+    );
+  });
+
+  it("sir yazildiysa gonderir", async () => {
+    const save = vi
+      .spyOn(api, "setOIDCSettings")
+      .mockResolvedValue({ ok: true, live: true, error: "" });
+
+    render(<Setup meName="ops" />);
+    await waitFor(() =>
+      expect(screen.getByText(/Which source opens the panel/i)).toBeInTheDocument(),
+    );
+    await userEvent.click(screen.getByRole("radio", { name: /Identity provider/i }));
+    await userEvent.click(screen.getByRole("button", { name: /Configure it/i }));
+
+    await userEvent.type(
+      screen.getByLabelText(/Issuer address/i),
+      "https://idp.example/realms/x",
+    );
+    await userEvent.type(screen.getByLabelText(/Client id/i), "postern");
+    await userEvent.type(screen.getByLabelText(/Client secret/i), "gizli");
+    await userEvent.click(
+      screen.getByRole("button", { name: /save and contact the identity provider/i }),
+    );
+
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith(
+        "https://idp.example/realms/x",
+        "postern",
+        "gizli",
+      ),
+    );
+  });
+
+  /*
+   * ⚠️ ULAŞILAMAYAN SAĞLAYICI, AYARLARIN KAYBOLMASINA YOL AÇMAMALI —
+   * ve ekran farkı söylemeli: "kaydedildi ama ulaşılamıyor",
+   * "kaydedilemedi"den bambaşka bir şey.
+   */
+  it("ulasilamayan saglayicida kaydedildigini ama calismadigini soyler", async () => {
+    vi.spyOn(api, "setOIDCSettings").mockResolvedValue({
+      ok: true,
+      live: false,
+      error: "dial tcp: i/o timeout",
+    });
+    vi.spyOn(api, "oidcSettings")
+      .mockResolvedValueOnce({
+        issuer_url: "",
+        client_id: "",
+        client_secret_set: false,
+        managed_in_db: false,
+        configured: false,
+        live: false,
+      })
+      .mockResolvedValue({
+        issuer_url: "https://idp.example/realms/x",
+        client_id: "postern",
+        client_secret_set: false,
+        managed_in_db: true,
+        configured: true,
+        live: false,
+      });
+
+    render(<Setup meName="ops" />);
+    await waitFor(() =>
+      expect(screen.getByText(/Which source opens the panel/i)).toBeInTheDocument(),
+    );
+    await userEvent.click(screen.getByRole("radio", { name: /Identity provider/i }));
+    await userEvent.click(screen.getByRole("button", { name: /Configure it/i }));
+    await userEvent.type(
+      screen.getByLabelText(/Issuer address/i),
+      "https://idp.example/realms/x",
+    );
+    await userEvent.type(screen.getByLabelText(/Client id/i), "postern");
+    await userEvent.click(
+      screen.getByRole("button", { name: /save and contact the identity provider/i }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText(/i\/o timeout/i)).toBeInTheDocument(),
+    );
+  });
+});
+
+/*
+ * ⚠️ BİTİŞ: "All is set", sonra uygulamaya geçiş.
+ *
+ * Sihirbaz bittiğinde arkasındaki adımlar dururken bir başarı satırı
+ * göstermek, operatöre "bitti mi, devam mı" diye sordurur.
+ */
+describe("kurulumun bitisi", () => {
+  it("kaynak cevrildikten sonra kurulumu tamamlar ve 'All is set' gosterir", async () => {
+    vi.spyOn(api, "setAuthSource").mockResolvedValue({
+      ok: true,
+      source: "local",
+      note: "done",
+    });
+    const complete = vi
+      .spyOn(api, "completeSetup")
+      .mockResolvedValue({ ok: true });
+
+    render(<Setup meName="ops" />);
+    await waitFor(() =>
+      expect(screen.getByText(/Which source opens the panel/i)).toBeInTheDocument(),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Link yourself, then switch/i }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /switch the panel to this source/i }),
+    );
+
+    await waitFor(() => expect(complete).toHaveBeenCalled());
+    expect(await screen.findByText(/All is set/i)).toBeInTheDocument();
   });
 });

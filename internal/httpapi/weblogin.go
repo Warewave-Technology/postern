@@ -435,6 +435,16 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		 * dayardı — bağlama ucu haklı olarak çatışma döner.
 		 */
 		"dir_bound": u.DirBound,
+
+		/*
+		 * ⚠️ KURULUM YAPILMADIYSA PANEL SADECE SİHİRBAZDAN İBARET.
+		 *
+		 * İsteğe bağlı bir ekran olarak bırakıldığında atlanıyordu ve
+		 * geriye kaynağı seçilmemiş — kapısı config dosyasından
+		 * TÜRETİLEN — bir kurulum kalıyordu. Ürünün en kritik kararı,
+		 * keşfedilmeyi bekleyen bir menü maddesi olamaz.
+		 */
+		"setup_required": !auth.SetupCompleted(r.Context(), s.store),
 	})
 }
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AuthSourceStatus, Setting, api, toMessage } from "../api";
+import { AuthSourceStatus, OIDCSettings, Setting, api, toMessage } from "../api";
 import { ActionButton, ErrorLine, OkLine } from "./common";
 import AdminGroup from "./AdminGroup";
 import Mappings from "./Mappings";
@@ -61,11 +61,25 @@ export default function Setup({
 
   const [autoCreate, setAutoCreate] = useState(false);
 
+  // OIDC ayarları artık veritabanında ve panelden yazılıyor.
+  const [oidcState, setOidcState] = useState<OIDCSettings | null>(null);
+  const [oidcResult, setOidcResult] = useState("");
+  const [oidc, setOidc] = useState({ issuer: "", clientID: "", secret: "" });
+
+  // "All is set" ekranı ve ana sayfaya dönüş.
+  const [finished, setFinished] = useState(false);
+
   const load = () =>
-    Promise.all([api.authSource(), api.settings()])
-      .then(([st, se]) => {
+    Promise.all([api.authSource(), api.settings(), api.oidcSettings()])
+      .then(([st, se, oi]) => {
         setStatus(st);
         setSettings(se);
+        setOidcState(oi);
+        setOidc((cur) =>
+          cur.issuer === "" && cur.clientID === ""
+            ? { issuer: oi.issuer_url, clientID: oi.client_id, secret: "" }
+            : cur,
+        );
         if (choice === "") setChoice(st.source);
         const ac = se.find((x) => x.key === "auth.auto_create");
         setAutoCreate(ac?.value === "true");
@@ -91,6 +105,25 @@ export default function Setup({
       })
       .catch((e: unknown) => setError(toMessage(e)));
 
+  const saveOIDC = () => {
+    setError("");
+    setOidcResult("");
+    return api
+      .setOIDCSettings(
+        oidc.issuer.trim(),
+        oidc.clientID.trim(),
+        // ⚠️ Boş bırakılmışsa GÖNDERİLMİYOR: boş dize "temizle" demek
+        // değil, "değiştirme" demek.
+        oidc.secret === "" ? undefined : oidc.secret,
+      )
+      .then((r) => {
+        if (!r.live) setOidcResult(r.error);
+        setOidc({ ...oidc, secret: "" });
+        return load();
+      })
+      .catch((e: unknown) => setError(toMessage(e)));
+  };
+
   const link = () =>
     api
       .bindOwnDirectory(dirUser.trim(), dirPass)
@@ -106,9 +139,49 @@ export default function Setup({
       .setAuthSource(choice)
       .then((r) => {
         setDone(r.note);
-        return load();
+        return api.completeSetup();
+      })
+      .then(() => {
+        setFinished(true);
+        /*
+         * ⚠️ TAM SAYFA YENİLEME, yönlendirme değil.
+         *
+         * /api/me artık setup_required=false diyecek ve uygulamanın
+         * kabuğu ona göre çizilecek. React durumunu elle "kurulum
+         * bitti"ye çevirmek, sunucunun söylediğiyle ekranın gösterdiği
+         * arasında ikinci bir doğruluk kaynağı yaratırdı.
+         */
+        setTimeout(() => window.location.assign("/"), 3000);
       })
       .catch((e: unknown) => setError(toMessage(e)));
+
+  /*
+   * ⚠️ BİTİŞ EKRANI HER ŞEYİN YERİNE GEÇİYOR.
+   *
+   * Sihirbaz bittiğinde arkasındaki adımlar hâlâ dururken bir başarı
+   * satırı göstermek, operatöre "bitti mi, devam mı" diye sordurur.
+   * Ekran tek bir şey söylüyor ve üç saniye sonra uygulamaya geçiyor.
+   */
+  if (finished) {
+    return (
+      <section className="setup-done" role="status" aria-live="polite">
+        <svg
+          viewBox="0 0 64 64"
+          className="setup-check"
+          aria-hidden="true"
+          width="72"
+          height="72"
+        >
+          <circle cx="32" cy="32" r="28" />
+          <path d="M20 33.5 28.5 42 45 24" />
+        </svg>
+        <h2>All is set</h2>
+        <p>
+          postern is configured and ready. Taking you to the app…
+        </p>
+      </section>
+    );
+  }
 
   return (
     <section>
@@ -183,12 +256,80 @@ export default function Setup({
           {choice === "oidc" && (
             <div className="panel">
               <h3>Identity provider</h3>
-              <p className="note">
-                The issuer, client id and secret come from the config file
-                (<code>oidc.*</code>) and a restart, not from this panel: they
-                decide who postern trusts, and a panel that can change them can
-                change who it trusts.
-              </p>
+              <div className="wizard-form">
+                <div className="wfield">
+                  <label className="wfield-label" htmlFor="oidc-issuer">
+                    Issuer address
+                  </label>
+                  <input
+                    id="oidc-issuer"
+                    value={oidc.issuer}
+                    placeholder="https://idp.example/realms/company"
+                    onChange={(e) => setOidc({ ...oidc, issuer: e.target.value })}
+                  />
+                  <p className="wfield-hint">
+                    postern reads{" "}
+                    <code>&lt;issuer&gt;/.well-known/openid-configuration</code>{" "}
+                    from here. Plain http:// is only accepted for loopback.
+                  </p>
+                </div>
+                <div className="wfield">
+                  <label className="wfield-label" htmlFor="oidc-client">
+                    Client id
+                  </label>
+                  <input
+                    id="oidc-client"
+                    value={oidc.clientID}
+                    onChange={(e) => setOidc({ ...oidc, clientID: e.target.value })}
+                  />
+                </div>
+                <div className="wfield">
+                  <label className="wfield-label" htmlFor="oidc-secret">
+                    Client secret
+                  </label>
+                  <input
+                    id="oidc-secret"
+                    type="password"
+                    value={oidc.secret}
+                    placeholder={oidcState?.client_secret_set ? "••••••••" : ""}
+                    onChange={(e) => setOidc({ ...oidc, secret: e.target.value })}
+                  />
+                  {/*
+                    ⚠️ Sır geri OKUNMUYOR ve boş bırakmak "değiştirme"
+                    demek. Boşu "temizle" saymak, sırsız public client
+                    kurulumunu kazayla silmenin yolu olurdu.
+                  */}
+                  <p className="wfield-hint">
+                    Stored encrypted and never shown again. Leave empty to keep
+                    the current one. A public client using PKCE has none.
+                  </p>
+                </div>
+                <div className="wizard-check">
+                  <ActionButton
+                    onClick={saveOIDC}
+                    disabled={!oidc.issuer.trim() || !oidc.clientID.trim()}
+                    label="save and contact the identity provider"
+                  >
+                    Save and test
+                  </ActionButton>
+                  <span className="note">
+                    Saved first, then contacted. If it cannot be reached the
+                    settings are still kept — otherwise you could never fix an
+                    provider that is down.
+                  </span>
+                </div>
+                {oidcState &&
+                  (oidcState.live ? (
+                    <OkLine msg="reached the identity provider and read its configuration" />
+                  ) : oidcState.configured ? (
+                    <ErrorLine
+                      msg={
+                        oidcResult ||
+                        "saved, but postern could not reach the provider yet"
+                      }
+                    />
+                  ) : null)}
+              </div>
               {/*
                 ⚠️ GRUP CLAIM'İ. postern grupları token'dan okuyor; IdP
                 onu göndermiyorsa herkes gruplu görünmez ve hiçbir rol

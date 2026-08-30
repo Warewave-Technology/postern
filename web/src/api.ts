@@ -16,6 +16,23 @@ export type Me = {
   /** Hesap bir dizin kimliğine bağlı mı. Sihirbaz buna bakıyor: zaten
    *  bağlı olana "önce bağla" demek, ilerleyemeyeceği bir duvar olurdu. */
   dir_bound?: boolean;
+  /** ⚠️ Kurulum yapılmadıysa panel SADECE sihirbazdan ibaret. İsteğe
+   *  bağlı bir ekran olarak bırakıldığında atlanıyor ve geriye kaynağı
+   *  seçilmemiş bir kurulum kalıyordu. */
+  setup_required?: boolean;
+};
+
+/** OIDCSettings, kimlik sağlayıcı ayarlarının panel görünümü. */
+export type OIDCSettings = {
+  issuer_url: string;
+  client_id: string;
+  /** ⚠️ Sırrın KENDİSİ dönmüyor, yalnızca var olup olmadığı: panelin
+   *  okuyabildiği bir sır, panele erişen herkesin okuyabildiği sırdır. */
+  client_secret_set: boolean;
+  managed_in_db: boolean;
+  /** Ayarlı mı — çalışıyor mu ayrı sorular ve ayrı ekranlar hak ediyor. */
+  configured: boolean;
+  live: boolean;
 };
 export type User = {
   name: string;
@@ -497,6 +514,21 @@ export const api = {
   verifyLDAP: (cfg: LDAPCandidate) =>
     req<LDAPTestResult>("POST", "/api/admin/ldap/verify", cfg),
   authMethods: () => req<AuthMethods>("GET", "/api/auth/methods"),
+  oidcSettings: () => req<OIDCSettings>("GET", "/api/admin/oidc"),
+  /** client_secret undefined ise DEĞİŞTİRİLMEZ (boş dize "temizle"
+   *  demek değil: sırsız public client geçerli bir kurulum). */
+  setOIDCSettings: (
+    issuer_url: string,
+    client_id: string,
+    client_secret?: string,
+  ) =>
+    req<{ ok: boolean; live: boolean; error: string }>("PUT", "/api/admin/oidc", {
+      issuer_url,
+      client_id,
+      ...(client_secret === undefined ? {} : { client_secret }),
+    }),
+  completeSetup: () =>
+    req<{ ok: boolean }>("POST", "/api/admin/setup/complete", {}),
   authSource: () => req<AuthSourceStatus>("GET", "/api/admin/auth/source"),
   /** ⚠️ Kaynağı çevirmeden ÖNCE çağrılır: oturum zaten açıkken kendi
    *  dizin kimliğini bağlar, yani kurulumu yapan kişi kendini dışarıda

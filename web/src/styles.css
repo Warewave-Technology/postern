@@ -2296,3 +2296,59 @@ label > textarea {
 .source-row > div:last-child {
   flex: 0 0 auto;
 }
+
+/* Kurulum bitiş ekranı: tek mesaj, ortada, üç saniye. Arkasındaki
+   adımların durması "bitti mi, devam mı" sorusunu doğuruyordu. */
+.setup-done {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  min-height: 60vh;
+  text-align: center;
+}
+.setup-done h2 {
+  margin: 0;
+  font-size: 1.6rem;
+}
+.setup-done p {
+  margin: 0;
+  color: var(--muted);
+}
+.setup-check {
+  fill: none;
+  stroke: var(--ok, #79740e);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* Halka önce, tik sonra: sıralı çizim "oldu" hissini veren şey. */
+.setup-check circle {
+  stroke-dasharray: 176;
+  stroke-dashoffset: 176;
+  animation: setup-ring 0.5s ease-out forwards;
+}
+.setup-check path {
+  stroke-dasharray: 40;
+  stroke-dashoffset: 40;
+  animation: setup-tick 0.35s ease-out 0.45s forwards;
+}
+@keyframes setup-ring {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes setup-tick {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+/* Hareketi azaltmak isteyen kullanıcıya hareket dayatmıyoruz. */
+@media (prefers-reduced-motion: reduce) {
+  .setup-check circle,
+  .setup-check path {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}
