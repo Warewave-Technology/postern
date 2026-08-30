@@ -24,7 +24,7 @@ import (
  * gerektiği anda çalışmaması demek.
  */
 func (s *Server) loginSource(ctx context.Context) (auth.LoginSource, bool, error) {
-	return auth.ActiveLoginSource(ctx, s.store, s.oidc != nil)
+	return auth.ActiveLoginSource(ctx, s.store, s.oidc.Configured())
 }
 
 /*
@@ -227,9 +227,15 @@ func (s *Server) canSwitchTo(ctx context.Context, want auth.LoginSource) error {
 			"otherwise switching to local sign-in closes the panel for everyone")
 
 	case auth.SourceOIDC:
-		if s.oidc == nil {
-			return errors.New("the identity provider is not configured in the config file " +
-				"(oidc.issuer_url); postern cannot open a door it has no address for")
+		if !s.oidc.Configured() {
+			return errors.New("the identity provider is not configured yet — " +
+				"set its address, client id and secret first")
+		}
+		// ⚠️ "Ayarlı" ile "çalışıyor" ayrı: ayarlı ama ulaşılamayan bir
+		// sağlayıcıya geçmek, kimsenin giremediği bir panel bırakır.
+		if !s.oidc.Live() {
+			return errors.New("the identity provider is configured but postern " +
+				"could not reach it; fix that before making it the way in")
 		}
 		if strings.TrimSpace(s.adminGroupName(ctx)) == "" {
 			return errors.New("no administrator group is set — with OIDC sign-in, " +

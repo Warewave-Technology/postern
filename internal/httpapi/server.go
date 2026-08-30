@@ -21,7 +21,14 @@ import (
 // Server, HTTP uçlarını taşır. TLS/dinleme çağıranın işi (serve kuruyor);
 // burada yalnızca yönlendirme ve handler'lar var.
 type Server struct {
-	oidc   *auth.OIDC
+	/*
+	 * oidc, ÇALIŞIRKEN değiştirilebilen sağlayıcı tutucusu.
+	 *
+	 * ⚠️ İşaretçi DEĞİL tutucu: ayarlar panelden değişebiliyor ve sabit
+	 * bir işaretçi, değiştirilmiş bir sağlayıcıdan sonra ESKİSİYLE
+	 * giriş yapılmasına yol açardı.
+	 */
+	oidc   *auth.OIDCHolder
 	logins *auth.Logins
 	logger *slog.Logger
 
@@ -165,7 +172,7 @@ func (s *Server) EnableTerminal(deps proxy.Deps, externalURL string) {
 	s.SetExternalURL(externalURL)
 }
 
-func New(o *auth.OIDC, logins *auth.Logins, db *store.Store, logger *slog.Logger) *Server {
+func New(o *auth.OIDCHolder, logins *auth.Logins, db *store.Store, logger *slog.Logger) *Server {
 	return &Server{
 		oidc:        o,
 		closing:     make(chan struct{}),
@@ -193,15 +200,15 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
 	/*
-	 * Kimlik sağlayıcı akışları — YALNIZCA OIDC yapılandırıldıysa.
+	 * ⚠️ ROTALAR KOŞULSUZ KURULUYOR.
 	 *
-	 * Kapalı özellik, kapalı yüzey: rota kurulmadığında /auth/login
-	 * dürüstçe 404 oluyor. Eskiden bu rotalar koşulsuz kuruluyordu ve
-	 * kurulamazlardı bile, çünkü OIDC olmadan HTTP dinleyicisinin
-	 * kendisi hiç açılmıyordu. Panel artık kimlik sağlayıcısız da
-	 * ayakta durabildiği için ayrım gerçek bir şey ifade ediyor.
+	 * Eskiden yalnızca açılışta OIDC yapılandırılmışsa kuruluyordu.
+	 * Ayarlar artık çalışırken gelebiliyor ve o an mux yeniden
+	 * kurulamaz — sihirbazdan OIDC seçen operatör, yeniden başlatana
+	 * kadar 404 alırdı. Kontrol istek anına taşındı: canlı istemci
+	 * yoksa handler'ın kendisi reddediyor.
 	 */
-	if s.oidc != nil {
+	{
 		mux.HandleFunc("GET /auth/login", s.handleWebLogin)
 		mux.HandleFunc("GET /auth/callback", s.handleCallback)
 	}
@@ -240,6 +247,7 @@ func (s *Server) Handler() http.Handler {
 	s.registerFederationRoutes(mux)
 	s.registerAuthSourceRoutes(mux)
 	s.registerPendingRoutes(mux)
+	s.registerOIDCRoutes(mux)
 	s.registerEventRoutes(mux)
 	s.registerTargetRoutes(mux)
 
@@ -349,7 +357,28 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 	// Query'den gelen state'i AYNEN geçiyoruz; Exchange kendi sabit-zamanlı
 	// karşılaştırmasını yapar. req.State'i iki kez geçmek kontrolü boşa
 	// düşürürdü — CVE-2026-44347'nin kapısı tam orası.
-	id, err := s.oidc.Exchange(r.Context(), req, state, code)
+	/*
+	 * ⚠️ AKIŞI BAŞLATAN KUŞAKLA TAMAMLANMAK ZORUNDA.
+	 *
+	 * Ayarlar akışın ortasında değiştirilirse, A sağlayıcısının
+	 * ürettiği code B'nin token ucuna gönderilirdi — code ve istemci
+	 * sırrı, operatörün az önce yazdığı adrese giderdi. İstemci ve
+	 * kuşak TEK okumada alınıyor ve Exchange O istemcide yapılıyor;
+	 * ikinci bir okuma korumayı boşa çıkarırdı.
+	 */
+	client, gen := s.oidc.Current()
+	if client == nil || gen != req.Gen {
+		log.Warn("oidc callback arrived after the provider changed",
+			"started_gen", req.Gen, "current_gen", gen)
+		// Denemeyi HEMEN düşür: SSH tarafındaki kullanıcıyı zaman
+		// aşımına kadar bekletmek, cevabı bildiğimiz hâlde susmak olurdu.
+		s.logins.DropState(state)
+		http.Error(w, "the identity provider configuration changed while you were "+
+			"signing in; start again", http.StatusForbidden)
+		return
+	}
+
+	id, err := client.Exchange(r.Context(), req, state, code)
 	if err != nil {
 		log.Warn("oidc exchange failed", "error", err)
 		http.Error(w, "login failed", http.StatusForbidden)

@@ -39,23 +39,38 @@ import (
 // portunu redirect olarak tanımalı (dinleyici Keycloak'tan önce).
 func oobBastion(t *testing.T, oobTimeout time.Duration) (sshAddr, apiURL string, hostPub ssh.PublicKey, db *store.Store) {
 	t.Helper()
-	return oobBastionOpts(t, oobTimeout, false)
+	a, b, c, d, _ := oobBastionOpts(t, oobTimeout, false)
+	return a, b, c, d
+}
+
+/*
+ * oobBastionWithHolder, sağlayıcı TUTUCUSUNU da döner.
+ *
+ * ⚠️ Var olma sebebi: OIDC ayarları artık çalışırken değişebiliyor ve
+ * "akış ortasında sağlayıcı değişirse ne olur" sorusunun cevabı ancak
+ * tutucuya erişen bir testle ölçülebilir.
+ */
+func oobBastionWithHolder(t *testing.T) (sshAddr, apiURL string, hostPub ssh.PublicKey, db *store.Store, holder *auth.OIDCHolder) {
+	t.Helper()
+	return oobBastionOpts(t, 0, false)
 }
 
 // oobBastionWithTerminal, web terminali AÇIK düzenek (S4.3 testleri).
 func oobBastionWithTerminal(t *testing.T) (sshAddr, apiURL string, hostPub ssh.PublicKey, db *store.Store) {
 	t.Helper()
-	return oobBastionOpts(t, 0, true)
+	a, b, c, d, _ := oobBastionOpts(t, 0, true)
+	return a, b, c, d
 }
 
 // oobBastionFresh, kullanıcı/rol TOHUMLANMAMIŞ düzenek: JIT sağlama
 // testleri kullanıcının yokluğundan başlamak zorunda.
 func oobBastionFresh(t *testing.T) (sshAddr, apiURL string, hostPub ssh.PublicKey, db *store.Store) {
 	t.Helper()
-	return oobBastionOpts(t, 0, false, true)
+	a, b, c, d, _ := oobBastionOpts(t, 0, false, true)
+	return a, b, c, d
 }
 
-func oobBastionOpts(t *testing.T, oobTimeout time.Duration, terminal bool, fresh ...bool) (sshAddr, apiURL string, hostPub ssh.PublicKey, db *store.Store) {
+func oobBastionOpts(t *testing.T, oobTimeout time.Duration, terminal bool, fresh ...bool) (sshAddr, apiURL string, hostPub ssh.PublicKey, db *store.Store, holder *auth.OIDCHolder) {
 	t.Helper()
 
 	caKeyPath, caPub := newTestCA(t)
@@ -80,7 +95,9 @@ func oobBastionOpts(t *testing.T, oobTimeout time.Duration, terminal bool, fresh
 	if err != nil {
 		t.Fatalf("NewOIDC: %v", err)
 	}
-	logins := auth.NewLogins(oidcClient)
+	holder = auth.NewOIDCHolder()
+	holder.Install(oidcClient)
+	logins := auth.NewLogins(holder)
 
 	// Bastion önce kurulur: httpapi ile AYNI store'u paylaşmalılar
 	// (web /api uçları da aynı veritabanını okuyacak).
@@ -90,7 +107,7 @@ func oobBastionOpts(t *testing.T, oobTimeout time.Duration, terminal bool, fresh
 	srv.EnableOOB(logins, oobTimeout)
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	webAPI := httpapi.New(oidcClient, logins, db, logger)
+	webAPI := httpapi.New(holder, logins, db, logger)
 	// Kayıt izleme uçları: sshd ile AYNI depo (serve.go'daki bağlamanın
 	// aynısı) — kayıtların yazıldığı yer ile okunduğu yer ayrışamaz.
 	webAPI.UseRecordings(srv.Records())
@@ -103,7 +120,7 @@ func oobBastionOpts(t *testing.T, oobTimeout time.Duration, terminal bool, fresh
 	go api.Serve(l)
 	t.Cleanup(func() { api.Shutdown(context.Background()) })
 
-	return startBastion(t, srv), external, pub, db
+	return startBastion(t, srv), external, pub, db, holder
 }
 
 // browserSignInForCode, bir insanın yapacağını yapar: linki açar, Keycloak'a

@@ -374,3 +374,65 @@ func TestOIDCDropsUnverifiedEmail(t *testing.T) {
 		t.Error("Subject boş olmamalı — kimliğin kendisi geçerli, yalnızca e-postası güvenilmez")
 	}
 }
+
+/*
+ * ⚠️ AKIŞ ORTASINDA SAĞLAYICI DEĞİŞİRSE, TAMAMLANMAMALI.
+ *
+ * OIDC ayarları artık panelden değiştirilebiliyor. Bir giriş A
+ * sağlayıcısında başlayıp B'de tamamlanabilseydi, A'nın ürettiği code
+ * B'nin token ucuna gönderilirdi — yani yetkilendirme kodu VE istemci
+ * sırrı, operatörün az önce yazdığı adrese giderdi.
+ *
+ * Test bunu uçtan uca ölçüyor: akışı başlat, sağlayıcıyı düşür,
+ * callback'i tamamlamayı dene.
+ */
+func TestWebLoginRefusedAfterProviderChanged(t *testing.T) {
+	_, apiURL, _, _, holder := oobBastionWithHolder(t)
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{
+		Jar: jar,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	// 1) Akışı başlat: bu istek o anki kuşakla damgalanıyor.
+	resp, err := client.Get(apiURL + "/auth/login")
+	if err != nil {
+		t.Fatalf("auth/login: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("auth/login = %d, 302 bekleniyordu", resp.StatusCode)
+	}
+	idpURL, err := url.Parse(resp.Header.Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := idpURL.Query().Get("state")
+	if state == "" {
+		t.Fatal("state üretilmedi")
+	}
+
+	// 2) SAĞLAYICIYI DEĞİŞTİR. Clear kuşağı ilerletiyor; buradan
+	//    sonrası "başka bir sağlayıcı" demek.
+	holder.Clear()
+
+	// 3) Callback'i tamamlamayı dene: kuşak uyuşmuyor.
+	cb, err := client.Get(apiURL + "/auth/callback?state=" +
+		url.QueryEscape(state) + "&code=herhangi")
+	if err != nil {
+		t.Fatalf("callback: %v", err)
+	}
+	defer cb.Body.Close()
+	body, _ := io.ReadAll(cb.Body)
+
+	if cb.StatusCode == http.StatusOK || cb.StatusCode == http.StatusFound {
+		t.Fatalf("sağlayıcı değiştikten sonra akış tamamlandı: %d %s",
+			cb.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "configuration changed") {
+		t.Fatalf("red sebebi söylenmiyor: %d %s", cb.StatusCode, body)
+	}
+}

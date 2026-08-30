@@ -331,9 +331,62 @@ func newServeCmd() *cobra.Command {
 			// Kimlik sağlayıcı: yalnızca yapılandırıldıysa. Yoksa
 			// tarayıcı giriş akışı ve SSH'taki OOB kapısı HİÇ
 			// kurulmuyor — kapalı özellik, kapalı yüzey.
-			var oidcClient *auth.OIDC
+			/*
+			 * ⚠️ TUTUCU HER ZAMAN VAR, İSTEMCİ OLMAYABİLİR.
+			 *
+			 * OIDC ayarları artık veritabanında da olabiliyor ve
+			 * panelden yazılabiliyor: açılışta hiç yapılandırma
+			 * olmayan bir kurulum, sihirbazdan sonra yeniden
+			 * başlatılmadan OIDC'ye geçebilmeli. O yüzden yüzeyi
+			 * "açılışta yapılandırılmış mıydı"ya değil, tutucunun o
+			 * anki durumuna bağlıyoruz.
+			 */
+			oidcHolder := auth.NewOIDCHolder()
 			var logins *auth.Logins
-			if cfg.OIDCEnabled() {
+
+			/*
+			 * ⚠️ KAYNAK SEÇİMİ: veritabanı işaretliyse O, değilse dosya.
+			 *
+			 * Yükseltme günü için: config dosyasında oidc.* olan bir
+			 * kurulum, ayarlar panelden taşınana kadar dosyayı
+			 * kullanmaya devam ediyor. Aksi hâlde yükseltme, çalışan
+			 * bir OIDC kurulumunu boş veritabanı satırlarıyla sessizce
+			 * kapatırdı.
+			 */
+			redirectURL := strings.TrimRight(cfg.HTTP.ExternalURL, "/") + "/auth/callback"
+			oidcCfg, haveOIDC := auth.OIDCConfig{}, false
+
+			if auth.OIDCManagedInDB(ctx, db) {
+				stored, lerr := auth.LoadOIDC(ctx, db)
+				switch {
+				case lerr == nil:
+					oidcCfg = auth.OIDCConfig{
+						IssuerURL:    stored.IssuerURL,
+						ClientID:     stored.ClientID,
+						ClientSecret: stored.ClientSecret,
+						RedirectURL:  redirectURL,
+					}
+					haveOIDC = true
+				case errors.Is(lerr, auth.ErrOIDCNotConfigured):
+					// İşaret var ama ayar yok: panelden temizlenmiş.
+				default:
+					logger.Error("stored oidc settings are unusable", "error", lerr)
+					oidcHolder.SetConfigured(true)
+				}
+			} else if cfg.OIDCEnabled() {
+				oidcCfg = auth.OIDCConfig{
+					IssuerURL:    cfg.OIDC.IssuerURL,
+					ClientID:     cfg.OIDC.ClientID,
+					ClientSecret: cfg.OIDC.ClientSecret,
+					RedirectURL:  redirectURL,
+				}
+				haveOIDC = true
+				logger.Warn("oidc is configured in the config file; " +
+					"move it to the panel so the client secret is stored encrypted " +
+					"and can be changed without editing files")
+			}
+
+			if haveOIDC {
 				/*
 				 * ⚠️ KEŞİF BAŞARISIZSA AÇILIŞ DÜŞMÜYOR.
 				 *
@@ -342,43 +395,38 @@ func newServeCmd() *cobra.Command {
 				 * süreç ölüyor, servis yöneticisi yeniden başlatıyor,
 				 * yine ölüyor — ve bu döngü boyunca SERTİFİKALI SSH de
 				 * hiç açılmıyor. Oysa SSH'ın IdP ile hiçbir ilgisi yok:
-				 * kimlik anahtarla kanıtlanıyor.
-				 *
-				 * Bir bastion'ın en temel işi, kimlik sağlayıcısı
-				 * çöktüğünde de erişilebilir kalmak. O yüzden burada
-				 * OIDC kapalı başlıyor, hata ERROR olarak yazılıyor ve
-				 * panel "kaynak seçilemiyor" derken sebebini gösteriyor.
-				 *
-				 * ⚠️ Bedeli açık: IdP açılışta ulaşılamazsa OIDC, süreç
-				 * yeniden başlatılana kadar kapalı kalır. Bunun çözümü
-				 * (çalışırken yeniden kurma) OIDC ayarlarının
-				 * veritabanına taşınmasıyla birlikte geliyor.
+				 * kimlik anahtarla kanıtlanıyor. Bir bastion'ın en
+				 * temel işi, kimlik sağlayıcısı çöktüğünde de
+				 * erişilebilir kalmak.
 				 */
-				oidcClient, err = auth.NewOIDC(ctx, auth.OIDCConfig{
-					IssuerURL:    cfg.OIDC.IssuerURL,
-					ClientID:     cfg.OIDC.ClientID,
-					ClientSecret: cfg.OIDC.ClientSecret,
-					RedirectURL:  strings.TrimRight(cfg.HTTP.ExternalURL, "/") + "/auth/callback",
-				})
-				if err != nil {
+				oidcClient, oerr := auth.NewOIDC(ctx, oidcCfg)
+				if oerr != nil {
 					logger.Error("identity provider discovery failed; "+
 						"starting with OIDC disabled so SSH stays available",
-						"issuer", cfg.OIDC.IssuerURL, "error", err)
-					oidcClient = nil
-				}
-
-				// ⚠️ OOB kapısı YALNIZCA sağlayıcı gerçekten kurulduysa
-				// açılıyor: nil bir istemciyle kurulan akış, ilk
-				// kullanımda panikleyerek bağlantıyı düşürürdü.
-				if oidcClient != nil {
-					logins = auth.NewLogins(oidcClient)
-					// Bekleyen giriş kotası: her deneme handshake içinde
-					// bekleyen bir goroutine demek ve kimlik doğrulaması
-					// gerektirmiyor.
-					logins.SetMaxPending(cfg.Listen.MaxPendingLoginsOrDefault())
-					s.EnableOOB(logins, 0)
+						"issuer", oidcCfg.IssuerURL, "error", oerr)
+					// Yapılandırma VAR ama istemci kurulamadı: ikisi
+					// ayrı durum ve arayüz sebebini söyleyebilmeli.
+					oidcHolder.SetConfigured(true)
+				} else {
+					oidcHolder.Install(oidcClient)
 				}
 			}
+
+			/*
+			 * ⚠️ OOB KAPISI KOŞULSUZ KURULUYOR.
+			 *
+			 * Eskiden yalnızca açılışta OIDC yapılandırılmışsa
+			 * kuruluyordu; artık yapılandırma çalışırken gelebiliyor ve
+			 * o an SSH sunucusu yeniden kurulamaz. Kapının kendisi
+			 * tutucuya bakıyor: canlı istemci yoksa deneme REDDEDİLİYOR
+			 * (auth.Start), yani kapalı özellik kapalı yüzey kuralı
+			 * korunuyor — yalnızca kontrol açılıştan istek anına taşındı.
+			 */
+			logins = auth.NewLogins(oidcHolder)
+			// Bekleyen giriş kotası: her deneme handshake içinde bekleyen
+			// bir goroutine demek ve kimlik doğrulaması gerektirmiyor.
+			logins.SetMaxPending(cfg.Listen.MaxPendingLoginsOrDefault())
+			s.EnableOOB(logins, 0)
 
 			if cfg.WebEnabled() {
 
@@ -399,7 +447,7 @@ func newServeCmd() *cobra.Command {
 						"timeout", cfg.TargetProbe.TimeoutOrDefault())
 				}
 
-				webAPI := httpapi.New(oidcClient, logins, db, logger)
+				webAPI := httpapi.New(oidcHolder, logins, db, logger)
 				webAPI.SetPublicKeyLogin(cfg.Auth.PublicKeyLoginEnabled())
 				webAPI.UseGroupSource(groupSwitch)
 				webAPI.UseEventBus(bus)
@@ -496,8 +544,13 @@ func newServeCmd() *cobra.Command {
 					}
 				}()
 
-				if cfg.OIDCEnabled() {
-					logger.Info("oob login enabled", "issuer", cfg.OIDC.IssuerURL)
+				// ⚠️ Tutucuya bakıyor, config dosyasına değil: ayarlar
+				// veritabanında olabilir ve log yanlış söylememeli.
+				if oidcHolder.Live() {
+					logger.Info("oob login enabled")
+				} else if oidcHolder.Configured() {
+					logger.Warn("identity provider is configured but not reachable; " +
+						"browser login is unavailable until it answers")
 				} else {
 					// Panel var ama kimlik sağlayıcı yok: giriş yolu
 					// postern'in kendi yerel yöneticisi olacak.

@@ -57,7 +57,13 @@ var (
 // Yanan deneme geri dönmez: aynı state ile ikinci bir şans yok. Tekrar
 // oynatmanın (replay) panzehiri sürecin kendisini tek kullanımlık yapmak.
 type Logins struct {
-	oidc *OIDC
+	/*
+	 * ⚠️ İSTEMCİ DEĞİL, TUTUCU. Ayarlar çalışırken değişebiliyor ve
+	 * sabit bir işaretçi tutmak, değiştirilmiş bir sağlayıcıdan sonra
+	 * ESKİSİYLE giriş yapılmasına yol açardı — iptal ettiğini sanan
+	 * operatörün göremeyeceği bir yerden.
+	 */
+	oidc *OIDCHolder
 
 	mu      sync.Mutex
 	byState map[string]*Attempt // canlı denemeler; anahtar = state
@@ -109,7 +115,7 @@ type waitResult struct {
 	err error
 }
 
-func NewLogins(o *OIDC) *Logins {
+func NewLogins(o *OIDCHolder) *Logins {
 	return &Logins{oidc: o, byState: make(map[string]*Attempt)}
 }
 
@@ -169,10 +175,22 @@ func (l *Logins) Start(sourceAddr string) (*Attempt, error) {
 		return nil, fmt.Errorf("auth.pending.Start: %w", err)
 	}
 
-	req, err := l.oidc.Begin()
+	/*
+	 * ⚠️ İSTEMCİ VE KUŞAK TEK OKUMADA. Ayrı okunsalardı, aradaki
+	 * değişiklik akışı yanlış kuşakla damgalar ve tamamlanma kontrolü
+	 * boşa çıkardı.
+	 */
+	client, gen := l.oidc.Current()
+	if client == nil {
+		return nil, fmt.Errorf("auth.Start: no identity provider is configured")
+	}
+
+	req, err := client.Begin()
 	if err != nil {
 		return nil, fmt.Errorf("auth.pending.Start: %w", err)
 	}
+	// Akış BU kuşakla damgalanıyor; tamamlanma anında karşılaştırılacak.
+	req.Gen = gen
 
 	a := &Attempt{
 		URL:        req.URL,
@@ -331,6 +349,26 @@ func (a *Attempt) Wait(ctx context.Context) (Identity, error) {
 
 	case <-ctx.Done():
 		return Identity{}, ctx.Err()
+	}
+}
+
+/*
+ * DropState, state ile bilinen bir denemeyi düşürür.
+ *
+ * ⚠️ VAR OLMA SEBEBİ: callback tarafında elde *Attempt yok, yalnızca
+ * state var. Denemeyi düşürmeden dönmek, SSH tarafındaki kullanıcıyı
+ * zaman aşımına kadar (varsayılan dakikalar) hiçbir şey söylemeden
+ * bekletirdi — oysa cevabı zaten biliyoruz.
+ *
+ * Bilinmeyen state sessizce yok sayılıyor: zaten bitmiş bir denemeyi
+ * ikinci kez düşürmek bir hata değil.
+ */
+func (l *Logins) DropState(state string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if a, ok := l.byState[state]; ok {
+		l.finish(a, waitResult{err: ErrLoginDenied})
 	}
 }
 

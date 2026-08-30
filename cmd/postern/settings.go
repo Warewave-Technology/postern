@@ -113,7 +113,7 @@ func newSettingsSetCmd() *cobra.Command {
 
 			// Sır bilinen anahtarlarda otomatik: yönetici --secret
 			// yazmayı unutup parolayı düz metin bırakmasın.
-			if ldap.SecretKeys[key] {
+			if ldap.SecretKeys[key] || auth.OIDCSecretKeys[key] {
 				isSecret = true
 			}
 

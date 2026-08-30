@@ -451,7 +451,12 @@ var knownSettingKeys = map[string]bool{
 	ldap.KeyGroupNameFrom:  true,
 	ldap.KeyGroupScope:     true,
 
-	// ⚠️ auth.source ve ldap.admin_group BİLEREK YOK.
+	// ⚠️ auth.source, ldap.admin_group ve oidc.* BİLEREK YOK.
+	//
+	// oidc.* postern'in KİME GÜVENDİĞİNİ belirliyor: yanlış bir issuer,
+	// panel yöneticisini kalıcı olarak herkesin yerine geçebilir hâle
+	// getirir. Kendi ucu var (PUT /api/admin/oidc) ve orası hem şemayı
+	// doğruluyor hem hedef değişince istemci sırrını düşürüyor.
 	//
 	// auth.source panelin hangi kapısının açık olduğunu seçiyor ve
 	// yanlış seçim herkesi — düzeltecek kişiyi de — dışarıda bırakıyor.

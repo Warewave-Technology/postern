@@ -135,12 +135,33 @@ func (s *Server) handleWebLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req, err := s.oidc.Begin()
+	client, gen := s.oidc.Current()
+	if client == nil {
+		// Yapılandırma var ama çalışan istemci yok (sağlayıcı
+		// ulaşılamıyor ya da ayarlar bozuk). "Kapalı" ile
+		// "şu an çalışmıyor" ayrı şeyler ve log ikisini ayırıyor.
+		s.logger.Error("oidc login attempted with no live provider",
+			"configured", s.oidc.Configured())
+		writeErr(w, http.StatusServiceUnavailable,
+			"the identity provider is not reachable right now")
+		return
+	}
+
+	req, err := client.Begin()
 	if err != nil {
 		s.logger.Error("web login begin failed", "error", err)
 		writeErr(w, http.StatusInternalServerError, "login unavailable")
 		return
 	}
+	/*
+	 * ⚠️ AKIŞI ÜRETEN KUŞAKLA DAMGALA.
+	 *
+	 * Damgalanmazsa tamamlanma kontrolü sıfırla karşılaştırır ve HER
+	 * giriş reddedilir. (OOB kolunda damga auth.Logins.Start'ta
+	 * konuyordu; web kolunda unutulmuştu ve bütün panel girişlerini
+	 * kırdı — entegrasyon testleri yakaladı.)
+	 */
+	req.Gen = gen
 	s.webLogins.begin(req)
 
 	// ⚠️ STATE'İ BAŞLATAN TARAYICIYA BAĞLA.
@@ -234,7 +255,22 @@ func (s *Server) completeWebLogin(w http.ResponseWriter, r *http.Request, state,
 
 	// Query'den gelen state AYNEN geçiyor; Exchange kendi sabit-zamanlı
 	// karşılaştırmasını yapar (OOB callback'teki CVE notu burada da geçerli).
-	id, err := s.oidc.Exchange(r.Context(), req, state, code)
+	/*
+	 * ⚠️ Bkz. OOB kolundaki aynı not: akış, kendisini başlatan kuşakla
+	 * tamamlanmak zorunda — yoksa A'nın ürettiği code B'nin token
+	 * ucuna gider.
+	 */
+	client, gen := s.oidc.Current()
+	if client == nil || gen != req.Gen {
+		log.Warn("web callback arrived after the provider changed",
+			"started_gen", req.Gen, "current_gen", gen)
+		s.clearLoginStateCookie(w)
+		http.Error(w, "the identity provider configuration changed while you were "+
+			"signing in; start again", http.StatusForbidden)
+		return
+	}
+
+	id, err := client.Exchange(r.Context(), req, state, code)
 	if err != nil {
 		log.Warn("web oidc exchange failed", "error", err)
 		http.Error(w, "login failed", http.StatusForbidden)
@@ -300,7 +336,7 @@ func (s *Server) handleAuthMethods(w http.ResponseWriter, r *http.Request) {
 		 * düğmesini çizmek, kullanıcıyı çalışmayacak bir yola sokar.
 		 */
 		"source": string(src),
-		"oidc":   src == auth.SourceOIDC && s.oidc != nil,
+		"oidc":   src == auth.SourceOIDC && s.oidc.Live(),
 		/*
 		 * ⚠️ BU ALAN YAPILANDIRMAYI SÖYLER, VERİTABANINI DEĞİL.
 		 *

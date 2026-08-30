@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-func testLogins() *Logins { return NewLogins(testOIDC()) }
+func testLogins() *Logins { return NewLogins(testHolder()) }
 
 func TestOOBStartLinkAndCode(t *testing.T) {
 	l := testLogins()
@@ -213,7 +213,7 @@ func stateOf(t *testing.T, a *Attempt) string {
 // hep dolu kalması) fark edemezdi — ve o hâlde tek bir yük dalgası
 // tarayıcı girişini kalıcı olarak kapatırdı.
 func TestMaxPendingRefusesThenReleases(t *testing.T) {
-	l := NewLogins(testOIDC())
+	l := NewLogins(testHolder())
 	l.SetMaxPending(2)
 
 	// FARKLI kaynaklar: sınanan şey KÜRESEL kota. Aynı adresten
@@ -240,7 +240,7 @@ func TestMaxPendingRefusesThenReleases(t *testing.T) {
 
 // Sınır 0 iken kota uygulanmamalı.
 func TestMaxPendingZeroIsUnlimited(t *testing.T) {
-	l := NewLogins(testOIDC())
+	l := NewLogins(testHolder())
 
 	for i := 0; i < 50; i++ {
 		if _, err := l.Start(fmt.Sprintf("10.0.0.%d:2222", i)); err != nil {
@@ -256,7 +256,7 @@ func TestMaxPendingZeroIsUnlimited(t *testing.T) {
 // edilmeden servis edilseydi, saldırgan Challenge'ı kendisi çağırıp
 // kodu alır ve yön değişikliği hiçbir işe yaramazdı.
 func TestChallengeIsNotServedBeforePark(t *testing.T) {
-	l := NewLogins(testOIDC())
+	l := NewLogins(testHolder())
 
 	a, err := l.Start("203.0.113.7:52344")
 	if err != nil {
@@ -288,7 +288,7 @@ func TestChallengeIsNotServedBeforePark(t *testing.T) {
 // Tarayıcı bitirmeden gelen kod denemeyi YAKMAMALI: kullanıcı erken
 // ENTER'a basmış olabilir ve baştan başlamaya zorlanmamalı.
 func TestEarlyConfirmDoesNotBurnTheAttempt(t *testing.T) {
-	l := NewLogins(testOIDC())
+	l := NewLogins(testHolder())
 
 	a, err := l.Start("10.0.0.1:2222")
 	if err != nil {
@@ -310,7 +310,7 @@ func TestEarlyConfirmDoesNotBurnTheAttempt(t *testing.T) {
 
 // Yanlış kod denemeyi YAKMALI: kaba kuvvet tek atışlık olmalı.
 func TestWrongConfirmBurnsTheAttempt(t *testing.T) {
-	l := NewLogins(testOIDC())
+	l := NewLogins(testHolder())
 
 	a, err := l.Start("10.0.0.1:2222")
 	if err != nil {
@@ -336,7 +336,7 @@ func TestWrongConfirmBurnsTheAttempt(t *testing.T) {
 // açan bir saldırgan (varsayılan IP başına 8), dört kaynaktan 32'lik
 // kotayı doldurup SSO kapısını kapatabiliyordu.
 func TestPerSourceQuotaLimitsOneAttacker(t *testing.T) {
-	l := NewLogins(testOIDC())
+	l := NewLogins(testHolder())
 	l.SetMaxPending(8) // kaynak başına pay: 2
 
 	// Saldırgan payını doldurur.
@@ -357,7 +357,7 @@ func TestPerSourceQuotaLimitsOneAttacker(t *testing.T) {
 
 // Küresel kota da yerinde durmalı.
 func TestGlobalQuotaStillApplies(t *testing.T) {
-	l := NewLogins(testOIDC())
+	l := NewLogins(testHolder())
 	l.SetMaxPending(4) // kaynak başına 1
 
 	for i := 0; i < 4; i++ {
@@ -369,4 +369,11 @@ func TestGlobalQuotaStillApplies(t *testing.T) {
 	if _, err := l.Start("10.0.0.99:1000"); !errors.Is(err, ErrTooManyPending) {
 		t.Errorf("küresel kota aşıldı: %v", err)
 	}
+}
+
+// testHolder, testOIDC'yi çalışırken değiştirilebilir tutucuya sarar.
+func testHolder() *OIDCHolder {
+	h := NewOIDCHolder()
+	h.Install(testOIDC())
+	return h
 }

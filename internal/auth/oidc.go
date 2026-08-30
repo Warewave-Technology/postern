@@ -129,6 +129,17 @@ type AuthRequest struct {
 
 	// URL, kullanıcının tarayıcıda açacağı yetkilendirme adresi.
 	URL string
+
+	/*
+	 * Gen, bu isteği ÜRETEN sağlayıcı kuşağı.
+	 *
+	 * ⚠️ Tamamlanma anında karşılaştırılmak zorunda. Ayarlar akışın
+	 * ortasında değiştirilirse, A sağlayıcısının ürettiği code B'nin
+	 * token ucuna gönderilirdi — code ve istemci sırrı, operatörün az
+	 * önce yazdığı adrese giderdi. Eşleşmeyen kuşak, akışın
+	 * reddedilmesi demek.
+	 */
+	Gen uint64
 }
 
 /*
@@ -193,6 +204,8 @@ func (o *OIDC) Begin() (AuthRequest, error) {
 	authReq.Nonce = nonce
 	authReq.Verifier = verifier
 	authReq.URL = o.oauth.AuthCodeURL(state, oidc.Nonce(nonce), oauth2.S256ChallengeOption(verifier))
+	// Gen çağıran tarafından damgalanıyor: istemcinin kendisi hangi
+	// kuşakta olduğunu bilmiyor, tutucu biliyor.
 
 	return authReq, nil
 }
