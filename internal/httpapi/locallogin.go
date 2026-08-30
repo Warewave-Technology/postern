@@ -203,6 +203,13 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ⚠️ Silinmiş hesap girişle geri gelmez (bkz. göç 023).
+	if derr := s.store.RefuseIfDeleted(r.Context(), in.Username); derr != nil {
+		log.Warn("local login denied: account is deleted", "user", in.Username)
+		writeErr(w, http.StatusUnauthorized, "wrong username or secret")
+		return
+	}
+
 	u, err := s.store.User(r.Context(), in.Username)
 	if err != nil {
 		log.Error("local login user load failed", "error", err)

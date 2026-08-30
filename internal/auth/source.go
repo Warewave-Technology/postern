@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/warewave/postern/internal/store"
 )
@@ -195,4 +196,91 @@ const KeySetupCompleted = "setup.completed_at"
 func SetupCompleted(ctx context.Context, db *store.Store) bool {
 	v, err := db.Setting(ctx, KeySetupCompleted)
 	return err == nil && strings.TrimSpace(v) != ""
+}
+
+/*
+ * Zaman temelli hesap iptalinin ayarları.
+ *
+ * ⚠️ NEDEN ZAMAN: OIDC'de kaynağa "bu kişi hâlâ var mı" diye
+ * SORULAMIYOR — bir claim ancak kullanıcı giriş yaparken geliyor. Yani
+ * IdP'de kapatılmış bir hesap, kişi bir daha hiç girmezse postern'de
+ * süresiz ayakta kalıyor. Elimizdeki tek ölçüt, kaynağın o kişiyi en
+ * son ne zaman doğruladığı.
+ *
+ * ⚠️ VARSAYILANLAR CÖMERT VE BU KASITLI. Bu sayaç "işten ayrıldı"yı
+ * değil "bir süredir kendini kanıtlamadı"yı ölçüyor; üç haftalık bir
+ * tatil yanlış pozitif üretiyor. Bedeli düşük tutan şey, pasifleşmenin
+ * TEK BİR GİRİŞLE geri alınması — ve kaynak kişiyi gerçekten kapattıysa
+ * o giriş zaten olmuyor.
+ */
+const (
+	KeyConfirmTTL = "auth.confirm_ttl"
+	KeyDeleteTTL  = "auth.delete_after"
+
+	// DefaultConfirmTTL, doğrulanmayan hesabın pasifleşme süresi.
+	DefaultConfirmTTL = 45 * 24 * time.Hour
+	// DefaultDeleteTTL, pasif hesabın 'deleted' işaretlenme süresi.
+	DefaultDeleteTTL = 180 * 24 * time.Hour
+)
+
+// ConfirmTTL, hesabın doğrulanmadan kalabileceği süre. 0 = KAPALI.
+func ConfirmTTL(ctx context.Context, db *store.Store) time.Duration {
+	return durationSetting(ctx, db, KeyConfirmTTL, DefaultConfirmTTL)
+}
+
+// DeleteTTL, pasif hesabın silinmiş işaretlenme süresi. 0 = KAPALI.
+func DeleteTTL(ctx context.Context, db *store.Store) time.Duration {
+	return durationSetting(ctx, db, KeyDeleteTTL, DefaultDeleteTTL)
+}
+
+/*
+ * durationSetting, süre ayarını okur.
+ *
+ * ⚠️ ÇÖZÜMLENEMEYEN DEĞER VARSAYILANA DÜŞÜYOR, SIFIRA DEĞİL. Sıfır
+ * "kapalı" demek ve bir yazım hatasının korumayı sessizce kapatması,
+ * korumanın hiç olmamasından daha kötü — operatör kapalı olduğunu
+ * bilmez. "0" YAZILDIĞINDA kapanıyor: o bilinçli bir karar.
+ */
+func durationSetting(ctx context.Context, db *store.Store, key string, fallback time.Duration) time.Duration {
+	v, err := db.Setting(ctx, key)
+	if err != nil {
+		return fallback
+	}
+	d, perr := ParseAccountDuration(v)
+	if perr != nil {
+		return fallback
+	}
+	return d
+}
+
+/*
+ * ParseAccountDuration, süre ayarını çözer — GÜN dahil.
+ *
+ * ⚠️ time.ParseDuration "d" BİLMİYOR ve bu buradaki ölçekte gerçek bir
+ * tuzak: bu ayarların doğal birimi gün ve operatör "45d" yazıyor.
+ * Ölçüldü — "45d" kaydediliyor, çözümlenemiyor, sessizce varsayılana
+ * düşüyor ve operatör yazdığının anlaşıldığını sanıyor. En kötü hâli
+ * "365d" yazıp korumanın 45 günde çalıştığını fark etmemek.
+ *
+ * "0" KAPALI demek ve bilinçli bir karar; onun dışında çözümlenemeyen
+ * değer HATA — yazma yolları bunu reddedip operatöre söylüyor.
+ */
+func ParseAccountDuration(raw string) (time.Duration, error) {
+	v := strings.TrimSpace(raw)
+	if v == "0" {
+		return 0, nil
+	}
+	if rest, ok := strings.CutSuffix(v, "d"); ok {
+		days, err := strconv.Atoi(rest)
+		if err != nil || days < 0 {
+			return 0, fmt.Errorf("auth: %q is not a number of days", raw)
+		}
+		return time.Duration(days) * 24 * time.Hour, nil
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d < 0 {
+		return 0, fmt.Errorf("auth: %q is not a duration "+
+			"(use 45d, 720h, or 0 to switch it off)", raw)
+	}
+	return d, nil
 }

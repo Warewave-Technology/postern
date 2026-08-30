@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/warewave/postern/internal/auth"
 	"github.com/warewave/postern/internal/ldap"
@@ -185,6 +186,17 @@ func (s *Server) directoryLogin(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
+	/*
+	 * ⚠️ SİLİNMİŞ HESAP GİRİŞLE GERİ GELMEZ. Pasif hesap gelir —
+	 * başarılı girişin kendisi kaynağın doğrulaması (bkz. göç 023).
+	 */
+	if derr := s.store.RefuseIfDeleted(r.Context(), u.Name); derr != nil {
+		log.Warn("directory login denied: account is deleted", "user", u.Name)
+		writeErr(w, http.StatusForbidden,
+			"this account has been removed on this bastion; ask an administrator")
+		return
+	}
+
 	s.finishDirectorySession(w, r, log, u, res.Groups, adminMember)
 }
 
@@ -213,6 +225,17 @@ func (s *Server) finishDirectorySession(w http.ResponseWriter, r *http.Request, 
 	// Yönetici yetkisi de dizinden: gruplar BURADA gerçekten çözüldü,
 	// yani uygulamak güvenli (bkz. applyGroupAdmin'deki not).
 	s.applyGroupAdmin(r.Context(), u.Name, groups)
+
+	/*
+	 * ⚠️ KAYNAK BU KİŞİYİ ŞU AN DOĞRULADI.
+	 *
+	 * Zaman temelli iptalin tek girdisi bu damga (göç 023). Bir kapı
+	 * damgalamayı unutursa, oradan girenler yavaş yavaş pasifleşir —
+	 * yani eksik bir çağrı sessiz bir erişim kaybına dönüşür.
+	 */
+	if cerr := s.store.ConfirmAccount(r.Context(), u.Name, time.Now()); cerr != nil {
+		log.Error("confirm stamp failed", "user", u.Name, "error", cerr)
+	}
 
 	token, err := s.webSessions.Create(u.Name)
 	if err != nil {

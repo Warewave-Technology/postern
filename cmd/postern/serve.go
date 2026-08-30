@@ -18,6 +18,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/warewave/postern/internal/accountlife"
 	"github.com/warewave/postern/internal/auth"
 	"github.com/warewave/postern/internal/config"
 	"github.com/warewave/postern/internal/events"
@@ -411,6 +412,19 @@ func newServeCmd() *cobra.Command {
 					oidcHolder.Install(oidcClient)
 				}
 			}
+
+			/*
+			 * ⚠️ HESAP YAŞAM DÖNGÜSÜ: OIDC'DEKİ TEK İPTAL YOLU.
+			 *
+			 * groupsync dizine SORARAK çalışıyor; OIDC'de sorulacak bir
+			 * şey yok (bir claim ancak kullanıcı giriş yaparken gelir).
+			 * Bu döngü hiçbir şey sormuyor, yalnızca "kaynak bu kişiyi
+			 * en son ne zaman doğruladı" damgasına bakıyor.
+			 *
+			 * Grup kaynağından BAĞIMSIZ çalışıyor: LDAP'ta senkron da
+			 * varken bu ikinci bir ağ; OIDC'de tek ağ.
+			 */
+			go accountlife.New(db, logger).Start(ctx)
 
 			/*
 			 * ⚠️ OOB KAPISI KOŞULSUZ KURULUYOR.

@@ -49,6 +49,34 @@ func (s *Server) publicKeyCallback(conn ssh.ConnMetadata, key ssh.PublicKey) (*s
 	 * kurulumda (ClaimGroups) anahtarla açılan oturumda sorulacak bir
 	 * şey yok. Orada eski gerekçe hâlâ geçerli ve reddetme duruyor.
 	 */
+	/*
+	 * ⚠️ HESAP PASİF YA DA SİLİNMİŞSE ANAHTAR DA AÇMAZ.
+	 *
+	 * Bu kontrol OIDC kurulumlarındaki tek iptal yolu. Orada kaynağa
+	 * "bu kişi hâlâ var mı" diye sorulamıyor (bir claim ancak giriş
+	 * sırasında gelir), dolayısıyla IdP'de kapatılmış bir hesap
+	 * postern'de süresiz ayakta kalıyordu — ve anahtarı olduğu sürece
+	 * sunuculara girmeye devam ediyordu.
+	 *
+	 * ⚠️ KAPSAM DAR: pasifleşme yalnızca KAYNAKTAN gelen hesaplara
+	 * uygulanıyor (bkz. StaleAccounts). Yerel açılmış otomasyon
+	 * hesapları hiçbir kaynağa sorulamıyor ve "doğrulanmamış olmaları"
+	 * normal — onları da kapsayan bir sayaç her CI hattını keserdi.
+	 *
+	 * Geri dönüş yolu ekranda: panelden bir kez giriş yapmak hesabı
+	 * yeniden aktif ediyor. Kaynak kişiyi gerçekten kapattıysa o giriş
+	 * zaten olmuyor.
+	 */
+	if state, _, serr := s.db.AccountState(context.Background(), u.Name); serr == nil &&
+		state != store.StateActive {
+		s.logger.Warn("public key rejected: account is not active",
+			"user", u.Name, "state", state, "remote", conn.RemoteAddr().String())
+		return nil, fmt.Errorf(
+			"auth.publicKeyCallback[%s]: account %s is %s; sign in to the panel once "+
+				"to reactivate it: access denied",
+			conn.RemoteAddr(), u.Name, state)
+	}
+
 	if u.SSOOnly && !auth.CanResolveByUsername(s.groups) {
 		s.logger.Warn("public key rejected: sso-only user and roles cannot be refreshed without a token",
 			"user", u.Name, "remote", conn.RemoteAddr().String())
@@ -293,6 +321,16 @@ func (s *Server) resolveIdentity(ctx context.Context, id auth.Identity) (model.U
 			AdminGroupMember: adminMember,
 		})
 		if err == nil {
+			// ⚠️ Silinmiş hesap girişle geri gelmez.
+			if derr := s.db.RefuseIfDeleted(ctx, u.Name); derr != nil {
+				s.logger.Warn("oob login denied: account is deleted", "user", u.Name)
+				return model.User{}, fmt.Errorf("access denied")
+			}
+			// ⚠️ Kaynak bu kişiyi ŞU AN doğruladı (bkz. göç 023):
+			// zaman temelli iptalin tek girdisi bu damga.
+			if cerr := s.db.ConfirmAccount(ctx, u.Name, time.Now()); cerr != nil {
+				s.logger.Error("confirm stamp failed", "user", u.Name, "error", cerr)
+			}
 			return u, nil
 		}
 		// Kimlik çatışması AYRI loglanıyor: bu bir yapılandırma eksiği

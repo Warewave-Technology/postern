@@ -173,6 +173,21 @@ func (s *Server) adminSetSetting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	/*
+	 * ⚠️ SÜRE AYARLARI YAZMADAN ÖNCE ÇÖZÜLÜYOR.
+	 *
+	 * Çözülemeyen değer okuma anında varsayılana düşüyor (güvenli yön),
+	 * ama operatöre HİÇBİR ŞEY söylemiyordu: "365d" yazıp korumanın 45
+	 * günde çalıştığını fark etmemek mümkündü. Reddetmek, sessizce
+	 * başka bir şey yapmaktan iyi.
+	 */
+	if in.Key == auth.KeyConfirmTTL || in.Key == auth.KeyDeleteTTL {
+		if _, perr := auth.ParseAccountDuration(in.Value); perr != nil {
+			writeErr(w, http.StatusBadRequest, perr.Error())
+			return
+		}
+	}
+
 	// Sır olduğu BİZİM tarafımızda belirleniyor, istemcinin dediğine
 	// göre değil: istemci "secret: false" diyerek parolayı düz metne
 	// düşüremesin.
@@ -482,6 +497,18 @@ var knownSettingKeys = map[string]bool{
 	groupsync.KeyMinZeroFloor:       true,
 	groupsync.KeyMaxUnknownFraction: true,
 	groupsync.KeyMaxRevokePerRun:    true,
+
+	/*
+	 * Hesap yaşam döngüsü süreleri (göç 023).
+	 *
+	 * ⚠️ Panelden yazılabilir olmaları bilinçli: bu değerler kurumun
+	 * çalışma ritmine göre ayarlanmak zorunda ve host'a bağlamak,
+	 * "45 gün bize uzun" diyen operatörü koruma kapalıyken bırakırdı.
+	 * Panel yöneticisi zaten hesapları tek tek geri açabiliyor;
+	 * süreyi uzatabilmesi yeni bir yetki değil.
+	 */
+	auth.KeyConfirmTTL: true,
+	auth.KeyDeleteTTL:  true,
 }
 
 var _ = store.SettingView{}

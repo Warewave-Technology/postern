@@ -141,6 +141,15 @@ func newSettingsSetCmd() *cobra.Command {
 					"administrator to every one of them", model.UnknownGroup)
 			}
 
+			// ⚠️ Süre ayarı çözülemiyorsa REDDET: okuma anında sessizce
+			// varsayılana düşmesi, operatörün yazdığının anlaşıldığını
+			// sanmasına yol açıyordu ("45d" ölçüldü).
+			if key == auth.KeyConfirmTTL || key == auth.KeyDeleteTTL {
+				if _, perr := auth.ParseAccountDuration(value); perr != nil {
+					return perr
+				}
+			}
+
 			if key == auth.KeyLoginSource {
 				parsed, perr := auth.ParseLoginSource(value)
 				if perr != nil {

@@ -40,6 +40,15 @@ export type User = {
   admin: boolean;
   roles: string[];
   keys: number;
+  /**
+   * ⚠️ Hesabın yaşam döngüsü. Kaynağın bir süredir doğrulamadığı
+   * hesaplar kendiliğinden pasifleşiyor; bunu göstermeyen bir liste
+   * "neden giremiyorum" sorusunu cevaplayamaz ve yönetici postern'de
+   * bir arıza arar.
+   */
+  state?: "active" | "inactive" | "deleted";
+  /** Kaynağın bu kişiyi en son ne zaman doğruladığı. */
+  last_confirmed?: string;
 };
 export type Role = { name: string; targets: string[] };
 export type Target = {
@@ -593,6 +602,13 @@ export const api = {
   /** Reddi geri alır: satır tamamen silinir ve kişi yeniden başvurabilir. */
   forgetPending: (id: string) =>
     req<{ ok: boolean }>("POST", "/api/admin/pending/forget", { id }),
+
+  setUserState: (name: string, state: "active" | "inactive" | "deleted") =>
+    req<{ ok: boolean }>(
+      "POST",
+      `/api/admin/users/${encodeURIComponent(name)}/state`,
+      { state },
+    ),
 
   sessions: () => req<Session[]>("GET", "/api/admin/sessions"),
   sessionDetail: (id: string) =>

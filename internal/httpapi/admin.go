@@ -197,6 +197,16 @@ func (s *Server) adminListUsers(w http.ResponseWriter, r *http.Request) {
 		Admin  bool     `json:"admin"`
 		Roles  []string `json:"roles"`
 		Keys   int      `json:"keys"`
+		/*
+		 * ⚠️ DURUM VE SON DOĞRULANMA GÖRÜNÜR OLMAK ZORUNDA.
+		 *
+		 * Kaynağın bir süredir doğrulamadığı hesaplar kendiliğinden
+		 * pasifleşiyor (göç 023). Bunu ekranda göstermeyen bir liste,
+		 * "neden giremiyorum" sorusunu cevaplayamaz — ve yönetici,
+		 * postern'de bir arıza arar.
+		 */
+		State     string `json:"state"`
+		Confirmed string `json:"last_confirmed,omitempty"`
 	}
 	out := make([]row, 0, len(users))
 	for _, u := range users {
@@ -209,7 +219,17 @@ func (s *Server) adminListUsers(w http.ResponseWriter, r *http.Request) {
 			s.storeErr(w, "users.list", err)
 			return
 		}
-		out = append(out, row{Name: u.Name, OSUser: u.OSUser, Admin: u.Admin, Roles: roles, Keys: len(keys)})
+		state, confirmed, serr := s.store.AccountState(r.Context(), u.Name)
+		if serr != nil {
+			s.storeErr(w, "users.list", serr)
+			return
+		}
+		r := row{Name: u.Name, OSUser: u.OSUser, Admin: u.Admin,
+			Roles: roles, Keys: len(keys), State: state}
+		if !confirmed.IsZero() {
+			r.Confirmed = confirmed.Format(time.RFC3339)
+		}
+		out = append(out, r)
 	}
 	writeJSON(w, http.StatusOK, out)
 }

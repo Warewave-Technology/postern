@@ -567,6 +567,16 @@ func (s *Server) resolveIdentity(ctx context.Context, log *slog.Logger, id auth.
 					u = fresh
 				}
 			}
+			// ⚠️ Silinmiş hesap girişle geri gelmez; pasif hesap gelir
+			// — başarılı girişin kendisi kaynağın doğrulaması.
+			if derr := s.store.RefuseIfDeleted(ctx, u.Name); derr != nil {
+				log.Warn("login denied: account is deleted", "user", u.Name)
+				return model.User{}, store.ErrAccessDenied
+			}
+			// ⚠️ Kaynak bu kişiyi ŞU AN doğruladı (bkz. göç 023).
+			if cerr := s.store.ConfirmAccount(ctx, u.Name, time.Now()); cerr != nil {
+				log.Error("confirm stamp failed", "user", u.Name, "error", cerr)
+			}
 			return u, nil
 		case errors.Is(err, store.ErrAdminBindRefused):
 			/*

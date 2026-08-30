@@ -128,6 +128,12 @@ export default function Users({ publicKeyLogin }: { publicKeyLogin: boolean }) {
   // eklemeye çalışan bir form bırakırdı.
   const keysUser = items.find((u) => u.name === keysFor) ?? null;
 
+  const setState = (name: string, state: "active" | "inactive" | "deleted") =>
+    api
+      .setUserState(name, state)
+      .then(() => refresh())
+      .catch((e: unknown) => setError(toMessage(e)));
+
   const columns: Column<User>[] = [
     { key: "name", header: "Name", value: (u) => u.name },
     { key: "os_user", header: "OS user", value: (u) => u.os_user },
@@ -143,6 +149,62 @@ export default function Users({ publicKeyLogin }: { publicKeyLogin: boolean }) {
         ) : (
           <span className="muted">—</span>
         ),
+    },
+    {
+      /*
+       * ⚠️ DURUM SÜTUNU. Kaynağın bir süredir doğrulamadığı hesaplar
+       * kendiliğinden pasifleşiyor. Bunu göstermeyen bir liste "neden
+       * giremiyorum" sorusunu cevaplayamaz ve yönetici postern'de bir
+       * arıza arar — oysa cevap "kaynak bu kişiyi doğrulamıyor".
+       */
+      key: "state",
+      header: "State",
+      value: (u) => u.state ?? "active",
+      render: (u) => {
+        const st = u.state ?? "active";
+        const seen = u.last_confirmed
+          ? new Date(u.last_confirmed).toLocaleDateString()
+          : "never";
+        if (st === "active") {
+          return <span className="muted">active</span>;
+        }
+        return (
+          <span
+            className="badge badge-warn"
+            title={`the source last confirmed this account on ${seen}`}
+          >
+            {st}
+          </span>
+        );
+      },
+    },
+    {
+      key: "activate",
+      header: "Access",
+      render: (u) => {
+        const st = u.state ?? "active";
+        return st === "active" ? (
+          <ActionButton
+            variant="danger"
+            onClick={() => setState(u.name, "inactive")}
+            confirm={
+              `Deactivate ${u.name}?\n\n` +
+              `They cannot sign in or open an SSH session. Their roles and keys ` +
+              `are kept, and signing in through the source reactivates them.`
+            }
+            label={`deactivate ${u.name}`}
+          >
+            Deactivate
+          </ActionButton>
+        ) : (
+          <ActionButton
+            onClick={() => setState(u.name, "active")}
+            label={`reactivate ${u.name}`}
+          >
+            Reactivate
+          </ActionButton>
+        );
+      },
     },
     {
       key: "roles",
