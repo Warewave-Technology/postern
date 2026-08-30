@@ -96,6 +96,21 @@ yüzeyin en sona kalması için seçildi.
 
 > **Durum:** S6.0 tamamlandı (`4235ab9`, `569f56b`, `1ba63e3`, `bf7eec0`, `a5e4a83`).
 > S6.1 tamamlandı (`5ce17a9` P0, `3f0b0fb` yerel kapı).
+> S6.2 tamamlandı: anahtarla dizin girişi (`13b8a64`), dizin parolasıyla
+> panel girişi (`b70903d`), grup üzerinden yöneticilik (`3b7d216`) ve onay
+> ekranı (`933392f`).
+>
+> ⚠️ Aşağıdaki S6.2/S6.3 başlıkları planın İLK hâlinden kalma ve
+> uygulanan tasarımı anlatmıyor. Sohbette şu yönde revize edildi:
+> LDAP artık grup kaynağı değil **kimlik sağlayıcı**; SSH yalnızca
+> anahtar, kurumsal parola yalnızca panelde; yöneticilik panelden
+> atanamıyor ama bir dizin grubu taşıyabiliyor; ve o grubu ayarlamak,
+> kime yetki verildiğini gösteren bir onay ekranından geçiyor.
+>
+> **Sırada (S6.3):** OIDC ve LDAP için `enabled` sütunları, aynı anda
+> yalnızca birinin etkin olabilmesi, biri etkinken yerel girişin
+> kapanması ve CLI'dan kapatınca geri gelmesi; grup çözülüp de boş
+> geldiğinde `unknown` grubu.
 
 Bunlar LDAP dönüşümünden bağımsız olarak değerli; sonrasını de-riske ediyor.
 
