@@ -104,14 +104,64 @@ func (s *Source) Lookup(ctx context.Context, id auth.Identity) (LookupResult, er
 	if id.Username == "" {
 		return LookupResult{Presence: PresenceUnknown}, fmt.Errorf("ldap: empty username")
 	}
+	return s.lookup(ctx, func(c *goldap.Conn) (userEntry, error) {
+		return s.findUser(c, id.Username)
+	})
+}
 
+/*
+ * LookupBySubject, kullanıcıyı KARARLI KİMLİĞİYLE çözer.
+ *
+ * ⚠️ VAR OLMA SEBEBİ: adla arama, yeniden adlandırılan kullanıcıyı
+ * silinmiş kullanıcıdan ayırt edemiyor — ikisi de PresenceAbsent. Ve o
+ * cevabı alan taraflar erişimi kesiyor. Yani dizinde adı değişen kişi,
+ * hiçbir şey yapmadan bütün oturumlarını ve rollerini kaybediyordu.
+ *
+ * Kimliği bağlı olan herkes için ÇAĞRILMASI GEREKEN yol budur.
+ */
+func (s *Source) LookupBySubject(ctx context.Context, subject string) (LookupResult, error) {
+	if subject == "" {
+		return LookupResult{Presence: PresenceUnknown}, fmt.Errorf("ldap: empty subject")
+	}
+	return s.lookup(ctx, func(c *goldap.Conn) (userEntry, error) {
+		return s.findBySubject(c, subject)
+	})
+}
+
+/*
+ * GroupsBySubject, auth.SubjectResolver'ı uygular.
+ *
+ * Lookup ile aynı üç değerli sözleşme: "bulamadım" ile "cevap
+ * veremedim" ayrı kalıyor, çünkü çağıran ilkini iptale, ikincisini
+ * beklemeye çeviriyor.
+ */
+func (s *Source) GroupsBySubject(ctx context.Context, subject string) (auth.GroupResult, error) {
+	res, err := s.LookupBySubject(ctx, subject)
+	if err != nil {
+		return auth.GroupResult{Presence: auth.GroupsUnknown}, err
+	}
+	switch res.Presence {
+	case PresencePresent:
+		return auth.GroupResult{
+			Presence: auth.GroupsPresent, Groups: res.Groups,
+			Disabled: res.Disabled, DisabledReason: res.DisabledReason,
+		}, nil
+	case PresenceAbsent:
+		return auth.GroupResult{Presence: auth.GroupsAbsent}, nil
+	default:
+		return auth.GroupResult{Presence: auth.GroupsUnknown}, nil
+	}
+}
+
+// lookup, iki arama yolunun paylaştığı gövde.
+func (s *Source) lookup(ctx context.Context, find func(*goldap.Conn) (userEntry, error)) (LookupResult, error) {
 	conn, err := s.connect(ctx)
 	if err != nil {
 		return LookupResult{Presence: PresenceUnknown}, err
 	}
 	defer conn.Close()
 
-	ue, err := s.findUser(conn, id.Username)
+	ue, err := find(conn)
 	if err != nil {
 		return LookupResult{Presence: PresenceUnknown}, err
 	}

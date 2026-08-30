@@ -100,3 +100,49 @@ func ActiveLoginSource(ctx context.Context, db *store.Store, oidcConfigured bool
 	}
 	return parsed, true, nil
 }
+
+/*
+ * KeyAdminGroup, YÖNETİCİ yetkisi veren grubun adı.
+ *
+ * ⚠️ Burada, ldap paketinde DEĞİL: grup adı OIDC claim'inden de
+ * gelebiliyor ve iki kaynağın paylaştığı bir kavramı birinin paketine
+ * koymak, diğerini o pakete bağımlı kılıyordu.
+ *
+ * ⚠️ Bu grubu ele geçiren yalnızca rol almıyor: panele giriyor, yani
+ * DENETİM GÜNLÜĞÜNÜ ve OTURUM KAYITLARINI da okuyor. Rol almaktan
+ * farklı bir şey — geçmişe erişim.
+ */
+const KeyAdminGroup = "ldap.admin_group"
+
+/*
+ * InAdminGroup, verilen grup listesinin yönetici grubunu içerip
+ * içermediğini söyler.
+ *
+ * ⚠️ YALNIZCA GERÇEKTEN ÇÖZÜLMÜŞ gruplarla çağrılmalı. "Bulamadım" ya
+ * da "cevap veremedim" hâlinde boş bir listeyle çağrılırsa cevap
+ * "hayır" olur — ki bu güvenli taraf, ama çağıranın o ayrımı zaten
+ * yapmış olması gerekir.
+ *
+ * Karşılaştırma harf duyarsız: dizinler grup adlarını öyle sayıyor ve
+ * "SysAdmins" yazan bir ayarın "sysadmins" grubunu görmemesi sessiz bir
+ * yetki kaybı olurdu.
+ */
+func InAdminGroup(ctx context.Context, db *store.Store, groups []string) (bool, error) {
+	want, err := db.Setting(ctx, KeyAdminGroup)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	want = strings.TrimSpace(want)
+	if want == "" {
+		return false, nil
+	}
+	for _, g := range groups {
+		if strings.EqualFold(strings.TrimSpace(g), want) {
+			return true, nil
+		}
+	}
+	return false, nil
+}

@@ -323,6 +323,116 @@ func TestLDAPIdentityIsStableAcrossRename(t *testing.T) {
 }
 
 /*
+ * ⚠️ YENİDEN ADLANDIRILAN KULLANICI, SİLİNMİŞ SAYILMAMALI.
+ *
+ * Adla arama ikisini ayırt edemiyor: dizinde adı değişen kişi de,
+ * silinen kişi de PresenceAbsent döndürüyor. O cevabı alan taraflar —
+ * oturum açılışındaki tazeleme ve senkron döngüsü — onu erişim iptaline
+ * çeviriyor. Yani hiçbir şey yapmayan bir kullanıcı, İK'nın soyadını
+ * güncellemesi yüzünden bütün oturumlarını ve rollerini kaybediyordu.
+ *
+ * Kimlikle arama bu farkı görüyor ve bu testin varlık sebebi o.
+ */
+func TestLDAPLookupBySubjectSurvivesRename(t *testing.T) {
+	url := startOpenLDAP(t)
+	cfg := ldapConfig(url)
+	cfg.GroupFilter = ""
+	cfg.GroupAttribute = "ou"
+
+	src, err := ldap.New(cfg)
+	if err != nil {
+		t.Fatalf("ldap.New: %v", err)
+	}
+	ctx := context.Background()
+
+	before, err := src.Lookup(ctx, auth.Identity{Username: ldapUser})
+	if err != nil || before.Identity == "" {
+		t.Fatalf("başlangıç: %v / %q", err, before.Identity)
+	}
+
+	conn := dialLDAP(t, url)
+	defer conn.Close()
+	oldDN := "uid=" + ldapUser + ",ou=people," + ldapBaseDN
+	newDN := "uid=yigit.can,ou=people," + ldapBaseDN
+	if err := conn.ModifyDN(goldap.NewModifyDNRequest(oldDN, "uid=yigit.can", true, "")); err != nil {
+		t.Fatalf("modrdn: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = conn.ModifyDN(goldap.NewModifyDNRequest(newDN, "uid="+ldapUser, true, ""))
+	})
+
+	// Adla: "yok" — ve bu cevap erişimi kesiyor.
+	byName, err := src.Lookup(ctx, auth.Identity{Username: ldapUser})
+	if err != nil {
+		t.Fatalf("Lookup: %v", err)
+	}
+	if byName.Presence != ldap.PresenceAbsent {
+		t.Fatalf("adla arama = %v; yeniden adlandırma gerçekleşmemiş olabilir", byName.Presence)
+	}
+
+	// Kimlikle: AYNI kişi, grupları yerinde.
+	bySubject, err := src.LookupBySubject(ctx, before.Identity)
+	if err != nil {
+		t.Fatalf("LookupBySubject: %v", err)
+	}
+	if bySubject.Presence != ldap.PresencePresent {
+		t.Fatalf("kimlikle arama = %v; yeniden adlandırılan kişi silinmiş sayıldı",
+			bySubject.Presence)
+	}
+	if bySubject.Identity != before.Identity {
+		t.Fatalf("kimlik değişti: %q → %q", before.Identity, bySubject.Identity)
+	}
+	if len(bySubject.Groups) != len(before.Groups) {
+		t.Fatalf("gruplar = %v, önce %v", bySubject.Groups, before.Groups)
+	}
+}
+
+// Gerçekten SİLİNEN kullanıcı, kimlikle de bulunamamalı — yoksa
+// yeniden adlandırma düzeltmesi, iptali de bozardı.
+func TestLDAPLookupBySubjectStillReportsDeleted(t *testing.T) {
+	url := startOpenLDAP(t)
+	cfg := ldapConfig(url)
+	cfg.GroupFilter = ""
+	cfg.GroupAttribute = "ou"
+
+	src, err := ldap.New(cfg)
+	if err != nil {
+		t.Fatalf("ldap.New: %v", err)
+	}
+	ctx := context.Background()
+	conn := dialLDAP(t, url)
+	defer conn.Close()
+
+	const name = "ayrilan.kisi"
+	dn := "uid=" + name + ",ou=people," + ldapBaseDN
+	req := goldap.NewAddRequest(dn, nil)
+	req.Attribute("objectClass", []string{"inetOrgPerson"})
+	req.Attribute("uid", []string{name})
+	req.Attribute("cn", []string{"Ayrilan Kisi"})
+	req.Attribute("sn", []string{"Kisi"})
+	if err := conn.Add(req); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+
+	res, err := src.Lookup(ctx, auth.Identity{Username: name})
+	if err != nil || res.Identity == "" {
+		t.Fatalf("kurulum: %v / %q", err, res.Identity)
+	}
+
+	if err := conn.Del(goldap.NewDelRequest(dn, nil)); err != nil {
+		t.Fatalf("del: %v", err)
+	}
+
+	gone, err := src.LookupBySubject(ctx, res.Identity)
+	if err != nil {
+		t.Fatalf("LookupBySubject: %v", err)
+	}
+	if gone.Presence != ldap.PresenceAbsent {
+		t.Fatalf("silinen kullanıcı = %v; iptal yolu bozulmuş", gone.Presence)
+	}
+}
+
+/*
  * ⚠️ AD GERİ DÖNÜŞÜMÜ YENİ BİR KİMLİK ÜRETMELİ.
  *
  * Üretmezse: ayrılan çalışanın kullanıcı adı yeni birine verildiğinde,

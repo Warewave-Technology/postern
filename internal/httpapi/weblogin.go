@@ -463,6 +463,23 @@ func (s *Server) resolveIdentity(ctx context.Context, log *slog.Logger, id auth.
 				"idp_user", id.Username, "presence", res.Presence.String())
 		}
 
+		/*
+		 * Gelen kimliğin KENDİSİ yönetici grubunda mı?
+		 *
+		 * ⚠️ YALNIZCA gruplar gerçekten çözüldüyse: "cevap veremedim"
+		 * hâlinde false kalıyor, yani kapı KAPALI tarafta. Bir dizin
+		 * arızasının yönetici hesabı devralmayı açması olmaz.
+		 */
+		adminMember := false
+		if res.Presence == auth.GroupsPresent {
+			var aerr error
+			adminMember, aerr = auth.InAdminGroup(ctx, s.store, res.Groups)
+			if aerr != nil {
+				log.Error("admin group lookup failed", "error", aerr)
+				return model.User{}, aerr
+			}
+		}
+
 		u, err := s.store.ProvisionUser(ctx, store.ProvisionRequest{
 			Username:       id.Username,
 			Email:          id.Email,
@@ -470,6 +487,10 @@ func (s *Server) resolveIdentity(ctx context.Context, log *slog.Logger, id auth.
 			GroupsResolved: res.Presence == auth.GroupsPresent,
 			Issuer:         id.Issuer,
 			Subject:        id.Subject,
+			// Gelen kimliğin KENDİSİ yönetici grubunda mı (bkz.
+			// ProvisionRequest.AdminGroupMember). Yalnızca gruplar
+			// gerçekten çözüldüyse sorulabilir.
+			AdminGroupMember: adminMember,
 		})
 		switch {
 		case err == nil:

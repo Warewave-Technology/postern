@@ -133,3 +133,43 @@ func decodeIdentity(raw []byte) (string, error) {
 		return normalizeEntryUUID(string(raw))
 	}
 }
+
+/*
+ * subjectFilter, kanonik kimlikten LDAP arama filtresi üretir.
+ *
+ * ⚠️ İKİ ÖZNİTELİK BİRDEN: hangi dizinde olduğumuzu bilmek zorunda
+ * değiliz ve olmayanı sormak bedava (ölçüldü — sunucu boş döndürüyor,
+ * hata değil).
+ *
+ * ⚠️ objectGUID BİNARY ve filtrede ham bayt olarak, her biri kaçışlı
+ * yazılıyor. Baytlar da tel üzerindeki sıraya GERİ çevriliyor:
+ * formatObjectGUID'in tersi. Bu ters çevirme atlanırsa filtre hiçbir
+ * şey bulmaz ve sonuç "bu kullanıcı dizinde yok" olur — yani sessiz ve
+ * yanlış.
+ */
+func subjectFilter(subject string) (string, error) {
+	canonical, err := normalizeEntryUUID(subject)
+	if err != nil {
+		return "", err
+	}
+
+	hexOnly := strings.ReplaceAll(canonical, "-", "")
+	b, err := hex.DecodeString(hexOnly)
+	if err != nil || len(b) != 16 {
+		return "", fmt.Errorf("%w: %q", ErrNotAUUID, subject)
+	}
+
+	// Kanonik metinden TEL sırasına: ilk üç alan yeniden ters çevriliyor.
+	wire := make([]byte, 16)
+	wire[0], wire[1], wire[2], wire[3] = b[3], b[2], b[1], b[0]
+	wire[4], wire[5] = b[5], b[4]
+	wire[6], wire[7] = b[7], b[6]
+	copy(wire[8:], b[8:])
+
+	var esc strings.Builder
+	for _, c := range wire {
+		esc.WriteString(fmt.Sprintf("\\%02x", c))
+	}
+
+	return "(|(entryUUID=" + canonical + ")(objectGUID=" + esc.String() + "))", nil
+}

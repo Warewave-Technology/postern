@@ -1,9 +1,11 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
+	"github.com/warewave/postern/internal/auth"
 	"github.com/warewave/postern/internal/ldap"
 	"github.com/warewave/postern/internal/model"
 	"github.com/warewave/postern/internal/store"
@@ -124,27 +126,60 @@ func (s *Server) directoryLogin(w http.ResponseWriter, r *http.Request,
 	}
 
 	/*
-	 * Kimlik doğrulandı. Hesabı postern'de kurmak/ tazelemek ProvisionUser'ın
-	 * işi — gruplar GERÇEKTEN öğrenildiği için GroupsResolved true.
+	 * ⚠️ EŞLEŞTİRME ÖNCE KARARLI KİMLİKLE, SONRA ADLA.
 	 *
-	 * ⚠️ Issuer/Subject: dizin kimliği için kararlı bir çift henüz yok
-	 * (entryUUID bağlama işi ayrı bir dilim). Bu yüzden şimdilik yalnızca
-	 * VAR OLAN hesaplar giriş yapabiliyor; JIT sağlama bilerek kapalı,
-	 * çünkü kararlı bir subject olmadan hesap açmak, kullanıcı adına
-	 * dayalı bir bağ kurmak olurdu — 011'de kapatılan açığın ta kendisi.
+	 * Bu sıra 011'in OIDC için kurduğu kuralın dizin karşılığı. Dizin
+	 * bir kararlı kimlik veriyorsa (objectGUID / entryUUID) hesabı O
+	 * belirler — kullanıcının o an ne yazdığı değil. Böylece dizinde
+	 * yeniden adlandırılan kişi kendi hesabına girmeye devam ediyor
+	 * (ölçüldü: yeniden adlandırma ve OU taşıma kimliği değiştirmiyor),
+	 * ve ayrılan birinin adını devralan kişi onun hesabını devralmıyor
+	 * (ölçüldü: aynı adla yeniden açılan kayıt FARKLI kimlik alıyor).
+	 *
+	 * Ada düşmek YALNIZCA ilk temas için: postern'in o kimliği hiç
+	 * görmediği an. Orada başka hiçbir delil yok — CLI'da operatörün
+	 * yazdığı ad ile dizinin söylediği adı birbirine bağlayan tek şey
+	 * adın kendisi.
 	 */
-	u, err := s.store.User(r.Context(), username)
+	/*
+	 * Gelen kimliğin KENDİSİ yönetici grubunda mı? Gruplar burada
+	 * gerçekten çözüldü (Presence present), yani sormak güvenli.
+	 */
+	adminMember, aerr := auth.InAdminGroup(r.Context(), s.store, res.Groups)
+	if aerr != nil {
+		log.Error("admin group lookup failed", "error", aerr)
+		writeErr(w, http.StatusInternalServerError, "sign-in failed")
+		return
+	}
+
+	u, err := s.resolveDirectoryUser(r.Context(), log, username, res.Identity, adminMember)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		switch {
+		case errors.Is(err, store.ErrNotFound):
 			log.Warn("directory login: no postern account for this directory user",
-				"user", username)
+				"user", username, "identity", res.Identity)
 			writeErr(w, http.StatusForbidden,
 				"the directory knows you, but this bastion has no account for you yet; "+
 					"ask an administrator to add it")
-			return
+		case errors.Is(err, store.ErrAdminBindRefused):
+			// Ölçülmüş saldırının dizin tarafındaki karşılığı: adı bir
+			// yöneticiyle eşleşen, ilk kez görülen bir kimlik.
+			log.Warn("directory login denied: this username belongs to an administrator "+
+				"account and cannot be claimed by a first sign-in",
+				"user", username, "identity", res.Identity)
+			writeErr(w, http.StatusForbidden,
+				"the directory knows you, but this bastion has no account for you yet; "+
+					"ask an administrator to add it")
+		case errors.Is(err, store.ErrConflict):
+			log.Warn("directory login denied: that account is bound to a different "+
+				"directory identity", "user", username, "identity", res.Identity)
+			writeErr(w, http.StatusForbidden,
+				"the directory knows you, but this bastion has no account for you yet; "+
+					"ask an administrator to add it")
+		default:
+			log.Error("directory login: user load failed", "error", err)
+			writeErr(w, http.StatusInternalServerError, "sign-in failed")
 		}
-		log.Error("directory login: user load failed", "error", err)
-		writeErr(w, http.StatusInternalServerError, "sign-in failed")
 		return
 	}
 
@@ -194,4 +229,80 @@ type logger interface {
 	Info(msg string, args ...any)
 	Warn(msg string, args ...any)
 	Error(msg string, args ...any)
+}
+
+/*
+ * resolveDirectoryUser, dizin kullanıcısını postern hesabına çevirir.
+ *
+ * Sıra ve gerekçeleri çağrı yerinde. Buradaki kural şu: bağlama YALNIZCA
+ * ilk temasta ve YALNIZCA yetkisiz, henüz bağlanmamış bir hesap için
+ * yapılır. Yönetici hesabı adla devralınamaz — ölçülmüş bir saldırı ve
+ * gerekçesi göç 020'de.
+ */
+func (s *Server) resolveDirectoryUser(ctx context.Context, log logger,
+	username, identity string, adminGroupMember bool) (model.User, error) {
+
+	// 1) Kararlı kimlik: varsa TEK doğru cevap bu.
+	if identity != "" {
+		u, err := s.store.UserByDirSubject(ctx, identity)
+		if err == nil {
+			return u, nil
+		}
+		if !errors.Is(err, store.ErrNotFound) {
+			return model.User{}, err
+		}
+	}
+
+	// 2) İlk temas: adı eşleşen hesap var mı?
+	u, err := s.store.User(ctx, username)
+	if err != nil {
+		return model.User{}, err
+	}
+
+	/*
+	 * ⚠️ Kimlik YOKSA bağlama da yok — ama giriş sürüyor.
+	 *
+	 * Dizin kararlı bir değer vermiyorsa (eski şema, ya da servis
+	 * hesabı okuyamıyor) postern'in bugünkü davranışı korunuyor: ada
+	 * göre bulunan hesapla devam. Bu bir gerileme değil, yokluğun
+	 * kabulü — ve teşhis ekranı o dizinde kimlik gelmediğini zaten
+	 * söylüyor.
+	 */
+	if identity == "" {
+		return u, nil
+	}
+
+	/*
+	 * ⚠️ Yönetici hesabı, yalnızca adla devralınamaz — GELEN KİMLİK
+	 * kendisi yönetici grubunda değilse.
+	 *
+	 * Grup üyesiyse kapı açık: o kişi zaten yönetici ve başka bir
+	 * yönetici hesabını almakla yeni bir yetki kazanmıyor. Kapalı
+	 * tutmak, dizin grubundan yönetici olan herkesi yükseltmeden sonra
+	 * kendi hesabından kilitlerdi (ölçüldü).
+	 */
+	if u.Admin && !adminGroupMember {
+		return model.User{}, store.ErrAdminBindRefused
+	}
+
+	if berr := s.store.BindDirIdentity(ctx, u.Name, identity); berr != nil {
+		// Hesap BAŞKA bir kimliğe bağlı: devralma denemesi.
+		return model.User{}, berr
+	}
+
+	/*
+	 * ⚠️ İLK BAĞLAMA DENETLENEBİLİR OLMALI (011'in aynı notu).
+	 *
+	 * Bu, kalan tek devralma penceresi. Sessiz kalırsa kimse fark etmez;
+	 * denetim satırı yazılamıyorsa bağlamayı yapmış olmayı da istemeyiz,
+	 * o yüzden hata yukarı taşınıyor.
+	 */
+	if lerr := s.store.LogAdmin(ctx, store.AdminLogEntry{
+		Actor: "system", Via: "dir", Action: "user.dir_bind", Entity: u.Name,
+		Details: "first directory sign-in bound this account to identity " + identity,
+	}); lerr != nil {
+		return model.User{}, lerr
+	}
+	log.Info("directory identity bound", "user", u.Name, "identity", identity)
+	return s.store.User(ctx, u.Name)
 }

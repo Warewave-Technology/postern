@@ -236,13 +236,26 @@ func (s *Server) resolveIdentity(ctx context.Context, id auth.Identity) (model.U
 				"idp_user", id.Username, "presence", res.Presence.String())
 		}
 
+		// Bkz. httpapi tarafındaki aynı not: yalnızca gruplar gerçekten
+		// çözüldüyse sorulur, aksi hâlde kapı kapalı tarafta kalır.
+		adminMember := false
+		if res.Presence == auth.GroupsPresent {
+			var aerr error
+			adminMember, aerr = auth.InAdminGroup(ctx, s.db, res.Groups)
+			if aerr != nil {
+				s.logger.Error("admin group lookup failed", "error", aerr)
+				return model.User{}, aerr
+			}
+		}
+
 		u, err := s.db.ProvisionUser(ctx, store.ProvisionRequest{
-			Username:       id.Username,
-			Email:          id.Email,
-			Groups:         res.Groups,
-			GroupsResolved: res.Presence == auth.GroupsPresent,
-			Issuer:         id.Issuer,
-			Subject:        id.Subject,
+			Username:         id.Username,
+			Email:            id.Email,
+			Groups:           res.Groups,
+			GroupsResolved:   res.Presence == auth.GroupsPresent,
+			Issuer:           id.Issuer,
+			Subject:          id.Subject,
+			AdminGroupMember: adminMember,
 		})
 		if err == nil {
 			return u, nil

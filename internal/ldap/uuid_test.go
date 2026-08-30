@@ -160,3 +160,36 @@ func TestDecodeIdentityDispatchesByShape(t *testing.T) {
 		}
 	}
 }
+
+/*
+ * ⚠️ FİLTRE, KANONİK METİNDEN TEL SIRASINA GERİ ÇEVİRMELİ.
+ *
+ * objectGUID filtrede ham bayt olarak yazılıyor ve baytlar tel
+ * sırasında olmak zorunda — yani formatObjectGUID'in TERSİ. Ters
+ * çevirme atlanırsa filtre geçerli görünür ama hiçbir şey bulmaz, ve
+ * sonuç "bu kullanıcı dizinde yok" olur: sessiz, yanlış, ve erişim
+ * iptaline dönüşen bir cevap.
+ *
+ * Vektör, TestFormatObjectGUIDByteOrder'ın tam tersi yönü.
+ */
+func TestSubjectFilterRoundTripsToWireOrder(t *testing.T) {
+	got, err := subjectFilter("3a5a5ed0-9a5d-4a3e-924a-8f6c0c5e9b8a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = `(|(entryUUID=3a5a5ed0-9a5d-4a3e-924a-8f6c0c5e9b8a)` +
+		`(objectGUID=\d0\5e\5a\3a\5d\9a\3e\4a\92\4a\8f\6c\0c\5e\9b\8a))`
+	if got != want {
+		t.Fatalf("filtre =\n  %s\nbeklenen =\n  %s", got, want)
+	}
+}
+
+// Geçersiz kimlik filtre üretmemeli: dizine anlamsız bir sorgu atmak,
+// "bulunamadı" cevabını yanlış sebeple üretirdi.
+func TestSubjectFilterRejectsGarbage(t *testing.T) {
+	for _, bad := range []string{"", "kim-bu", "3a5a5ed0-9a5d-4a3e-924a"} {
+		if f, err := subjectFilter(bad); !errors.Is(err, ErrNotAUUID) {
+			t.Fatalf("subjectFilter(%q) = %q, %v", bad, f, err)
+		}
+	}
+}

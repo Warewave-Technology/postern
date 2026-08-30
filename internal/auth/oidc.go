@@ -434,6 +434,36 @@ func (s *SwitchableGroupSource) Groups(ctx context.Context, id Identity) (GroupR
 // ResolvesByUsername, o ANDAKİ kaynağın yeteneğini bildirir. Panelden
 // kaynak değiştiğinde cevap da değişiyor — yakalanmış bir "evet",
 // dizinden claim'e dönen bir kurulumda yanlış olurdu.
+/*
+ * SubjectResolver, grupları KULLANICI ADIYLA DEĞİL kararlı kimlikle
+ * çözebilen kaynak.
+ *
+ * ⚠️ Var olma sebebi: adla arama, dizinde YENİDEN ADLANDIRILAN kişiyi
+ * SİLİNMİŞ kişiden ayırt edemiyor — ikisi de "yok" döner ve çağıranlar
+ * onu erişim iptaline çevirir. Claim tabanlı kaynaklar bunu
+ * uygulayamaz (bir claim'e "şu subject kim" diye sorulamaz), o yüzden
+ * arayüz isteğe bağlı.
+ */
+type SubjectResolver interface {
+	GroupsBySubject(ctx context.Context, subject string) (GroupResult, error)
+}
+
+// GroupsBySubject, sarmalanan kaynak destekliyorsa ona devreder.
+//
+// Desteklemiyorsa GroupsUnknown: "bilmiyorum" demek, "grubu yok"
+// demekten her zaman güvenli taraf.
+func (s *SwitchableGroupSource) GroupsBySubject(ctx context.Context, subject string) (GroupResult, error) {
+	s.mu.RLock()
+	src := s.src
+	s.mu.RUnlock()
+
+	r, ok := src.(SubjectResolver)
+	if !ok {
+		return GroupResult{Presence: GroupsUnknown}, nil
+	}
+	return r.GroupsBySubject(ctx, subject)
+}
+
 func (s *SwitchableGroupSource) ResolvesByUsername() bool {
 	s.mu.RLock()
 	src := s.src

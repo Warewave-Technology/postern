@@ -239,7 +239,17 @@ func newServeCmd() *cobra.Command {
 					return verdict(nil)
 				}
 
-				res, err := groupSwitch.Groups(c, auth.Identity{Username: username})
+				/*
+				 * ⚠️ KİMLİĞİ BAĞLIYSA ADLA DEĞİL, KİMLİKLE SOR.
+				 *
+				 * Adla sormak, dizinde YENİDEN ADLANDIRILAN kişiyi
+				 * SİLİNMİŞ kişiden ayırt edemiyor — ikisi de "yok"
+				 * döner ve buradaki kod onu oturum reddine çevirir.
+				 * Yani İK'nın soyadını güncellemesi, hiçbir şey
+				 * yapmamış bir kullanıcının bütün oturumlarını
+				 * kesiyordu.
+				 */
+				res, err := freshenLookup(c, db, groupSwitch, username)
 				if err != nil {
 					// Arıza önbelleklenmiyor: dizin geri geldiğinde
 					// TTL beklenmesin.
@@ -497,4 +507,28 @@ func redactDSN(dsn string) string {
 		}
 	}
 	return u.Redacted()
+}
+
+/*
+ * freshenLookup, kullanıcıyı dizinde çözer — kimliği bağlıysa KİMLİKLE.
+ *
+ * ⚠️ Ada düşmek yalnızca kimliği olmayan hesaplar için: eski kurulumlar
+ * ve kararlı kimlik vermeyen dizinler. Orada davranış bugünküyle aynı
+ * kalıyor, yani bu değişiklik hiçbir kurulumu geriletmiyor.
+ *
+ * ⚠️ Kimlikle arama başarısız olursa ada DÜŞMÜYORUZ. Düşseydi, dizinde
+ * silinip aynı adla yeniden açılan (yani YENİ bir kimlik almış) kişi
+ * eski hesabın rolleriyle çözülürdü — kimliğin bütün amacı o.
+ */
+func freshenLookup(ctx context.Context, db *store.Store, src *auth.SwitchableGroupSource,
+	username string) (auth.GroupResult, error) {
+
+	subject, err := db.DirSubjectOf(ctx, username)
+	if err != nil {
+		return auth.GroupResult{Presence: auth.GroupsUnknown}, err
+	}
+	if subject == "" {
+		return src.Groups(ctx, auth.Identity{Username: username})
+	}
+	return src.GroupsBySubject(ctx, subject)
 }

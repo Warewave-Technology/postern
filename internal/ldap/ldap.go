@@ -347,8 +347,35 @@ func (s *Source) Groups(ctx context.Context, id auth.Identity) (auth.GroupResult
 	}
 }
 
-// findUser, kullanıcının DN'ini ve (varsa) grup özniteliğini döner.
+// findUser, kullanıcıyı ADIYLA arar.
 func (s *Source) findUser(conn *goldap.Conn, username string) (userEntry, error) {
+	return s.findBy(conn, fmt.Sprintf(s.cfg.UserFilter, goldap.EscapeFilter(username)),
+		fmt.Sprintf("user %q", username))
+}
+
+/*
+ * findBySubject, kullanıcıyı KARARLI KİMLİĞİYLE arar.
+ *
+ * ⚠️ NEDEN GEREKLİ: adla arama, YENİDEN ADLANDIRILAN kullanıcıyı
+ * SİLİNMİŞ kullanıcıdan ayırt edemiyor — ikisi de "bulunamadı" döner.
+ * Ve o cevabı alan taraflar (oturum açılışındaki tazeleme, senkron
+ * döngüsü) onu erişim iptaline çeviriyor. Yani dizinde adı değişen bir
+ * kişi, hiçbir şey yapmadığı hâlde bütün oturumlarını ve rollerini
+ * kaybediyordu.
+ *
+ * Filtre İKİ özniteliği birden deniyor: hangi dizinde olduğumuzu
+ * bilmemize gerek yok ve olmayanı sormak bedava (ölçüldü).
+ */
+func (s *Source) findBySubject(conn *goldap.Conn, subject string) (userEntry, error) {
+	filter, err := subjectFilter(subject)
+	if err != nil {
+		return userEntry{}, err
+	}
+	return s.findBy(conn, filter, fmt.Sprintf("identity %q", subject))
+}
+
+// findBy, verilen filtreyle TEK bir kullanıcı girdisi çözer.
+func (s *Source) findBy(conn *goldap.Conn, filter, what string) (userEntry, error) {
 	attrs := []string{"dn"}
 	if s.cfg.GroupAttribute != "" {
 		attrs = append(attrs, s.cfg.GroupAttribute)
@@ -369,8 +396,7 @@ func (s *Source) findUser(conn *goldap.Conn, username string) (userEntry, error)
 	req := goldap.NewSearchRequest(
 		s.cfg.UserBase, goldap.ScopeWholeSubtree, goldap.NeverDerefAliases,
 		2, int(dialTimeout.Seconds()), false,
-		fmt.Sprintf(s.cfg.UserFilter, goldap.EscapeFilter(username)),
-		attrs, nil,
+		filter, attrs, nil,
 	)
 
 	res, err := conn.Search(req)
@@ -383,7 +409,8 @@ func (s *Source) findUser(conn *goldap.Conn, username string) (userEntry, error)
 	if len(res.Entries) > 1 {
 		// Belirsiz kimlik: hangi kişinin grupları alınacağı bilinemez.
 		// Sessizce ilkini seçmek yanlış kişiye yetki vermek olurdu.
-		return userEntry{}, fmt.Errorf("ldap: user %q matches %d entries; tighten user_filter", username, len(res.Entries))
+		return userEntry{}, fmt.Errorf("ldap: %s matches %d entries; tighten user_filter",
+			what, len(res.Entries))
 	}
 
 	entry := res.Entries[0]

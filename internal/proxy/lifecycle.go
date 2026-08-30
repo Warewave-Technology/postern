@@ -314,7 +314,16 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 	 * arızasını yetki kaybına çevirmek olurdu. Tazeleme fonksiyonunun
 	 * kendisi "bulamadım" ile "cevap veremedim"i ayırt ediyor.
 	 */
-	if u.SSOOnly && deps.FreshenRoles != nil {
+	/*
+	 * ⚠️ KOŞUL "SSO'ya bağlı mı" DEĞİL, "DİZİNE bağlı mı".
+	 *
+	 * Ölçüldü: yetkisi dizin grubundan gelen bir yönetici demo
+	 * veritabanında sso_only=false ile duruyordu — yani dizine karşı
+	 * HİÇ yeniden sorulmuyordu ve dizinde kapatılsa bile anahtarıyla
+	 * oturum açardı. Tam da yetkisi en yüksek ve kontrolü en gerekli
+	 * olan kişi, kontrolün dışında kalıyordu.
+	 */
+	if (u.SSOOnly || u.DirBound) && deps.FreshenRoles != nil {
 		ferr := deps.FreshenRoles(ctx, u.Name)
 		switch {
 		case errors.Is(ferr, ErrDirectoryRefused):

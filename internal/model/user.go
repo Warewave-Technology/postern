@@ -30,6 +30,16 @@ type User struct {
 	// tazelensin diye. Elle oluşturulan servis hesapları false kalır.
 	SSOOnly bool
 
+	/*
+	 * DirBound, hesabın bir DİZİN kimliğine bağlı olduğu.
+	 *
+	 * ⚠️ Oturum açılışında dizine yeniden sorulup sorulmayacağının
+	 * DOĞRU koşulu bu — SSOOnly değil. Ölçüldü: yetkisi dizinden gelen
+	 * bir yönetici (admin_via='group') sso_only=false ile duruyordu,
+	 * yani dizinde kapatılsa bile anahtarıyla oturum açardı.
+	 */
+	DirBound bool
+
 	// Admin, uygulama YÖNETİM yetkisi (kullanıcı/rol/hedef değiştirme,
 	// web'deki yönetim sayfaları). Hedef erişimiyle ilgisi yok: admin
 	// olmayan biri terminale girebilir, admin olan biri rolü yoksa hiçbir

@@ -144,6 +144,7 @@ func (s *Store) User(ctx context.Context, username string) (model.User, error) {
 	       u.os_user,
 	       u.is_admin,
 	       u.sso_only,
+	       (u.dir_subject IS NOT NULL) AS dir_bound,
 	       r.name AS role_name,
 	       t.name AS target_name
 		FROM users u
@@ -172,10 +173,11 @@ func (s *Store) User(ctx context.Context, username string) (model.User, error) {
 
 	for rows.Next() {
 		var scannedName, scannedOSUser string
-		var scannedAdmin, scannedSSOOnly bool
+		var scannedAdmin, scannedSSOOnly, scannedDirBound bool
 		var rawRole, rawTarget sql.NullString
 
-		if err := rows.Scan(&scannedName, &scannedOSUser, &scannedAdmin, &scannedSSOOnly, &rawRole, &rawTarget); err != nil {
+		if err := rows.Scan(&scannedName, &scannedOSUser, &scannedAdmin, &scannedSSOOnly,
+			&scannedDirBound, &rawRole, &rawTarget); err != nil {
 			return model.User{}, translateErr("store.User", err)
 		}
 
@@ -185,6 +187,7 @@ func (s *Store) User(ctx context.Context, username string) (model.User, error) {
 			user.OSUser = scannedOSUser
 			user.Admin = scannedAdmin
 			user.SSOOnly = scannedSSOOnly
+			user.DirBound = scannedDirBound
 			user.Roles = make([]model.Role, 0)
 		}
 
@@ -854,6 +857,22 @@ type ProvisionRequest struct {
 	// Boş bırakılırsa eşleştirme yapılamaz ve ProvisionUser reddeder.
 	Issuer  string
 	Subject string
+
+	/*
+	 * AdminGroupMember, GELEN KİMLİĞİN kendisinin yönetici grubunda
+	 * olduğu.
+	 *
+	 * ⚠️ Adı bir yöneticiyle eşleşen hesabı devralmanın önündeki kapıyı
+	 * bu açıyor — ve açması doğru: yönetici grubunda olan kişi zaten
+	 * yöneticidir, başka bir yönetici hesabını almakla YENİ bir yetki
+	 * kazanmaz. Kapatsaydık, dizin grubundan yönetici olan herkes
+	 * yükseltmeden sonra kendi hesabına giremezdi.
+	 *
+	 * ⚠️ Çağıran bunu YALNIZCA grupları gerçekten çözülmüşken true
+	 * yapmalı. Sıfır değeri false ve bu kasıtlı: alanı doldurmayı
+	 * unutan bir yol, kapıyı AÇMIŞ değil KAPATMIŞ olur.
+	 */
+	AdminGroupMember bool
 }
 
 /*
@@ -1071,7 +1090,18 @@ func (s *Store) ProvisionUser(ctx context.Context, req ProvisionRequest) (model.
 		if berr != nil {
 			return model.User{}, berr
 		}
-		if existing.Admin && !alreadyBound {
+		/*
+		 * ⚠️ Yönetici grubundaki bir kimlik için kapı AÇIK.
+		 *
+		 * O kişi zaten yönetici; başka bir yönetici hesabını almakla
+		 * yeni bir yetki kazanmıyor. Kapalı tutmak, dizin grubundan
+		 * yönetici olan herkesin yükseltmeden sonra kendi hesabına
+		 * girememesi demekti — ölçüldü.
+		 *
+		 * Ölçülen saldırı ise bundan geçmiyor: saldırgan "developers"
+		 * grubundaydı, yönetici grubunda değil.
+		 */
+		if existing.Admin && !alreadyBound && !req.AdminGroupMember {
 			/*
 			 * ⚠️ YÖNETİCİ HESABI, YALNIZCA ADLA DEVRALINAMAZ.
 			 *

@@ -56,6 +56,22 @@ type AuthResult struct {
 
 	Groups     []string
 	OutOfScope []string
+
+	/*
+	 * Identity, dizinin verdiği KARARLI ve opak kimlik (objectGUID ya
+	 * da entryUUID), kanonik biçimde. Boş: bu dizin ya da bu servis
+	 * hesabı böyle bir değer vermiyor.
+	 *
+	 * ⚠️ Eşleştirmenin ASIL anahtarı bu, kullanıcı adı değil. Ad
+	 * dizinde değişir (ölçüldü: yeniden adlandırma ve OU taşıma bu
+	 * değeri değiştirmiyor) ve yeniden kullanılır (ölçüldü: aynı adla
+	 * yeniden açılan kayıt FARKLI kimlik alıyor).
+	 */
+	Identity string
+
+	// IdentityError, öznitelik geldi ama çözümlenemedi. "Yok" ile aynı
+	// şey değil ve teşhis ekranında ayrı görünmeli.
+	IdentityError string
 }
 
 /*
@@ -100,6 +116,8 @@ func (s *Source) Authenticate(ctx context.Context, username, password string) (A
 		Disabled:       ue.Disabled,
 		DisabledReason: ue.DisabledReason,
 		OutOfScope:     ue.OutOfScope,
+		Identity:       ue.Identity,
+		IdentityError:  ue.IdentityError,
 	}
 
 	/*

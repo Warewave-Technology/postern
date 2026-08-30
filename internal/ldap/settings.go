@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/warewave/postern/internal/auth"
 	"github.com/warewave/postern/internal/store"
 )
 
@@ -36,19 +37,10 @@ const (
 	 * auth.source (bkz. internal/auth/source.go).
 	 */
 
-	/*
-	 * KeyAdminGroup, YÖNETİCİ yetkisi veren grubun adı.
-	 *
-	 * ⚠️ Bu grubu ele geçiren yalnızca rol almıyor: panele giriyor,
-	 * yani DENETİM GÜNLÜĞÜNÜ ve OTURUM KAYITLARINI da okuyor. Rol
-	 * almaktan farklı bir şey — geçmişe erişim. Dar tutulması gereken
-	 * bir grup ve arayüz bunu ayarı yaparken söylemeli.
-	 *
-	 * Boş bırakılırsa grup üzerinden yönetici ATANMAZ; yetki yalnızca
-	 * CLI'dan gelir. Varsayılanın boş olması bilinçli: yanlış yazılmış
-	 * bir grup adı, kimsenin fark etmediği bir yetki kapısı olurdu.
-	 */
-	KeyAdminGroup = "ldap.admin_group"
+	// KeyAdminGroup, auth paketine taşındı: grup adı OIDC claim'inden
+	// de gelebiliyor ve iki kaynağın paylaştığı bir kavram birinin
+	// paketinde duramaz. Bu ad geriye dönük uyumluluk için duruyor.
+	KeyAdminGroup = auth.KeyAdminGroup
 )
 
 // SecretKeys, şifrelenerek saklanması gereken ayarlar.
