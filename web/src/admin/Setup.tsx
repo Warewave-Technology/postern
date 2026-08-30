@@ -36,7 +36,16 @@ const SOURCE_LABEL: Record<string, string> = {
   ldap: "Directory (LDAP)",
 };
 
-export default function Setup({ meName }: { meName?: string }) {
+export default function Setup({
+  meName,
+  dirBound = false,
+}: {
+  meName?: string;
+  /** Hesap zaten bir dizin kimliğine bağlıysa bağlama adımı geçilmiş
+   *  sayılır: bağlama ucu haklı olarak çatışma dönerdi ve operatör
+   *  ilerleyemeyeceği bir duvara dayanırdı. */
+  dirBound?: boolean;
+}) {
   const [status, setStatus] = useState<AuthSourceStatus | null>(null);
   const [settings, setSettings] = useState<Setting[]>([]);
   const [choice, setChoice] = useState<string>("");
@@ -48,6 +57,7 @@ export default function Setup({ meName }: { meName?: string }) {
   const [dirUser, setDirUser] = useState("");
   const [dirPass, setDirPass] = useState("");
   const [linked, setLinked] = useState("");
+  const alreadyLinked = dirBound || linked !== "";
 
   const [autoCreate, setAutoCreate] = useState(false);
 
@@ -353,9 +363,13 @@ export default function Setup({ meName }: { meName?: string }) {
                 directory account <b>now</b>, while you are still signed in:
                 postern links it to <b>{meName}</b> and you keep your way back.
               </p>
-              {linked ? (
+              {alreadyLinked ? (
                 <OkLine
-                  msg={`linked to directory identity ${linked} — you can switch safely`}
+                  msg={
+                    linked
+                      ? `linked to directory identity ${linked} — you can switch safely`
+                      : "your account is already linked to a directory identity — you can switch safely"
+                  }
                 />
               ) : (
                 <div className="wizard-form">
@@ -421,7 +435,7 @@ export default function Setup({ meName }: { meName?: string }) {
             <ActionButton
               variant="primary"
               disabled={
-                !eligible?.eligible || (choice === "ldap" && linked === "")
+                !eligible?.eligible || (choice === "ldap" && !alreadyLinked)
               }
               label="switch the panel to this source"
               confirm={
@@ -432,7 +446,7 @@ export default function Setup({ meName }: { meName?: string }) {
               }
               onClick={activate}
             >
-              {choice === "ldap" && linked === ""
+              {choice === "ldap" && !alreadyLinked
                 ? "Link your account first"
                 : "Switch now"}
             </ActionButton>

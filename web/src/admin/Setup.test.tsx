@@ -135,3 +135,28 @@ describe("kurulum sihirbazi", () => {
     ).toBeInTheDocument();
   });
 });
+
+/*
+ * ⚠️ ZATEN BAĞLI OLAN YÖNETİCİ, İLERLEYEMEYECEĞİ BİR DUVARA DAYANMAMALI.
+ *
+ * Bağlama ucu haklı olarak çatışma döner (bir hesap bir kimliğe bağlanır
+ * ve bağ sessizce değişemez). Sihirbaz bunu bilmezse, ekranda "önce
+ * bağla" yazar ve düğme kapalı kalır — kurulum orada durur.
+ */
+describe("zaten bagli yonetici", () => {
+  it("baglama adimini gecilmis sayar", async () => {
+    render(<Setup meName="ops" dirBound />);
+    await waitFor(() =>
+      expect(screen.getByText(/Which source opens the panel/i)).toBeInTheDocument(),
+    );
+    await userEvent.click(screen.getByRole("radio", { name: /Directory \(LDAP\)/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /Link yourself, then switch/i }),
+    );
+
+    expect(screen.getByText(/already linked to a directory identity/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /switch the panel to this source/i }),
+    ).toBeEnabled();
+  });
+});

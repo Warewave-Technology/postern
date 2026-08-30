@@ -389,6 +389,16 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		"terminal_enabled": s.proxyDeps != nil,
 		// Panel anahtar yönetimini buna göre çiziyor. Asıl koruma uçta.
 		"public_key_login": s.publicKeyLogin,
+
+		/*
+		 * Hesap bir DİZİN kimliğine bağlı mı.
+		 *
+		 * Kurulum sihirbazı buna bakıyor: kaynağı dizine çevirmeden önce
+		 * kendi kimliğini bağlamış olmak gerekiyor, ama ZATEN bağlı olan
+		 * yöneticiye "önce bağla" demek onu ilerleyemeyeceği bir duvara
+		 * dayardı — bağlama ucu haklı olarak çatışma döner.
+		 */
+		"dir_bound": u.DirBound,
 	})
 }
 

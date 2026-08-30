@@ -13,6 +13,9 @@ export type Me = {
   /** Anahtarla giriş açık mı (auth.public_key_login). Kapalıysa panel
    *  anahtar yönetimini hiç çizmiyor — asıl koruma sunucuda. */
   public_key_login: boolean;
+  /** Hesap bir dizin kimliğine bağlı mı. Sihirbaz buna bakıyor: zaten
+   *  bağlı olana "önce bağla" demek, ilerleyemeyeceği bir duvar olurdu. */
+  dir_bound?: boolean;
 };
 export type User = {
   name: string;

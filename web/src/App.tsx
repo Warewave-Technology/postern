@@ -459,7 +459,9 @@ export default function App() {
             </nav>
 
             <div>
-              {section === "setup" && <Setup meName={me.name} />}
+              {section === "setup" && (
+                <Setup meName={me.name} dirBound={me.dir_bound} />
+              )}
               {section === "overview" && <Overview />}
               {section === "users" && (
                 <Users publicKeyLogin={me.public_key_login} />
