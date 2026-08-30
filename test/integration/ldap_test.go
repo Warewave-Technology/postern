@@ -10,10 +10,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	goldap "github.com/go-ldap/ldap/v3"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	goldap "github.com/go-ldap/ldap/v3"
 
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -87,6 +89,25 @@ func ldapConfig(url string) ldap.Config {
 		GroupBase:    "ou=groups," + ldapBaseDN,
 		GroupFilter:  "(&(objectClass=groupOfNames)(member=%s))",
 	}
+}
+
+/*
+ * dialLDAP, TESTİN dizini değiştirmek için kullandığı bağlantı.
+ *
+ * postern'in kendi bağlantısından ayrı ve yönetici olarak bağlanıyor:
+ * burada amaç dizini KURCALAMAK (yeniden adlandırma, silme), postern'in
+ * gördüğü şeyi taklit etmek değil.
+ */
+func dialLDAP(t *testing.T, url string) *goldap.Conn {
+	t.Helper()
+	conn, err := goldap.DialURL(url)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	if err := conn.Bind(ldapAdminDN, ldapAdminPwd); err != nil {
+		t.Fatalf("bind: %v", err)
+	}
+	return conn
 }
 
 // Grup araması yolu: üyelik grubun üstünde (groupOfNames).
@@ -218,6 +239,145 @@ func TestLDAPGroupAttributeIsCaseInsensitive(t *testing.T) {
 					"kullanıcı bütün rollerini kaybederdi", spelling, gres.Groups)
 			}
 		})
+	}
+}
+
+/*
+ * ⚠️ KARARLI KİMLİK: bütün bağlama tasarımının dayandığı özellik.
+ *
+ * Kullanıcı adı bir kimlik DEĞİL — dizinde değişir, hatta yeniden
+ * kullanılır. entryUUID ise aynı kişi için sabit kalır. Bu test o
+ * varsayımı DOĞRULUYOR, çünkü yanlış olsaydı üstüne kurulan her şey
+ * sessizce yanlış olurdu.
+ *
+ * Üç olay ölçülüyor ve üçünün de sonucu farklı:
+ *   yeniden adlandırma → DN değişir, kimlik AYNI kalır
+ *   OU taşıma          → DN değişir, kimlik AYNI kalır
+ *   sil + aynı adla aç → DN aynıdır, kimlik DEĞİŞİR
+ *
+ * Sonuncusu güvenlik tarafı: ayrılan çalışanın adını alan kişi, eski
+ * postern hesabını devralamaz.
+ */
+func TestLDAPIdentityIsStableAcrossRename(t *testing.T) {
+	url := startOpenLDAP(t)
+	cfg := ldapConfig(url)
+	cfg.GroupFilter = ""
+	cfg.GroupAttribute = "ou"
+
+	src, err := ldap.New(cfg)
+	if err != nil {
+		t.Fatalf("ldap.New: %v", err)
+	}
+	ctx := context.Background()
+
+	before, err := src.Lookup(ctx, auth.Identity{Username: ldapUser})
+	if err != nil {
+		t.Fatalf("Lookup: %v", err)
+	}
+	if before.Identity == "" {
+		t.Fatal("dizin kararlı kimlik vermedi — entryUUID açıkça istenmiyor olabilir")
+	}
+	// Kanonik biçim: küçük harfli 8-4-4-4-12.
+	if len(before.Identity) != 36 || strings.ToLower(before.Identity) != before.Identity {
+		t.Fatalf("kimlik kanonik değil: %q", before.Identity)
+	}
+
+	// ⚠️ -r karşılığı: eski RDN değeri KALDIRILIYOR. Kaldırılmazsa eski
+	// uid kayıtta kalır, eski adla arama çalışmaya devam eder ve test
+	// yanlış sebeple geçer. (Bu tuzağa elle ölçerken düşüldü.)
+	conn := dialLDAP(t, url)
+	defer conn.Close()
+	oldDN := "uid=" + ldapUser + ",ou=people," + ldapBaseDN
+	newDN := "uid=yigit.can,ou=people," + ldapBaseDN
+	if err := conn.ModifyDN(goldap.NewModifyDNRequest(oldDN, "uid=yigit.can", true, "")); err != nil {
+		t.Fatalf("modrdn: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = conn.ModifyDN(goldap.NewModifyDNRequest(newDN, "uid="+ldapUser, true, ""))
+	})
+
+	// Eski ad artık YOK: bugün freshen ve senkronizasyon döngüsünün
+	// gördüğü şey bu.
+	stale, err := src.Lookup(ctx, auth.Identity{Username: ldapUser})
+	if err != nil {
+		t.Fatalf("Lookup(eski ad): %v", err)
+	}
+	if stale.Presence != ldap.PresenceAbsent {
+		t.Fatalf("eski ad hâlâ çözülüyor (%v) — yeniden adlandırma gerçekleşmemiş olabilir",
+			stale.Presence)
+	}
+
+	// Yeni adla aynı kişi, AYNI kimlik.
+	after, err := src.Lookup(ctx, auth.Identity{Username: "yigit.can"})
+	if err != nil {
+		t.Fatalf("Lookup(yeni ad): %v", err)
+	}
+	if after.Presence != ldap.PresencePresent {
+		t.Fatalf("yeni ad çözülmedi: %v", after.Presence)
+	}
+	if after.Identity != before.Identity {
+		t.Fatalf("kimlik yeniden adlandırmada DEĞİŞTİ: %q → %q; "+
+			"bağlama tasarımının dayandığı özellik yok",
+			before.Identity, after.Identity)
+	}
+}
+
+/*
+ * ⚠️ AD GERİ DÖNÜŞÜMÜ YENİ BİR KİMLİK ÜRETMELİ.
+ *
+ * Üretmezse: ayrılan çalışanın kullanıcı adı yeni birine verildiğinde,
+ * yeni kişi eskisinin postern hesabını — rolleriyle ve is_admin
+ * bayrağıyla — devralır. 011 göçünün OIDC için kapattığı açığın dizin
+ * karşılığı tam olarak budur.
+ */
+func TestLDAPIdentityChangesWhenNameIsRecycled(t *testing.T) {
+	url := startOpenLDAP(t)
+	cfg := ldapConfig(url)
+	cfg.GroupFilter = ""
+	cfg.GroupAttribute = "ou"
+
+	src, err := ldap.New(cfg)
+	if err != nil {
+		t.Fatalf("ldap.New: %v", err)
+	}
+	ctx := context.Background()
+	conn := dialLDAP(t, url)
+	defer conn.Close()
+
+	const name = "gecici.kisi"
+	dn := "uid=" + name + ",ou=people," + ldapBaseDN
+	add := func() {
+		req := goldap.NewAddRequest(dn, nil)
+		req.Attribute("objectClass", []string{"inetOrgPerson"})
+		req.Attribute("uid", []string{name})
+		req.Attribute("cn", []string{"Gecici Kisi"})
+		req.Attribute("sn", []string{"Kisi"})
+		if err := conn.Add(req); err != nil {
+			t.Fatalf("add: %v", err)
+		}
+	}
+
+	add()
+	t.Cleanup(func() { _ = conn.Del(goldap.NewDelRequest(dn, nil)) })
+
+	first, err := src.Lookup(ctx, auth.Identity{Username: name})
+	if err != nil || first.Identity == "" {
+		t.Fatalf("ilk kayıt: %v / %q", err, first.Identity)
+	}
+
+	if err := conn.Del(goldap.NewDelRequest(dn, nil)); err != nil {
+		t.Fatalf("del: %v", err)
+	}
+	add()
+
+	second, err := src.Lookup(ctx, auth.Identity{Username: name})
+	if err != nil || second.Identity == "" {
+		t.Fatalf("ikinci kayıt: %v / %q", err, second.Identity)
+	}
+
+	if second.Identity == first.Identity {
+		t.Fatalf("aynı adla yeniden açılan kayıt AYNI kimliği aldı (%q) — "+
+			"ad geri dönüşümü hesap devralmaya dönüşürdü", first.Identity)
 	}
 }
 

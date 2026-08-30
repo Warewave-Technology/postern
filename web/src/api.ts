@@ -186,6 +186,11 @@ export type LDAPTestResult = {
   // sayılmayan gruplar. Boş olmayan bir liste, yükseltmede rol kaybı
   // demek — ekranda sessiz kalmamalı.
   out_of_scope?: string[];
+  /** Dizinin verdiği KARARLI ve opak kimlik (objectGUID / entryUUID).
+   *  Boşsa dizin ya da servis hesabı böyle bir değer vermiyor. */
+  identity?: string;
+  /** Öznitelik geldi ama çözümlenemedi. "Yok" ile aynı şey değil. */
+  identity_error?: string;
 };
 
 // SyncRun, bir senkronizasyon koşusunun sonucu.

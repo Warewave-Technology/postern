@@ -609,6 +609,30 @@ export default function Settings({ meName }: { meName?: string }) {
                       <dd>{test.roles?.join(", ") || "none"}</dd>
                       <dt>unmapped</dt>
                       <dd>{test.unmapped?.join(", ") || "none"}</dd>
+                      {/*
+                        ⚠️ Kararlı kimlik, HENÜZ hiçbir yetki kararına
+                        bağlı değil — ama bağlanmadan önce operatörün
+                        kendi dizininde gerçekten geldiğini görmesi
+                        gerekiyor. Sonradan "boş çıkıyormuş" diye
+                        öğrenmek, bağlamanın açıldığı gün herkesin
+                        kapıda kalması demek.
+                      */}
+                      <dt>stable identity</dt>
+                      <dd>
+                        {test.identity ? (
+                          <code>{test.identity}</code>
+                        ) : test.identity_error ? (
+                          <span className="msg msg-warn">
+                            the directory returned one but postern could not
+                            read it — {test.identity_error}
+                          </span>
+                        ) : (
+                          <span className="muted">
+                            none — this directory (or this service account) does
+                            not expose objectGUID or entryUUID
+                          </span>
+                        )}
+                      </dd>
                     </dl>
                   )}
                 </div>

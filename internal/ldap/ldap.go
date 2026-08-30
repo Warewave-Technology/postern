@@ -356,6 +356,15 @@ func (s *Source) findUser(conn *goldap.Conn, username string) (userEntry, error)
 	// Hesabın açık olup olmadığı, grup üyeliğinden AYRI bir soru
 	// (bkz. liveness.go). Aynı aramada geliyor: ikinci bir tur yok.
 	attrs = append(attrs, livenessAttrs...)
+	/*
+	 * ⚠️ KARARLI KİMLİK AÇIKÇA İSTENMEK ZORUNDA.
+	 *
+	 * entryUUID OPERASYONEL bir öznitelik: ölçüldü (OpenLDAP), "*" ile
+	 * gelmiyor, adı yazılmadıkça hiç dönmüyor. Adını yazmayan bir kod
+	 * "bu dizinde kararlı kimlik yok" sonucuna varırdı — dizin onu
+	 * sunuyorken.
+	 */
+	attrs = append(attrs, identityAttrs...)
 
 	req := goldap.NewSearchRequest(
 		s.cfg.UserBase, goldap.ScopeWholeSubtree, goldap.NeverDerefAliases,
@@ -409,9 +418,39 @@ func (s *Source) findUser(conn *goldap.Conn, username string) (userEntry, error)
 		}
 	}
 	disabled, why := accountDisabled(entry)
+
+	/*
+	 * Kimlik okunuyor ama okunamaması giriş yolunu DÜŞÜRMÜYOR.
+	 *
+	 * ⚠️ Bu dengenin yönü bilinçli: kimliği olmayan bir dizinde
+	 * postern'in bugünkü gibi (kullanıcı adıyla) çalışmaya devam etmesi
+	 * gerekiyor. Kimliği zorunlu kılmak, ayrı bir dilimde ve AÇIKÇA
+	 * yapılacak bir karar — sessizce buradan gelmemeli.
+	 *
+	 * Bozuk bir değer ise SESSİZ GEÇİLMİYOR: "okuyamadım" ile
+	 * "anlamadım" ayrı şeyler ve ikincisi bir yapılandırma hatasının
+	 * işareti.
+	 */
+	var identity string
+	var identityErr string
+	for _, attr := range identityAttrs {
+		raw := entry.GetEqualFoldRawAttributeValue(attr)
+		if len(raw) == 0 {
+			continue
+		}
+		v, derr := decodeIdentity(raw)
+		if derr != nil {
+			identityErr = attr + ": " + derr.Error()
+			continue
+		}
+		identity = v
+		break
+	}
+
 	return userEntry{
 		DN: entry.DN, Groups: groups, OutOfScope: outOfScope,
 		Disabled: disabled, DisabledReason: why,
+		Identity: identity, IdentityError: identityErr,
 	}, nil
 }
 
@@ -429,6 +468,24 @@ type userEntry struct {
 	// sorusunun cevabını logda görmeli.
 	Disabled       bool
 	DisabledReason string
+
+	/*
+	 * Identity, dizinin verdiği KARARLI ve opak kimlik (objectGUID ya
+	 * da entryUUID), kanonik küçük harfli biçimde. Boş: bu dizin ya da
+	 * bu servis hesabı kararlı bir kimlik vermiyor.
+	 *
+	 * ⚠️ HENÜZ HİÇBİR YETKİ KARARI BUNA BAĞLI DEĞİL. Okunuyor ve
+	 * görünüyor; bağlama ayrı bir dilim. Sıra bu yönde olmak zorunda:
+	 * kimliği kullanmaya başlamadan önce, gerçek dizinlerde gerçekten
+	 * geldiğini görmek gerekiyor.
+	 */
+	Identity string
+
+	// IdentityError, kimlik özniteliği VAR ama çözümlenemedi. Boş
+	// olmaması bir yapılandırma/şema sorununun işareti ve teşhis
+	// ekranında görünmeli — sessizce "kimlik yok" saymak yanlış teşhis
+	// koydururdu.
+	IdentityError string
 }
 
 // searchGroups, üyeliğin grubun üstünde durduğu şemalar için.

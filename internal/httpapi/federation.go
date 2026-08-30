@@ -350,6 +350,21 @@ func (s *Server) adminTestLDAP(w http.ResponseWriter, r *http.Request) {
 		// yapmak, operatörü kaybolan yetkinin sebebini arayarak
 		// dolaştırır.
 		res["out_of_scope"] = nonNil(lr.OutOfScope)
+
+		/*
+		 * ⚠️ KARARLI KİMLİK TEŞHİS EKRANINDA GÖRÜNÜYOR.
+		 *
+		 * Henüz hiçbir yetki kararı buna bağlı değil; ama bağlanmadan
+		 * ÖNCE operatörün kendi dizininde gerçekten geldiğini görmesi
+		 * gerekiyor. Sonradan "kimlik boş çıktı" diye öğrenmek,
+		 * bağlamanın açıldığı gün herkesin kapıda kalması demek.
+		 *
+		 * Üç ayrı cevap, üç ayrı alan: değer var / öznitelik yok /
+		 * öznitelik var ama çözümlenemedi. Sonuncusunu "yok" saymak
+		 * yanlış teşhis koydururdu.
+		 */
+		res["identity"] = lr.Identity
+		res["identity_error"] = lr.IdentityError
 	}
 
 	writeJSON(w, http.StatusOK, res)

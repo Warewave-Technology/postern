@@ -60,6 +60,23 @@ type LookupResult struct {
 	Disabled       bool
 	DisabledReason string
 
+	/*
+	 * Identity, dizinin verdiği KARARLI ve opak kimlik: AD'de
+	 * objectGUID, RFC 4530 dizinlerinde entryUUID. Kanonik küçük
+	 * harfli UUID biçiminde; boşsa dizin (ya da servis hesabı) böyle
+	 * bir değer vermiyor.
+	 *
+	 * ⚠️ Var olma sebebi: kullanıcı adı bir kimlik DEĞİL. Ölçüldü
+	 * (OpenLDAP): yeniden adlandırma ve OU taşıma bu değeri
+	 * DEĞİŞTİRMİYOR, silinip aynı adla yeniden açmak ise DEĞİŞTİRİYOR
+	 * — yani ayrılan çalışanın adını alan kişi eski hesabı devralamaz.
+	 * 011 göçünün OIDC için kapattığı açığın dizin karşılığı.
+	 */
+	Identity string
+
+	// IdentityError, kimlik özniteliği geldi ama çözümlenemedi.
+	IdentityError string
+
 	// OutOfScope, kullanıcının üye olduğu ama grup KAPSAMI dışında
 	// kaldığı için sayılmayan grupların ham DN'leri.
 	//
@@ -111,6 +128,8 @@ func (s *Source) Lookup(ctx context.Context, id auth.Identity) (LookupResult, er
 			OutOfScope:     ue.OutOfScope,
 			Disabled:       ue.Disabled,
 			DisabledReason: ue.DisabledReason,
+			Identity:       ue.Identity,
+			IdentityError:  ue.IdentityError,
 		}, nil
 	}
 
@@ -123,7 +142,9 @@ func (s *Source) Lookup(ctx context.Context, id auth.Identity) (LookupResult, er
 	return LookupResult{Presence: PresencePresent, Groups: groups,
 		OutOfScope:     searchOutOfScope,
 		Disabled:       ue.Disabled,
-		DisabledReason: ue.DisabledReason}, nil
+		DisabledReason: ue.DisabledReason,
+		Identity:       ue.Identity,
+		IdentityError:  ue.IdentityError}, nil
 }
 
 // Probe, dizinin ŞU AN veri döndürüp döndürmediğini sorar.
