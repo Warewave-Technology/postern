@@ -156,11 +156,13 @@ func (s *Server) directoryLogin(w http.ResponseWriter, r *http.Request,
 	if err != nil {
 		switch {
 		case errors.Is(err, store.ErrNotFound):
-			log.Warn("directory login: no postern account for this directory user",
-				"user", username, "identity", res.Identity)
-			writeErr(w, http.StatusForbidden,
-				"the directory knows you, but this bastion has no account for you yet; "+
-					"ask an administrator to add it")
+			/*
+			 * Kimliği doğrulandı, hesabı yok. Kapıyı yüzüne kapatmak
+			 * yerine ne olduğunu SÖYLÜYORUZ: ya hesap kendiliğinden
+			 * açılıyor, ya onay kuyruğuna düşüyor ve kişi bunu
+			 * ekranda görüyor.
+			 */
+			s.admitOrQueue(w, r, log, "dir", res.Identity, username, res.Groups, adminMember)
 		case errors.Is(err, store.ErrAdminBindRefused):
 			// Ölçülmüş saldırının dizin tarafındaki karşılığı: adı bir
 			// yöneticiyle eşleşen, ilk kez görülen bir kimlik.
@@ -183,9 +185,23 @@ func (s *Server) directoryLogin(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	// Presence yukarıda Present olarak doğrulandı: boş liste burada
+	s.finishDirectorySession(w, r, log, u, res.Groups, adminMember)
+}
+
+/*
+ * finishDirectorySession, rolleri tazeler ve oturumu açar.
+ *
+ * Ayrı bir fonksiyon çünkü İKİ yol buraya çıkıyor: var olan hesapla
+ * giriş, ve hesabın o an kendiliğinden açılması. İkisinin de aynı
+ * rol/yönetici/denetim yolundan geçmesi gerekiyor — ayrı yazılsaydı,
+ * biri unutulan bir adımla ilerlerdi.
+ */
+func (s *Server) finishDirectorySession(w http.ResponseWriter, r *http.Request, log logger,
+	u model.User, groups []string, adminGroupMember bool) {
+
+	// Presence çağıranda Present olarak doğrulandı: boş liste burada
 	// "hiçbir grupta değil" demek, "bilmiyorum" değil.
-	roles, _, rerr := s.store.RolesForGroups(r.Context(), model.ResolvedGroups(res.Groups))
+	roles, _, rerr := s.store.RolesForGroups(r.Context(), model.ResolvedGroups(groups))
 	if rerr != nil {
 		s.storeErr(w, "auth.directory", rerr)
 		return
@@ -196,7 +212,7 @@ func (s *Server) directoryLogin(w http.ResponseWriter, r *http.Request,
 	}
 	// Yönetici yetkisi de dizinden: gruplar BURADA gerçekten çözüldü,
 	// yani uygulamak güvenli (bkz. applyGroupAdmin'deki not).
-	s.applyGroupAdmin(r.Context(), u.Name, res.Groups)
+	s.applyGroupAdmin(r.Context(), u.Name, groups)
 
 	token, err := s.webSessions.Create(u.Name)
 	if err != nil {
@@ -305,4 +321,79 @@ func (s *Server) resolveDirectoryUser(ctx context.Context, log logger,
 	}
 	log.Info("directory identity bound", "user", u.Name, "identity", identity)
 	return s.store.User(ctx, u.Name)
+}
+
+/*
+ * admitOrQueue, hesabı olmayan ama kimliği doğrulanmış kişiyi karşılar.
+ *
+ * İki yol var ve hangisinin geçerli olduğunu auth.auto_create söylüyor:
+ *
+ *   AÇIK  → hesap kendiliğinden açılır. Rol eşlemesi hâlâ kapıda:
+ *           hiçbir grubu role eşleşmiyorsa hesap AÇILMAZ.
+ *   KAPALI→ kişi onay kuyruğuna düşer ve "onay bekliyor" cevabı alır.
+ *
+ * ⚠️ KARARLI KİMLİK OLMADAN KUYRUĞA DA ALMIYORUZ. Kuyruk satırı
+ * kimlikle anahtarlı (göç 022); anahtarsız bir satır, adını değiştiren
+ * herkesin yeniden başvurabildiği ve reddin hiçbir şey ifade etmediği
+ * bir kuyruk demek olurdu.
+ */
+func (s *Server) admitOrQueue(w http.ResponseWriter, r *http.Request, log logger,
+	source, identity, username string, groups []string, adminGroupMember bool) {
+
+	if identity == "" {
+		log.Warn("no postern account and the directory gives no stable identity",
+			"user", username)
+		writeErr(w, http.StatusForbidden,
+			"the directory knows you, but this bastion has no account for you yet, "+
+				"and your directory does not publish a stable identity for you; "+
+				"ask an administrator to add the account")
+		return
+	}
+
+	if auth.AutoCreateEnabled(r.Context(), s.store) {
+		u, err := s.store.CreateFromDirectory(r.Context(), store.DirectoryAccount{
+			Username: username, Subject: identity, Groups: groups,
+		})
+		if err != nil {
+			if errors.Is(err, store.ErrAccessDenied) {
+				// Rol eşlemesi yok: hesap açmak, hiçbir yere
+				// erişemeyen bir kayıt bırakmak olurdu.
+				log.Warn("auto-create refused: no group maps to a role",
+					"user", username, "groups", groups)
+				writeErr(w, http.StatusForbidden,
+					"none of your groups is mapped to a role on this bastion; "+
+						"ask an administrator")
+				return
+			}
+			log.Error("auto-create failed", "error", err)
+			writeErr(w, http.StatusInternalServerError, "sign-in failed")
+			return
+		}
+		log.Info("account created from directory", "user", u.Name, "identity", identity)
+		s.finishDirectorySession(w, r, log, u, groups, adminGroupMember)
+		return
+	}
+
+	state, err := s.store.RecordPending(r.Context(), store.PendingUser{
+		Subject: identity, Source: source, Username: username, SeenGroups: groups,
+	})
+	if err != nil {
+		log.Error("pending record failed", "error", err)
+		writeErr(w, http.StatusInternalServerError, "sign-in failed")
+		return
+	}
+
+	if state == store.PendingRejected {
+		// ⚠️ Reddedilmiş kimliğe "bekliyor" demiyoruz: bekletmediğimiz
+		// birini beklettiğimizi söylemek, onu süresiz bir kuyrukta
+		// tutmak olurdu.
+		log.Warn("rejected identity tried again", "user", username, "identity", identity)
+		writeErr(w, http.StatusForbidden,
+			"an administrator has declined access for this account")
+		return
+	}
+
+	log.Info("pending account recorded", "user", username, "identity", identity)
+	writeErr(w, http.StatusForbidden,
+		"your account is waiting for an administrator to approve it")
 }

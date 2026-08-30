@@ -239,6 +239,7 @@ func (s *Server) Handler() http.Handler {
 	s.registerAdminRoutes(mux)
 	s.registerFederationRoutes(mux)
 	s.registerAuthSourceRoutes(mux)
+	s.registerPendingRoutes(mux)
 	s.registerEventRoutes(mux)
 	s.registerTargetRoutes(mux)
 

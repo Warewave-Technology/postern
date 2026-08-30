@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/warewave/postern/internal/store"
@@ -145,4 +146,29 @@ func InAdminGroup(ctx context.Context, db *store.Store, groups []string) (bool, 
 		}
 	}
 	return false, nil
+}
+
+/*
+ * KeyAutoCreate, kimliği doğrulanan ama postern hesabı olmayan kişi
+ * için hesabın KENDİLİĞİNDEN açılıp açılmayacağı.
+ *
+ * ⚠️ VARSAYILAN KAPALI ve bu bir güvenlik kararı. "IdP'de hesabın
+ * olması postern'de hesabın olması demek değil" kuralı ürünün
+ * başından beri yazılı; açık varsayılan onu sessizce tersine
+ * çevirirdi. Kapalıyken kapı da kapanmıyor: kişi onay kuyruğuna
+ * düşüyor ve bunu ekranda görüyor.
+ */
+const KeyAutoCreate = "auth.auto_create"
+
+// AutoCreateEnabled, hesapların kendiliğinden açılıp açılmadığı.
+//
+// Okunamayan ya da bozuk değer KAPALI sayılıyor: bir veritabanı
+// arızası, hesap açan bir kapıyı kendiliğinden açmamalı.
+func AutoCreateEnabled(ctx context.Context, db *store.Store) bool {
+	v, err := db.Setting(ctx, KeyAutoCreate)
+	if err != nil {
+		return false
+	}
+	on, perr := strconv.ParseBool(strings.TrimSpace(v))
+	return perr == nil && on
 }

@@ -10,6 +10,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/warewave/postern/internal/model"
 )
@@ -104,4 +105,82 @@ func (s *Store) HasDirectoryIdentity(ctx context.Context, username string) (bool
 		return false, err
 	}
 	return subject != "", nil
+}
+
+// DirectoryAccount, dizinden kendiliğinden açılacak hesabın girdisi.
+type DirectoryAccount struct {
+	Username string
+	Subject  string
+	Groups   []string
+}
+
+/*
+ * CreateFromDirectory, dizin kimliğinden hesap açar ve BAĞLAR.
+ *
+ * ⚠️ ROL EŞLEMESİ KAPIDA. Hiçbir grup bir role eşleşmiyorsa hesap
+ * AÇILMIYOR (ErrAccessDenied). Bu, OIDC yolundaki ProvisionUser'ın
+ * aynı sözleşmesi: "IdP'de hesabın olması postern'de hesabın olması
+ * demek değil" kuralının otomatik açılıştaki karşılığı. Onsuz users
+ * tablosu, hiçbir yere erişemeyen kayıtlarla dizinin kopyasına
+ * dönüşürdü.
+ *
+ * ⚠️ Hesap ve bağ AYNI transaction'da: bağlanmamış bir hesap, adla
+ * devralınabilir bir hesaptır.
+ */
+func (s *Store) CreateFromDirectory(ctx context.Context, acc DirectoryAccount) (model.User, error) {
+	if acc.Subject == "" {
+		return model.User{}, fmt.Errorf("store.CreateFromDirectory: empty subject")
+	}
+	if reservedOSUsers[acc.Username] {
+		return model.User{}, fmt.Errorf(
+			"store.CreateFromDirectory[%s]: refusing to auto-provision a reserved "+
+				"system account name: %w", acc.Username, ErrAccessDenied)
+	}
+
+	roles, unmapped, err := s.RolesForGroups(ctx, model.ResolvedGroups(acc.Groups))
+	if err != nil {
+		return model.User{}, err
+	}
+	if len(unmapped) > 0 {
+		if rerr := s.RecordUnmappedGroups(ctx, unmapped); rerr != nil {
+			return model.User{}, rerr
+		}
+	}
+	if len(roles) == 0 {
+		return model.User{}, fmt.Errorf(
+			"store.CreateFromDirectory[%s]: no group maps to a role: %w",
+			acc.Username, ErrAccessDenied)
+	}
+
+	userID, err := newID()
+	if err != nil {
+		return model.User{}, err
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return model.User{}, translateErr("store.CreateFromDirectory", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // commit sonrası no-op
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO users (id, username, os_user, created_at, dir_subject)
+		VALUES ($1, $2, $2, $3, $4);`,
+		userID, acc.Username, time.Now().Unix(), acc.Subject); err != nil {
+		return model.User{}, translateErr("store.CreateFromDirectory", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return model.User{}, translateErr("store.CreateFromDirectory", err)
+	}
+
+	if serr := s.SyncRoles(ctx, acc.Username, roles); serr != nil {
+		return model.User{}, serr
+	}
+	if lerr := s.LogAdmin(ctx, AdminLogEntry{
+		Actor: "system", Via: "dir", Action: "user.auto_create", Entity: acc.Username,
+		Details: "created from directory identity " + acc.Subject,
+	}); lerr != nil {
+		return model.User{}, lerr
+	}
+	return s.User(ctx, acc.Username)
 }
