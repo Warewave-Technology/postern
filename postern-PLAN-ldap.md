@@ -107,10 +107,26 @@ yüzeyin en sona kalması için seçildi.
 > atanamıyor ama bir dizin grubu taşıyabiliyor; ve o grubu ayarlamak,
 > kime yetki verildiğini gösteren bir onay ekranından geçiyor.
 >
-> **Sırada (S6.3):** OIDC ve LDAP için `enabled` sütunları, aynı anda
-> yalnızca birinin etkin olabilmesi, biri etkinken yerel girişin
-> kapanması ve CLI'dan kapatınca geri gelmesi; grup çözülüp de boş
-> geldiğinde `unknown` grubu.
+> S6.3 tamamlandı (`790ee10`): tek aktif giriş kaynağı ve `unknown` grubu.
+>
+> ⚠️ **Plandan sapma, bilinçli.** İstenen "OIDC ve LDAP için birer
+> `enabled` bayrağı, aynı anda yalnızca biri açık" idi. Bunun yerine tek
+> değerli `auth.source` (`local` | `oidc` | `ldap`) yazıldı: iki bayrak,
+> "ikisi birden açık" durumunu TEMSİL EDİLEBİLİR yapıyor ve kuralı her
+> yazma yolunda tekrarlanan bir kontrole bağlıyor — CLI'dan doğrudan
+> yazan biri, bir yarış ya da kontrolü eklemeyi unutan yeni bir uç onu
+> bozar. Tek değerde o durum hiç yok.
+>
+> Kaynak değiştirmek panelde KANIT istiyor (geçilecek kapının gerçekten
+> birini içeri alabildiği); CLI'da istemiyor ve uyarıyor — acil çıkışı
+> bir dizinin ulaşılabilirliğine bağlamak onu acil çıkış olmaktan
+> çıkarırdı.
+>
+> **Sırada:** kararlı dizin kimliği (entryUUID/objectGUID) ile bağlama.
+> Bugün dizin kapısı JIT hesap AÇMIYOR, çünkü kararlı bir subject
+> olmadan hesap açmak kullanıcı adına dayalı bir bağ kurmak olurdu
+> (011'de kapatılan açık). S8'de TOTP, `mykeys.go`'daki yeniden
+> doğrulamaya bağlanacak.
 
 Bunlar LDAP dönüşümünden bağımsız olarak değerli; sonrasını de-riske ediyor.
 
