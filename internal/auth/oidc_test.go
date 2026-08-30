@@ -12,9 +12,11 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"net"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/oauth2"
 )
@@ -135,4 +137,52 @@ func TestExchangeRejectsStateMismatchBeforeAnythingElse(t *testing.T) {
 	if !errors.Is(err, ErrStateMismatch) {
 		t.Fatalf("hata = %v, beklenen ErrStateMismatch", err)
 	}
+}
+
+/*
+ * ⚠️ KEŞİF SINIRLI SÜREDE PES ETMELİ.
+ *
+ * ÖLÇÜLEN ARIZA: go-oidc, context'e istemci konmadıysa
+ * http.DefaultClient'a düşüyor ve onun zaman aşımı yok. Bu çağrı
+ * postern'in açılışında, SSH dinleyicisi kurulmadan ÖNCE yapılıyor —
+ * yani TCP'yi kabul edip cevap vermeyen bir IdP, OIDC ile hiç ilgisi
+ * olmayan SERTİFİKALI SSH'ın hiç açılmamasına yol açıyordu.
+ *
+ * Test, bağlantıyı kabul edip HİÇ cevap vermeyen bir dinleyiciye karşı
+ * koşuyor: sınır yoksa süresiz asılır.
+ */
+func TestNewOIDCGivesUpOnAHangingProvider(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	// Kabul et, sonra hiçbir şey yapma.
+	go func() {
+		for {
+			c, aerr := ln.Accept()
+			if aerr != nil {
+				return
+			}
+			// Bağlantıyı AÇIK tut: istemci cevap bekleyerek asılsın.
+			defer c.Close()
+		}
+	}()
+
+	start := time.Now()
+	_, err = NewOIDC(context.Background(), OIDCConfig{
+		IssuerURL: "http://" + ln.Addr().String(),
+		ClientID:  "postern",
+	})
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("cevap vermeyen sağlayıcı başarılı sayıldı")
+	}
+	// Sınırın kendisi 8s; testin ölçtüğü şey "süresiz asılmıyor".
+	if elapsed > 20*time.Second {
+		t.Fatalf("keşif %v sürdü — sınır uygulanmıyor ve açılış askıda kalır", elapsed)
+	}
+	t.Logf("ölçüldü: cevap vermeyen sağlayıcıda %v sonra pes etti", elapsed)
 }

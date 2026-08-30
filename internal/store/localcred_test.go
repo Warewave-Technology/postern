@@ -775,3 +775,88 @@ func TestAllowBindIsRefusedForOrdinaryAccounts(t *testing.T) {
 		t.Fatalf("sıradan hesabın ilk bağlanması izin istedi: %v", err)
 	}
 }
+
+/*
+ * ⚠️ E-POSTA YOLU DA AYNI KAPIDAN GEÇMELİ.
+ *
+ * ÖLÇÜLEN AÇIK: IdP kullanıcı adı göndermediğinde giriş yolu
+ * doğrulanmış e-postayla hesap buluyor ve hesabı DOĞRUDAN döndürüyordu —
+ * ne (issuer, subject) bağına ne yönetici korumasına bakılarak. Yani
+ * 011'in ve 020'nin kapattığı iki kapı aynı anda atlanıyordu.
+ *
+ * Düzeltme ayrı bir kural yazmadı: e-postayla bulunan hesap da
+ * ProvisionUser'dan geçiyor. Bu test o kapının gerçekten kapalı
+ * olduğunu, yani AYNI çağrının aynı cevabı verdiğini gösteriyor —
+ * kullanıcı adı yerine e-postayla bulunmuş olması bir şeyi
+ * değiştirmiyor.
+ */
+func TestEmailMatchedAdminGoesThroughTheSameGate(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	if _, err := s.CreateUser(ctx, "ops", "ops@warewave.io", "ops"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetUserAdmin(ctx, "ops", true); err != nil {
+		t.Fatal(err)
+	}
+
+	// Giriş yolunun e-posta dalının yaptığı çağrı.
+	_, err := s.ClaimByVerifiedEmail(ctx, "ops@warewave.io",
+		"https://idp.example/realms/x", "saldirgan-sub", false)
+	if !errors.Is(err, ErrAdminBindRefused) {
+		t.Fatalf("e-postayla bulunan yönetici hesabı devralındı: %v", err)
+	}
+
+	var subject sql.NullString
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT idp_subject FROM users WHERE username='ops';`).Scan(&subject); err != nil {
+		t.Fatal(err)
+	}
+	if subject.Valid {
+		t.Fatalf("reddedilen deneme yine de bağladı: %q", subject.String)
+	}
+}
+
+/*
+ * ⚠️ AMA E-POSTA YOLU SIRADAN HESAPLAR İÇİN ÇALIŞMAYA DEVAM ETMELİ.
+ *
+ * İlk taslakta bu dal ProvisionUser'a bağlanmıştı; ProvisionUser
+ * grupları çözülemediğinde reddettiği için e-posta yolu HERKES için
+ * kapanmıştı — kullanıcı adı göndermeyen IdP'lerde tek giriş yolu.
+ * Testin yakaladığı gerileme buydu.
+ */
+func TestEmailMatchedOrdinaryAccountStillWorks(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	if _, err := s.CreateUser(ctx, "suheda", "suheda@warewave.io", "suheda"); err != nil {
+		t.Fatal(err)
+	}
+
+	u, err := s.ClaimByVerifiedEmail(ctx, "suheda@warewave.io",
+		"https://idp.example/realms/x", "sub-suheda", false)
+	if err != nil {
+		t.Fatalf("sıradan hesap e-postayla giremedi: %v", err)
+	}
+	if u.Name != "suheda" {
+		t.Fatalf("kullanıcı = %q", u.Name)
+	}
+
+	// Ve BAĞLANDI: bir dahaki sefere ad ya da e-posta değil, kimlik
+	// eşleşecek.
+	var subject sql.NullString
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT idp_subject FROM users WHERE username='suheda';`).Scan(&subject); err != nil {
+		t.Fatal(err)
+	}
+	if subject.String != "sub-suheda" {
+		t.Fatalf("bağlanmadı: %q", subject.String)
+	}
+
+	// ⚠️ İkinci bir kimlik aynı e-postayla gelemez: hesap artık bağlı.
+	if _, err := s.ClaimByVerifiedEmail(ctx, "suheda@warewave.io",
+		"https://idp.example/realms/x", "sub-baskasi", false); !errors.Is(err, ErrIdentityConflict) {
+		t.Fatalf("bağlı hesap ikinci kimliğe verildi: %v", err)
+	}
+}

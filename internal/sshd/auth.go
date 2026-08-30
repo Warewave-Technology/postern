@@ -345,13 +345,24 @@ func (s *Server) resolveIdentity(ctx context.Context, id auth.Identity) (model.U
 		return model.User{}, fmt.Errorf("identity has neither username nor verified email")
 	}
 
-	u, err := s.db.UserByEmail(ctx, id.Email)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			// "IdP'de hesap var" ≠ "postern'de hesap var".
-			return model.User{}, fmt.Errorf("no postern user for verified email: access denied")
-		}
-		return model.User{}, err
+	/*
+	 * ⚠️ Bkz. httpapi tarafındaki aynı not: e-posta yolu da kimlik
+	 * bağından geçmek zorunda. Hesap doğrudan döndürüldüğünde ne
+	 * (issuer, subject) bağına ne yönetici korumasına bakılıyordu —
+	 * 011'in ve 020'nin kapattığı iki kapı aynı anda atlanıyordu.
+	 */
+	/*
+	 * ⚠️ ProvisionUser DEĞİL: o, gruplar çözülemediğinde reddediyor —
+	 * ve haklı, yeni bir hesap açıp açmamaya karar verecek bilgi yok.
+	 * Ama burada hesap ZATEN VAR ve verilecek karar "bu kimlik bu
+	 * hesabı alabilir mi". (İlk taslakta ProvisionUser çağrılmıştı ve
+	 * e-posta yolunu HERKES için kapatıyordu; bir test yakaladı.)
+	 */
+	bound, berr := s.db.ClaimByVerifiedEmail(ctx, id.Email, id.Issuer, id.Subject, false)
+	switch {
+	case berr == nil:
+		return bound, nil
+	default:
+		return model.User{}, berr
 	}
-	return u, nil
 }

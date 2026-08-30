@@ -1086,75 +1086,9 @@ func (s *Store) ProvisionUser(ctx context.Context, req ProvisionRequest) (model.
 		 * yanlış tavsiye olurdu, çünkü sorun yöneticilik değil, adın
 		 * başkasına ait olması. (Mevcut bir test bu sırayı yakaladı.)
 		 */
-		alreadyBound, berr := s.hasIdPIdentity(ctx, req.Username)
-		if berr != nil {
-			return model.User{}, berr
-		}
-		/*
-		 * ⚠️ Yönetici grubundaki bir kimlik için kapı AÇIK.
-		 *
-		 * O kişi zaten yönetici; başka bir yönetici hesabını almakla
-		 * yeni bir yetki kazanmıyor. Kapalı tutmak, dizin grubundan
-		 * yönetici olan herkesin yükseltmeden sonra kendi hesabına
-		 * girememesi demekti — ölçüldü.
-		 *
-		 * Ölçülen saldırı ise bundan geçmiyor: saldırgan "developers"
-		 * grubundaydı, yönetici grubunda değil.
-		 */
-		if existing.Admin && !alreadyBound && !req.AdminGroupMember {
-			/*
-			 * ⚠️ YÖNETİCİ HESABI, YALNIZCA ADLA DEVRALINAMAZ.
-			 *
-			 * Bağlama anında saldırganla meşru yöneticiyi ayırt eden
-			 * hiçbir kanıt yok: elde tek şey kullanıcı adı ve o da
-			 * birçok sağlayıcıda kullanıcının kendi değiştirebildiği
-			 * bir alan. Ayrım ancak host'taki operatörden gelebilir —
-			 * `postern user allow-bind`.
-			 *
-			 * İzin TEK KULLANIMLIK: aynı işlemde tüketiliyor. Kalıcı
-			 * olsaydı, bir kez açılan pencere açık kalırdı ve kimse
-			 * kapatmayı hatırlamazdı.
-			 */
-			consumed, cerr := s.consumeBindConsent(ctx, req.Username)
-			if cerr != nil {
-				return model.User{}, cerr
-			}
-			if !consumed {
-				return model.User{}, fmt.Errorf(
-					"store.ProvisionUser[%s]: an administrator account cannot be claimed "+
-						"by a matching username; allow it deliberately on the bastion host "+
-						"(`postern user allow-bind --name %s`) and have them sign in once: %w",
-					req.Username, req.Username, ErrAdminBindRefused)
-			}
-		}
-
-		// Ad eşleşiyor ama bu IdP kimliği bağlı değil.
-		//
-		// Hesap BAŞKA bir kimliğe bağlıysa BindIdPSubject reddeder —
-		// devralma denemesi tam olarak budur ve sessiz kalmamalı.
-		if berr := s.BindIdPSubject(ctx, req.Username, req.Issuer, req.Subject); berr != nil {
-			return model.User{}, fmt.Errorf(
-				"store.ProvisionUser[%s]: account is bound to a different identity: %w",
-				req.Username, ErrIdentityConflict)
-		}
-
-		// ⚠️ İLK BAĞLAMA (TOFU) DENETLENEBİLİR OLMALI.
-		//
-		// CLI ile açılmış ve SSO'ya hiç girmemiş bir hesabı, adı
-		// eşleşen İLK IdP kimliği sahipleniyor. Onboarding'in çalışması
-		// için gerekli ama aynı zamanda kalan tek devralma penceresi:
-		// yalnızca anahtarla giren bir admin hesabı, o ada sahip ilk
-		// token tarafından alınabilir. Sessiz kalırsa kimse fark etmez.
-		if lerr := s.LogAdmin(ctx, AdminLogEntry{
-			Actor: "system", Via: "sso", Action: "user.idp_bind",
-			Entity: req.Username,
-			Details: fmt.Sprintf("first sign-in bound this account to issuer %s subject %s",
-				req.Issuer, req.Subject),
-		}); lerr != nil {
-			// Denetim satırı yazılamıyorsa bağlamayı da yapmış olmayı
-			// istemeyiz — ama bağlama zaten oldu. En azından hatayı
-			// yukarı taşı: izlenemeyen bir sahiplenme sessiz kalmasın.
-			return model.User{}, fmt.Errorf("store.ProvisionUser[%s]: audit: %w", req.Username, lerr)
+		if cerr := s.claimExistingAccount(ctx, req.Username,
+			req.Issuer, req.Subject, req.AdminGroupMember); cerr != nil {
+			return model.User{}, cerr
 		}
 
 		if req.Email != "" && !strings.EqualFold(req.Email, existing.Name) {
@@ -2028,4 +1962,111 @@ func (s *Store) SeenGroupNames(ctx context.Context) ([]string, error) {
 		return nil, translateErr("store.SeenGroupNames", err)
 	}
 	return out, nil
+}
+
+/*
+ * claimExistingAccount, VAR OLAN bir hesabı bir kimliğe bağlar.
+ *
+ * ⚠️ ADI EŞLEŞEN HESABI DEVRALMANIN TEK KAPISI. İki çağıranı var ve
+ * ikisi de aynı kapıdan geçmek zorunda:
+ *
+ *   - ProvisionUser: kullanıcı adı eşleşti,
+ *   - giriş yollarının E-POSTA dalı: IdP kullanıcı adı vermedi.
+ *
+ * İkincisi eskiden hesabı DOĞRUDAN döndürüyordu — ne bağ kontrolü, ne
+ * yönetici koruması. Yani 011'in ve 020'nin kapattığı iki kapı, IdP
+ * kullanıcı adı göndermediği anda birlikte atlanıyordu. Kuralı ikinci
+ * kez yazmak yerine tek yere çıkardık: ikinci kopya, ikinci kez
+ * unutulacak kural demekti.
+ *
+ * ⚠️ ROLLERE DOKUNMUYOR ve dokunmamalı: e-posta dalında gruplar hiç
+ * sorulamadı. "Çözüldü ve boş" ile "çözülemedi"yi karıştırmak, bütün
+ * SSO rollerini silerdi.
+ */
+func (s *Store) claimExistingAccount(ctx context.Context,
+	username, issuer, subject string, adminGroupMember bool) error {
+
+	existing, err := s.User(ctx, username)
+	if err != nil {
+		return err
+	}
+
+	alreadyBound, berr := s.hasIdPIdentity(ctx, username)
+	if berr != nil {
+		return berr
+	}
+
+	/*
+	 * ⚠️ Yönetici grubundaki bir kimlik için kapı AÇIK: o kişi zaten
+	 * yönetici ve başka bir yönetici hesabını almakla yeni bir yetki
+	 * kazanmıyor. Kapalı tutmak, dizin grubundan yönetici olan herkesin
+	 * yükseltmeden sonra kendi hesabına girememesi demekti.
+	 *
+	 * Ölçülen saldırı buradan geçmiyor: saldırgan "developers"
+	 * grubundaydı, yönetici grubunda değil.
+	 */
+	if existing.Admin && !alreadyBound && !adminGroupMember {
+		/*
+		 * ⚠️ Yalnızca HENÜZ BAĞLANMAMIŞ hesaplar için. Hesap zaten
+		 * başka bir kimliğe bağlıysa doğru cevap ErrIdentityConflict:
+		 * oradaki mesaj "yöneticiliği kaldır, giriş yaptır" diyor ve
+		 * bağlı bir hesapta bu tamamen yanlış tavsiye olurdu.
+		 */
+		consumed, cerr := s.consumeBindConsent(ctx, username)
+		if cerr != nil {
+			return cerr
+		}
+		if !consumed {
+			return fmt.Errorf(
+				"store.claimExistingAccount[%s]: an administrator account cannot be "+
+					"claimed by a matching username or email; allow it deliberately "+
+					"on the bastion host (`postern user allow-bind --name %s`) and "+
+					"have them sign in once: %w",
+				username, username, ErrAdminBindRefused)
+		}
+	}
+
+	if bindErr := s.BindIdPSubject(ctx, username, issuer, subject); bindErr != nil {
+		return fmt.Errorf(
+			"store.claimExistingAccount[%s]: account is bound to a different identity: %w",
+			username, ErrIdentityConflict)
+	}
+
+	/*
+	 * ⚠️ İLK BAĞLAMA (TOFU) DENETLENEBİLİR OLMALI.
+	 *
+	 * Kalan tek devralma penceresi bu. Sessiz kalırsa kimse fark etmez;
+	 * denetim satırı yazılamıyorsa bağlamayı yapmış olmayı da istemeyiz,
+	 * o yüzden hata yukarı taşınıyor.
+	 */
+	if lerr := s.LogAdmin(ctx, AdminLogEntry{
+		Actor: "system", Via: "sso", Action: "user.idp_bind", Entity: username,
+		Details: fmt.Sprintf("first sign-in bound this account to issuer %s subject %s",
+			issuer, subject),
+	}); lerr != nil {
+		return fmt.Errorf("store.claimExistingAccount[%s]: audit: %w", username, lerr)
+	}
+	return nil
+}
+
+/*
+ * ClaimByVerifiedEmail, giriş yollarının E-POSTA dalı için: hesabı
+ * bulur ve aynı kapıdan geçirir.
+ *
+ * ⚠️ ProvisionUser KULLANILAMAZ, çünkü o gruplar çözülemediğinde
+ * REDDEDİYOR — ve haklı: yeni bir hesap açıp açmamaya karar verecek
+ * bilgi yok. Ama burada hesap ZATEN VAR; verilecek karar "bu kimlik bu
+ * hesabı alabilir mi", ve o karar gruplara bağlı değil.
+ */
+func (s *Store) ClaimByVerifiedEmail(ctx context.Context,
+	email, issuer, subject string, adminGroupMember bool) (model.User, error) {
+
+	u, err := s.UserByEmail(ctx, email)
+	if err != nil {
+		return model.User{}, err
+	}
+	if err := s.claimExistingAccount(ctx, u.Name, issuer, subject, adminGroupMember); err != nil {
+		return model.User{}, err
+	}
+	return s.User(ctx, u.Name)
 }

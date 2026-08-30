@@ -9,7 +9,9 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/http"
 	"sync"
+	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
@@ -129,8 +131,27 @@ type AuthRequest struct {
 	URL string
 }
 
+/*
+ * discoveryTimeout, sağlayıcı keşfinin (discovery) üst sınırı.
+ *
+ * ⚠️ SINIR OLMAK ZORUNDA. go-oidc, context'e bir istemci konmadıysa
+ * http.DefaultClient'a düşüyor (oidc.go'da doRequest) ve onun zaman
+ * aşımı YOK. Bu çağrı açılışta, SSH dinleyicisi kurulmadan ÖNCE
+ * yapılıyor: TCP'yi kabul edip cevap vermeyen bir IdP, postern'i
+ * açılışta süresiz askıda bırakıyor ve OIDC ile hiç ilgisi olmayan
+ * SERTİFİKALI SSH hiç açılmıyor. Bir bastion'da kabul edilemez.
+ */
+const discoveryTimeout = 8 * time.Second
+
 func NewOIDC(ctx context.Context, cfg OIDCConfig) (*OIDC, error) {
-	provider, err := oidc.NewProvider(ctx, cfg.IssuerURL)
+	// Hem taşımaya hem toplam süreye sınır: ikisi ayrı arızalar
+	// (bağlantı kurulmuyor / kuruluyor ama cevap gelmiyor).
+	dctx, cancel := context.WithTimeout(
+		oidc.ClientContext(ctx, &http.Client{Timeout: discoveryTimeout}),
+		discoveryTimeout)
+	defer cancel()
+
+	provider, err := oidc.NewProvider(dctx, cfg.IssuerURL)
 	if err != nil {
 		return nil, fmt.Errorf("auth.NewOIDC: %w", err)
 	}

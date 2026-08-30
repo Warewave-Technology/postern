@@ -572,14 +572,49 @@ func (s *Server) resolveIdentity(ctx context.Context, log *slog.Logger, id auth.
 		return model.User{}, store.ErrAccessDenied
 	}
 
-	u, err := s.store.UserByEmail(ctx, id.Email)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			log.Warn("login denied: no postern user for verified email")
-			return model.User{}, err
-		}
-		log.Error("user lookup failed", "error", err)
-		return model.User{}, err
+	/*
+	 * ⚠️ E-POSTA YOLU DA KİMLİK BAĞINDAN GEÇMEK ZORUNDA.
+	 *
+	 * Buradaki hesap DOĞRUDAN döndürülüyordu: ne (issuer, subject)
+	 * bağına bakılıyordu, ne yönetici korumasına. Yani kullanıcı adı
+	 * yollamayan bir IdP'de, doğrulanmış e-postası bir hesabınkiyle
+	 * eşleşen herhangi bir kimlik o hesaba giriyordu — 011'in ve
+	 * 020'nin kapattığı iki kapının ikisi de aynı anda atlanıyordu.
+	 * Bir yönetici hesabı da bu yolla devralınabiliyordu.
+	 *
+	 * Düzeltme ayrı bir kural yazmıyor: hesabı BULDUKTAN sonra aynı
+	 * ProvisionUser'dan geçiriyor. Böylece bağ kontrolü, yönetici
+	 * koruması ve TOFU denetim satırı tek yerde kalıyor — ikinci bir
+	 * kopya, ikinci kez unutulacak bir kural demekti.
+	 *
+	 * ⚠️ Groups BİLEREK BOŞ ve GroupsResolved false: bu yola yalnızca
+	 * kullanıcı adı yokken düşülüyor, yani kaynağa o kişi hakkında
+	 * soru sorulamamış. Rollere dokunulmuyor.
+	 */
+	/*
+	 * ⚠️ ProvisionUser DEĞİL: o, gruplar çözülemediğinde reddediyor —
+	 * ve haklı, yeni bir hesap açıp açmamaya karar verecek bilgi yok.
+	 * Ama burada hesap ZATEN VAR ve verilecek karar "bu kimlik bu
+	 * hesabı alabilir mi". (İlk taslakta ProvisionUser çağrılmıştı ve
+	 * e-posta yolunu HERKES için kapatıyordu; bir test yakaladı.)
+	 */
+	bound, berr := s.store.ClaimByVerifiedEmail(ctx, id.Email, id.Issuer, id.Subject, false)
+	switch {
+	case berr == nil:
+		return bound, nil
+	case errors.Is(berr, store.ErrNotFound):
+		log.Warn("login denied: no postern user for verified email")
+		return model.User{}, berr
+	case errors.Is(berr, store.ErrAdminBindRefused):
+		log.Warn("login denied: this email belongs to an administrator account " +
+			"and cannot be claimed by a first sign-in")
+		return model.User{}, store.ErrAccessDenied
+	case errors.Is(berr, store.ErrIdentityConflict):
+		log.Warn("login denied: that email belongs to an account bound to a " +
+			"different identity")
+		return model.User{}, store.ErrAccessDenied
+	default:
+		log.Error("email-matched claim failed", "error", berr)
+		return model.User{}, berr
 	}
-	return u, nil
 }

@@ -334,6 +334,26 @@ func newServeCmd() *cobra.Command {
 			var oidcClient *auth.OIDC
 			var logins *auth.Logins
 			if cfg.OIDCEnabled() {
+				/*
+				 * ⚠️ KEŞİF BAŞARISIZSA AÇILIŞ DÜŞMÜYOR.
+				 *
+				 * Eskiden hata döndürülüyordu ve bu, IdP'yi postern'in
+				 * açılış koşulu yapıyordu: sağlayıcı ulaşılamazken
+				 * süreç ölüyor, servis yöneticisi yeniden başlatıyor,
+				 * yine ölüyor — ve bu döngü boyunca SERTİFİKALI SSH de
+				 * hiç açılmıyor. Oysa SSH'ın IdP ile hiçbir ilgisi yok:
+				 * kimlik anahtarla kanıtlanıyor.
+				 *
+				 * Bir bastion'ın en temel işi, kimlik sağlayıcısı
+				 * çöktüğünde de erişilebilir kalmak. O yüzden burada
+				 * OIDC kapalı başlıyor, hata ERROR olarak yazılıyor ve
+				 * panel "kaynak seçilemiyor" derken sebebini gösteriyor.
+				 *
+				 * ⚠️ Bedeli açık: IdP açılışta ulaşılamazsa OIDC, süreç
+				 * yeniden başlatılana kadar kapalı kalır. Bunun çözümü
+				 * (çalışırken yeniden kurma) OIDC ayarlarının
+				 * veritabanına taşınmasıyla birlikte geliyor.
+				 */
 				oidcClient, err = auth.NewOIDC(ctx, auth.OIDCConfig{
 					IssuerURL:    cfg.OIDC.IssuerURL,
 					ClientID:     cfg.OIDC.ClientID,
@@ -341,15 +361,23 @@ func newServeCmd() *cobra.Command {
 					RedirectURL:  strings.TrimRight(cfg.HTTP.ExternalURL, "/") + "/auth/callback",
 				})
 				if err != nil {
-					return err
+					logger.Error("identity provider discovery failed; "+
+						"starting with OIDC disabled so SSH stays available",
+						"issuer", cfg.OIDC.IssuerURL, "error", err)
+					oidcClient = nil
 				}
 
-				logins = auth.NewLogins(oidcClient)
-				// Bekleyen giriş kotası: her deneme handshake içinde
-				// bekleyen bir goroutine demek ve kimlik doğrulaması
-				// gerektirmiyor.
-				logins.SetMaxPending(cfg.Listen.MaxPendingLoginsOrDefault())
-				s.EnableOOB(logins, 0)
+				// ⚠️ OOB kapısı YALNIZCA sağlayıcı gerçekten kurulduysa
+				// açılıyor: nil bir istemciyle kurulan akış, ilk
+				// kullanımda panikleyerek bağlantıyı düşürürdü.
+				if oidcClient != nil {
+					logins = auth.NewLogins(oidcClient)
+					// Bekleyen giriş kotası: her deneme handshake içinde
+					// bekleyen bir goroutine demek ve kimlik doğrulaması
+					// gerektirmiyor.
+					logins.SetMaxPending(cfg.Listen.MaxPendingLoginsOrDefault())
+					s.EnableOOB(logins, 0)
+				}
 			}
 
 			if cfg.WebEnabled() {

@@ -459,11 +459,20 @@ export default function Settings({ meName }: { meName?: string }) {
       <div className="page-bar">
         <div className="page-head">
           <h2>LDAP</h2>
+          {/*
+            ⚠️ BU METİN ESKİDEN YANLIŞTI ve yanlışlığı pahalıydı:
+            "postern kullanıcının parolasını hiç görmez" diyordu. LDAP
+            artık bir grup kaynağı değil, birinci sınıf kimlik
+            sağlayıcı — panel kapısında kurumsal parola gerçekten
+            görülüyor. Kurulum yapan kişinin bu ayrımı ekrandan okuması
+            gerekiyor.
+          */}
           <p className="page-sub">
-            Identity always comes from the identity provider. LDAP is only used
-            to read group membership — postern never sees a user&apos;s
-            password. Values are stored in the database, and secrets are never
-            shown again.
+            Where postern finds people, and what it is allowed to ask about
+            them. When the directory is the active sign-in source it also
+            checks passwords at the panel door — never for SSH, which is
+            key-only. Values live in the database, and secrets are never shown
+            again.
           </p>
         </div>
         {configured && mode === "auto" && (
@@ -499,8 +508,10 @@ export default function Settings({ meName }: { meName?: string }) {
                   </h3>
                   <p>
                     Group membership is read from this directory at every
-                    sign-in. Changes go through <b>Edit directory</b>, which
-                    will not save anything that has not been tested.
+                    sign-in, and — when the directory is the active sign-in
+                    source — passwords are checked against it too. Changes go
+                    through <b>Edit directory</b>, which will not save anything
+                    that has not been tested.
                   </p>
                 </div>
                 <div className="card-body">
@@ -751,8 +762,10 @@ export default function Settings({ meName }: { meName?: string }) {
             <>
               {items.length === 0 && (
                 <p className="note">
-                  Nothing stored yet — group membership comes from the IdP claim
-                  until <code>ldap.url</code> is set.
+                  Nothing stored yet. Until <code>ldap.url</code> is set,
+                  postern cannot ask this directory anything — group membership
+                  falls back to whatever the identity provider puts in the
+                  token.
                 </p>
               )}
 
