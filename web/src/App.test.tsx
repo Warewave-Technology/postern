@@ -484,6 +484,8 @@ describe("ilk kurulum zorunlulugu", () => {
       issuer_url: "",
       client_id: "",
       client_secret_set: false,
+      groups_claim: "",
+      scopes: "",
       managed_in_db: false,
       configured: false,
       live: false,
@@ -693,5 +695,51 @@ describe("kimlik sağlayıcı ekranı", () => {
       expect(screen.queryByRole("button", { name: "Mappings" })).toBeNull(),
     );
     expect(screen.getByRole("button", { name: "OIDC" })).toBeTruthy();
+  });
+});
+
+/*
+ * ⚠️ ANAHTAR GİRİŞİ KAPALIYKEN ANA EKRANDA KART YOK.
+ *
+ * Koşulsuz çiziliyordu ve sunucu ekleme isteğini 409 ile reddediyordu:
+ * kullanıcı bir kutu, bir düğme ve bir hata görüyor, özelliğin BOZUK mu
+ * yoksa KAPALI mı olduğunu ayırt edemiyordu.
+ */
+describe("anahtar girişi kapalıyken ana ekran", () => {
+  it("anahtar kartını çizmiyor ve sebebini söylüyor", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({
+      name: "ayse",
+      os_user: "ayse",
+      admin: false,
+      targets: [],
+      terminal_enabled: false,
+      public_key_login: false,
+    });
+
+    render(<App />);
+    await screen.findByText("Your targets");
+    expect(screen.queryByText("Your SSH keys")).toBeNull();
+    expect(
+      screen.getAllByText(/switched off on this bastion/i).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("açıkken çiziyor", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({
+      name: "ayse",
+      os_user: "ayse",
+      admin: false,
+      targets: [],
+      terminal_enabled: false,
+      public_key_login: true,
+    });
+    vi.spyOn(api, "myKeys").mockResolvedValue({
+      keys: [],
+      reauth_required: false,
+      reauth_possible: false,
+    });
+
+    render(<App />);
+    expect(await screen.findByText("Your SSH keys")).toBeTruthy();
   });
 });

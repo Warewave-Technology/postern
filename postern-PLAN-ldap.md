@@ -191,7 +191,14 @@ ayırma işi yerel kapıyla birlikte gidiyor.
 atayabiliyor (`admin.go:306`), dolayısıyla bir yerel giriş yönetilen her
 makinede oturuma dönüşebilir.
 
-### S6.2 — SSH kapısında LDAP kimliği ← SIRADAKİ
+### S6.2 — SSH kapısında LDAP kimliği (TERK EDİLDİ, aşağıya bakın)
+
+> ⚠️ **Bu başlık ve altındaki tasarım artık geçerli değil.** `directory_keys`
+> aynalaması, `postern ldap enroll` ve `internal/dirconfirm` yazılmadı; S7'de
+> kimlik bağlama farklı bir yoldan çözüldü (`dir_subject` + göç 021) ve dizin
+> anahtarlarının aynalanması hiç yapılmadı. Metin, o günkü kararın kaydı olarak
+> duruyor — yapılacak iş listesi olarak DEĞİL. Altı ay sonra buraya bakıp
+> "sıradaki iş bu" diyen biri yanlış işe başlar.
 
 - **Migration 015**: `user_identities` (OIDC ve LDAP'ı tek tabloda toplayan
   `kind` + `issuer` + `subject`), `directory_keys` (`key_blob` **tek sütun

@@ -472,6 +472,8 @@ func (s *Server) adminSyncRuns(w http.ResponseWriter, r *http.Request) {
 // knownSettingKeys, panelden yazılabilecek ayarlar.
 var knownSettingKeys = map[string]bool{
 	auth.KeyPasswordMinLength: true,
+	auth.KeyOIDCGroupsClaim:   true,
+	auth.KeyOIDCScopes:        true,
 	ldap.KeyURL:               true,
 	ldap.KeyBindDN:            true,
 	ldap.KeyBindPassword:      true,

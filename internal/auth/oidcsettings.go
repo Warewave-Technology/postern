@@ -35,7 +35,37 @@ const (
 	 * cevabın zamanla kaymasına açık kapı bırakırdı.
 	 */
 	KeyOIDCManaged = "oidc.managed_in_db"
+
+	/*
+	 * KeyOIDCGroupsClaim, grup adlarını taşıyan claim.
+	 *
+	 * ⚠️ ALAN VARDI, AYARI YOKTU. OIDCConfig.GroupsClaim ilk günden
+	 * beri duruyor ve yorumu Entra'nın "roles", bazı kurulumların
+	 * "memberOf" kullandığını söylüyor — ama onu dolduran hiçbir yol
+	 * yazılmamıştı, yani pratikte "groups" sabitti. Entra ya da Okta
+	 * kullanan bir kurum hiç grup göremiyordu ve sebebini de göremiyordu:
+	 * ekranda ayarlanacak bir şey yoktu.
+	 */
+	KeyOIDCGroupsClaim = "oidc.groups_claim"
+
+	/*
+	 * KeyOIDCScopes, yetkilendirme isteğinde istenen kapsamlar.
+	 *
+	 * ⚠️ SABİTTİ ve eksikti: "openid email". `profile` YOKTU, oysa
+	 * preferred_username çoğu sağlayıcıda tam olarak orada yaşıyor —
+	 * yani postern kullanıcı adını isteyip istemediğini söylemeden
+	 * bekliyordu ve gelmeyince e-posta eşleştirmesine düşüyordu.
+	 * Okta ve Auth0 ayrıca grupları vermek için AÇIK bir kapsam
+	 * istiyor; onu ekleyecek bir yer de yoktu.
+	 */
+	KeyOIDCScopes = "oidc.scopes"
 )
+
+// DefaultOIDCScopes, kapsam ayarlanmadığında istenenler.
+//
+// ⚠️ profile BURADA: preferred_username onun içinde geliyor ve
+// postern'in kimlik yolunun tamamı o claim'e dayanıyor.
+const DefaultOIDCScopes = "openid email profile"
 
 // OIDCSecretKeys, şifrelenerek saklanması gereken OIDC ayarları.
 var OIDCSecretKeys = map[string]bool{KeyOIDCClientSecret: true}
@@ -48,6 +78,10 @@ type StoredOIDC struct {
 	IssuerURL    string
 	ClientID     string
 	ClientSecret string
+	// GroupsClaim boşsa "groups" kullanılıyor (oidc.go).
+	GroupsClaim string
+	// Scopes boşsa DefaultOIDCScopes kullanılıyor.
+	Scopes string
 }
 
 // OIDCManagedInDB, ayarların veritabanına taşınmış olduğu.
@@ -80,6 +114,8 @@ func LoadOIDC(ctx context.Context, db *store.Store) (StoredOIDC, error) {
 		KeyOIDCIssuer:       &out.IssuerURL,
 		KeyOIDCClientID:     &out.ClientID,
 		KeyOIDCClientSecret: &out.ClientSecret,
+		KeyOIDCGroupsClaim:  &out.GroupsClaim,
+		KeyOIDCScopes:       &out.Scopes,
 	} {
 		v, err := get(key)
 		if err != nil {

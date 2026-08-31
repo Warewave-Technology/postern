@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AuthSourceStatus, api, toMessage } from "../api";
+import { AuthSourceStatus, Setting, api, toMessage } from "../api";
 import { ActionButton, ErrorLine, OkLine } from "./common";
 
 /**
@@ -176,6 +176,20 @@ export default function AuthSource() {
           {status.source === "local" && <PasswordPolicyBox />}
 
           {/*
+            ⚠️ HESAP AYARLARI HER KAYNAKTA GÖRÜNÜYOR.
+
+            Üçü de sunucu tarafında panelden yazılabilir olarak
+            işaretlenmişti ama hiçbir ekranda alanı yoktu — yani
+            "panelden yönetilebilir" diye açılmış ayarlar pratikte
+            yalnızca CLI'dan değiştirilebiliyordu. auth.auto_create'in
+            tek yazıldığı yer kurulum sihirbazıydı ve o sihirbaz bir kez
+            bitince bir daha çizilmiyor: ilk kurulumda "kuyruğa al"
+            diyen bir kurum kararını bir daha değiştiremiyordu. OIDC
+            ekranında kapattığımız çıkmazın aynısı.
+          */}
+          <AccountPolicyBox />
+
+          {/*
             ⚠️ ÇIKIŞ YOLU HER ZAMAN GÖRÜNÜR. Bu ekranın en olası kötü
             günü, seçilen kaynağın çalışmaması ve panelin açılmaması —
             yani bu metnin okunamadığı an. O yüzden burada, iyi günde,
@@ -282,6 +296,165 @@ function PasswordPolicyBox() {
           Administrators are not covered: their credential is a break-glass
           secret issued on the host and can never be a password.
         </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Hesap politikası: kimin hesabı kendiliğinden açılır ve ne kadar
+ * yaşar.
+ *
+ * ⚠️ KAYNAKTAN BAĞIMSIZ ÇİZİLİYOR. Otomatik açılış yalnızca dizin ve
+ * kimlik sağlayıcı kapılarında iş yapıyor, ama ayarı yerel moddayken de
+ * görünmek zorunda: kaynağı çevirmeden ÖNCE karar verilecek şey bu ve
+ * çevirdikten sonra ayarlamak, aradaki ilk girişlerin hangi kurala
+ * göre işlendiğini belirsiz bırakır.
+ */
+function AccountPolicyBox() {
+  const [rows, setRows] = useState<Setting[] | null>(null);
+  const [autoCreate, setAutoCreate] = useState(false);
+  const [confirmTTL, setConfirmTTL] = useState("");
+  const [deleteTTL, setDeleteTTL] = useState("");
+  const [error, setError] = useState("");
+  const [done, setDone] = useState("");
+
+  const load = () =>
+    api
+      .settings()
+      .then((all) => {
+        setRows(all);
+        const get = (k: string) => all.find((r) => r.key === k)?.value ?? "";
+        setAutoCreate(get("auth.auto_create") === "true");
+        setConfirmTTL(get("auth.confirm_ttl"));
+        setDeleteTTL(get("auth.delete_after"));
+      })
+      .catch((e: unknown) => setError(toMessage(e)));
+
+  useEffect(() => {
+    void load();
+    // yalnızca ilk çizimde
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const save = (key: string, value: string, msg: string) => {
+    setError("");
+    setDone("");
+    return api
+      .setSetting(key, value)
+      .then(() => {
+        setDone(msg);
+        return load();
+      })
+      .catch((e: unknown) => setError(toMessage(e)));
+  };
+
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h3>Accounts</h3>
+        <p>
+          What happens to somebody the source knows about but postern does not,
+          and how long an account outlives the source that vouched for it.
+        </p>
+      </div>
+      <div className="card-body">
+        {error && <ErrorLine msg={error} />}
+        {done && <OkLine msg={done} />}
+        {rows === null && <p className="state">Loading…</p>}
+
+        {rows !== null && (
+          <>
+            <div className="source-row">
+              <div>
+                <h3>Somebody signs in with no postern account</h3>
+                <p>
+                  {autoCreate
+                    ? "An account is created for them if one of their groups maps to a role."
+                    : "They are put in a queue and an administrator decides. Until then they cannot get in."}
+                </p>
+                {/*
+                  ⚠️ İKİSİ DE MEŞRU BİR SEÇİM, o yüzden biri "doğru"
+                  diye işaretlenmiyor: kuyruk daha sıkı, otomatik açılış
+                  daha az sürtünmeli. Ekranın işi hangisinin AÇIK
+                  olduğunu ve ne demek olduğunu söylemek.
+                */}
+              </div>
+              <div>
+                <ActionButton
+                  onClick={() =>
+                    save(
+                      "auth.auto_create",
+                      autoCreate ? "false" : "true",
+                      autoCreate
+                        ? "new people go to the queue now"
+                        : "accounts are created automatically now",
+                    )
+                  }
+                  confirm={
+                    autoCreate
+                      ? "Stop creating accounts automatically? People the source knows but postern does not will be queued for approval instead."
+                      : "Create accounts automatically? Anyone the source vouches for, whose group maps to a role, gets an account without an administrator looking."
+                  }
+                  label={
+                    autoCreate
+                      ? "Queue new people for approval instead"
+                      : "Create accounts automatically"
+                  }
+                >
+                  {autoCreate ? "Queue instead" : "Create automatically"}
+                </ActionButton>
+              </div>
+            </div>
+
+            <div className="source-row">
+              <div>
+                <h3>Account lifetime</h3>
+                <p>
+                  An account the source stops confirming goes quiet, then is
+                  marked deleted. Both are reversible; nothing is erased, and
+                  the audit trail keeps its name.
+                </p>
+                <div className="field-row">
+                  <label>
+                    Deactivate after
+                    <input
+                      value={confirmTTL}
+                      placeholder="45d"
+                      onChange={(e) => setConfirmTTL(e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Then mark deleted after
+                    <input
+                      value={deleteTTL}
+                      placeholder="180d"
+                      onChange={(e) => setDeleteTTL(e.target.value)}
+                    />
+                  </label>
+                </div>
+                <p className="page-sub">
+                  Days (<code>45d</code>) or a duration (<code>720h</code>).{" "}
+                  <code>0</code> switches that step off. Empty means the
+                  default.
+                </p>
+              </div>
+              <div>
+                <ActionButton
+                  onClick={() =>
+                    save("auth.confirm_ttl", confirmTTL.trim(), "saved").then(
+                      () =>
+                        save("auth.delete_after", deleteTTL.trim(), "saved"),
+                    )
+                  }
+                  label="Save the account lifetime"
+                >
+                  Save
+                </ActionButton>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

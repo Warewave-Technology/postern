@@ -366,6 +366,12 @@ func newServeCmd() *cobra.Command {
 						ClientID:     stored.ClientID,
 						ClientSecret: stored.ClientSecret,
 						RedirectURL:  redirectURL,
+						// ⚠️ Sağlayıcıya özel iki alan: hangi claim
+						// grupları taşıyor ve hangi kapsamlar isteniyor.
+						// Taşınmazsa Entra/Okta kurulumları grupsuz
+						// kalır ve sebebi hiçbir yerde görünmez.
+						GroupsClaim: stored.GroupsClaim,
+						Scopes:      stored.Scopes,
 					}
 					haveOIDC = true
 				case errors.Is(lerr, auth.ErrOIDCNotConfigured):

@@ -114,3 +114,66 @@ describe("kendi anahtarlarim", () => {
     );
   });
 });
+
+/*
+ * ⚠️ KENDİ ANAHTARINI KALDIRABİLMEK.
+ *
+ * Uç ve denetim satırı ilk günden vardı ama panelde çağıran yoktu —
+ * üstelik silme ucu anahtarın METNİNİ istiyordu ve liste ucu metni hiç
+ * döndürmüyor, yani panelin ucun istediği değere sahip olması mümkün
+ * değildi. Sonuç: anahtarının ele geçtiğini fark eden kullanıcı onu
+ * iptal edemiyordu — bu ekranın kendi gerekçesi ikinci anahtarı
+ * "saldırganın kalıcılık kurma hamlesi" diye tanımlarken.
+ */
+describe("kendi anahtarımı kaldırmak", () => {
+  const key = {
+    fingerprint: "SHA256:abc123",
+    comment: "laptop",
+    added_at: "2026-08-01T00:00:00Z",
+  };
+
+  it("parmak iziyle siliyor", async () => {
+    vi.stubGlobal(
+      "confirm",
+      vi.fn((_m?: string) => true),
+    );
+    vi.spyOn(api, "myKeys").mockResolvedValue({
+      keys: [key],
+      reauth_required: true,
+      reauth_possible: true,
+    });
+    const rm = vi
+      .spyOn(api, "removeMyKeyByFingerprint")
+      .mockResolvedValue({ ok: true });
+
+    render(<MyKeys />);
+    await screen.findByText("SHA256:abc123");
+    await userEvent.click(
+      screen.getByRole("button", { name: /remove key SHA256:abc123/i }),
+    );
+
+    await waitFor(() => expect(rm).toHaveBeenCalledWith("SHA256:abc123"));
+  });
+
+  /*
+   * ⚠️ ONAY, SON ANAHTAR OLMA İHTİMALİNİ SÖYLÜYOR. Tek anahtarını
+   * silen kişi bağlantısını kaybediyor ve bunu sonradan öğrenmemeli.
+   */
+  it("onay son anahtar uyarısını taşıyor", async () => {
+    const confirmSpy = vi.fn((_m?: string) => true);
+    vi.stubGlobal("confirm", confirmSpy);
+    vi.spyOn(api, "myKeys").mockResolvedValue({
+      keys: [key],
+      reauth_required: true,
+      reauth_possible: true,
+    });
+    vi.spyOn(api, "removeMyKeyByFingerprint").mockResolvedValue({ ok: true });
+
+    render(<MyKeys />);
+    await screen.findByText("SHA256:abc123");
+    await userEvent.click(
+      screen.getByRole("button", { name: /remove key SHA256:abc123/i }),
+    );
+    expect(confirmSpy.mock.calls[0][0] ?? "").toMatch(/last one/i);
+  });
+});

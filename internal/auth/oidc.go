@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -58,6 +59,17 @@ type OIDCConfig struct {
 	// kaynağı (issue #1283). Her IdP farklı ad kullanır: Keycloak
 	// "groups", Entra "roles", bazı kurulumlar "memberOf".
 	GroupsClaim string
+
+	/*
+	 * Scopes, yetkilendirme isteğinde istenen kapsamlar (boşlukla
+	 * ayrılmış). Boşsa DefaultOIDCScopes.
+	 *
+	 * ⚠️ SABİT DEĞİL, çünkü sağlayıcılar aynı şeyi aynı kapsamla
+	 * vermiyor: Okta ve Auth0 grupları ancak açıkça istenirse
+	 * gönderiyor. Sabit bir liste, o kurulumlarda postern'i grupsuz
+	 * bırakıyordu ve sebebi hiçbir ekranda görünmüyordu.
+	 */
+	Scopes string
 }
 
 // defaultGroupsClaim, GroupsClaim boş bırakıldığında kullanılan ad.
@@ -175,7 +187,7 @@ func NewOIDC(ctx context.Context, cfg OIDCConfig) (*OIDC, error) {
 			ClientSecret: cfg.ClientSecret,
 			RedirectURL:  cfg.RedirectURL,
 			Endpoint:     provider.Endpoint(),
-			Scopes:       []string{oidc.ScopeOpenID, "email"},
+			Scopes:       requestedScopes(cfg.Scopes),
 		},
 		verifier: provider.Verifier(&oidc.Config{ClientID: cfg.ClientID}),
 	}
@@ -509,4 +521,31 @@ func (s *SwitchableGroupSource) Set(src GroupSource) {
 	s.mu.Lock()
 	s.src = src
 	s.mu.Unlock()
+}
+
+/*
+ * requestedScopes, ayarlanan kapsam listesini çözer.
+ *
+ * ⚠️ "openid" HER ZAMAN EKLENİYOR, operatör yazmasa da. Onsuz akış
+ * OIDC olmaktan çıkıp düz OAuth2'ye dönüyor: sağlayıcı ID token
+ * göndermiyor, dolayısıyla postern'in doğruladığı hiçbir kimlik
+ * kalmıyor. Bunu operatörün unutabileceği bir alana bırakmak,
+ * unutulduğu gün kimlik doğrulamayı sessizce kapatmak olurdu.
+ */
+func requestedScopes(configured string) []string {
+	out := []string{oidc.ScopeOpenID}
+	seen := map[string]bool{oidc.ScopeOpenID: true}
+
+	list := strings.Fields(configured)
+	if len(list) == 0 {
+		list = strings.Fields(DefaultOIDCScopes)
+	}
+	for _, sc := range list {
+		if seen[sc] {
+			continue
+		}
+		seen[sc] = true
+		out = append(out, sc)
+	}
+	return out
 }

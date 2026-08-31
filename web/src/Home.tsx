@@ -186,7 +186,24 @@ export default function Home({ me }: { me: Me }) {
         </>
       )}
 
-      <MyKeys />
+      {/*
+        ⚠️ ANAHTAR GİRİŞİ KAPALIYKEN KART HİÇ ÇİZİLMİYOR.
+
+        Koşulsuz çiziliyordu ve sunucu ekleme isteğini 409 ile
+        reddediyordu: kullanıcı bir kutu, bir düğme ve bir hata görüyor,
+        özelliğin BOZUK mu yoksa KAPALI mı olduğunu ayırt edemiyordu.
+        Yönetim ekranı aynı kararı zaten doğru veriyor (Users).
+      */}
+      {me.public_key_login && <MyKeys />}
+
+      {!me.public_key_login && (
+        <p className="note">
+          Key-based sign-in is switched off on this bastion, so there are no
+          keys to manage here. Everyone signs in through the identity provider —
+          which is also what makes an account disabled there actually lose
+          access.
+        </p>
+      )}
 
       <p className="note">
         {me.terminal_enabled ? (

@@ -144,6 +144,22 @@ func newSettingsSetCmd() *cobra.Command {
 			// ⚠️ Süre ayarı çözülemiyorsa REDDET: okuma anında sessizce
 			// varsayılana düşmesi, operatörün yazdığının anlaşıldığını
 			// sanmasına yol açıyordu ("45d" ölçüldü).
+			/*
+			 * ⚠️ PAROLA TABANI BURADA DA DOĞRULANIYOR.
+			 *
+			 * API tarafında bu kontrol "sessizce başka bir şey yapmayı"
+			 * kapatmak için eklenmişti; CLI'da yoktu. Yani aynı ayarı
+			 * host'tan yazan operatör "on iki" yazıp politikanın 12'de
+			 * kaldığını fark etmeyebiliyordu — kapatıldığı iddia edilen
+			 * arızanın ikinci kapısı açık kalmıştı. Alt sınır da burada
+			 * geçerli: ayarı 4'e çekerek politikayı kapatmak, bir ayar
+			 * değişikliği değil bir güvenlik kontrolünün sökülmesi.
+			 */
+			if key == auth.KeyPasswordMinLength {
+				if _, perr := auth.ParsePasswordMinLength(value); perr != nil {
+					return perr
+				}
+			}
 			if key == auth.KeyConfirmTTL || key == auth.KeyDeleteTTL {
 				if _, perr := auth.ParseAccountDuration(value); perr != nil {
 					return perr

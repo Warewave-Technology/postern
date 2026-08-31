@@ -7,9 +7,11 @@ Certificate-based, session-recording SSH bastion in a single Go binary. A
 deliberately minimal take on the Teleport idea: one protocol, one node, one
 binary.
 
-**Status: in development.** Stages S1 (SSH proxy core) and S2 (certificate
-model) are done and exercised against real OpenSSH servers; OIDC, persistence
-and RBAC storage (S3) are next. Not production-ready. The roadmap lives in
+**Status: in development.** The proxy, certificate model, persistence, RBAC,
+session recording, the admin panel, OIDC and LDAP sign-in, and directory-backed
+identity are built and exercised against real OpenSSH, Keycloak and OpenLDAP.
+Not production-ready: file transfer (SFTP/SCP) is still refused, recordings have
+no retention policy, and there is no deployment tooling yet. The roadmap lives in
 [postern-PLAN.md](postern-PLAN.md) (Turkish).
 
 ## What it does today

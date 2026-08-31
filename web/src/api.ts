@@ -109,6 +109,13 @@ export type OIDCSettings = {
   /** ⚠️ Sırrın KENDİSİ dönmüyor, yalnızca var olup olmadığı: panelin
    *  okuyabildiği bir sır, panele erişen herkesin okuyabildiği sırdır. */
   client_secret_set: boolean;
+  /** ⚠️ Sağlayıcıya özel: grupları taşıyan claim. Boşsa "groups".
+   *  Entra "roles", bazı kurulumlar "memberOf" kullanıyor — sabit
+   *  bıraksaydık o kurumlar grupsuz kalırdı. */
+  groups_claim: string;
+  /** ⚠️ İstenen kapsamlar. Boşsa "openid email profile". Okta ve
+   *  Auth0 grupları ancak açıkça istenirse gönderiyor. */
+  scopes: string;
   managed_in_db: boolean;
   /** Ayarlı mı — çalışıyor mu ayrı sorular ve ayrı ekranlar hak ediyor. */
   configured: boolean;
@@ -620,6 +627,9 @@ export const api = {
     issuer_url: string,
     client_id: string,
     client_secret?: string,
+    /** Boş dize "varsayılana dön" demek; gönderilmemesi "dokunma". */
+    groups_claim?: string,
+    scopes?: string,
   ) =>
     req<{ ok: boolean; live: boolean; error: string }>(
       "PUT",
@@ -628,6 +638,8 @@ export const api = {
         issuer_url,
         client_id,
         ...(client_secret === undefined ? {} : { client_secret }),
+        ...(groups_claim === undefined ? {} : { groups_claim }),
+        ...(scopes === undefined ? {} : { scopes }),
       },
     ),
   completeSetup: () =>
@@ -668,6 +680,10 @@ export const api = {
       authorized_key,
       reauth: reauth ?? "",
     }),
+  /** Kendi anahtarımı parmak iziyle sil. Liste ucu metni değil parmak
+   *  izini döndürüyor, dolayısıyla panelin elindeki tek tanımlayıcı bu. */
+  removeMyKeyByFingerprint: (fingerprint: string) =>
+    req<{ ok: true }>("POST", "/api/me/keys/remove", { fingerprint }),
   removeMyKey: (authorized_key: string) =>
     req<{ ok: boolean }>("POST", "/api/me/keys/remove", { authorized_key }),
   localLogin: (username: string, secret: string) =>

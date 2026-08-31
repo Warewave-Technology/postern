@@ -45,6 +45,8 @@ func (s *Server) adminOIDCStatus(w http.ResponseWriter, r *http.Request) {
 		"client_id":  stored.ClientID,
 		// Sır GERİ OKUNMUYOR; yalnızca varlığı.
 		"client_secret_set": stored.ClientSecret != "",
+		"groups_claim":      stored.GroupsClaim,
+		"scopes":            stored.Scopes,
 		"managed_in_db":     auth.OIDCManagedInDB(r.Context(), s.store),
 		/*
 		 * ⚠️ İKİ AYRI DURUM. "Ayarlı" ile "çalışıyor" aynı ekranı hak
@@ -77,6 +79,10 @@ func (s *Server) adminOIDCSet(w http.ResponseWriter, r *http.Request) {
 		IssuerURL string  `json:"issuer_url"`
 		ClientID  string  `json:"client_id"`
 		Secret    *string `json:"client_secret"`
+		// ⚠️ İşaretçi: "gönderilmedi" ile "boşaltıldı" ayrı şeyler.
+		// Boş dize burada anlamlı — "varsayılana dön" demek.
+		GroupsClaim *string `json:"groups_claim"`
+		Scopes      *string `json:"scopes"`
 	}
 	if !readJSON(w, r, &in) {
 		return
@@ -120,6 +126,38 @@ func (s *Server) adminOIDCSet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	actor := sessionUser(r)
+
+	/*
+	 * ⚠️ SAĞLAYICIYA ÖZEL İKİ ALAN.
+	 *
+	 * İkisi de "gönderilmediyse dokunma, boş gönderildiyse varsayılana
+	 * dön" kuralında. Boşu "sil" saymak varsayılana dönmekle aynı şey
+	 * burada — çünkü ikisinin de okuma tarafında bir varsayılanı var
+	 * (oidc.go). Sırdan farkı bu: orada boş, geri getirilemeyecek bir
+	 * kayıp olurdu.
+	 */
+	for key, ptr := range map[string]*string{
+		auth.KeyOIDCGroupsClaim: in.GroupsClaim,
+		auth.KeyOIDCScopes:      in.Scopes,
+	} {
+		if ptr == nil {
+			continue
+		}
+		v := strings.TrimSpace(*ptr)
+		if v == "" {
+			if derr := s.store.DeleteSetting(r.Context(), key); derr != nil &&
+				!errors.Is(derr, store.ErrNotFound) {
+				s.storeErr(w, "oidc.set", derr)
+				return
+			}
+			continue
+		}
+		if err := s.store.SetSetting(r.Context(), key, v, false, actor); err != nil {
+			s.storeErr(w, "oidc.set", err)
+			return
+		}
+	}
+
 	for key, val := range map[string]string{
 		auth.KeyOIDCIssuer:   issuer,
 		auth.KeyOIDCClientID: clientID,
@@ -173,6 +211,8 @@ func (s *Server) reloadOIDC(ctx context.Context) (bool, string) {
 		IssuerURL:    stored.IssuerURL,
 		ClientID:     stored.ClientID,
 		ClientSecret: stored.ClientSecret,
+		GroupsClaim:  stored.GroupsClaim,
+		Scopes:       stored.Scopes,
 		// ⚠️ Dönüş adresi ALTYAPI, ayar değil: postern'in dışarıdan
 		// göründüğü adresten türüyor (http.external_url) ve panelden
 		// değiştirilemez. Değiştirilebilseydi, sağlayıcıdan dönen code

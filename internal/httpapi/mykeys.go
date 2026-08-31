@@ -273,12 +273,30 @@ func (s *Server) handleRemoveMyKey(w http.ResponseWriter, r *http.Request) {
 
 	var in struct {
 		AuthorizedKey string `json:"authorized_key"`
+		/*
+		 * ⚠️ PARMAK İZİ EKLENDİ ve asıl kullanılan yol bu.
+		 *
+		 * Uç yalnızca anahtar METNİNİ kabul ediyordu ve liste ucu
+		 * (GET /api/me/keys) metni DÖNDÜRMÜYOR — yalnızca parmak izi.
+		 * Yani panelin, silme ucunun istediği değere hiçbir zaman
+		 * sahip olmadığı bir uçtu: yazılmış, denetlenmiş ve
+		 * çağrılamaz. Sonuç, anahtarının ele geçtiğini fark eden
+		 * kullanıcının onu iptal edememesiydi — mykeys.go'nun kendi
+		 * gerekçesi ikinci anahtarı "saldırganın kalıcılık kurma
+		 * hamlesi" diye tanımlarken.
+		 */
+		Fingerprint string `json:"fingerprint"`
 	}
 	if !readJSON(w, r, &in) {
 		return
 	}
-	pub, _, okKey := parseAuthorizedKey(w, in.AuthorizedKey)
-	if !okKey {
+	blob, okBlob := s.removeKeyBlob(w, r, name, in.AuthorizedKey, in.Fingerprint)
+	if !okBlob {
+		return
+	}
+	pub, perr := ssh.ParsePublicKey(blob)
+	if perr != nil {
+		s.storeErr(w, "me.keys.remove", perr)
 		return
 	}
 

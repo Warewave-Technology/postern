@@ -27,6 +27,8 @@ export default function OIDCSettingsScreen() {
   const [issuer, setIssuer] = useState("");
   const [clientID, setClientID] = useState("");
   const [secret, setSecret] = useState("");
+  const [groupsClaim, setGroupsClaim] = useState("");
+  const [scopes, setScopes] = useState("");
 
   const load = useCallback((keepFields = false) => {
     setLoading(true);
@@ -63,6 +65,8 @@ export default function OIDCSettingsScreen() {
         // temizleme saymak, sırsız bir public client kurulumunu kazayla
         // silmenin yolu olurdu.
         secret === "" ? undefined : secret,
+        groupsClaim.trim(),
+        scopes.trim(),
       )
       .then((r) => {
         setSecret("");
@@ -205,6 +209,56 @@ export default function OIDCSettingsScreen() {
                         Stored encrypted and never shown again. Leave it empty
                         to keep the current one. A public client using PKCE has
                         none, and that is a valid setup.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/*
+                    ⚠️ SAĞLAYICIYA ÖZEL ALANLAR.
+
+                    postern bunları hep destekliyordu (OIDCConfig'te alan
+                    duruyor) ama doldurulacak bir yer yoktu: pratikte
+                    "groups" ve "openid email" sabitti. Entra grupları
+                    "roles" claim'inde gönderiyor, Okta ve Auth0 ise
+                    grupları ancak açıkça istenirse veriyor — o
+                    kurulumlarda postern grupsuz kalıyor ve sebebi
+                    hiçbir ekranda görünmüyordu.
+                  */}
+                  <div className="wizard-form">
+                    <div className="wfield">
+                      <label className="wfield-label" htmlFor="oidc-groups">
+                        Groups claim
+                      </label>
+                      <input
+                        id="oidc-groups"
+                        value={groupsClaim}
+                        placeholder="groups"
+                        onChange={(e) => setGroupsClaim(e.target.value)}
+                      />
+                      <p className="wfield-hint">
+                        Which claim in the token carries the group names. Empty
+                        means <code>groups</code>. Entra sends them in{" "}
+                        <code>roles</code>; some setups use{" "}
+                        <code>memberOf</code>. Group names are what the Mappings
+                        screen turns into roles.
+                      </p>
+                    </div>
+
+                    <div className="wfield">
+                      <label className="wfield-label" htmlFor="oidc-scopes">
+                        Scopes
+                      </label>
+                      <input
+                        id="oidc-scopes"
+                        value={scopes}
+                        placeholder="openid email profile"
+                        onChange={(e) => setScopes(e.target.value)}
+                      />
+                      <p className="wfield-hint">
+                        Space separated. Empty means{" "}
+                        <code>openid email profile</code>; <code>openid</code>{" "}
+                        is always sent whether you list it or not. Okta and
+                        Auth0 only send groups when a scope asks for them.
                       </p>
                     </div>
                   </div>

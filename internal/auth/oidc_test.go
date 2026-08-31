@@ -186,3 +186,58 @@ func TestNewOIDCGivesUpOnAHangingProvider(t *testing.T) {
 	}
 	t.Logf("ölçüldü: cevap vermeyen sağlayıcıda %v sonra pes etti", elapsed)
 }
+
+/*
+ * ⚠️ SAĞLAYICIYA ÖZEL KAPSAMLAR — VE "openid" HER ZAMAN.
+ *
+ * Kapsamlar sabit "openid email" idi. Eksik olan `profile`,
+ * preferred_username'in yaşadığı yer: postern kullanıcı adını
+ * istemeden bekliyor, gelmeyince e-posta eşleştirmesine düşüyordu.
+ * Okta ve Auth0 ise grupları ancak açıkça istenirse gönderiyor.
+ *
+ * "openid"in her koşulda eklenmesi ayrı bir karar: onsuz akış OIDC
+ * olmaktan çıkıp düz OAuth2'ye dönüyor ve sağlayıcı ID token
+ * göndermiyor — yani doğrulanacak kimlik kalmıyor. Bunu operatörün
+ * unutabileceği bir alana bırakmak, unutulduğu gün kimlik doğrulamayı
+ * sessizce kapatmak olurdu.
+ */
+func TestRequestedScopes(t *testing.T) {
+	has := func(list []string, want string) bool {
+		for _, s := range list {
+			if s == want {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Varsayılan: profile DAHİL.
+	def := requestedScopes("")
+	for _, want := range []string{"openid", "email", "profile"} {
+		if !has(def, want) {
+			t.Errorf("varsayılan kapsamlarda %q yok: %v", want, def)
+		}
+	}
+
+	// Operatörün listesi kullanılıyor.
+	custom := requestedScopes("email groups")
+	if !has(custom, "groups") {
+		t.Errorf("özel kapsam düşmüş: %v", custom)
+	}
+	// ⚠️ openid yazılmasa da var.
+	if !has(custom, "openid") {
+		t.Fatalf("openid eklenmemiş (%v) — akış OIDC olmaktan çıkar, "+
+			"sağlayıcı ID token göndermez ve doğrulanacak kimlik kalmaz", custom)
+	}
+	// Tekrar yok: "openid" iki kez yazılırsa listede bir kez.
+	twice := requestedScopes("openid openid email")
+	n := 0
+	for _, s := range twice {
+		if s == "openid" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("openid %d kez: %v", n, twice)
+	}
+}

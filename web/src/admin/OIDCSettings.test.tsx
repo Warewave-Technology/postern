@@ -8,6 +8,8 @@ const settings = (over: Partial<OIDCSettings> = {}): OIDCSettings => ({
   issuer_url: "",
   client_id: "",
   client_secret_set: false,
+  groups_claim: "",
+  scopes: "",
   managed_in_db: true,
   configured: false,
   live: false,
@@ -85,6 +87,8 @@ describe("kimlik sağlayıcı ayarları", () => {
         "https://idp.example",
         "postern",
         undefined,
+        "",
+        "",
       ),
     );
   });
@@ -106,6 +110,8 @@ describe("kimlik sağlayıcı ayarları", () => {
         "https://idp.example",
         "postern",
         "s3cret",
+        "",
+        "",
       ),
     );
     // Sır ekranda ASILI KALMIYOR.

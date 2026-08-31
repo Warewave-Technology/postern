@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AuthSource from "./AuthSource";
-import { api, type AuthSourceStatus } from "../api";
+import { api, type AuthSourceStatus, type Setting } from "../api";
 
 const status = (over: Partial<AuthSourceStatus> = {}): AuthSourceStatus => ({
   source: "local",
@@ -17,7 +17,10 @@ const status = (over: Partial<AuthSourceStatus> = {}): AuthSourceStatus => ({
 
 beforeEach(() => {
   vi.restoreAllMocks();
-  vi.stubGlobal("confirm", vi.fn((_m?: string) => true));
+  vi.stubGlobal(
+    "confirm",
+    vi.fn((_m?: string) => true),
+  );
 });
 
 describe("aktif giris kaynagi", () => {
@@ -63,7 +66,9 @@ describe("aktif giris kaynagi", () => {
     vi.spyOn(api, "authSource").mockResolvedValue(status({ source: "local" }));
     render(<AuthSource />);
 
-    await waitFor(() => expect(screen.getByText(/in use/i)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText(/in use/i)).toBeInTheDocument(),
+    );
     expect(
       screen.queryByRole("button", { name: /switch panel sign-in to local/i }),
     ).toBeNull();
@@ -83,7 +88,9 @@ describe("aktif giris kaynagi", () => {
     render(<AuthSource />);
 
     await waitFor(() =>
-      expect(screen.getByText(/Nothing is stored, so this was derived/i)).toBeInTheDocument(),
+      expect(
+        screen.getByText(/Nothing is stored, so this was derived/i),
+      ).toBeInTheDocument(),
     );
   });
 
@@ -91,7 +98,9 @@ describe("aktif giris kaynagi", () => {
     vi.spyOn(api, "authSource").mockResolvedValue(status({ stored: true }));
     render(<AuthSource />);
 
-    await waitFor(() => expect(screen.getByText(/in use/i)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText(/in use/i)).toBeInTheDocument(),
+    );
     expect(screen.queryByText(/this was derived/i)).toBeNull();
   });
 
@@ -129,8 +138,133 @@ describe("aktif giris kaynagi", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByText(/postern settings set --key auth\.source --value local/),
+        screen.getByText(
+          /postern settings set --key auth\.source --value local/,
+        ),
       ).toBeInTheDocument(),
     );
+  });
+});
+
+/*
+ * ⚠️ EKRANI OLMAYAN AYAR, PANELDEN YÖNETİLEBİLİR SAYILAMAZ.
+ *
+ * Üçü de sunucu tarafında panelden yazılabilir işaretliydi ama hiçbir
+ * ekranda alanı yoktu. auth.auto_create'in tek yazıldığı yer kurulum
+ * sihirbazıydı ve o bir kez bitince bir daha çizilmiyor: ilk kurulumda
+ * "kuyruğa al" diyen bir kurum kararını bir daha değiştiremiyordu.
+ */
+describe("hesap politikası", () => {
+  const withSettings = (rows: Setting[]) => {
+    vi.spyOn(api, "authSource").mockResolvedValue({
+      source: "local",
+      stored: true,
+      options: [{ source: "local", eligible: true }],
+      unseen_mappings: [],
+    });
+    vi.spyOn(api, "settings").mockResolvedValue(rows);
+    return render(<AuthSource />);
+  };
+
+  it("otomatik açılışın açık/kapalı olduğunu söylüyor ve çevirebiliyor", async () => {
+    const set = vi
+      .spyOn(api, "setSetting")
+      .mockResolvedValue({ ok: true, source: "local" });
+    withSettings([
+      {
+        key: "auth.auto_create",
+        value: "true",
+        secret: false,
+        updated_by: "test",
+      },
+    ]);
+
+    expect(
+      await screen.findByText(/an account is created for them/i),
+    ).toBeTruthy();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /queue new people for approval/i }),
+    );
+    await waitFor(() =>
+      expect(set).toHaveBeenCalledWith("auth.auto_create", "false"),
+    );
+  });
+
+  it("kuyruk modunda ne olduğunu söylüyor", async () => {
+    withSettings([
+      {
+        key: "auth.auto_create",
+        value: "false",
+        secret: false,
+        updated_by: "test",
+      },
+    ]);
+    expect(await screen.findByText(/put in a queue/i)).toBeTruthy();
+  });
+
+  /*
+   * ⚠️ ONAY METNİ NE OLACAĞINI SÖYLEMEK ZORUNDA. Otomatik açılışı
+   * açmak, kaynağın kefil olduğu herkese yönetici bakmadan hesap
+   * vermek demek; bunu söylemeyen bir düğme, kararı gizler.
+   */
+  it("otomatik açılışı açarken sonucunu söylüyor", async () => {
+    const confirmSpy = vi.fn((_m?: string) => true);
+    vi.stubGlobal("confirm", confirmSpy);
+    vi.spyOn(api, "setSetting").mockResolvedValue({
+      ok: true,
+      source: "local",
+    });
+    withSettings([
+      {
+        key: "auth.auto_create",
+        value: "false",
+        secret: false,
+        updated_by: "test",
+      },
+    ]);
+
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: /create accounts automatically/i,
+      }),
+    );
+    expect(confirmSpy.mock.calls[0][0] ?? "").toMatch(
+      /without an administrator looking/i,
+    );
+  });
+
+  // Hesap ömrü alanları mevcut değerle doluyor ve ikisi birden
+  // kaydediliyor: birini kaydedip öbürünü unutmak, iki adımlı bir
+  // yaşam döngüsünü yarım bırakır.
+  it("hesap ömrünü okuyup kaydediyor", async () => {
+    const set = vi
+      .spyOn(api, "setSetting")
+      .mockResolvedValue({ ok: true, source: "local" });
+    withSettings([
+      {
+        key: "auth.confirm_ttl",
+        value: "45d",
+        secret: false,
+        updated_by: "test",
+      },
+      {
+        key: "auth.delete_after",
+        value: "180d",
+        secret: false,
+        updated_by: "test",
+      },
+    ]);
+
+    const box = await screen.findByLabelText(/deactivate after/i);
+    expect((box as HTMLInputElement).value).toBe("45d");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /save the account lifetime/i }),
+    );
+    await waitFor(() =>
+      expect(set).toHaveBeenCalledWith("auth.confirm_ttl", "45d"),
+    );
+    expect(set).toHaveBeenCalledWith("auth.delete_after", "180d");
   });
 });

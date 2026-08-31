@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { MyKeys as MyKeysData, api, toMessage } from "./api";
-import { ErrorLine, OkLine } from "./admin/common";
+import { ActionButton, ErrorLine, OkLine } from "./admin/common";
 
 /*
  * MyKeys — kullanıcının kendi SSH anahtarları.
@@ -35,6 +35,24 @@ export default function MyKeys() {
   useEffect(() => {
     load();
   }, [load]);
+
+  /*
+   * ⚠️ SİLME YENİDEN DOĞRULAMA İSTEMİYOR ve bu kasıtlı: erişimi
+   * AZALTAN bir işlem. Ele geçirilmiş bir anahtarı kaldırmanın önüne
+   * bir sır sormak koymak, tam da acele edilmesi gereken anda
+   * yavaşlatırdı. Gerekçenin tamamı handleRemoveMyKey'de.
+   */
+  const remove = (fingerprint: string) => {
+    setError("");
+    setOk("");
+    return api
+      .removeMyKeyByFingerprint(fingerprint)
+      .then(() => {
+        setOk("key removed");
+        return load();
+      })
+      .catch((e: unknown) => setError(toMessage(e)));
+  };
 
   const add = (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,15 +95,39 @@ export default function MyKeys() {
             No key yet — add one below to connect over SSH.
           </p>
         ) : (
-          <ul className="key-list">
+          <ul className="key-list-admin">
             {data.keys.map((k) => (
               <li key={k.fingerprint}>
-                <code>{k.fingerprint}</code>
-                {k.comment && <span className="muted"> {k.comment}</span>}
-                <span className="muted">
-                  {" "}
-                  · added {k.added_at.slice(0, 10)}
-                </span>
+                <div>
+                  <code className="fp">{k.fingerprint}</code>
+                  <span className="muted small">
+                    {k.comment ? ` ${k.comment} · ` : " "}
+                    added {k.added_at.slice(0, 10)}
+                  </span>
+                </div>
+                {/*
+                  ⚠️ KENDİ ANAHTARINI KALDIRABİLMEK.
+
+                  Uç ve denetim satırı ilk günden vardı ama panelde
+                  çağıran yoktu — üstelik silme ucu anahtarın METNİNİ
+                  istiyordu ve liste ucu metni hiç döndürmüyor. Yani
+                  anahtarının ele geçtiğini fark eden kullanıcı onu
+                  iptal edemiyordu; bu dosyanın kendi gerekçesi ikinci
+                  anahtarı "saldırganın kalıcılık kurma hamlesi" diye
+                  tanımlarken.
+
+                  Silme yeniden doğrulama İSTEMİYOR ve bu kasıtlı
+                  (gerekçe uçta): erişimi AZALTAN bir işlem ve ele
+                  geçirilmiş bir anahtarı hızlıca kaldırabilmek gerekiyor.
+                */}
+                <ActionButton
+                  variant="danger"
+                  onClick={() => remove(k.fingerprint)}
+                  confirm={`Remove this key? If it is your last one you can no longer connect over SSH until an administrator adds one for you.`}
+                  label={`remove key ${k.fingerprint}`}
+                >
+                  Remove
+                </ActionButton>
               </li>
             ))}
           </ul>

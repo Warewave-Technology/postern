@@ -16,13 +16,21 @@ const status = (over: Partial<AuthSourceStatus> = {}): AuthSourceStatus => ({
 });
 
 const settings = (adminGroup = "sysadmins"): Setting[] => [
-  { key: "ldap.admin_group", value: adminGroup, secret: false, updated_by: "ops" },
+  {
+    key: "ldap.admin_group",
+    value: adminGroup,
+    secret: false,
+    updated_by: "ops",
+  },
   { key: "auth.auto_create", value: "false", secret: false, updated_by: "ops" },
 ];
 
 beforeEach(() => {
   vi.restoreAllMocks();
-  vi.stubGlobal("confirm", vi.fn((_m?: string) => true));
+  vi.stubGlobal(
+    "confirm",
+    vi.fn((_m?: string) => true),
+  );
   vi.spyOn(api, "authSource").mockResolvedValue(status());
   vi.spyOn(api, "settings").mockResolvedValue(settings());
   vi.spyOn(api, "mappings").mockResolvedValue([]);
@@ -33,6 +41,8 @@ beforeEach(() => {
     issuer_url: "",
     client_id: "",
     client_secret_set: false,
+    groups_claim: "",
+    scopes: "",
     managed_in_db: false,
     configured: false,
     live: false,
@@ -54,10 +64,18 @@ describe("kurulum sihirbazi", () => {
    */
   it("ldap secilince once kimlik baglanmali", async () => {
     render(<Setup meName="ops" />);
-    await waitFor(() => expect(screen.getByText(/Which source opens the panel/i)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Which source opens the panel/i),
+      ).toBeInTheDocument(),
+    );
 
-    await userEvent.click(screen.getByRole("radio", { name: /Directory \(LDAP\)/i }));
-    await userEvent.click(screen.getByRole("button", { name: /Link yourself, then switch/i }));
+    await userEvent.click(
+      screen.getByRole("radio", { name: /Directory \(LDAP\)/i }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Link yourself, then switch/i }),
+    );
 
     const go = await screen.findByRole("button", {
       name: /switch the panel to this source/i,
@@ -74,18 +92,38 @@ describe("kurulum sihirbazi", () => {
     });
 
     render(<Setup meName="ops" />);
-    await waitFor(() => expect(screen.getByText(/Which source opens the panel/i)).toBeInTheDocument());
-    await userEvent.click(screen.getByRole("radio", { name: /Directory \(LDAP\)/i }));
-    await userEvent.click(screen.getByRole("button", { name: /Link yourself, then switch/i }));
-
-    await userEvent.type(screen.getByLabelText(/Your directory username/i), "yigit.basalma");
-    await userEvent.type(screen.getByLabelText(/Your directory password/i), "gizli");
-    await userEvent.click(screen.getByRole("button", { name: /link my directory account/i }));
-
-    await waitFor(() => expect(bind).toHaveBeenCalledWith("yigit.basalma", "gizli"));
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: /switch the panel to this source/i }),
+        screen.getByText(/Which source opens the panel/i),
+      ).toBeInTheDocument(),
+    );
+    await userEvent.click(
+      screen.getByRole("radio", { name: /Directory \(LDAP\)/i }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Link yourself, then switch/i }),
+    );
+
+    await userEvent.type(
+      screen.getByLabelText(/Your directory username/i),
+      "yigit.basalma",
+    );
+    await userEvent.type(
+      screen.getByLabelText(/Your directory password/i),
+      "gizli",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /link my directory account/i }),
+    );
+
+    await waitFor(() =>
+      expect(bind).toHaveBeenCalledWith("yigit.basalma", "gizli"),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: /switch the panel to this source/i,
+        }),
       ).toBeEnabled(),
     );
   });
@@ -98,9 +136,17 @@ describe("kurulum sihirbazi", () => {
    */
   it("oidc'de once baglanamayacagini acikca soyler", async () => {
     render(<Setup meName="ops" />);
-    await waitFor(() => expect(screen.getByText(/Which source opens the panel/i)).toBeInTheDocument());
-    await userEvent.click(screen.getByRole("radio", { name: /Identity provider/i }));
-    await userEvent.click(screen.getByRole("button", { name: /Link yourself, then switch/i }));
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Which source opens the panel/i),
+      ).toBeInTheDocument(),
+    );
+    await userEvent.click(
+      screen.getByRole("radio", { name: /Identity provider/i }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Link yourself, then switch/i }),
+    );
 
     expect(
       screen.getByText(/no way to prove an OIDC identity before switching/i),
@@ -112,9 +158,17 @@ describe("kurulum sihirbazi", () => {
   // grupsuz görünür ve hiçbir eşleme tutmaz.
   it("oidc icin grup claim'inin nasil ayarlanacagini anlatir", async () => {
     render(<Setup meName="ops" />);
-    await waitFor(() => expect(screen.getByText(/Which source opens the panel/i)).toBeInTheDocument());
-    await userEvent.click(screen.getByRole("radio", { name: /Identity provider/i }));
-    await userEvent.click(screen.getByRole("button", { name: /Configure it/i }));
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Which source opens the panel/i),
+      ).toBeInTheDocument(),
+    );
+    await userEvent.click(
+      screen.getByRole("radio", { name: /Identity provider/i }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Configure it/i }),
+    );
 
     expect(screen.getByText(/has to send group names/i)).toBeInTheDocument();
     expect(screen.getByText(/Group Membership/i)).toBeInTheDocument();
@@ -125,13 +179,21 @@ describe("kurulum sihirbazi", () => {
   it("eslemenin her iki durumda da gerektigini soyler", async () => {
     render(<Setup meName="ops" />);
     await waitFor(() =>
-      expect(screen.getByText(/Which source opens the panel/i)).toBeInTheDocument(),
+      expect(
+        screen.getByText(/Which source opens the panel/i),
+      ).toBeInTheDocument(),
     );
     // Kaynak temelli bir kurulum: eşleme orada gerçekten gerekli.
-    await userEvent.click(screen.getByRole("radio", { name: /Directory \(LDAP\)/i }));
-    await userEvent.click(screen.getByRole("button", { name: /Groups and roles/i }));
+    await userEvent.click(
+      screen.getByRole("radio", { name: /Directory \(LDAP\)/i }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Groups and roles/i }),
+    );
 
-    expect(screen.getByText(/Mapping is needed either way/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Mapping is needed either way/i),
+    ).toBeInTheDocument();
   });
 
   /*
@@ -145,12 +207,16 @@ describe("kurulum sihirbazi", () => {
   it("yerel modda esleme ve otomatik acilis gosterilmez", async () => {
     render(<Setup meName="ops" />);
     await waitFor(() =>
-      expect(screen.getByText(/Which source opens the panel/i)).toBeInTheDocument(),
+      expect(
+        screen.getByText(/Which source opens the panel/i),
+      ).toBeInTheDocument(),
     );
     await userEvent.click(
       screen.getByRole("radio", { name: /postern's own credentials/i }),
     );
-    await userEvent.click(screen.getByRole("button", { name: /Groups and roles/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /Groups and roles/i }),
+    );
 
     expect(screen.queryByText(/Do accounts open on their own/i)).toBeNull();
     expect(screen.queryByText(/Mapping is needed either way/i)).toBeNull();
@@ -165,9 +231,17 @@ describe("kurulum sihirbazi", () => {
   it("yonetici grubu bosken uyarir", async () => {
     vi.spyOn(api, "settings").mockResolvedValue(settings(""));
     render(<Setup meName="ops" />);
-    await waitFor(() => expect(screen.getByText(/Which source opens the panel/i)).toBeInTheDocument());
-    await userEvent.click(screen.getByRole("radio", { name: /Directory \(LDAP\)/i }));
-    await userEvent.click(screen.getByRole("button", { name: /Administrators/i }));
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Which source opens the panel/i),
+      ).toBeInTheDocument(),
+    );
+    await userEvent.click(
+      screen.getByRole("radio", { name: /Directory \(LDAP\)/i }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Administrators/i }),
+    );
 
     expect(
       screen.getByText(/An administrator group is required/i),
@@ -186,20 +260,25 @@ describe("zaten bagli yonetici", () => {
   it("baglama adimini gecilmis sayar", async () => {
     render(<Setup meName="ops" dirBound />);
     await waitFor(() =>
-      expect(screen.getByText(/Which source opens the panel/i)).toBeInTheDocument(),
+      expect(
+        screen.getByText(/Which source opens the panel/i),
+      ).toBeInTheDocument(),
     );
-    await userEvent.click(screen.getByRole("radio", { name: /Directory \(LDAP\)/i }));
+    await userEvent.click(
+      screen.getByRole("radio", { name: /Directory \(LDAP\)/i }),
+    );
     await userEvent.click(
       screen.getByRole("button", { name: /Link yourself, then switch/i }),
     );
 
-    expect(screen.getByText(/already linked to a directory identity/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/already linked to a directory identity/i),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /switch the panel to this source/i }),
     ).toBeEnabled();
   });
 });
-
 
 /*
  * ⚠️ SİHİRBAZ, KİMLİK SAĞLAYICIYI ARTIK KENDİSİ YAPILANDIRIYOR.
@@ -216,10 +295,16 @@ describe("oidc yapilandirmasi", () => {
 
     render(<Setup meName="ops" />);
     await waitFor(() =>
-      expect(screen.getByText(/Which source opens the panel/i)).toBeInTheDocument(),
+      expect(
+        screen.getByText(/Which source opens the panel/i),
+      ).toBeInTheDocument(),
     );
-    await userEvent.click(screen.getByRole("radio", { name: /Identity provider/i }));
-    await userEvent.click(screen.getByRole("button", { name: /Configure it/i }));
+    await userEvent.click(
+      screen.getByRole("radio", { name: /Identity provider/i }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Configure it/i }),
+    );
 
     await userEvent.type(
       screen.getByLabelText(/Issuer address/i),
@@ -227,7 +312,9 @@ describe("oidc yapilandirmasi", () => {
     );
     await userEvent.type(screen.getByLabelText(/Client id/i), "postern");
     await userEvent.click(
-      screen.getByRole("button", { name: /save and contact the identity provider/i }),
+      screen.getByRole("button", {
+        name: /save and contact the identity provider/i,
+      }),
     );
 
     // ⚠️ Sır BOŞ bırakıldı: gönderilmemeli. Boşu "temizle" saymak,
@@ -248,10 +335,16 @@ describe("oidc yapilandirmasi", () => {
 
     render(<Setup meName="ops" />);
     await waitFor(() =>
-      expect(screen.getByText(/Which source opens the panel/i)).toBeInTheDocument(),
+      expect(
+        screen.getByText(/Which source opens the panel/i),
+      ).toBeInTheDocument(),
     );
-    await userEvent.click(screen.getByRole("radio", { name: /Identity provider/i }));
-    await userEvent.click(screen.getByRole("button", { name: /Configure it/i }));
+    await userEvent.click(
+      screen.getByRole("radio", { name: /Identity provider/i }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Configure it/i }),
+    );
 
     await userEvent.type(
       screen.getByLabelText(/Issuer address/i),
@@ -260,7 +353,9 @@ describe("oidc yapilandirmasi", () => {
     await userEvent.type(screen.getByLabelText(/Client id/i), "postern");
     await userEvent.type(screen.getByLabelText(/Client secret/i), "gizli");
     await userEvent.click(
-      screen.getByRole("button", { name: /save and contact the identity provider/i }),
+      screen.getByRole("button", {
+        name: /save and contact the identity provider/i,
+      }),
     );
 
     await waitFor(() =>
@@ -288,6 +383,8 @@ describe("oidc yapilandirmasi", () => {
         issuer_url: "",
         client_id: "",
         client_secret_set: false,
+        groups_claim: "",
+        scopes: "",
         managed_in_db: false,
         configured: false,
         live: false,
@@ -296,6 +393,8 @@ describe("oidc yapilandirmasi", () => {
         issuer_url: "https://idp.example/realms/x",
         client_id: "postern",
         client_secret_set: false,
+        groups_claim: "",
+        scopes: "",
         managed_in_db: true,
         configured: true,
         live: false,
@@ -303,17 +402,25 @@ describe("oidc yapilandirmasi", () => {
 
     render(<Setup meName="ops" />);
     await waitFor(() =>
-      expect(screen.getByText(/Which source opens the panel/i)).toBeInTheDocument(),
+      expect(
+        screen.getByText(/Which source opens the panel/i),
+      ).toBeInTheDocument(),
     );
-    await userEvent.click(screen.getByRole("radio", { name: /Identity provider/i }));
-    await userEvent.click(screen.getByRole("button", { name: /Configure it/i }));
+    await userEvent.click(
+      screen.getByRole("radio", { name: /Identity provider/i }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Configure it/i }),
+    );
     await userEvent.type(
       screen.getByLabelText(/Issuer address/i),
       "https://idp.example/realms/x",
     );
     await userEvent.type(screen.getByLabelText(/Client id/i), "postern");
     await userEvent.click(
-      screen.getByRole("button", { name: /save and contact the identity provider/i }),
+      screen.getByRole("button", {
+        name: /save and contact the identity provider/i,
+      }),
     );
 
     await waitFor(() =>
@@ -341,7 +448,9 @@ describe("kurulumun bitisi", () => {
 
     render(<Setup meName="ops" />);
     await waitFor(() =>
-      expect(screen.getByText(/Which source opens the panel/i)).toBeInTheDocument(),
+      expect(
+        screen.getByText(/Which source opens the panel/i),
+      ).toBeInTheDocument(),
     );
     await userEvent.click(
       screen.getByRole("button", { name: /Link yourself, then switch/i }),
@@ -366,18 +475,20 @@ describe("geri donus yolu", () => {
   it("kaynaktan cikarken yerel hesabin kaldigini soyler", async () => {
     render(<Setup meName="ops" dirBound />);
     await waitFor(() =>
-      expect(screen.getByText(/Which source opens the panel/i)).toBeInTheDocument(),
+      expect(
+        screen.getByText(/Which source opens the panel/i),
+      ).toBeInTheDocument(),
     );
-    await userEvent.click(screen.getByRole("radio", { name: /Directory \(LDAP\)/i }));
+    await userEvent.click(
+      screen.getByRole("radio", { name: /Directory \(LDAP\)/i }),
+    );
     await userEvent.click(
       screen.getByRole("button", { name: /Link yourself, then switch/i }),
     );
 
     // Metin <b>not</b> ile bölündüğü için kesintisiz bir parçaya
     // bakıyoruz: aksi hâlde test cümlenin biçimine bağlanırdı.
-    expect(
-      screen.getByText(/They stay as the way back/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/They stay as the way back/i)).toBeInTheDocument();
     expect(screen.getByText(/auth\.source --value/)).toBeInTheDocument();
   });
 
@@ -385,7 +496,9 @@ describe("geri donus yolu", () => {
   it("yerel modda o cumleyi tekrarlamaz", async () => {
     render(<Setup meName="ops" />);
     await waitFor(() =>
-      expect(screen.getByText(/Which source opens the panel/i)).toBeInTheDocument(),
+      expect(
+        screen.getByText(/Which source opens the panel/i),
+      ).toBeInTheDocument(),
     );
     await userEvent.click(
       screen.getByRole("radio", { name: /postern's own credentials/i }),

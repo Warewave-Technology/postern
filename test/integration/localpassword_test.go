@@ -476,3 +476,98 @@ func TestRemovingAKeyByFingerprintHitsOnlyThatKey(t *testing.T) {
 		t.Fatal("yanlış anahtar silindi")
 	}
 }
+
+/*
+ * ⚠️ KULLANICI KENDİ ANAHTARINI PARMAK İZİYLE KALDIRABİLMELİ.
+ *
+ * ÖLÇÜLEN AÇIK: uç yalnızca anahtarın METNİNİ kabul ediyordu ve liste
+ * ucu metni hiç döndürmüyor — yalnızca parmak izi. Yani panelin, silme
+ * ucunun istediği değere sahip olması mümkün değildi: yazılmış,
+ * denetlenmiş ve çağrılamaz bir uç. Sonuç, anahtarının ele geçtiğini
+ * fark eden kullanıcının onu iptal edememesiydi.
+ */
+func TestUserCanRemoveTheirOwnKeyByFingerprint(t *testing.T) {
+	_, apiURL, _, db := oobBastionFresh(t)
+	ctx := context.Background()
+
+	if _, err := db.CreateUser(ctx, "ayse", "ayse@warewave.io", "ayse"); err != nil {
+		t.Fatal(err)
+	}
+	secret, verifier, err := auth.NewLocalSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AddLocalCredential(ctx, "ayse", verifier, "cli"); err != nil {
+		t.Fatal(err)
+	}
+	// Parolayı değiştirmiş bir hesap: kısıtlı oturum bu ucu görmüyor.
+	if err := db.SetChosenPassword(ctx, "ayse", verifier, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetSetting(ctx, auth.KeyLoginSource, "local", false, "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	// İki anahtar: biri silinecek, öbürü DURACAK.
+	fps := make([]string, 0, 2)
+	for i := 0; i < 2; i++ {
+		pub, _, gerr := ed25519.GenerateKey(rand.Reader)
+		if gerr != nil {
+			t.Fatal(gerr)
+		}
+		sshPub, kerr := ssh.NewPublicKey(pub)
+		if kerr != nil {
+			t.Fatal(kerr)
+		}
+		if err := db.AddPublicKey(ctx, "ayse", sshPub.Marshal(), "k"); err != nil {
+			t.Fatal(err)
+		}
+		fps = append(fps, ssh.FingerprintSHA256(sshPub))
+	}
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
+	if code, msg := localSignIn(t, client, apiURL, "ayse", secret); code != http.StatusOK {
+		t.Fatalf("giriş %d: %s", code, msg)
+	}
+
+	// Liste parmak izlerini veriyor mu?
+	resp, err := client.Get(apiURL + "/api/me/keys")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var listed struct {
+		Keys []struct {
+			Fingerprint string `json:"fingerprint"`
+		} `json:"keys"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&listed)
+	resp.Body.Close()
+	if len(listed.Keys) != 2 {
+		t.Fatalf("liste %d anahtar döndü", len(listed.Keys))
+	}
+
+	// ⚠️ ASIL ÖLÇÜM: listenin verdiği değerle silinebiliyor mu.
+	if code, msg := postJSON(t, client, apiURL+"/api/me/keys/remove",
+		map[string]string{"fingerprint": listed.Keys[0].Fingerprint}); code != http.StatusOK {
+		t.Fatalf("kendi anahtarını silemedi (%d): %s — liste parmak izi "+
+			"veriyor ama uç onu kabul etmiyorsa kullanıcı anahtarını iptal edemez",
+			code, msg)
+	}
+
+	left, err := db.PublicKeys(ctx, "ayse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(left) != 1 {
+		t.Fatalf("%d anahtar kaldı, 1 bekleniyordu", len(left))
+	}
+	kept, err := ssh.ParsePublicKey(left[0].Blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ssh.FingerprintSHA256(kept) == listed.Keys[0].Fingerprint {
+		t.Fatal("yanlış anahtar silindi")
+	}
+	_ = fps
+}
