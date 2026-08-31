@@ -134,7 +134,9 @@ const VARIANT_CLASS = {
   default: "",
   primary: "btn-primary",
   quiet: "btn-quiet",
-  danger: "btn-quiet btn-danger",
+  // ⚠️ btn-quiet DEĞİL: gerekçesi styles.css'teki .btn-danger notunda.
+  // Yıkıcı bir eylem düğme gibi görünmek zorunda.
+  danger: "btn-danger",
 } as const;
 
 export function ActionButton({

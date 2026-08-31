@@ -133,16 +133,36 @@ export default function Users({
     },
     { key: "os_user", header: "OS user", value: (u) => u.os_user },
     {
+      /*
+       * ⚠️ HÜCRE "admin" DEĞİL, "yes" YAZIYOR.
+       *
+       * Başlığı "Admin" olan bir sütunda rozetin "admin" demesi, soruyu
+       * soruyla cevaplamaktı — ve okuyanda "burası bir etiket mi, bir
+       * cevap mı" tereddüdü bırakıyordu. Sütunun sorduğu şey bir
+       * evet/hayır; hücre onu cevaplamalı.
+       *
+       * true/false DEĞİL: bu paneldeki her hücre düz İngilizce konuşuyor
+       * ("active", "never", "no roles"). Tek bir yerde makine dilinden
+       * bir değişmez göstermek, o hücreyi ürünün geri kalanından
+       * koparırdı.
+       *
+       * Rozet YALNIZCA "yes"te — yan sütundaki kuralın aynısı: olağan
+       * değer sessiz, dikkat isteyen değer rozetli. Sıralama da
+       * yöneticileri BİR ARADA topluyor, "kimler yönetici" tek tıkla
+       * cevaplansın diye.
+       *
+       * Yöneticiliğin NEREDEN geldiği (host mu, dizin grubu mu) burada
+       * yok: o, panelin neyi kaldırabildiğini belirleyen ayrı bir soru
+       * ve kişinin kendi sayfasında yazıyor.
+       */
       key: "admin",
       header: "Admin",
-      // Sıralama adminleri BİR ARADA toplasın: "kimler admin" sorusu
-      // tek tıkla cevaplanabilsin.
       value: (u) => (u.admin ? "1" : "0"),
       render: (u) =>
         u.admin ? (
-          <span className="badge badge-accent">admin</span>
+          <span className="badge badge-accent">yes</span>
         ) : (
-          <span className="muted">—</span>
+          <span className="muted">no</span>
         ),
     },
     {

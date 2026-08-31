@@ -122,3 +122,30 @@ describe("giriş bilgisi", () => {
     );
   });
 });
+
+/*
+ * ⚠️ ADMIN SÜTUNU BAŞLIĞI TEKRAR ETMİYOR.
+ *
+ * Başlığı "Admin" olan bir sütunda hücrenin "admin" demesi, soruyu
+ * soruyla cevaplamaktı. Sütun bir evet/hayır soruyor; hücre onu
+ * cevaplıyor.
+ */
+describe("admin sütunu", () => {
+  it("evet/hayır cevabı veriyor, etiketi tekrarlamıyor", async () => {
+    vi.spyOn(api, "users").mockResolvedValue([
+      user({ name: "ops", admin: true }),
+      user({ name: "ayse", admin: false }),
+    ]);
+
+    render(<Users publicKeyLogin localSource={true} />);
+    await screen.findByText("ayse");
+
+    const cells = [...document.querySelectorAll("tbody tr")].map((tr) =>
+      (tr as HTMLTableRowElement).cells[2].textContent?.trim(),
+    );
+    expect(cells).toContain("yes");
+    expect(cells).toContain("no");
+    // "admin" YALNIZCA kullanıcı adı olarak geçebilir, hücrede değil.
+    expect(cells).not.toContain("admin");
+  });
+});

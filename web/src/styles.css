@@ -834,12 +834,31 @@ button:disabled {
   background: var(--active);
   color: var(--ink);
 }
+/*
+ * Yıkıcı düğme.
+ *
+ * ⚠️ ÇERÇEVESİ VAR — ve bir zamanlar yoktu. Eskiden `btn-quiet`
+ * üzerine kuruluydu, yani zemini ve kenarlığı olmayan kırmızı bir
+ * kelimeydi; gerekçesi btn-quiet'in kendi notunda yazılı: "kenarlıksız
+ * olmaları satır başına üç kutu çizilmesini önlüyor".
+ *
+ * O gerekçe ARTIK GEÇERLİ DEĞİL. Kullanıcı listesi satır başına üç
+ * eylem taşımayı bıraktı (tek eylem kaldı, gerisi kişinin kendi
+ * sayfasına taşındı) ve o sayfadaki çerçeveli kartların içinde
+ * çerçevesiz kırmızı bir kelime, düğme gibi değil yarım kalmış bir şey
+ * gibi duruyordu.
+ *
+ * Kenarlık ayrıca bir GÜVENLİK okunabilirliği: bunlar geri dönüşü
+ * olmayan eylemler. Tıklanabilir olduğu belli olmayan bir "Delete",
+ * yanlışlıkla basılmayı zorlaştırmıyor — sadece kasıtlı basmayı
+ * zorlaştırıyor.
+ */
 .btn-danger {
   color: var(--danger);
+  border-color: var(--danger-line);
 }
 .btn-danger:hover:not(:disabled) {
   background: var(--danger-bg);
-  border-color: var(--danger-line);
 }
 
 /* ============================================================
