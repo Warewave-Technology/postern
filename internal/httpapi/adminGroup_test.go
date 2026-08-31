@@ -3,6 +3,10 @@ package httpapi
 import (
 	"testing"
 
+	"github.com/warewave/postern/internal/ldap"
+
+	"github.com/warewave/postern/internal/auth"
+
 	"github.com/warewave/postern/internal/store"
 )
 
@@ -109,5 +113,72 @@ func TestWouldLeaveNoAdmin(t *testing.T) {
 					c.holders, c.want, got, c.leaves)
 			}
 		})
+	}
+}
+
+/*
+ * ⚠️ PANELİN YAZDIĞI HER AYAR YA İZİNLİ YA DA AÇIKÇA REDDEDİLMİŞ OLMALI.
+ *
+ * ÖLÇÜLEN ARIZA: sihirbazın "hesaplar kendiliğinden açılsın mı"
+ * anahtarı (auth.auto_create) knownSettingKeys'e eklenmemişti. Ekran
+ * çiziliyordu, düğme çalışıyordu, ve tıklayınca "unknown setting key"
+ * dönüyordu — yani sihirbaz kendi ayarını yazamıyordu.
+ *
+ * Bu test tek bir anahtarı değil, HATA SINIFINI kapatıyor: yeni bir
+ * ayar sabiti eklendiğinde, ya listeye ya da gerekçeli reddedilenler
+ * listesine girmek zorunda. Karar vermeyi unutmak derlemede değil ama
+ * testte yakalanıyor.
+ */
+func TestEverySettingKeyIsClassified(t *testing.T) {
+	/*
+	 * Genel uçtan YAZILAMAYAN ayarlar ve sebepleri. Hepsinin kendi ucu
+	 * var, çünkü hepsi postern'in KİME GÜVENDİĞİNİ belirliyor ve yanlış
+	 * bir değer kimsenin giremediği bir panel bırakıyor.
+	 */
+	deniedOnPurpose := map[string]string{
+		auth.KeyLoginSource:      "own endpoint: proves the destination can let someone in",
+		auth.KeyAdminGroup:       "own endpoint: shows who it makes an administrator first",
+		auth.KeyOIDCIssuer:       "own endpoint: drops the client secret when the target changes",
+		auth.KeyOIDCClientID:     "own endpoint: same transaction as the issuer",
+		auth.KeyOIDCClientSecret: "own endpoint: write-only, never read back",
+		auth.KeyOIDCManaged:      "written by the server, not by an operator",
+		auth.KeySetupCompleted:   "written by the server when setup finishes",
+	}
+
+	all := map[string]string{
+		"auth.KeyLoginSource":      auth.KeyLoginSource,
+		"auth.KeyAdminGroup":       auth.KeyAdminGroup,
+		"auth.KeyAutoCreate":       auth.KeyAutoCreate,
+		"auth.KeyConfirmTTL":       auth.KeyConfirmTTL,
+		"auth.KeyDeleteTTL":        auth.KeyDeleteTTL,
+		"auth.KeySetupCompleted":   auth.KeySetupCompleted,
+		"auth.KeyOIDCIssuer":       auth.KeyOIDCIssuer,
+		"auth.KeyOIDCClientID":     auth.KeyOIDCClientID,
+		"auth.KeyOIDCClientSecret": auth.KeyOIDCClientSecret,
+		"auth.KeyOIDCManaged":      auth.KeyOIDCManaged,
+		"ldap.KeyURL":              ldap.KeyURL,
+		"ldap.KeyBindDN":           ldap.KeyBindDN,
+		"ldap.KeyBindPassword":     ldap.KeyBindPassword,
+		"ldap.KeyUserBase":         ldap.KeyUserBase,
+		"ldap.KeyUserFilter":       ldap.KeyUserFilter,
+		"ldap.KeyGroupAttribute":   ldap.KeyGroupAttribute,
+		"ldap.KeyGroupBase":        ldap.KeyGroupBase,
+		"ldap.KeyGroupFilter":      ldap.KeyGroupFilter,
+		"ldap.KeyGroupNameFrom":    ldap.KeyGroupNameFrom,
+		"ldap.KeyGroupScope":       ldap.KeyGroupScope,
+	}
+
+	for name, key := range all {
+		_, allowed := knownSettingKeys[key]
+		_, denied := deniedOnPurpose[key]
+		switch {
+		case allowed && denied:
+			t.Errorf("%s (%q) hem izinli hem reddedilmiş — karar belirsiz", name, key)
+		case !allowed && !denied:
+			t.Errorf("%s (%q) sınıflandırılmamış: ya knownSettingKeys'e ekle, "+
+				"ya da gerekçesiyle deniedOnPurpose'a. Sınıflandırılmayan bir "+
+				"anahtar, panelde çalışan bir düğmenin \"unknown setting key\" "+
+				"döndürmesi demek", name, key)
+		}
 	}
 }

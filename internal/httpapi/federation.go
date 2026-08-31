@@ -509,6 +509,16 @@ var knownSettingKeys = map[string]bool{
 	 */
 	auth.KeyConfirmTTL: true,
 	auth.KeyDeleteTTL:  true,
+
+	/*
+	 * Hesapların kendiliğinden açılıp açılmayacağı.
+	 *
+	 * ⚠️ Açmak yeni bir yetki vermiyor: rol eşlemesi kapıda duruyor
+	 * (bkz. CreateFromDirectory ve ProvisionUser — hiçbir grup bir role
+	 * eşleşmiyorsa hesap AÇILMIYOR). Kapattığında ise kişi onay
+	 * kuyruğuna düşüyor, kapıda kalmıyor.
+	 */
+	auth.KeyAutoCreate: true,
 }
 
 var _ = store.SettingView{}
