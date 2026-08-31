@@ -691,12 +691,18 @@ export const api = {
   /** ⚠️ confirm, panelin GÖSTERDİĞİ listedir ve sunucu onu yeniden
    *  hesaplayıp karşılaştırır. Eşleşmezse 409 döner: onaylanan küme
    *  artık geçerli değil, yeniden bakılmalı. */
+  /** confirm: kaydedenin GÖRDÜĞÜ yönetici listesi. Sayılamayan bir
+   *  kaynakta (OIDC claim'i) böyle bir liste yok — boş gönderilir ve
+   *  sunucu `deferred: true` döner: kimse şimdi yönetici olmuyor,
+   *  herkes kendi bir sonraki girişinde değerlendiriliyor. */
   setAdminGroup: (group: string, confirm: string[]) =>
-    req<{ ok: boolean; group: string; granted: string[]; revoked: string[] }>(
-      "POST",
-      "/api/admin/ldap/admin-group",
-      { group, confirm },
-    ),
+    req<{
+      ok: boolean;
+      group: string;
+      granted: string[];
+      revoked: string[];
+      deferred?: boolean;
+    }>("POST", "/api/admin/ldap/admin-group", { group, confirm }),
   pending: () => req<PendingUser[]>("GET", "/api/admin/pending"),
   approvePending: (id: string, os_user?: string) =>
     req<{ ok: boolean; username: string; note: string }>(

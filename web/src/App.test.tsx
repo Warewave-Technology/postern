@@ -635,3 +635,63 @@ describe("zorunlu parola değişikliği", () => {
     expect(screen.queryByText(/set up sign-in/i)).toBeNull();
   });
 });
+
+/*
+ * ⚠️ OIDC EKRANI MENÜDE, VE KAYNAKTAN BAĞIMSIZ.
+ *
+ * Bu ayarlar bir süre yalnızca kurulum sihirbazının içinden
+ * yazılabiliyordu; sihirbaz bitince bir daha çizilmiyor. Sonuç: ilk
+ * kurulumda OIDC'yi seçmeyen bir kurulum onu sonradan HİÇ
+ * yapılandıramıyor, dolayısıyla kaynağı da hiç OIDC'ye çeviremiyordu.
+ *
+ * Yerel modda da görünmek ZORUNDA: kaynağı OIDC'ye çevirebilmek için
+ * önce onu yapılandırmak gerekiyor. LDAP ekranı da aynı sebeple orada.
+ */
+describe("kimlik sağlayıcı ekranı", () => {
+  const adminMe = {
+    name: "yigit",
+    os_user: "yigit",
+    admin: true,
+    targets: [],
+    terminal_enabled: true,
+    public_key_login: true,
+  };
+
+  /*
+   * ⚠️ MADDE ADI PROTOKOL: "OIDC", "Identity provider" değil.
+   * Yanındaki "LDAP" ile aynı düzlemde olmalı — biri protokolüyle
+   * öbürü genel bir tabirle anılırsa menüde hangisinin ne olduğu
+   * okunmuyor. Üstelik "identity provider" LDAP'ı da kapsıyor.
+   */
+  it("Identity grubunda LDAP'ın yanında duruyor", async () => {
+    vi.spyOn(api, "me").mockResolvedValue(adminMe);
+    render(<App />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Settings" }),
+    );
+
+    expect(await screen.findByRole("button", { name: "OIDC" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "LDAP" })).toBeTruthy();
+  });
+
+  it("yerel kaynakta da duruyor — yoksa OIDC'ye hiç geçilemez", async () => {
+    vi.spyOn(api, "me").mockResolvedValue(adminMe);
+    vi.spyOn(api, "authSource").mockResolvedValue({
+      source: "local",
+      stored: true,
+      options: [],
+      unseen_mappings: [],
+    });
+
+    render(<App />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Settings" }),
+    );
+    // Yerel modda kaynağa bağlı ekranlar (Mappings, Pending) düşüyor;
+    // bu düşmemeli.
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Mappings" })).toBeNull(),
+    );
+    expect(screen.getByRole("button", { name: "OIDC" })).toBeTruthy();
+  });
+});

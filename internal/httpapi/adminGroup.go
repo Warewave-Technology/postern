@@ -309,27 +309,59 @@ func (s *Server) adminAdminGroupSet(w http.ResponseWriter, r *http.Request) {
 
 	// Kaydedildikten sonra yönetici olacak küme.
 	var want []string
+	// previewed: kimin yönetici olacağını ÖNCEDEN bilebildik mi.
+	previewed := true
 	if group != "" {
 		pv, err := s.previewAdminGroup(r.Context(), group)
 		if err != nil {
 			if errors.Is(err, ldap.ErrNotConfigured) {
-				writeErr(w, http.StatusBadRequest, "ldap is not configured")
+				/*
+				 * ⚠️ DİZİN YOK: ÖNİZLEME YAPISAL OLARAK İMKÂNSIZ,
+				 * AMA GRUP YİNE DE AYARLANABİLMELİ.
+				 *
+				 * Burası eskiden "ldap is not configured" ile
+				 * REDDEDİYORDU ve sonucu bir çıkmazdı: OIDC girişinde
+				 * yöneticilik YALNIZCA grup iddiasından geliyor
+				 * (weblogin.go), kaynağı OIDC'ye çevirmek de grubun
+				 * ayarlı olmasını şart koşuyor (canSwitchTo) — yani
+				 * dizini olmayan bir kurulum OIDC'ye HİÇBİR ZAMAN
+				 * geçemiyordu. Ayarı yapmanın tek yolu, ihtiyacı
+				 * olmayan bir dizin kurmaktı.
+				 *
+				 * Önizlemeyi taklit ETMİYORUZ: bir kimlik sağlayıcıya
+				 * "bu grupta kimler var" diye sorulamıyor, cevabı
+				 * yalnızca kişi giriş yaptığında belirtecinde geliyor.
+				 * Onay listesi de bu yüzden yok — olmayan bir listeyi
+				 * onaylatmak, güvence veriyormuş gibi yapmak olurdu.
+				 *
+				 * Karşılığında yetki ŞİMDİ dağıtılmıyor: kimse bu
+				 * kaydetmeyle yönetici olmuyor ya da olmaktan çıkmıyor.
+				 * Herkes KENDİ bir sonraki girişinde değerlendiriliyor.
+				 * Aşağıdaki refuseIfLastAdmin yine çalışıyor ve asıl
+				 * korumayı o veriyor: ortada CLI'dan açılmış bir
+				 * yönetici yoksa bu kaydetme reddediliyor.
+				 */
+				previewed = false
+			} else {
+				// ⚠️ Dizin VAR ama cevap vermiyorsa YAZMIYORUZ.
+				// Doğrulanabilecek ama doğrulanamamış bir grup adını
+				// kaydetmek, kimin yönetici olacağını bilmeden yetki
+				// dağıtmak demek. Yukarıdaki dal bundan farklı:
+				// orada doğrulanacak bir şey HİÇ yok.
+				writeErr(w, http.StatusServiceUnavailable,
+					"the directory could not be asked who is in that group: "+err.Error())
 				return
 			}
-			// ⚠️ Dizin cevap vermiyorsa YAZMIYORUZ. Doğrulanamayan bir
-			// grup adını kaydetmek, kimin yönetici olacağını bilmeden
-			// yetki dağıtmak demek.
-			writeErr(w, http.StatusServiceUnavailable,
-				"the directory could not be asked who is in that group: "+err.Error())
-			return
 		}
-		want = pv.Admins
-		if !sameNameSet(in.Confirm, want) {
-			// Gördüğü liste artık geçerli değil: YENİSİNİ göster ve
-			// tekrar sor. Sessizce kaydetmek, onaylanmamış bir kümeye
-			// yetki vermek olurdu.
-			writeJSON(w, http.StatusConflict, pv.body(false))
-			return
+		if previewed {
+			want = pv.Admins
+			if !sameNameSet(in.Confirm, want) {
+				// Gördüğü liste artık geçerli değil: YENİSİNİ göster ve
+				// tekrar sor. Sessizce kaydetmek, onaylanmamış bir kümeye
+				// yetki vermek olurdu.
+				writeJSON(w, http.StatusConflict, pv.body(false))
+				return
+			}
 		}
 	} else {
 		// Temizleme: kaybedecek olanlar, ŞU AN grup üzerinden yönetici
@@ -374,15 +406,26 @@ func (s *Server) adminAdminGroupSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ⚠️ ŞİMDİ uygulanıyor, "bir sonraki girişte" değil. Yalnızca
-	// girişte uygulansaydı, grubu değiştirmek ESKİ yöneticileri yerinde
-	// bırakırdı: bir daha hiç giriş yapmayan kişi süresiz yönetici
-	// kalırdı. Ve onay ekranı "bu kişiler yönetici oluyor" derken
-	// gerçeği söylemiş olmazdı.
-	granted, revoked, err := s.store.ApplyAdminGroup(r.Context(), want)
-	if err != nil {
-		s.storeErr(w, "admin_group.set", err)
-		return
+	/*
+	 * ⚠️ ŞİMDİ uygulanıyor, "bir sonraki girişte" değil. Yalnızca
+	 * girişte uygulansaydı, grubu değiştirmek ESKİ yöneticileri yerinde
+	 * bırakırdı: bir daha hiç giriş yapmayan kişi süresiz yönetici
+	 * kalırdı. Ve onay ekranı "bu kişiler yönetici oluyor" derken
+	 * gerçeği söylemiş olmazdı.
+	 *
+	 * ⚠️ ÖNİZLENEMEYEN GRUPTA ÇALIŞTIRILMIYOR. Orada `want` boş ve
+	 * boş bir kümeyle çağırmak "bu grupta kimse yok" demek olurdu —
+	 * yani bütün grup yöneticilerini düşürürdü. Bilinmeyen bir küme,
+	 * boş bir küme DEĞİL.
+	 */
+	var granted, revoked []string
+	if previewed {
+		var aerr error
+		granted, revoked, aerr = s.store.ApplyAdminGroup(r.Context(), want)
+		if aerr != nil {
+			s.storeErr(w, "admin_group.set", aerr)
+			return
+		}
 	}
 
 	detail := "group=" + group
@@ -395,10 +438,13 @@ func (s *Server) adminAdminGroupSet(w http.ResponseWriter, r *http.Request) {
 		"granted", granted, "revoked", revoked)
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":      true,
-		"group":   group,
-		"granted": granted,
-		"revoked": revoked,
+		"ok": true,
+		// ⚠️ Panel bu bayrağa bakıp doğru cümleyi kuruyor: önizlenemeyen
+		// bir grupta "şu kişiler yönetici oldu" demek yalan olurdu.
+		"deferred": !previewed,
+		"group":    group,
+		"granted":  granted,
+		"revoked":  revoked,
 	})
 }
 

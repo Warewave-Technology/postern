@@ -16,6 +16,7 @@ import Mappings from "./admin/Mappings";
 import Pending from "./admin/Pending";
 import AuthSource from "./admin/AuthSource";
 import Settings from "./admin/Settings";
+import OIDCSettingsScreen from "./admin/OIDCSettings";
 import Setup from "./admin/Setup";
 import ChangePassword from "./ChangePassword";
 import Overview from "./admin/Overview";
@@ -34,6 +35,7 @@ import {
   RolesIcon,
   TargetIcon,
   UsersIcon,
+  IdPIcon,
 } from "./icons";
 
 // Rota kütüphanesi yok: iki üst sekme ve bir kenar listesi için useState
@@ -48,6 +50,7 @@ type Section =
   | "pending"
   | "targets"
   | "signin"
+  | "oidc"
   | "ldap"
   | "sessions"
   | "log";
@@ -89,6 +92,16 @@ const NAV: { title?: string; items: [Section, string, ReactNode][] }[] = [
     title: "Identity",
     items: [
       ["signin", "Sign-in", <KeyIcon key="i" />],
+      /*
+       * ⚠️ OIDC EKRANI, DİZİN EKRANIYLA AYNI HAKKA SAHİP.
+       *
+       * Bir süre yalnızca kurulum sihirbazının içinden yazılabiliyordu
+       * ve sihirbaz bir kez bittikten sonra çizilmiyor: ilk kurulumda
+       * OIDC'yi seçmeyen bir kurulum onu SONRADAN HİÇ
+       * yapılandıramıyordu — dolayısıyla kaynağı da hiç OIDC'ye
+       * çeviremiyordu. Dizinin ekranı vardı, bunun yoktu.
+       */
+      ["oidc", "OIDC", <IdPIcon key="i" />],
       ["ldap", "LDAP", <DirectoryIcon key="i" />],
     ],
   },
@@ -555,6 +568,7 @@ export default function App() {
                   {section === "pending" && <Pending />}
                   {section === "targets" && <Targets />}
                   {section === "signin" && <AuthSource />}
+                  {section === "oidc" && <OIDCSettingsScreen />}
                   {section === "ldap" && <Settings meName={me.name} />}
                   {section === "sessions" && <Sessions theme={resolved} />}
                   {section === "log" && <AdminLog />}

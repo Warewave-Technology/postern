@@ -39,7 +39,13 @@ const base = (size: number) => ({
  */
 export function GateMark({ size = 20 }: P) {
   return (
-    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 20 20"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         fillRule="evenodd"
         clipRule="evenodd"
@@ -232,6 +238,23 @@ export function KeyIcon({ size = 15 }: P) {
     <svg {...base(size)}>
       <circle cx="5.2" cy="10.8" r="2.6" />
       <path d="M7.1 9 13 3.1M11 5.1l1.6 1.6M9.6 6.5l1.6 1.6" />
+    </svg>
+  );
+}
+
+/*
+ * Kimlik sağlayıcı: bir rozet/kimlik kartı.
+ *
+ * ⚠️ DizinIcon'dan (katmanlı sunucu) görsel olarak AYRI olmak zorunda:
+ * ikisi yan yana duruyor ve aynı görünen iki satır, operatörü yanlış
+ * ekrana götürür.
+ */
+export function IdPIcon({ size = 15 }: P) {
+  return (
+    <svg {...base(size)}>
+      <rect x="1.6" y="3" width="12.8" height="10" rx="1.6" />
+      <circle cx="5.8" cy="7.2" r="1.5" />
+      <path d="M3.4 11.2c.5-1.2 1.4-1.8 2.4-1.8s1.9.6 2.4 1.8M10 6.6h2.4M10 9.2h2.4" />
     </svg>
   );
 }
