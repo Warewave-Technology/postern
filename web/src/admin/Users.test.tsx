@@ -93,3 +93,56 @@ describe("hesap durumu", () => {
     expect(msg).toMatch(/signing in through the source reactivates them/i);
   });
 });
+
+/*
+ * ⚠️ ADI SERBEST BIRAKMA YALNIZCA SİLİNMİŞ HESAPLARDA.
+ *
+ * Aktif ya da pasif birinin adını almak, o kişi hâlâ kullanıyorken
+ * kimliğini elinden almak olurdu. Purge yaşam döngüsünün son adımı,
+ * bir kısayol değil.
+ */
+describe("adi serbest birakma", () => {
+  it("yalnizca silinmis hesapta gorunur", async () => {
+    vi.spyOn(api, "users").mockResolvedValue([
+      user({ name: "aktif", state: "active" }),
+      user({ name: "pasif", state: "inactive" }),
+      user({ name: "silinmis", state: "deleted" }),
+    ]);
+    render(<Users publicKeyLogin />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /free the name silinmis/i }),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.queryByRole("button", { name: /free the name aktif/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /free the name pasif/i })).toBeNull();
+  });
+
+  /*
+   * ⚠️ ONAY METNİ, SATIRIN KALDIĞINI SÖYLEMEK ZORUNDA.
+   *
+   * "Free the name" okuyan yönetici bunu kalıcı bir silme sanabilir ve
+   * ya yapmaz ya da geçmişi sildiğini düşünerek yapar. İkisi de yanlış:
+   * kayıt duruyor, denetim okunabilir kalıyor.
+   */
+  it("onay metni kaydin kaldigini soyler", async () => {
+    const confirmSpy = vi.fn((_m?: string) => true);
+    vi.stubGlobal("confirm", confirmSpy);
+    vi.spyOn(api, "users").mockResolvedValue([user({ state: "deleted" })]);
+    const purge = vi.spyOn(api, "purgeUser").mockResolvedValue({
+      ok: true, keys_released: 1, roles_released: 2, note: "",
+    });
+
+    render(<Users publicKeyLogin />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /free the name suheda/i }),
+    );
+
+    const msg = confirmSpy.mock.calls[0][0] ?? "";
+    expect(msg).toMatch(/account row is kept/i);
+    expect(msg).toMatch(/audit entries naming/i);
+    expect(msg).toMatch(/records when the name\s+was released/i);
+    await waitFor(() => expect(purge).toHaveBeenCalledWith("suheda"));
+  });
+});

@@ -2,6 +2,9 @@ package accountlife
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"golang.org/x/crypto/ssh"
 	"log/slog"
 	"os"
 	"testing"
@@ -193,5 +196,197 @@ func TestZeroTTLDisablesTheLoop(t *testing.T) {
 
 	if st, _, _ := db.AccountState(ctx, "eski"); st != store.StateActive {
 		t.Fatalf("TTL kapalıyken hesap kapatıldı: %q", st)
+	}
+}
+
+/*
+ * ⚠️ PURGE ADI SERBEST BIRAKIR AMA SATIRI SİLMEZ.
+ *
+ * Satır silinseydi, denetim kaydındaki "ayse.yilmaz" metinlerinin kime
+ * ait olduğu cevapsız kalırdı — ve aynı adı alan yeni kişiyle
+ * karışırdı. Kalan satır, "o ad şu tarihte boşaltıldı" sorusunun cevabı.
+ */
+func TestPurgeFreesTheNameAndKeepsTheRecord(t *testing.T) {
+	ctx := context.Background()
+	db := newStore(t)
+
+	seed(t, db, "ayse.yilmaz", time.Hour, true)
+	if err := db.SetAccountState(ctx, "ayse.yilmaz", store.StateDeleted); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := db.PurgeAccount(ctx, "ayse.yilmaz", time.Now())
+	if err != nil {
+		t.Fatalf("PurgeAccount: %v", err)
+	}
+	if res.FormerUsername != "ayse.yilmaz" {
+		t.Fatalf("eski ad kaydedilmedi: %q", res.FormerUsername)
+	}
+
+	// ⚠️ AD ARTIK SERBEST: aynı adla yeni bir kişi açılabilmeli.
+	if _, err := db.CreateUser(ctx, "ayse.yilmaz", "yeni@warewave.io", "ayse"); err != nil {
+		t.Fatalf("purge sonrası ad hâlâ dolu: %v", err)
+	}
+
+	// ⚠️ VE ESKİ SATIR DURUYOR: geçmiş okunabilir kalmalı.
+	purged, err := db.PurgedAccounts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(purged) != 1 || purged[0].FormerUsername != "ayse.yilmaz" {
+		t.Fatalf("purge izi kaybolmuş: %+v", purged)
+	}
+	if purged[0].PurgedAt.IsZero() {
+		t.Fatal("purge tarihi yazılmamış — 'ne zaman boşaltıldı' cevapsız")
+	}
+}
+
+/*
+ * ⚠️ YALNIZCA 'deleted' HESAPLAR PURGE EDİLEBİLİR.
+ *
+ * Aktif bir hesabın adını serbest bırakmak, o kişi hâlâ kullanıyorken
+ * kimliğini elinden almak olurdu. Purge yaşam döngüsünün son adımı,
+ * bir kısayol değil.
+ */
+func TestPurgeRefusesLiveAccounts(t *testing.T) {
+	ctx := context.Background()
+	db := newStore(t)
+	seed(t, db, "calisan", time.Hour, true)
+
+	if _, err := db.PurgeAccount(ctx, "calisan", time.Now()); err == nil {
+		t.Fatal("aktif hesap purge edildi")
+	}
+	if err := db.SetAccountState(ctx, "calisan", store.StateInactive); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.PurgeAccount(ctx, "calisan", time.Now()); err == nil {
+		t.Fatal("pasif hesap purge edildi — önce silinmiş olmalı")
+	}
+}
+
+/*
+ * ⚠️ PURGE TANIMLAYICILARIN HEPSİNİ SERBEST BIRAKMALI.
+ *
+ * Biri kalırsa geri dönen kişi kendi hesabını açamaz: anahtarı
+ * (key_blob küresel PRIMARY KEY), kimlik bağı (benzersiz indeks) ya da
+ * e-postası (benzersiz) ölü bir satırda takılı kalır.
+ */
+func TestPurgeReleasesEveryIdentifier(t *testing.T) {
+	ctx := context.Background()
+	db := newStore(t)
+
+	seed(t, db, "donen", time.Hour, true)
+	if err := db.BindDirIdentity(ctx, "donen",
+		"f74a3e90-373a-1041-92eb-dbd441920715"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetAccountState(ctx, "donen", store.StateDeleted); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.PurgeAccount(ctx, "donen", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	/*
+	 * Ad, E-POSTA ve kimlik bağı birlikte serbest kalmalı: üçü de
+	 * benzersizlik taşıyor ve biri takılı kalırsa geri dönen kişi kendi
+	 * hesabını açamaz.
+	 *
+	 * Tek bir CreateUser üçünü birden sınıyor — aynı ad, aynı e-posta.
+	 */
+	if _, err := db.CreateUser(ctx, "donen", "donen@warewave.io", "donen"); err != nil {
+		t.Fatalf("ad ya da e-posta ölü satırda takılı kaldı: %v", err)
+	}
+	if err := db.BindDirIdentity(ctx, "donen",
+		"f74a3e90-373a-1041-92eb-dbd441920715"); err != nil {
+		t.Fatalf("kimlik ölü satırda takılı kaldı: %v", err)
+	}
+
+}
+
+/*
+ * ⚠️ ANAHTAR DA SERBEST KALMALI.
+ *
+ * key_blob KÜRESEL PRIMARY KEY: bir anahtar yalnızca tek bir hesapta
+ * olabilir. Purge edilmiş bir satırda kalan anahtar, aynı anahtarı
+ * KİMSENİN bir daha ekleyememesi demek — geri dönen kişi kendi
+ * anahtarını bile kullanamaz.
+ */
+func TestPurgeReleasesTheKey(t *testing.T) {
+	ctx := context.Background()
+	db := newStore(t)
+
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sshKey, err := ssh.NewPublicKey(pub)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	seed(t, db, "giden", time.Hour, true)
+	if err := db.AddPublicKey(ctx, "giden", sshKey.Marshal(), "laptop"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetAccountState(ctx, "giden", store.StateDeleted); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := db.PurgeAccount(ctx, "giden", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Keys != 1 {
+		t.Fatalf("serbest bırakılan anahtar = %d, 1 bekleniyordu", res.Keys)
+	}
+
+	// Aynı anahtar yeni bir hesaba eklenebilmeli.
+	if _, err := db.CreateUser(ctx, "yeni", "yeni@warewave.io", "yeni"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AddPublicKey(ctx, "yeni", sshKey.Marshal(), "laptop"); err != nil {
+		t.Fatalf("anahtar ölü satırda takılı kaldı: %v", err)
+	}
+}
+
+/*
+ * ⚠️ PURGE EDİLMİŞ SATIR KULLANICI LİSTESİNDE OLMAMALI.
+ *
+ * O bir KAYIT, bir kullanıcı değil: adı serbest bırakılmış, anahtarları
+ * ve rolleri alınmış, giriş yapamayan bir iz. Listede durması hem
+ * gürültü hem yanıltıcı — "purged:9bf1…" diye bir hesap yok. İzin
+ * kendisi PurgedAccounts'tan okunuyor.
+ */
+func TestPurgedRowsAreNotUsers(t *testing.T) {
+	ctx := context.Background()
+	db := newStore(t)
+
+	seed(t, db, "giden", time.Hour, true)
+	seed(t, db, "kalan", time.Hour, true)
+	if err := db.SetAccountState(ctx, "giden", store.StateDeleted); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.PurgeAccount(ctx, "giden", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	users, err := db.Users(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range users {
+		if u.Name == "giden" || len(u.Name) > 7 && u.Name[:7] == "purged:" {
+			t.Fatalf("purge edilmiş satır kullanıcı listesinde: %q", u.Name)
+		}
+	}
+	if len(users) != 1 || users[0].Name != "kalan" {
+		t.Fatalf("liste = %v", users)
+	}
+
+	// ⚠️ Ama İZ DURUYOR: denetimin cevabı oradan geliyor.
+	purged, err := db.PurgedAccounts(ctx)
+	if err != nil || len(purged) != 1 || purged[0].FormerUsername != "giden" {
+		t.Fatalf("purge izi kaybolmuş: %+v (%v)", purged, err)
 	}
 }

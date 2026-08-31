@@ -192,3 +192,139 @@ func (s *Store) ActiveUser(ctx context.Context, username string) (model.User, er
 	}
 	return s.User(ctx, username)
 }
+
+// PurgeResult, purge'ün neyi serbest bıraktığı.
+type PurgeResult struct {
+	FormerUsername string
+	Keys           int
+	Roles          int
+	At             time.Time
+}
+
+/*
+ * PurgeAccount, kullanıcı ADINI ve diğer tanımlayıcıları serbest
+ * bırakır — SATIRI SİLMEDEN.
+ *
+ * ⚠️ SATIR NEDEN KALIYOR: denetim kaydı ve oturum kayıtları kullanıcı
+ * adını METİN olarak saklıyor. Satır yok olursa geçmişteki
+ * "ayse.yilmaz" satırlarının kime ait olduğu cevapsız kalır — ve aynı
+ * adı alan yeni kişiyle karışır. Kalan satır, "o ad şu tarihte
+ * boşaltıldı" sorusunun cevabı.
+ *
+ * ⚠️ YALNIZCA 'deleted' HESAPLAR. Purge yaşam döngüsünün son adımı, bir
+ * kısayol değil: aktif bir hesabın adını serbest bırakmak, o kişi hâlâ
+ * kullanıyorken kimliğini elinden almak olurdu.
+ *
+ * Serbest bırakılanlar: kullanıcı adı, e-posta, iki kimlik bağı,
+ * anahtarlar ve roller. Hepsi benzersizlik taşıyor ya da erişim
+ * veriyor; biri kalırsa geri dönen kişi kendi hesabını açamaz.
+ */
+func (s *Store) PurgeAccount(ctx context.Context, username string, at time.Time) (PurgeResult, error) {
+	var res PurgeResult
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return res, translateErr("store.PurgeAccount", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // commit sonrası no-op
+
+	var id, state string
+	var purged sql.NullInt64
+	if err := tx.QueryRowContext(ctx,
+		`SELECT id, state, purged_at FROM users WHERE username = $1;`,
+		username).Scan(&id, &state, &purged); err != nil {
+		return res, translateErr("store.PurgeAccount", err)
+	}
+	if purged.Valid {
+		return res, fmt.Errorf("store.PurgeAccount[%s]: already purged: %w",
+			username, ErrConflict)
+	}
+	if state != StateDeleted {
+		return res, fmt.Errorf(
+			"store.PurgeAccount[%s]: only a deleted account can be purged "+
+				"(this one is %s): %w", username, state, ErrConflict)
+	}
+
+	kr, err := tx.ExecContext(ctx, `DELETE FROM user_public_keys WHERE user_id = $1;`, id)
+	if err != nil {
+		return res, translateErr("store.PurgeAccount", err)
+	}
+	if n, _ := kr.RowsAffected(); n > 0 {
+		res.Keys = int(n)
+	}
+
+	rr, err := tx.ExecContext(ctx, `DELETE FROM user_roles WHERE user_id = $1;`, id)
+	if err != nil {
+		return res, translateErr("store.PurgeAccount", err)
+	}
+	if n, _ := rr.RowsAffected(); n > 0 {
+		res.Roles = int(n)
+	}
+
+	/*
+	 * ⚠️ YENİ AD, SATIRIN KENDİ id'SİNDEN: benzersizliği garantili ve
+	 * gerçek bir kullanıcı adına benzemiyor. Aynı ad iki kez purge
+	 * edilebilir ve ikisi de çakışmaz.
+	 */
+	newName := "purged:" + id
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE users
+		SET former_username = username,
+		    username        = $1,
+		    purged_at       = $2,
+		    email           = NULL,
+		    idp_issuer      = NULL,
+		    idp_subject     = NULL,
+		    dir_subject     = NULL
+		WHERE id = $3;`, newName, at.Unix(), id); err != nil {
+		return res, translateErr("store.PurgeAccount", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return res, translateErr("store.PurgeAccount", err)
+	}
+
+	res.FormerUsername = username
+	res.At = at.UTC()
+	return res, nil
+}
+
+// PurgedAccount, purge edilmiş bir kaydın izi.
+type PurgedAccount struct {
+	FormerUsername string
+	PurgedAt       time.Time
+}
+
+/*
+ * PurgedAccounts, purge edilmiş kayıtları döner.
+ *
+ * ⚠️ Bu liste denetimin bir parçası: geçmişteki bir kullanıcı adının
+ * kime ait olduğu sorusu ancak "o ad şu tarihte boşaltıldı" bilgisiyle
+ * cevaplanabiliyor. Satırların silinmemesinin sebebi de bu.
+ */
+func (s *Store) PurgedAccounts(ctx context.Context) ([]PurgedAccount, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT COALESCE(former_username, ''), purged_at
+		FROM users
+		WHERE purged_at IS NOT NULL
+		ORDER BY purged_at DESC;`)
+	if err != nil {
+		return nil, translateErr("store.PurgedAccounts", err)
+	}
+	defer rows.Close()
+
+	out := make([]PurgedAccount, 0)
+	for rows.Next() {
+		var p PurgedAccount
+		var at int64
+		if err := rows.Scan(&p.FormerUsername, &at); err != nil {
+			return nil, translateErr("store.PurgedAccounts", err)
+		}
+		p.PurgedAt = time.Unix(at, 0).UTC()
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, translateErr("store.PurgedAccounts", err)
+	}
+	return out, nil
+}

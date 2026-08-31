@@ -134,6 +134,12 @@ export default function Users({ publicKeyLogin }: { publicKeyLogin: boolean }) {
       .then(() => refresh())
       .catch((e: unknown) => setError(toMessage(e)));
 
+  const purge = (name: string) =>
+    api
+      .purgeUser(name)
+      .then(() => refresh())
+      .catch((e: unknown) => setError(toMessage(e)));
+
   const columns: Column<User>[] = [
     { key: "name", header: "Name", value: (u) => u.name },
     { key: "os_user", header: "OS user", value: (u) => u.os_user },
@@ -197,12 +203,36 @@ export default function Users({ publicKeyLogin }: { publicKeyLogin: boolean }) {
             Deactivate
           </ActionButton>
         ) : (
-          <ActionButton
-            onClick={() => setState(u.name, "active")}
-            label={`reactivate ${u.name}`}
-          >
-            Reactivate
-          </ActionButton>
+          <span className="chips">
+            <ActionButton
+              onClick={() => setState(u.name, "active")}
+              label={`reactivate ${u.name}`}
+            >
+              Reactivate
+            </ActionButton>
+            {/*
+              ⚠️ Purge YALNIZCA silinmiş hesaplarda ve adı serbest
+              bırakmak için. Satır kalıyor: denetim kaydı kullanıcı
+              adını metin olarak saklıyor ve satır yok olursa
+              geçmişteki o adın kime ait olduğu cevapsız kalırdı.
+            */}
+            {st === "deleted" && (
+              <ActionButton
+                variant="danger"
+                onClick={() => purge(u.name)}
+                confirm={
+                  `Free the name "${u.name}"?\n\n` +
+                  `Their keys and roles are released so someone new can use the ` +
+                  `name.\n\nThe account row is kept: audit entries naming ` +
+                  `"${u.name}" stay readable, and the log records when the name ` +
+                  `was released.`
+                }
+                label={`free the name ${u.name}`}
+              >
+                Free the name
+              </ActionButton>
+            )}
+          </span>
         );
       },
     },

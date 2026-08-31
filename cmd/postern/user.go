@@ -33,6 +33,64 @@ func newUserCmd() *cobra.Command {
 	cmd.AddCommand(newUserListCmd())
 	cmd.AddCommand(newUserModifyCmd())
 	cmd.AddCommand(newUserAllowBindCmd())
+	cmd.AddCommand(newUserPurgeCmd())
+	return cmd
+}
+
+/*
+ * newUserPurgeCmd, silinmiş bir hesabın ADINI serbest bırakır.
+ *
+ * ⚠️ SATIRI SİLMİYOR. Denetim kaydı ve oturum kayıtları kullanıcı adını
+ * METİN olarak saklıyor; satır yok olursa geçmişteki o adın kime ait
+ * olduğu cevapsız kalır ve aynı adı alan yeni kişiyle karışır. Kalan
+ * satır, "o ad şu tarihte boşaltıldı" sorusunun cevabı — ve denetim
+ * satırı da kimin boşalttığını yazıyor.
+ *
+ * ⚠️ YALNIZCA 'deleted' hesaplar: aktif birinin adını almak, o kişi
+ * hâlâ kullanıyorken kimliğini elinden almak olurdu.
+ */
+func newUserPurgeCmd() *cobra.Command {
+	var configPath, name string
+
+	cmd := &cobra.Command{
+		Use:   "purge",
+		Short: "Free a deleted account's username, keeping the record that it existed",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			db, ctx, err := openStore(configPath)
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+
+			res, err := db.PurgeAccount(ctx, name, time.Now())
+			if err != nil {
+				return err
+			}
+
+			// ⚠️ İZ ŞART: kim, ne zaman, neyi serbest bıraktı.
+			if lerr := db.LogAdmin(ctx, store.AdminLogEntry{
+				Actor: cliActor(), Via: "cli", Action: "user.purge", Entity: name,
+				Details: fmt.Sprintf("username released on %s; %d key(s) and %d role(s) "+
+					"removed; the row is kept so audit entries naming %q stay readable",
+					res.At.Format("2006-01-02"), res.Keys, res.Roles, name),
+			}); lerr != nil {
+				return lerr
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(),
+				"%q is free again — %d key(s) and %d role(s) released\n",
+				name, res.Keys, res.Roles)
+			fmt.Fprintln(cmd.OutOrStdout(),
+				"the account row is kept: audit entries naming it stay readable, "+
+					"and `postern log` records when the name was released")
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
+	cmd.Flags().StringVar(&name, "name", "", "hesap adı (zorunlu)")
+	_ = cmd.MarkFlagRequired("name")
 	return cmd
 }
 

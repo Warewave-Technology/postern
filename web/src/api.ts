@@ -610,6 +610,16 @@ export const api = {
       { state },
     ),
 
+  /** ⚠️ Satırı SİLMİYOR, adı serbest bırakıyor: denetim kaydı kullanıcı
+   *  adını metin olarak sakladığı için satır yok olursa geçmiş
+   *  okunamaz hâle gelirdi. */
+  purgeUser: (name: string) =>
+    req<{ ok: boolean; keys_released: number; roles_released: number; note: string }>(
+      "POST",
+      `/api/admin/users/${encodeURIComponent(name)}/purge`,
+      {},
+    ),
+
   sessions: () => req<Session[]>("GET", "/api/admin/sessions"),
   sessionDetail: (id: string) =>
     req<SessionDetail>("GET", `/api/admin/sessions/${encodeURIComponent(id)}`),

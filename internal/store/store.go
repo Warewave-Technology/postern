@@ -1503,6 +1503,13 @@ func (s *Store) Users(ctx context.Context) ([]model.User, error) {
 		LEFT JOIN roles        r  ON r.id       = ur.role_id
 		LEFT JOIN role_targets rt ON rt.role_id = r.id
 		LEFT JOIN targets      t  ON t.id       = rt.target_id
+		-- ⚠️ PURGE EDİLMİŞ SATIRLAR LİSTEDE YOK.
+		--
+		-- Onlar bir KAYIT, bir kullanıcı değil: adı serbest bırakılmış,
+		-- anahtarları ve rolleri alınmış, giriş yapamayan bir iz.
+		-- Listede durmaları hem gürültü hem yanıltıcı — "purged:9bf1…"
+		-- diye bir hesap yok. İzin kendisi PurgedAccounts'tan okunuyor.
+		WHERE u.purged_at IS NULL
 		ORDER BY u.username, r.name, ` + ciOrder("t.name") + `;
 	`
 
