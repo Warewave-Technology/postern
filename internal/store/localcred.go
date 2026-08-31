@@ -625,3 +625,87 @@ func (s *Store) ApplyAdminGroup(ctx context.Context, members []string) (granted,
 	}
 	return granted, revoked, nil
 }
+
+/*
+ * UserProfile, kullanıcı DETAY ekranının ihtiyacı.
+ *
+ * ⚠️ NEDEN AYRI BİR SORGU: model.User bilerek dar tutuldu — yetki
+ * kararlarının ihtiyacı olan alanları taşıyor ve SSH kapısında her
+ * oturumda okunuyor. E-posta, hesap durumu ve kimlik bilgisi meta
+ * verisi orada hiçbir kararı etkilemiyor; oraya eklemek, hiç
+ * kullanılmayan alanları en sıcak yoldan geçirmek olurdu.
+ *
+ * Buradaki alanların ortak yanı hepsinin bir TEŞHİS sorusuna cevap
+ * vermesi: "neden giremiyor", "yöneticiliği nereden geliyor", "bu
+ * hesabın nasıl bir giriş bilgisi var".
+ */
+type UserProfile struct {
+	Email string
+	// AdminVia: "cli", "group" ya da boş. Yöneticiliğin KAYNAĞI, çünkü
+	// panelin kaldırabildiği ile kaldıramadığı ayrı şeyler.
+	AdminVia  string
+	State     string
+	Confirmed time.Time
+	// Purged: adı serbest bırakılmış. Satır yalnızca denetim kaydının
+	// okunabilir kalması için duruyor.
+	Purged bool
+
+	// HasCredential false ise aşağıdaki alanlar anlamsız: hesabın
+	// postern'de doğrulanabilir bir değeri yok, kimliği başka yerden
+	// geliyor.
+	HasCredential  bool
+	CredChosen     bool
+	CredMustChange bool
+	CredCreatedAt  time.Time
+	CredCreatedBy  string
+	CredLastUsed   time.Time
+}
+
+// UserProfile, detay alanlarını TEK sorguda döner.
+func (s *Store) UserProfile(ctx context.Context, username string) (UserProfile, error) {
+	var (
+		p         UserProfile
+		email     sql.NullString
+		via       sql.NullString
+		confirmed sql.NullInt64
+		purged    sql.NullInt64
+		chosen    sql.NullInt64
+		mustCh    sql.NullBool
+		createdAt sql.NullInt64
+		createdBy sql.NullString
+		lastUsed  sql.NullInt64
+	)
+	err := s.db.QueryRowContext(ctx, `
+		SELECT u.email, u.admin_via, u.state, u.last_confirmed_at, u.purged_at,
+		       c.chosen_at, c.must_change, c.created_at, c.created_by, c.last_used_at
+		FROM users u
+		LEFT JOIN local_credentials c ON c.user_id = u.id
+		WHERE u.username = $1;`, username).Scan(
+		&email, &via, &p.State, &confirmed, &purged,
+		&chosen, &mustCh, &createdAt, &createdBy, &lastUsed)
+	if err != nil {
+		return UserProfile{}, translateErr("store.UserProfile", err)
+	}
+
+	p.Purged = purged.Valid
+	p.Email = email.String
+	p.AdminVia = via.String
+	if confirmed.Valid {
+		p.Confirmed = time.Unix(confirmed.Int64, 0).UTC()
+	}
+	// createdBy dolu ise kimlik bilgisi satırı VAR: LEFT JOIN eşleşmeyince
+	// hepsi NULL geliyor ve created_by şemada NOT NULL.
+	p.HasCredential = createdBy.Valid
+	if p.HasCredential {
+		p.CredChosen = chosen.Valid
+		p.CredMustChange = mustCh.Bool
+		p.CredCreatedBy = createdBy.String
+		if createdAt.Valid {
+			p.CredCreatedAt = time.Unix(createdAt.Int64, 0).UTC()
+		}
+		if lastUsed.Valid {
+			p.CredLastUsed = time.Unix(lastUsed.Int64, 0).UTC()
+		}
+	}
+	return p, nil
+}

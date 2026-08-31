@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { IssuedCredential, api, Role, User, toMessage } from "../api";
 import {
   ActionButton,
@@ -10,14 +10,25 @@ import {
 } from "./common";
 import DataTable, { Column } from "./DataTable";
 import Modal from "./Modal";
+import UserDetail from "./UserDetail";
 
-// Kullanıcılar.
-//
-// Rol atama ve anahtar yönetimi bilerek BU sayfada: rolü olmayan bir
-// kullanıcı hiçbir hedefe ulaşamaz, anahtarı olmayan hiç bağlanamaz.
-// Yalnızca kullanıcı oluşturabilen bir panel, yöneticiyi işi bitirmek
-// için hosttaki CLI'a geri gönderiyordu — o hâlde panelin varlığı
-// kullanıcıya yalnızca yarım bir yol gösteriyor demekti.
+/**
+ * Kullanıcı LİSTESİ.
+ *
+ * ⚠️ BU SAYFA ARTIK BİR LİSTE, BİR KONSOL DEĞİL.
+ *
+ * Dokuz sütuna çıkmıştı ve her satır üç ayrı eylem taşıyordu: rol atama
+ * kutusu, aktifleştirme, anahtar paneli, sıfırlama, silme. Sonuç, hiçbir
+ * soruyu iyi cevaplamayan bir ekrandı — "kimler var" diye bakan kişi
+ * yatay kaydırıyor, "şu kişiyi düzenleyeyim" diyen kişi doğru satırı
+ * bulup içindeki doğru kutuyu arıyordu. Üstelik satır başına çizilen
+ * her kutu, yanlış satırda çalıştırılabilecek bir eylemdi.
+ *
+ * Liste artık tek bir soruyu cevaplıyor: kimler var, yönetici mi, durumu
+ * ne, hangi rolleri var. Tek bir kişi üzerinde yapılacak her şey o
+ * kişinin sayfasında (UserDetail). Aynı karar hedeflerde zaten
+ * verilmişti; bu onun eşi.
+ */
 export default function Users({
   publicKeyLogin,
   localSource,
@@ -31,19 +42,18 @@ export default function Users({
   const { items, error, denied, loading, refresh, setError } = useList<User>(
     api.users,
   );
-  // Roller ayrıca çekiliyor: adı elle yazdırmak, tek harf yanlışında
-  // "role not found" veren bir atama demekti.
+  // Roller ayrıca çekiliyor — burada yalnızca "hiç rol yok" uyarısı
+  // için. Atama detay sayfasında.
   const roles = useList<Role>(api.roles);
+
+  const [selected, setSelected] = useState<string | null>(null);
 
   const [name, setName] = useState("");
   const [osUser, setOsUser] = useState("");
   const [email, setEmail] = useState("");
   // Ekleme formu MODALDA: sayfanın işi listeyi göstermek.
   const [adding, setAdding] = useState(false);
-  // Seçim SATIR BAŞINA tutuluyor; tek ortak state, bir satırda seçilen
-  // rolü bütün satırlarda seçili gösterir ve yanlış kullanıcıya
-  // yetki verdirirdi.
-  const [picked, setPicked] = useState<Record<string, string>>({});
+  const [notice, setNotice] = useState("");
 
   /*
    * Verilen değer BİR KEZ gösteriliyor ve hiçbir yerde saklanmıyor.
@@ -54,35 +64,6 @@ export default function Users({
    * kullanıcı KAPAT diyene kadar duruyor.
    */
   const [issued, setIssued] = useState<IssuedCredential | null>(null);
-
-  /*
-   * ⚠️ SIFIRLAMA AYRI BİR SÜTUN DEĞİL, SATIRIN EYLEMİ.
-   *
-   * Giriş bilgisi artık hesapla birlikte doğuyor, yani "ver" diye bir
-   * adım yok. Ama "parolamı unuttum" kaçınılmaz ve panelden
-   * çözülemezse yöneticiyi host kabuğuna gönderir — panelden vermenin
-   * var olma sebebi tam olarak o yolculuğu ortadan kaldırmaktı.
-   */
-  const resetSignIn = (name: string) => {
-    setError("");
-    return api
-      .resetCredential(name)
-      .then((r) => {
-        setIssued(r);
-        return refresh();
-      })
-      .catch((e: unknown) => setError(toMessage(e)));
-  };
-
-  // Anahtar paneli aynı anda tek kullanıcı için açık: iki panel açıkken
-  // yapıştırılan anahtarın hangisine gittiği yalnızca tahmin edilirdi.
-  const [keysFor, setKeysFor] = useState<string | null>(null);
-  const [keyText, setKeyText] = useState("");
-  const keyBox = useRef<HTMLTextAreaElement>(null);
-  // Anahtar işlemleri tabloda yalnızca bir SAYIYI değiştiriyor: 3'ün 4
-  // olması "eklendi" demek için fazla sessiz, üstelik aynı anahtarı
-  // ikinci kez eklemek sayıyı hiç oynatmıyor.
-  const [notice, setNotice] = useState("");
 
   const fail = (e: unknown) => {
     setNotice("");
@@ -118,7 +99,7 @@ export default function Users({
           setNotice(
             res?.credential_error
               ? `${created} created, but ${res.credential_error}`
-              : `${created} created — give it a role and a key in the table, or it reaches nothing.`,
+              : `${created} created — open it to give it a role and a key, or it reaches nothing.`,
           );
         }
         return refresh().then(() => true);
@@ -127,25 +108,6 @@ export default function Users({
         fail(e);
         return false;
       });
-
-  const assign = (user: string, role: string) =>
-    api
-      .assignRole(user, role)
-      .then(() => {
-        setPicked((p) => ({ ...p, [user]: "" }));
-        setNotice("");
-        return refresh();
-      })
-      .catch(fail);
-
-  const revoke = (user: string, role: string) =>
-    api
-      .revokeRole(user, role)
-      .then(() => {
-        setNotice("");
-        return refresh();
-      })
-      .catch(fail);
 
   const remove = (user: string) =>
     api
@@ -156,69 +118,26 @@ export default function Users({
       })
       .catch(fail);
 
-  const addKey = (user: string) =>
-    api
-      .addKey(user, keyText.trim())
-      .then(() => {
-        setKeyText("");
-        setNotice(`Key added to ${user}.`);
-        return refresh();
-      })
-      .catch(fail);
-
-  const removeKey = (user: string) =>
-    api
-      .removeKey(user, keyText.trim())
-      .then(() => {
-        setKeyText("");
-        setNotice(
-          `Key removed from ${user}. ${user} can no longer connect with it.`,
-        );
-        return refresh();
-      })
-      .catch(fail);
-
-  const toggleKeys = (user: string) => {
-    setKeysFor((cur) => (cur === user ? null : user));
-    // Kutuyu ve bildirimi TEMİZLE: önceki kullanıcının anahtarı kutuda
-    // kalırsa bir sonraki "remove" yanlış hesaptan anahtar siler.
-    setKeyText("");
-    setNotice("");
-  };
-
-  // Panel tablonun ALTINDA çiziliyor: telefonda "keys" düğmesine basan
-  // kişi ekranda hiçbir şey değişmediğini görüp düğmenin bozuk olduğunu
-  // sanıyordu. Odağı kutuya taşımak paneli görünür alana da getiriyor.
-  useEffect(() => {
-    if (keysFor) keyBox.current?.focus();
-  }, [keysFor]);
-
-  // Satır silinince panel de kapanmalı; adla arayınca bu kendiliğinden
-  // olur, kopyasını ayrı state'te tutmak silinmiş kullanıcıya anahtar
-  // eklemeye çalışan bir form bırakırdı.
-  const keysUser = items.find((u) => u.name === keysFor) ?? null;
-
-  const setState = (name: string, state: "active" | "inactive" | "deleted") =>
-    api
-      .setUserState(name, state)
-      .then(() => refresh())
-      .catch((e: unknown) => setError(toMessage(e)));
-
-  const purge = (name: string) =>
-    api
-      .purgeUser(name)
-      .then(() => refresh())
-      .catch((e: unknown) => setError(toMessage(e)));
-
   const columns: Column<User>[] = [
-    { key: "name", header: "Name", value: (u) => u.name },
+    {
+      key: "name",
+      header: "Name",
+      value: (u) => u.name,
+      // Ad bir BAĞLANTI: hedeflerdeki kararın aynısı. Satırın tamamını
+      // tıklanabilir yapmak, satırdaki sil düğmesiyle çakışırdı.
+      render: (u) => (
+        <button className="link-cell" onClick={() => setSelected(u.name)}>
+          {u.name}
+        </button>
+      ),
+    },
     { key: "os_user", header: "OS user", value: (u) => u.os_user },
     {
       key: "admin",
       header: "Admin",
       // Sıralama adminleri BİR ARADA toplasın: "kimler admin" sorusu
       // tek tıkla cevaplanabilsin.
-      value: (u) => (u.admin ? 1 : 0),
+      value: (u) => (u.admin ? "1" : "0"),
       render: (u) =>
         u.admin ? (
           <span className="badge badge-accent">admin</span>
@@ -228,10 +147,12 @@ export default function Users({
     },
     {
       /*
-       * ⚠️ DURUM SÜTUNU. Kaynağın bir süredir doğrulamadığı hesaplar
-       * kendiliğinden pasifleşiyor. Bunu göstermeyen bir liste "neden
-       * giremiyorum" sorusunu cevaplayamaz ve yönetici postern'de bir
-       * arıza arar — oysa cevap "kaynak bu kişiyi doğrulamıyor".
+       * ⚠️ DURUM GÖRÜNÜR OLMAK ZORUNDA.
+       *
+       * Kaynağın bir süredir doğrulamadığı hesaplar kendiliğinden
+       * pasifleşiyor. Bunu göstermeyen bir liste "neden giremiyorum"
+       * sorusunu cevaplayamaz ve yönetici postern'de bir arıza arar —
+       * oysa cevap "kaynak bu kişiyi doğrulamıyor".
        */
       key: "state",
       header: "State",
@@ -255,58 +176,15 @@ export default function Users({
       },
     },
     {
-      key: "activate",
-      header: "Access",
-      render: (u) => {
-        const st = u.state ?? "active";
-        return st === "active" ? (
-          <ActionButton
-            variant="danger"
-            onClick={() => setState(u.name, "inactive")}
-            confirm={
-              `Deactivate ${u.name}?\n\n` +
-              `They cannot sign in or open an SSH session. Their roles and keys ` +
-              `are kept, and signing in through the source reactivates them.`
-            }
-            label={`deactivate ${u.name}`}
-          >
-            Deactivate
-          </ActionButton>
-        ) : (
-          <span className="chips">
-            <ActionButton
-              onClick={() => setState(u.name, "active")}
-              label={`reactivate ${u.name}`}
-            >
-              Reactivate
-            </ActionButton>
-            {/*
-              ⚠️ Purge YALNIZCA silinmiş hesaplarda ve adı serbest
-              bırakmak için. Satır kalıyor: denetim kaydı kullanıcı
-              adını metin olarak saklıyor ve satır yok olursa
-              geçmişteki o adın kime ait olduğu cevapsız kalırdı.
-            */}
-            {st === "deleted" && (
-              <ActionButton
-                variant="danger"
-                onClick={() => purge(u.name)}
-                confirm={
-                  `Free the name "${u.name}"?\n\n` +
-                  `Their keys and roles are released so someone new can use the ` +
-                  `name.\n\nThe account row is kept: audit entries naming ` +
-                  `"${u.name}" stay readable, and the log records when the name ` +
-                  `was released.`
-                }
-                label={`free the name ${u.name}`}
-              >
-                Free the name
-              </ActionButton>
-            )}
-          </span>
-        );
-      },
-    },
-    {
+      /*
+       * ⚠️ ROLLER OKUNUR, DÜZENLENİR DEĞİL.
+       *
+       * Satır içindeki "revoke" düğmeleri, listeyi tarayan kişinin
+       * yanlış satırda tıklayabileceği bir eylemdi — ve bir rolü geri
+       * almak, o kişinin eriştiği her hedefi anında kapatıyor. Böyle
+       * bir karar, kimin üzerinde çalıştığını gördüğün sayfada
+       * verilmeli.
+       */
       key: "roles",
       header: "Roles",
       className: "wrap",
@@ -319,130 +197,44 @@ export default function Users({
             {u.roles.map((r) => (
               <span key={r} className="chip">
                 <code>{r}</code>
-                <ActionButton
-                  onClick={() => revoke(u.name, r)}
-                  confirm={`Revoke "${r}" from ${u.name}? They immediately lose every target that role grants.`}
-                  label={`revoke role ${r} from ${u.name}`}
-                >
-                  revoke
-                </ActionButton>
               </span>
             ))}
           </span>
         ),
     },
     {
-      key: "assign",
-      header: "Assign role",
-      render: (u) => {
-        // Zaten atanmış rol kutuda GÖRÜNMÜYOR: sunucu isteği kabul
-        // ediyor (upsert) ama tabloda hiçbir şey değişmiyor —
-        // değişmeyen satıra bakan yönetici atamanın tutmadığını sanıp
-        // aynı düğmeye tekrar basıyordu.
-        const free = roles.items.filter((r) => !u.roles.includes(r.name));
-        const choice = picked[u.name] ?? "";
-        return (
-          <div className="cell-form">
-            <select
-              aria-label={`role to assign to ${u.name}`}
-              value={choice}
-              onChange={(e) =>
-                setPicked((p) => ({ ...p, [u.name]: e.target.value }))
-              }
-              disabled={free.length === 0}
-            >
-              <option value="">
-                {roles.items.length === 0
-                  ? "no roles defined"
-                  : free.length === 0
-                    ? "all roles assigned"
-                    : "choose a role…"}
-              </option>
-              {free.map((r) => (
-                <option key={r.name} value={r.name}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
-            <ActionButton
-              onClick={() => assign(u.name, choice)}
-              label={
-                choice
-                  ? `assign ${choice} to ${u.name}`
-                  : `assign a role to ${u.name}`
-              }
-              disabled={!choice}
-            >
-              Assign
-            </ActionButton>
-          </div>
-        );
-      },
-    },
-    /*
-     * ⚠️ Anahtar sütunu, anahtar girişi KAPALIYKEN HİÇ ÇİZİLMİYOR.
-     *
-     * Devre dışı bir düğme göstermek daha kötü olurdu: kullanıcı
-     * özelliğin bozuk mu yoksa kapalı mı olduğunu ayırt edemez.
-     * Sayfanın altındaki not sebebi yazıyor.
-     */
-    ...(publicKeyLogin
-      ? [
-          {
-            key: "keys",
-            header: "Keys",
-            className: "num",
-            value: (u: User) => u.keys,
-            render: (u: User) => (
-              <div className="cell-form">
-                {u.keys === 0 ? <span className="muted">none</span> : u.keys}
-                <button
-                  onClick={() => toggleKeys(u.name)}
-                  aria-expanded={keysFor === u.name}
-                  aria-label={`manage SSH keys for ${u.name}`}
-                >
-                  {keysFor === u.name ? "Close" : "Keys"}
-                </button>
-              </div>
-            ),
-          } as Column<User>,
-        ]
-      : []),
-    {
       key: "actions",
       header: "Actions",
       srHeader: true,
       className: "actions",
       render: (u) => (
-        <div className="cell-form">
-          {/*
-            ⚠️ YÖNETİCİ SATIRINDA YOK. Yöneticinin kimlik bilgisi bir
-            acil durum kapısı ve yalnızca host'tan çıkabiliyor;
-            panelden değiştirilebilseydi, paneli ele geçiren kişi
-            mevcut bir yöneticinin yerine geçerdi. Düğmeyi gizlemek bir
-            kolaylık — asıl garanti sunucuda ve göç 026'daki kısıtta.
-          */}
-          {!u.admin && localSource && (
-            <ActionButton
-              onClick={() => resetSignIn(u.name)}
-              confirm={`Reset the sign-in value for "${u.name}"? The new one is shown once, ${u.name} must change it at their next sign-in, anything they hold now stops working, and their open panel sessions are dropped.`}
-              label={`reset the sign-in value for ${u.name}`}
-            >
-              Reset sign-in
-            </ActionButton>
-          )}
-          <ActionButton
-            variant="danger"
-            onClick={() => remove(u.name)}
-            confirm={`Delete the user "${u.name}"? Their SSH keys and role assignments go with them. If ${u.name} has recorded sessions the server refuses this outright — revoking their keys and roles is how access is cut without losing the audit trail.`}
-            label={`delete user ${u.name}`}
-          >
-            Delete
-          </ActionButton>
-        </div>
+        <ActionButton
+          variant="danger"
+          onClick={() => remove(u.name)}
+          confirm={`Delete the user "${u.name}"? Their SSH keys and role assignments go with them. If ${u.name} has recorded sessions the server refuses this outright — revoking their keys and roles is how access is cut without losing the audit trail.`}
+          label={`delete user ${u.name}`}
+        >
+          Delete
+        </ActionButton>
       ),
     },
   ];
+
+  if (selected) {
+    return (
+      <UserDetail
+        name={selected}
+        publicKeyLogin={publicKeyLogin}
+        localSource={localSource}
+        onBack={() => {
+          setSelected(null);
+          // Detay sayfasında rol, anahtar ya da durum değişmiş olabilir:
+          // listeye eski hâliyle dönmek yanlış bilgi verirdi.
+          refresh();
+        }}
+      />
+    );
+  }
 
   return (
     <section>
@@ -451,11 +243,7 @@ export default function Users({
           <h3>
             Sign-in value for <b>{issued.username}</b>
           </h3>
-          <p>
-            {issued.replaced
-              ? "The value they held before no longer works, and their open panel sessions were dropped."
-              : "The account is created and can sign in to the panel with this."}
-          </p>
+          <p>The account is created and can sign in to the panel with this.</p>
           <pre className="issued-secret">{issued.secret}</pre>
           <p className="msg warn">
             This is the only time it is shown. postern stores a verifier, not
@@ -463,7 +251,7 @@ export default function Users({
             {issued.username} over a channel you trust; they must choose their
             own password before the panel opens for them.
           </p>
-          <button className="primary" onClick={() => setIssued(null)}>
+          <button className="btn btn-primary" onClick={() => setIssued(null)}>
             I have copied it
           </button>
         </div>
@@ -473,11 +261,10 @@ export default function Users({
         <div className="page-head">
           <h2>Users</h2>
           <p className="page-sub">
-            Accounts postern knows. The admin flag is read-only here: it comes
-            from the bastion&apos;s own CLI, or from the directory group set on
-            the Sign-in screen — never from a switch on this page. An
-            administrator&apos;s sign-in value is a break-glass secret and is
-            issued on the host; everyone else can be given one from here.
+            Accounts postern knows. Open one to give it a role, manage its keys
+            or reset how it signs in. The admin flag is read-only everywhere in
+            the panel: it comes from the bastion&apos;s own CLI, or from the
+            directory group set on the Sign-in screen.
           </p>
         </div>
         <button className="btn-primary" onClick={() => setAdding(true)}>
@@ -487,12 +274,12 @@ export default function Users({
       <ErrorLine msg={error} />
       <OkLine msg={notice} />
 
-      {/* Rol listesi düşerse atama kutusu boş kalır; sebebini
-          söylemezsek operatör hiç rol tanımlı olmadığını sanar. */}
+      {/* Rol listesi düşerse detay sayfasındaki atama kutusu boş kalır;
+          sebebini söylemezsek operatör hiç rol tanımlı olmadığını sanar. */}
       <WarnLine
         msg={
           roles.error &&
-          `Roles could not be loaded (${roles.error}) — you can still remove roles, but nothing can be assigned until that list comes back.`
+          `Roles could not be loaded (${roles.error}) — nothing can be assigned until that list comes back.`
         }
       />
       {!roles.loading && !roles.error && roles.items.length === 0 && (
@@ -516,56 +303,6 @@ export default function Users({
           searchLabel="search users by name, OS user or role"
           searchPlaceholder="Search users, or a role like sysadmin…"
         />
-      )}
-
-      {publicKeyLogin && keysUser && (
-        <div className="panel">
-          <div className="panel-header">
-            <h3>SSH keys — {keysUser.name}</h3>
-            <span className="spacer" />
-            <button onClick={() => toggleKeys(keysUser.name)}>Close</button>
-          </div>
-          {/*
-            Anahtarlar LİSTELENMİYOR, yalnızca sayılıyor (User.keys) —
-            sunucu böyle bir uç sunmuyor. O yüzden kaldırma da satır
-            başına bir düğme değil, tam anahtar metni istiyor: hangi
-            anahtarın gittiğini göstermeden çizilen bir "sil" düğmesi,
-            yöneticiye kör bir tıklama yaptırırdı.
-          */}
-          <p className="muted small">
-            {keysUser.keys === 0
-              ? "No keys on file — until one is added, this user cannot connect at all."
-              : `${keysUser.keys} key${keysUser.keys === 1 ? "" : "s"} on file. postern never hands stored keys back, so removing one takes the key text itself — the trailing comment does not have to match.`}
-          </p>
-          <label>
-            authorized_keys line
-            <textarea
-              ref={keyBox}
-              rows={3}
-              cols={64}
-              value={keyText}
-              onChange={(e) => setKeyText(e.target.value)}
-              placeholder="ssh-ed25519 AAAAC3Nza… someone@laptop"
-            />
-          </label>
-          <div className="field-row">
-            <ActionButton
-              onClick={() => addKey(keysUser.name)}
-              label={`add this key to ${keysUser.name}`}
-              disabled={!keyText.trim()}
-            >
-              Add key
-            </ActionButton>
-            <ActionButton
-              onClick={() => removeKey(keysUser.name)}
-              confirm={`Remove this key from "${keysUser.name}"? If it is their last key they can no longer connect.`}
-              label={`remove this key from ${keysUser.name}`}
-              disabled={!keyText.trim()}
-            >
-              Remove key
-            </ActionButton>
-          </div>
-        </div>
       )}
 
       {!publicKeyLogin && (

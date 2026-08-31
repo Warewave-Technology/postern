@@ -14,11 +14,15 @@ package integration
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
 	"net/http"
 	"net/http/cookiejar"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 
 	"github.com/warewave/postern/internal/auth"
 	"github.com/warewave/postern/internal/store"
@@ -379,5 +383,96 @@ func TestCreatingAUserIssuesNothingWhenTheLocalDoorIsClosed(t *testing.T) {
 	}
 	if _, err := db.LocalCredential(ctx, "deniz"); err == nil {
 		t.Fatal("yerel kapı kapalıyken kimlik bilgisi satırı yazılmış")
+	}
+}
+
+/*
+ * ⚠️ PARMAK İZİYLE ANAHTAR SİLME, DOĞRU ANAHTARI SİLMELİ.
+ *
+ * Detay ekranı anahtarları parmak izleriyle listeliyor ve satır başına
+ * bir "kaldır" düğmesi çiziyor. O düğmenin YANLIŞ anahtarı ya da BAŞKA
+ * BİR HESABIN anahtarını silmesi, sessizce birinin erişimini kesmek
+ * demek — üstelik yönetici sildiğini sandığı anahtarın hâlâ çalıştığını
+ * fark etmez.
+ */
+func TestRemovingAKeyByFingerprintHitsOnlyThatKey(t *testing.T) {
+	_, apiURL, _, db := oobBastionFresh(t)
+	ctx := context.Background()
+
+	seedRole(t, db)
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
+	browserSignIn(t, client, apiURL)
+	if err := db.SetUserAdmin(ctx, kcUser, true); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, n := range []string{"ayse", "deniz"} {
+		if _, err := db.CreateUser(ctx, n, n+"@warewave.io", n); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Üç anahtar: ayse'de iki, deniz'de bir.
+	keys := map[string][]string{}
+	for _, spec := range [][2]string{{"ayse", "bir"}, {"ayse", "iki"}, {"deniz", "uc"}} {
+		pub, _, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sshPub, err := ssh.NewPublicKey(pub)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := db.AddPublicKey(ctx, spec[0], sshPub.Marshal(), spec[1]); err != nil {
+			t.Fatal(err)
+		}
+		keys[spec[0]] = append(keys[spec[0]], ssh.FingerprintSHA256(sshPub))
+	}
+
+	// Detay ucu parmak izlerini veriyor mu?
+	resp, err := client.Get(apiURL + "/api/admin/users/ayse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var detail struct {
+		Keys []struct {
+			Fingerprint string `json:"fingerprint"`
+		} `json:"keys"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&detail)
+	resp.Body.Close()
+	if len(detail.Keys) != 2 {
+		t.Fatalf("detay %d anahtar döndü, 2 bekleniyordu", len(detail.Keys))
+	}
+
+	// ⚠️ BAŞKA HESABIN anahtarının parmak izi REDDEDİLMELİ.
+	code, _ := postJSON(t, client, apiURL+"/api/admin/users/ayse/keys/remove",
+		map[string]string{"fingerprint": keys["deniz"][0]})
+	if code != http.StatusNotFound {
+		t.Fatalf("başka hesabın anahtarı ayse üzerinden silinebildi (%d)", code)
+	}
+	if left, _ := db.PublicKeys(ctx, "deniz"); len(left) != 1 {
+		t.Fatal("deniz'in anahtarı silindi")
+	}
+
+	// Doğru parmak izi YALNIZCA onu siliyor.
+	if code, msg := postJSON(t, client, apiURL+"/api/admin/users/ayse/keys/remove",
+		map[string]string{"fingerprint": keys["ayse"][0]}); code != http.StatusOK {
+		t.Fatalf("silme %d: %s", code, msg)
+	}
+	left, err := db.PublicKeys(ctx, "ayse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(left) != 1 {
+		t.Fatalf("ayse'de %d anahtar kaldı, 1 bekleniyordu", len(left))
+	}
+	kept, err := ssh.ParsePublicKey(left[0].Blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ssh.FingerprintSHA256(kept) != keys["ayse"][1] {
+		t.Fatal("yanlış anahtar silindi")
 	}
 }

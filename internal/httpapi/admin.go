@@ -27,6 +27,9 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	}
 
 	mux.Handle("GET /api/admin/users", admin(s.adminListUsers))
+	// ⚠️ Tek kişinin sayfası. Listenin dokuz sütuna çıkmasının sebebi
+	// bunun olmamasıydı — gerekçe userdetail.go'da.
+	mux.Handle("GET /api/admin/users/{name}", admin(s.adminUserDetail))
 	mux.Handle("POST /api/admin/users", admin(s.adminCreateUser))
 	mux.Handle("PATCH /api/admin/users/{name}", admin(s.adminPatchUser))
 	mux.Handle("DELETE /api/admin/users/{name}", admin(s.adminDeleteUser))
@@ -199,7 +202,6 @@ func (s *Server) adminListUsers(w http.ResponseWriter, r *http.Request) {
 		OSUser string   `json:"os_user"`
 		Admin  bool     `json:"admin"`
 		Roles  []string `json:"roles"`
-		Keys   int      `json:"keys"`
 		/*
 		 * ⚠️ DURUM VE SON DOĞRULANMA GÖRÜNÜR OLMAK ZORUNDA.
 		 *
@@ -217,18 +219,13 @@ func (s *Server) adminListUsers(w http.ResponseWriter, r *http.Request) {
 		for _, ro := range u.Roles {
 			roles = append(roles, ro.Name)
 		}
-		keys, err := s.store.PublicKeys(r.Context(), u.Name)
-		if err != nil {
-			s.storeErr(w, "users.list", err)
-			return
-		}
 		state, confirmed, serr := s.store.AccountState(r.Context(), u.Name)
 		if serr != nil {
 			s.storeErr(w, "users.list", serr)
 			return
 		}
 		r := row{Name: u.Name, OSUser: u.OSUser, Admin: u.Admin,
-			Roles: roles, Keys: len(keys), State: state}
+			Roles: roles, State: state}
 		if !confirmed.IsZero() {
 			r.Confirmed = confirmed.Format(time.RFC3339)
 		}
@@ -454,19 +451,27 @@ func (s *Server) adminRemoveKey(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	var in struct {
 		AuthorizedKey string `json:"authorized_key"`
+		// ⚠️ İki yol da açık. Gerekçe removeKeyBlob'da: detay ekranı
+		// artık anahtarları parmak izleriyle listeliyor, ama elindeki
+		// anahtar metniyle çalışan operatör ve betikler kırılmamalı.
+		Fingerprint string `json:"fingerprint"`
 	}
 	if !readJSON(w, r, &in) {
 		return
 	}
-	pub, _, okKey := parseAuthorizedKey(w, in.AuthorizedKey)
-	if !okKey {
+	blob, okBlob := s.removeKeyBlob(w, r, name, in.AuthorizedKey, in.Fingerprint)
+	if !okBlob {
 		return
 	}
-	if err := s.store.RemovePublicKey(r.Context(), name, pub.Marshal()); err != nil {
+	if err := s.store.RemovePublicKey(r.Context(), name, blob); err != nil {
 		s.storeErr(w, "user.remove_key", err)
 		return
 	}
-	s.audit(r, "user.remove_key", name, ssh.FingerprintSHA256(pub))
+	fp := in.Fingerprint
+	if pub, perr := ssh.ParsePublicKey(blob); perr == nil {
+		fp = ssh.FingerprintSHA256(pub)
+	}
+	s.audit(r, "user.remove_key", name, fp)
 	ok(w)
 }
 

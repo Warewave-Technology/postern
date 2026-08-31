@@ -2494,3 +2494,43 @@ label > textarea {
   font-size: 12px;
   color: var(--muted);
 }
+
+/*
+ * Kullanıcı detayındaki rol ve anahtar listeleri.
+ *
+ * ⚠️ SATIR, ÇİP DEĞİL. Her satırın yanında kendi "kaldır" düğmesi var
+ * ve o düğme neyi kaldırdığını göstermek zorunda: listede yalnızca bir
+ * sayı gösterip silmek için anahtar metnini isteyen eski hâl,
+ * yöneticiye kör bir tıklama yaptırıyordu.
+ */
+.role-list,
+.key-list-admin {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+.role-list li,
+.key-list-admin li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 6px 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--sunken);
+}
+.role-list li > div,
+.key-list-admin li > div {
+  min-width: 0;
+}
+/* Parmak izi uzun ve KESİLMEMELİ: yanlış anahtarı silmemek için
+   tamamının okunabilmesi gerekiyor. */
+.fp {
+  font-size: 12px;
+  word-break: break-all;
+}

@@ -38,6 +38,43 @@ export type PasswordPolicy = {
 };
 
 /**
+ * UserDetail, tek bir kullanıcının sayfası.
+ *
+ * ⚠️ LİSTE TİPİNDEN AYRI. Liste "kimler var ve durumları ne" sorusunu
+ * cevaplıyor ve her satır için ödenen her alan, sayfa açılışında N kere
+ * ödeniyor. Buradaki alanlar tek bir kişi için ve teşhis içindir.
+ */
+export type UserDetail = {
+  name: string;
+  os_user: string;
+  email: string;
+  admin: boolean;
+  /** ⚠️ "cli", "group" ya da boş. Panelin kaldırabildiği ile
+   *  kaldıramadığı ayrı şeyler; kaynağı göstermeyen bir ekran,
+   *  operatöre kaldıramayacağı bir yetkiyi kaldırabileceğini sandırır. */
+  admin_via: string;
+  state: "active" | "inactive" | "deleted";
+  last_confirmed?: string;
+  sso_only: boolean;
+  dir_bound: boolean;
+  roles: { name: string; targets: string[] }[];
+  targets: string[];
+  keys: { fingerprint: string; comment: string; added_at: string }[];
+  sessions: { id: string; target: string; started: string; ended?: string }[];
+  /** Hesabın postern'de doğrulanabilir bir değeri varsa. Yoksa kimliği
+   *  dizinden ya da kimlik sağlayıcıdan geliyor. */
+  credential?: {
+    /** "secret" (makine üretimi, acil durum), "issued" (verildi, henüz
+     *  değiştirilmedi) ya da "password" (kullanıcının seçtiği). */
+    kind: "secret" | "issued" | "password";
+    must_change: boolean;
+    created_at: string;
+    created_by: string;
+    last_used_at?: string;
+  };
+};
+
+/**
  * CreateUserResult, kullanıcı yaratmanın cevabı.
  *
  * ⚠️ ÜÇ AYRI HÂL ve üçü de ayırt edilebilir olmalı:
@@ -82,7 +119,6 @@ export type User = {
   os_user: string;
   admin: boolean;
   roles: string[];
-  keys: number;
   /**
    * ⚠️ Hesabın yaşam döngüsü. Kaynağın bir süredir doğrulamadığı
    * hesaplar kendiliğinden pasifleşiyor; bunu göstermeyen bir liste
@@ -498,11 +534,15 @@ export const api = {
     req<void>("POST", `/api/admin/users/${encodeURIComponent(user)}/keys`, {
       authorized_key,
     }),
-  removeKey: (user: string, authorized_key: string) =>
+  userDetail: (name: string) =>
+    req<UserDetail>("GET", `/api/admin/users/${encodeURIComponent(name)}`),
+  /** Parmak iziyle silme: detay ekranı anahtarları parmak izleriyle
+   *  listeliyor, dolayısıyla "şunu kaldır" demenin doğal yolu bu. */
+  removeKeyByFingerprint: (user: string, fingerprint: string) =>
     req<void>(
       "POST",
       `/api/admin/users/${encodeURIComponent(user)}/keys/remove`,
-      { authorized_key },
+      { fingerprint },
     ),
 
   roles: () => req<Role[]>("GET", "/api/admin/roles"),

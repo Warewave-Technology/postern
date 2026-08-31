@@ -344,3 +344,94 @@ func TestPromotionKeepsTheHostIssuedSecret(t *testing.T) {
 		t.Fatalf("doğrulayıcı değişmiş: %q", c.Verifier)
 	}
 }
+
+/*
+ * UserProfile'ın üç şekli.
+ *
+ * ⚠️ SORGU LEFT JOIN ve NULL'LARLA DOLU: e-postası olmayan hesap,
+ * yöneticiliği olmayan hesap, kimlik bilgisi olmayan hesap. Yanlış
+ * okunan tek bir NULL, detay ekranında "kimlik bilgisi var" ya da
+ * "yönetici" diye görünen bir hesap demek — yani ekranın cevapladığı
+ * sorunun cevabı yanlış olur.
+ */
+func TestUserProfileReadsTheNullShapes(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	// 1) Hiçbir şeyi olmayan hesap.
+	if _, err := s.CreateUser(ctx, "bos", "", "bos"); err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.UserProfile(ctx, "bos")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Email != "" || p.AdminVia != "" {
+		t.Fatalf("boş alanlar dolu okundu: %+v", p)
+	}
+	if p.HasCredential {
+		t.Fatal("kimlik bilgisi olmayan hesap 'var' okundu — " +
+			"ekran olmayan bir giriş yolunu varmış gibi gösterir")
+	}
+	if p.State != StateActive {
+		t.Fatalf("durum = %q", p.State)
+	}
+	if p.Purged {
+		t.Fatal("yeni hesap 'adı serbest bırakılmış' okundu")
+	}
+
+	// 2) Her şeyi olan hesap.
+	if _, err := s.CreateUser(ctx, "dolu", "dolu@warewave.io", "dolu"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetUserAdmin(ctx, "dolu", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddLocalCredential(ctx, "dolu", "argon2id$x", "cli"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.TouchLocalCredential(ctx, "dolu", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	p, err = s.UserProfile(ctx, "dolu")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Email != "dolu@warewave.io" {
+		t.Fatalf("e-posta = %q", p.Email)
+	}
+	if p.AdminVia != "cli" {
+		t.Fatalf("yöneticilik kaynağı = %q — panel kaldıramayacağı bir "+
+			"yetkiyi kaldırabileceğini sanır", p.AdminVia)
+	}
+	if !p.HasCredential || p.CredCreatedBy != "cli" {
+		t.Fatalf("kimlik bilgisi okunamadı: %+v", p)
+	}
+	if p.CredChosen || p.CredMustChange {
+		t.Fatal("yöneticinin sırrı parola/değiştirilecek olarak okundu")
+	}
+	if p.CredLastUsed.IsZero() {
+		t.Fatal("kullanım damgası okunmadı")
+	}
+
+	// 3) Adı serbest bırakılmış hesap: detay ucu bunu "yok" sayıyor.
+	if err := s.SetAccountState(ctx, "bos", StateDeleted); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PurgeAccount(ctx, "bos", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	var freed string
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT username FROM users WHERE former_username = $1;`, "bos").Scan(&freed); err != nil {
+		t.Fatal(err)
+	}
+	p, err = s.UserProfile(ctx, freed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.Purged {
+		t.Fatal("adı serbest bırakılmış satır öyle okunmadı — " +
+			"aynı ürün aynı hesap için iki farklı cevap verir")
+	}
+}
