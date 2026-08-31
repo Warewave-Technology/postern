@@ -37,13 +37,32 @@ export type PasswordPolicy = {
   min_distinct: number;
 };
 
+/**
+ * CreateUserResult, kullanıcı yaratmanın cevabı.
+ *
+ * ⚠️ ÜÇ AYRI HÂL ve üçü de ayırt edilebilir olmalı:
+ *   - secret dolu: yerel kaynak, değer üretildi, TEK KEZ gösterilecek.
+ *   - credential_error dolu: hesap AÇILDI ama değer verilemedi. Bunu
+ *     yutmak, hiçbir şekilde giremeyen bir kullanıcıyı sessizce
+ *     bırakmak olurdu.
+ *   - ikisi de boş: yerel kapı kapalı, üretilecek bir değer yok.
+ */
+export type CreateUserResult = {
+  username?: string;
+  secret?: string;
+  credential_error?: string;
+};
+
 /** IssuedCredential, panelden verilen giriş bilgisi. */
 export type IssuedCredential = {
   username: string;
   /** ⚠️ TEK GÖSTERİM — hiçbir yerde saklanmıyor, yeniden üretilemez. */
   secret: string;
   /** Var olanın üstüne mi yazıldı ("parolamı unuttum" yolu). */
-  replaced: boolean;
+  replaced?: boolean;
+  /** ⚠️ Hesap AÇILDI ama sır verilemedi. Bunu yutmak, giremeyen bir
+   *  kullanıcıyı sessizce bırakmak olurdu. */
+  credential_error?: string;
 };
 
 /** OIDCSettings, kimlik sağlayıcı ayarlarının panel görünümü. */
@@ -458,7 +477,10 @@ export const api = {
     os_user: string;
     email?: string;
     roles?: string[];
-  }) => req<void>("POST", "/api/admin/users", u),
+    /** ⚠️ Yerel kaynakta cevap giriş bilgisini TAŞIYOR ve tek kez
+     *  gösteriliyor. Diğer kaynaklarda yerel kapı kapalı olduğu için
+     *  hiçbir değer üretilmiyor. */
+  }) => req<CreateUserResult>("POST", "/api/admin/users", u),
   patchUser: (name: string, p: { email?: string; os_user?: string }) =>
     req<void>("PATCH", `/api/admin/users/${encodeURIComponent(name)}`, p),
   deleteUser: (name: string) =>
@@ -555,11 +577,15 @@ export const api = {
     client_id: string,
     client_secret?: string,
   ) =>
-    req<{ ok: boolean; live: boolean; error: string }>("PUT", "/api/admin/oidc", {
-      issuer_url,
-      client_id,
-      ...(client_secret === undefined ? {} : { client_secret }),
-    }),
+    req<{ ok: boolean; live: boolean; error: string }>(
+      "PUT",
+      "/api/admin/oidc",
+      {
+        issuer_url,
+        client_id,
+        ...(client_secret === undefined ? {} : { client_secret }),
+      },
+    ),
   completeSetup: () =>
     req<{ ok: boolean }>("POST", "/api/admin/setup/complete", {}),
   authSource: () => req<AuthSourceStatus>("GET", "/api/admin/auth/source"),
@@ -569,9 +595,10 @@ export const api = {
   changePassword: (current: string, next: string) =>
     req<{ ok: true }>("POST", "/api/me/password", { current, new: next }),
 
-  /** Panelden giriş bilgisi ver. Yönetici hesaplarında sunucu
-   *  reddediyor: onların kimlik bilgisi acil durum kapısı. */
-  issueCredential: (name: string) =>
+  /** Giriş bilgisini SIFIRLA ("parolamı unuttum"). Yönetici
+   *  hesaplarında sunucu reddediyor: onların kimlik bilgisi acil durum
+   *  kapısı ve yalnızca host'tan çıkabiliyor. */
+  resetCredential: (name: string) =>
     req<IssuedCredential>(
       "POST",
       `/api/admin/users/${encodeURIComponent(name)}/credential`,
@@ -612,8 +639,7 @@ export const api = {
   testLDAP: (user?: string) =>
     req<LDAPTestResult>("POST", "/api/admin/ldap/test", { user: user ?? "" }),
 
-  adminGroup: () =>
-    req<AdminGroupStatus>("GET", "/api/admin/ldap/admin-group"),
+  adminGroup: () => req<AdminGroupStatus>("GET", "/api/admin/ldap/admin-group"),
   previewAdminGroup: (group: string) =>
     req<AdminGroupPreview>("POST", "/api/admin/ldap/admin-group/preview", {
       group,
@@ -651,11 +677,12 @@ export const api = {
    *  adını metin olarak sakladığı için satır yok olursa geçmiş
    *  okunamaz hâle gelirdi. */
   purgeUser: (name: string) =>
-    req<{ ok: boolean; keys_released: number; roles_released: number; note: string }>(
-      "POST",
-      `/api/admin/users/${encodeURIComponent(name)}/purge`,
-      {},
-    ),
+    req<{
+      ok: boolean;
+      keys_released: number;
+      roles_released: number;
+      note: string;
+    }>("POST", `/api/admin/users/${encodeURIComponent(name)}/purge`, {}),
 
   sessions: () => req<Session[]>("GET", "/api/admin/sessions"),
   sessionDetail: (id: string) =>

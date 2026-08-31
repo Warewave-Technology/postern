@@ -545,7 +545,10 @@ export default function App() {
                   )}
                   {section === "overview" && <Overview />}
                   {section === "users" && (
-                    <Users publicKeyLogin={me.public_key_login} />
+                    <Users
+                      publicKeyLogin={me.public_key_login}
+                      localSource={sourceIsLocal}
+                    />
                   )}
                   {section === "roles" && <Roles />}
                   {section === "mappings" && <Mappings />}

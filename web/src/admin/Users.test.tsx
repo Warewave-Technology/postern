@@ -21,6 +21,19 @@ beforeEach(() => {
     vi.fn((_m?: string) => true),
   );
   vi.spyOn(api, "roles").mockResolvedValue([]);
+  /*
+   * jsdom <dialog>'un showModal/close'unu uygulamıyor. Ekleme formu
+   * modalda olduğu için onsuz o formu açan hiçbir test yazılamıyor —
+   * ve yazılamayan test, yazılmayan testtir.
+   */
+  if (!HTMLDialogElement.prototype.showModal) {
+    HTMLDialogElement.prototype.showModal = function () {
+      this.open = true;
+    };
+    HTMLDialogElement.prototype.close = function () {
+      this.open = false;
+    };
+  }
 });
 
 describe("hesap durumu", () => {
@@ -36,7 +49,7 @@ describe("hesap durumu", () => {
     vi.spyOn(api, "users").mockResolvedValue([
       user({ state: "inactive", last_confirmed: "2026-06-01T00:00:00Z" }),
     ]);
-    render(<Users publicKeyLogin />);
+    render(<Users publicKeyLogin localSource={true} />);
     await waitFor(() =>
       expect(screen.getByText("inactive")).toBeInTheDocument(),
     );
@@ -44,7 +57,7 @@ describe("hesap durumu", () => {
 
   it("aktif hesabi vurgulamaz", async () => {
     vi.spyOn(api, "users").mockResolvedValue([user()]);
-    render(<Users publicKeyLogin />);
+    render(<Users publicKeyLogin localSource={true} />);
     await waitFor(() => expect(screen.getByText("active")).toBeInTheDocument());
     expect(screen.queryByText("inactive")).toBeNull();
   });
@@ -61,7 +74,7 @@ describe("hesap durumu", () => {
       .spyOn(api, "setUserState")
       .mockResolvedValue({ ok: true });
 
-    render(<Users publicKeyLogin />);
+    render(<Users publicKeyLogin localSource={true} />);
     await userEvent.click(
       await screen.findByRole("button", { name: /deactivate suheda/i }),
     );
@@ -76,7 +89,7 @@ describe("hesap durumu", () => {
       .spyOn(api, "setUserState")
       .mockResolvedValue({ ok: true });
 
-    render(<Users publicKeyLogin />);
+    render(<Users publicKeyLogin localSource={true} />);
     await userEvent.click(
       await screen.findByRole("button", { name: /reactivate suheda/i }),
     );
@@ -93,7 +106,7 @@ describe("hesap durumu", () => {
     vi.spyOn(api, "users").mockResolvedValue([user()]);
     vi.spyOn(api, "setUserState").mockResolvedValue({ ok: true });
 
-    render(<Users publicKeyLogin />);
+    render(<Users publicKeyLogin localSource={true} />);
     await userEvent.click(
       await screen.findByRole("button", { name: /deactivate suheda/i }),
     );
@@ -117,7 +130,7 @@ describe("adi serbest birakma", () => {
       user({ name: "pasif", state: "inactive" }),
       user({ name: "silinmis", state: "deleted" }),
     ]);
-    render(<Users publicKeyLogin />);
+    render(<Users publicKeyLogin localSource={true} />);
 
     await waitFor(() =>
       expect(
@@ -150,7 +163,7 @@ describe("adi serbest birakma", () => {
       note: "",
     });
 
-    render(<Users publicKeyLogin />);
+    render(<Users publicKeyLogin localSource={true} />);
     await userEvent.click(
       await screen.findByRole("button", { name: /free the name suheda/i }),
     );
@@ -163,88 +176,115 @@ describe("adi serbest birakma", () => {
   });
 });
 
-describe("panelden giriş bilgisi verme", () => {
+describe("giriş bilgisi", () => {
   /*
-   * ⚠️ YÖNETİCİ SATIRINDA DÜĞME YOK.
+   * ⚠️ DEĞER HESAPLA BİRLİKTE DOĞUYOR.
    *
-   * Yöneticinin kimlik bilgisi bir acil durum kapısı ve yalnızca
-   * host'tan çıkabiliyor. Panelden verilebilseydi, paneli ele geçiren
-   * kişi mevcut bir yöneticinin giriş bilgisini kendi ürettiği bir
-   * değerle değiştirip onun yerine geçerdi.
-   *
-   * Düğmeyi gizlemek bir kolaylık; asıl garanti sunucuda. Test yine de
-   * burada: ekranın operatöre yanlış bir şey vaat etmemesi gerekiyor.
+   * Ayrı bir "ver" adımı vardı ve o adım unutulabilirdi: postern'de
+   * kaydı olan ama hiçbir şekilde giremeyen bir kullanıcı, kimsenin
+   * fark etmediği bir yarım iş. Kutu bir bildirim satırı DEĞİL, çünkü
+   * değer bir daha gösterilemiyor.
    */
-  it("yönetici satırında verme düğmesi yok, sıradan kullanıcıda var", async () => {
+  it("kullanıcı yaratılınca değeri tek seferlik gösteriyor", async () => {
+    vi.spyOn(api, "users").mockResolvedValue([]);
+    vi.spyOn(api, "createUser").mockResolvedValue({
+      username: "ayse",
+      secret: "ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ",
+    });
+
+    render(<Users publicKeyLogin={true} localSource={true} />);
+    await screen.findByText(/no users/i).catch(() => null);
+
+    await userEvent.click(screen.getByRole("button", { name: "New user" }));
+    await userEvent.type(screen.getByLabelText(/^name/i), "ayse");
+    await userEvent.type(screen.getByLabelText(/os user/i), "ayse");
+    await userEvent.click(screen.getByRole("button", { name: /^create/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText("ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ")).toBeTruthy(),
+    );
+    expect(screen.getByText(/only time it is shown/i)).toBeTruthy();
+
+    // Escape kutuyu KAPATMAMALI: kaydedilmemiş bir değeri kazara yok
+    // etmek, onu bir daha üretememek demek.
+    await userEvent.keyboard("{Escape}");
+    expect(screen.getByText("ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ")).toBeTruthy();
+  });
+
+  /*
+   * ⚠️ HESAP AÇILDI AMA SIR VERİLEMEDİ HÂLİ YUTULMUYOR.
+   *
+   * Yutulsaydı, yönetici "oluştu" yazısını görüp giderdi ve geriye
+   * hiçbir şekilde giremeyen bir kullanıcı kalırdı.
+   */
+  it("sır verilemediyse bunu söylüyor", async () => {
+    vi.spyOn(api, "users").mockResolvedValue([]);
+    vi.spyOn(api, "createUser").mockResolvedValue({
+      username: "ayse",
+      secret: "",
+      credential_error: "a sign-in value could not be issued",
+    });
+
+    render(<Users publicKeyLogin={true} localSource={true} />);
+    await userEvent.click(screen.getByRole("button", { name: "New user" }));
+    await userEvent.type(screen.getByLabelText(/^name/i), "ayse");
+    await userEvent.type(screen.getByLabelText(/os user/i), "ayse");
+    await userEvent.click(screen.getByRole("button", { name: /^create/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/could not be issued/i)).toBeTruthy(),
+    );
+  });
+
+  /*
+   * ⚠️ SIFIRLAMA YÖNETİCİ SATIRINDA YOK.
+   *
+   * Yöneticinin kimlik bilgisi acil durum kapısı ve yalnızca host'tan
+   * çıkabiliyor. Panelden değiştirilebilseydi, paneli ele geçiren kişi
+   * mevcut bir yöneticinin yerine geçerdi.
+   */
+  it("sıfırlama yalnızca yönetici olmayan satırlarda", async () => {
     vi.spyOn(api, "users").mockResolvedValue([
       user({ name: "ops", admin: true }),
       user({ name: "ayse", admin: false }),
     ]);
 
-    render(<Users publicKeyLogin={true} />);
+    render(<Users publicKeyLogin={true} localSource={true} />);
     await screen.findByText("ayse");
 
     expect(
-      screen.getByLabelText("issue a sign-in value for ayse"),
+      screen.getByLabelText("reset the sign-in value for ayse"),
     ).toBeTruthy();
-    expect(screen.queryByLabelText("issue a sign-in value for ops")).toBeNull();
-    // Yerine sebebi yazıyor: boş bir hücre "bozuk mu" dedirtir.
-    expect(screen.getAllByText("host only").length).toBe(1);
+    expect(
+      screen.queryByLabelText("reset the sign-in value for ops"),
+    ).toBeNull();
   });
 
-  /*
-   * ⚠️ DEĞER TEK GÖSTERİM VE KUTU KENDİLİĞİNDEN KAPANMIYOR.
-   *
-   * postern doğrulayıcıyı saklıyor, değeri değil: bir daha
-   * gösterilemez. Kutunun Esc ya da arka plana tıklamayla kapanması,
-   * kaydedilmemiş bir kimlik bilgisini kazara yok etmek olurdu — bu
-   * yüzden Modal DEĞİL.
-   */
-  it("verilen değeri bir kez gösteriyor ve kapatmayı kullanıcıya bırakıyor", async () => {
+  // Yerel kapı kapalıyken hiç çizilmiyor: orada üretilen bir değer
+  // hiçbir zaman kullanılamaz.
+  it("yerel kaynak kapalıyken sıfırlama hiç yok", async () => {
     vi.spyOn(api, "users").mockResolvedValue([user({ name: "ayse" })]);
-    const issue = vi.spyOn(api, "issueCredential").mockResolvedValue({
-      username: "ayse",
-      secret: "ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ",
-      replaced: false,
-    });
 
-    render(<Users publicKeyLogin={true} />);
+    render(<Users publicKeyLogin={true} localSource={false} />);
     await screen.findByText("ayse");
-    await userEvent.click(
-      screen.getByLabelText("issue a sign-in value for ayse"),
-    );
 
-    await waitFor(() =>
-      expect(screen.getByText("ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ")).toBeTruthy(),
-    );
-    expect(issue).toHaveBeenCalledWith("ayse");
-    // "Bir daha gösterilmez" sözleşmesi ekranda yazılı olmalı.
-    expect(screen.getByText(/only time it is shown/i)).toBeTruthy();
-
-    // Escape kutuyu KAPATMAMALI.
-    await userEvent.keyboard("{Escape}");
-    expect(screen.getByText("ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ")).toBeTruthy();
-
-    await userEvent.click(screen.getByText("I have copied it"));
-    await waitFor(() =>
-      expect(screen.queryByText("ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ")).toBeNull(),
-    );
+    expect(
+      screen.queryByLabelText("reset the sign-in value for ayse"),
+    ).toBeNull();
   });
 
-  // Üstüne yazıldığında sonucu söylüyor: yönetici, kişinin elindeki
-  // değerin ARTIK ÇALIŞMADIĞINI bilmeli.
-  it("üstüne yazıldıysa bunu açıkça söylüyor", async () => {
+  it("sıfırlamada üstüne yazıldığını açıkça söylüyor", async () => {
     vi.spyOn(api, "users").mockResolvedValue([user({ name: "ayse" })]);
-    vi.spyOn(api, "issueCredential").mockResolvedValue({
+    vi.spyOn(api, "resetCredential").mockResolvedValue({
       username: "ayse",
       secret: "AAAA-BBBB",
       replaced: true,
     });
 
-    render(<Users publicKeyLogin={true} />);
+    render(<Users publicKeyLogin={true} localSource={true} />);
     await screen.findByText("ayse");
     await userEvent.click(
-      screen.getByLabelText("issue a sign-in value for ayse"),
+      screen.getByLabelText("reset the sign-in value for ayse"),
     );
 
     await waitFor(() =>

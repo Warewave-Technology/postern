@@ -16,6 +16,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/warewave/postern/internal/auth"
 	"github.com/warewave/postern/internal/model"
 	"github.com/warewave/postern/internal/store"
 )
@@ -272,7 +273,61 @@ func (s *Server) adminCreateUser(w http.ResponseWriter, r *http.Request) {
 		}
 		s.audit(r, "user.grant_role", in.Name, "role "+role)
 	}
-	ok(w)
+
+	/*
+	 * ⚠️ GİRİŞ BİLGİSİ HESAPLA BİRLİKTE DOĞUYOR.
+	 *
+	 * Ayrı bir "ver" adımı olarak duruyordu ve o adım, hesabı açan
+	 * yöneticinin ekranda unutabileceği bir adımdı: postern'de kaydı
+	 * olan ama hiçbir şekilde giremeyen bir kullanıcı, kimsenin fark
+	 * etmediği bir yarım iş. Hesabı açmakla giriş bilgisini vermek aynı
+	 * niyetin iki yarısı; bölmenin bir faydası yoktu.
+	 *
+	 * ⚠️ YALNIZCA YEREL KAYNAKTA. Dizin ya da kimlik sağlayıcı
+	 * açıkken yerel kapı KAPALI: orada üretilen bir değer hiçbir zaman
+	 * kullanılamaz, yani yalnızca sızdırılabilecek fazladan bir sır
+	 * olurdu. Kaynak değiştiğinde geri gelmesi gerekirse hesap zaten
+	 * duruyor.
+	 *
+	 * Hata BURADA KAPIYI KAPATMIYOR: hesap oluştu ve bu doğru. Cevap,
+	 * sırrın verilemediğini söylüyor ve yönetici hesabı yeniden
+	 * açmadan tekrar deneyebiliyor.
+	 */
+	src, _, serr := s.loginSource(r.Context())
+	if serr != nil || src != auth.SourceLocal {
+		ok(w)
+		return
+	}
+
+	secret, verifier, gerr := auth.NewLocalSecret()
+	if gerr != nil {
+		s.logger.Error("secret generation failed", "error", gerr)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok": true,
+			"credential_error": "the account was created, but a sign-in value could " +
+				"not be generated — use Reset sign-in on the row to try again",
+		})
+		return
+	}
+	if _, rerr := s.store.ReplaceLocalCredential(
+		r.Context(), in.Name, verifier, sessionUser(r)); rerr != nil {
+		s.logger.Error("credential issue failed", "user", in.Name, "error", rerr)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok": true,
+			"credential_error": "the account was created, but a sign-in value could " +
+				"not be issued — use Reset sign-in on the row to try again",
+		})
+		return
+	}
+	s.audit(r, "admin.credential_issued", in.Name,
+		"issued with the account; must be changed on first use")
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":       true,
+		"username": in.Name,
+		// ⚠️ TEK GÖSTERİM: doğrulayıcı geri okunamaz.
+		"secret": secret,
+	})
 }
 
 func (s *Server) adminPatchUser(w http.ResponseWriter, r *http.Request) {

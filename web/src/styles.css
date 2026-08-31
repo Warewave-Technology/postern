@@ -2439,26 +2439,58 @@ label > textarea {
   margin: 0 0 0.6rem;
 }
 
-/* Zorunlu parola değişikliği ekranı: giriş ekranı gibi ortalanmış. */
-.setup-gate {
-  display: flex;
-  justify-content: center;
-  padding: 2.5rem 1rem;
+/*
+ * Zorunlu parola değişikliği: GİRİŞ EKRANININ kutusu (.center-card).
+ *
+ * ⚠️ .center'ın 100vh'i burada YANLIŞ, çünkü bu ekranın üstünde
+ * uygulamanın kendi başlığı duruyor: tam yükseklik, sayfayı başlık
+ * kadar taşırıp gereksiz bir kaydırma çubuğu bırakıyordu. Kalan alana
+ * göre ortalıyoruz.
+ */
+.gate {
+  min-height: calc(100vh - 3.6rem);
 }
-.change-password {
-  width: min(28rem, 100%);
-  display: flex;
-  flex-direction: column;
-  gap: 0.7rem;
-}
-.change-password label {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
+
+/*
+ * Kural listesi. Yalnızca UZUNLUK işaretleniyor (.ok) — gerisini
+ * işaretlemek, kararı sunucunun verdiği bir şeye burada "tamam" demek
+ * ve reddedilebilecek bir söz vermek olurdu.
+ */
 .policy-list {
-  margin: 0.2rem 0 0.4rem;
-  padding-left: 1.1rem;
+  list-style: none;
+  margin: 2px 0 4px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12.5px;
   color: var(--muted);
-  font-size: 0.9rem;
+}
+.policy-list li {
+  padding-left: 1.15rem;
+  position: relative;
+}
+.policy-list li::before {
+  content: "•";
+  position: absolute;
+  left: 0.25rem;
+  color: var(--muted);
+}
+.policy-list li.ok {
+  color: var(--ok);
+}
+.policy-list li.ok::before {
+  content: "✓";
+  left: 0.1rem;
+  color: inherit;
+}
+
+/* Kutunun altındaki son not: düğmeden görsel olarak ayrılmalı, yoksa
+   bir hata satırı gibi okunuyor. */
+.center-note {
+  margin: 1.1rem 0 0;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line-soft);
+  font-size: 12px;
+  color: var(--muted);
 }

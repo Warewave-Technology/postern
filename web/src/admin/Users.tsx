@@ -18,7 +18,16 @@ import Modal from "./Modal";
 // Yalnızca kullanıcı oluşturabilen bir panel, yöneticiyi işi bitirmek
 // için hosttaki CLI'a geri gönderiyordu — o hâlde panelin varlığı
 // kullanıcıya yalnızca yarım bir yol gösteriyor demekti.
-export default function Users({ publicKeyLogin }: { publicKeyLogin: boolean }) {
+export default function Users({
+  publicKeyLogin,
+  localSource,
+}: {
+  publicKeyLogin: boolean;
+  /** ⚠️ Yerel kapı kapalıyken giriş bilgisi diye bir şey yok: dizin ya
+   *  da kimlik sağlayıcı açıkken üretilen bir değer hiçbir zaman
+   *  kullanılamaz, yalnızca sızdırılabilecek fazladan bir sır olurdu. */
+  localSource: boolean;
+}) {
   const { items, error, denied, loading, refresh, setError } = useList<User>(
     api.users,
   );
@@ -46,10 +55,18 @@ export default function Users({ publicKeyLogin }: { publicKeyLogin: boolean }) {
    */
   const [issued, setIssued] = useState<IssuedCredential | null>(null);
 
-  const issue = (name: string) => {
+  /*
+   * ⚠️ SIFIRLAMA AYRI BİR SÜTUN DEĞİL, SATIRIN EYLEMİ.
+   *
+   * Giriş bilgisi artık hesapla birlikte doğuyor, yani "ver" diye bir
+   * adım yok. Ama "parolamı unuttum" kaçınılmaz ve panelden
+   * çözülemezse yöneticiyi host kabuğuna gönderir — panelden vermenin
+   * var olma sebebi tam olarak o yolculuğu ortadan kaldırmaktı.
+   */
+  const resetSignIn = (name: string) => {
     setError("");
     return api
-      .issueCredential(name)
+      .resetCredential(name)
       .then((r) => {
         setIssued(r);
         return refresh();
@@ -82,13 +99,28 @@ export default function Users({ publicKeyLogin }: { publicKeyLogin: boolean }) {
         os_user: osUser.trim(),
         email: email.trim() || undefined,
       })
-      .then(() => {
+      .then((res) => {
+        const created = name.trim();
         setName("");
         setOsUser("");
         setEmail("");
-        setNotice(
-          `${name.trim()} created — give it a role and a key in the table, or it reaches nothing.`,
-        );
+        /*
+         * ⚠️ SIR VARSA BİLDİRİM YERİNE KUTU.
+         *
+         * Değer bir daha gösterilemiyor, dolayısıyla kaybolan bir
+         * bildirim satırında duramaz. Kutu sayfanın akışında ve
+         * yönetici kapatana kadar orada.
+         */
+        if (res?.secret) {
+          setIssued({ username: res.username ?? created, secret: res.secret });
+          setNotice("");
+        } else {
+          setNotice(
+            res?.credential_error
+              ? `${created} created, but ${res.credential_error}`
+              : `${created} created — give it a role and a key in the table, or it reaches nothing.`,
+          );
+        }
         return refresh().then(() => true);
       })
       .catch((e: unknown) => {
@@ -376,53 +408,38 @@ export default function Users({ publicKeyLogin }: { publicKeyLogin: boolean }) {
           } as Column<User>,
         ]
       : []),
-    /*
-     * ⚠️ SIR VERME DÜĞMESİ YÖNETİCİ SATIRLARINDA YOK.
-     *
-     * Yöneticinin kimlik bilgisi bir ACİL DURUM KAPISI ve yalnızca
-     * host'tan çıkabiliyor. Panelden verilebilseydi, paneli ele
-     * geçiren kişi mevcut bir yöneticinin giriş bilgisini kendi
-     * ürettiği bir değerle değiştirip onun yerine geçerdi — yani
-     * "yöneticilik panelden verilemez" kuralı hiç yokmuş gibi olurdu.
-     *
-     * Düğmeyi gizlemek bir KOLAYLIK. Asıl garanti sunucuda ve göç
-     * 026'daki kısıtta: bu satır silinse bile uç reddediyor.
-     */
-    {
-      key: "signin",
-      header: "Sign-in",
-      render: (u: User) =>
-        u.admin ? (
-          <span
-            className="muted"
-            title="issued on the host with `postern admin issue`"
-          >
-            host only
-          </span>
-        ) : (
-          <ActionButton
-            onClick={() => issue(u.name)}
-            confirm={`Issue a new sign-in value for "${u.name}"? It is shown once, and ${u.name} must change it at their next sign-in. Any value they hold now stops working and their open panel sessions are dropped.`}
-            label={`issue a sign-in value for ${u.name}`}
-          >
-            Issue
-          </ActionButton>
-        ),
-    } as Column<User>,
     {
       key: "actions",
       header: "Actions",
       srHeader: true,
       className: "actions",
       render: (u) => (
-        <ActionButton
-          variant="danger"
-          onClick={() => remove(u.name)}
-          confirm={`Delete the user "${u.name}"? Their SSH keys and role assignments go with them. If ${u.name} has recorded sessions the server refuses this outright — revoking their keys and roles is how access is cut without losing the audit trail.`}
-          label={`delete user ${u.name}`}
-        >
-          Delete
-        </ActionButton>
+        <div className="cell-form">
+          {/*
+            ⚠️ YÖNETİCİ SATIRINDA YOK. Yöneticinin kimlik bilgisi bir
+            acil durum kapısı ve yalnızca host'tan çıkabiliyor;
+            panelden değiştirilebilseydi, paneli ele geçiren kişi
+            mevcut bir yöneticinin yerine geçerdi. Düğmeyi gizlemek bir
+            kolaylık — asıl garanti sunucuda ve göç 026'daki kısıtta.
+          */}
+          {!u.admin && localSource && (
+            <ActionButton
+              onClick={() => resetSignIn(u.name)}
+              confirm={`Reset the sign-in value for "${u.name}"? The new one is shown once, ${u.name} must change it at their next sign-in, anything they hold now stops working, and their open panel sessions are dropped.`}
+              label={`reset the sign-in value for ${u.name}`}
+            >
+              Reset sign-in
+            </ActionButton>
+          )}
+          <ActionButton
+            variant="danger"
+            onClick={() => remove(u.name)}
+            confirm={`Delete the user "${u.name}"? Their SSH keys and role assignments go with them. If ${u.name} has recorded sessions the server refuses this outright — revoking their keys and roles is how access is cut without losing the audit trail.`}
+            label={`delete user ${u.name}`}
+          >
+            Delete
+          </ActionButton>
+        </div>
       ),
     },
   ];
@@ -437,7 +454,7 @@ export default function Users({ publicKeyLogin }: { publicKeyLogin: boolean }) {
           <p>
             {issued.replaced
               ? "The value they held before no longer works, and their open panel sessions were dropped."
-              : "This account can now sign in to the panel."}
+              : "The account is created and can sign in to the panel with this."}
           </p>
           <pre className="issued-secret">{issued.secret}</pre>
           <p className="msg warn">

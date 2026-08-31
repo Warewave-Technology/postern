@@ -276,3 +276,108 @@ func seedRole(t *testing.T, db *store.Store) {
 		t.Fatal(err)
 	}
 }
+
+/*
+ * ⚠️ HESAP AÇMAK VE GİRİŞ BİLGİSİ VERMEK TEK İŞLEM.
+ *
+ * Ayrı bir "ver" adımı olarak duruyordu ve o adım unutulabilirdi:
+ * postern'de kaydı olan ama hiçbir şekilde giremeyen bir kullanıcı,
+ * kimsenin fark etmediği bir yarım iş. Bu test, cevabın gerçekten
+ * KULLANILABİLİR bir değer taşıdığını uçtan uca ölçüyor — "bir dize
+ * döndü" demek yetmez, o dizeyle giriş yapılabilmeli.
+ */
+func TestCreatingAUserIssuesAWorkingSignInValue(t *testing.T) {
+	_, apiURL, _, db := oobBastionFresh(t)
+	ctx := context.Background()
+
+	seedRole(t, db)
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
+	browserSignIn(t, client, apiURL)
+	if err := db.SetUserAdmin(ctx, kcUser, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetSetting(ctx, auth.KeyLoginSource, "local", false, "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	body, _ := json.Marshal(map[string]any{
+		"name": "ayse", "os_user": "ayse", "email": "ayse@warewave.io",
+	})
+	req, _ := http.NewRequest("POST", apiURL+"/api/admin/users", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		Secret          string `json:"secret"`
+		CredentialError string `json:"credential_error"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	resp.Body.Close()
+
+	if out.CredentialError != "" {
+		t.Fatalf("sır verilemedi: %s", out.CredentialError)
+	}
+	if out.Secret == "" {
+		t.Fatal("hesap açıldı ama cevap giriş bilgisi taşımıyor — " +
+			"yönetici, hiçbir şekilde giremeyen bir kullanıcı bırakır")
+	}
+
+	// ⚠️ ASIL ÖLÇÜM: değer GERÇEKTEN çalışıyor mu.
+	jar2, _ := cookiejar.New(nil)
+	c2 := &http.Client{Jar: jar2, Timeout: 30 * time.Second}
+	if code, msg := localSignIn(t, c2, apiURL, "ayse", out.Secret); code != http.StatusOK {
+		t.Fatalf("verilen değerle giriş %d: %s", code, msg)
+	}
+	me, _ := fetchMe(t, c2, apiURL)
+	if !me.MustChangePassword {
+		t.Fatal("hesapla birlikte verilen değer 'değiştir' istemiyor — " +
+			"veren yönetici de biliyor ve bilmeye devam eder")
+	}
+}
+
+/*
+ * ⚠️ YEREL KAPI KAPALIYKEN DEĞER ÜRETİLMİYOR.
+ *
+ * Dizin ya da kimlik sağlayıcı açıkken yerel kapı kapalı: orada
+ * üretilen bir değer hiçbir zaman kullanılamaz, yani yalnızca
+ * sızdırılabilecek fazladan bir sır olurdu.
+ */
+func TestCreatingAUserIssuesNothingWhenTheLocalDoorIsClosed(t *testing.T) {
+	_, apiURL, _, db := oobBastionFresh(t)
+	ctx := context.Background()
+
+	seedRole(t, db)
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
+	browserSignIn(t, client, apiURL)
+	if err := db.SetUserAdmin(ctx, kcUser, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetSetting(ctx, auth.KeyLoginSource, "oidc", false, "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	body, _ := json.Marshal(map[string]any{"name": "deniz", "os_user": "deniz"})
+	req, _ := http.NewRequest("POST", apiURL+"/api/admin/users", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		Secret string `json:"secret"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	resp.Body.Close()
+
+	if out.Secret != "" {
+		t.Fatal("yerel kapı kapalıyken sır üretildi — kullanılamayan, " +
+			"yalnızca sızdırılabilecek fazladan bir değer")
+	}
+	if _, err := db.LocalCredential(ctx, "deniz"); err == nil {
+		t.Fatal("yerel kapı kapalıyken kimlik bilgisi satırı yazılmış")
+	}
+}
