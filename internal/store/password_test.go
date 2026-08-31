@@ -2,9 +2,13 @@ package store
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"errors"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 )
 
 /*
@@ -433,5 +437,71 @@ func TestUserProfileReadsTheNullShapes(t *testing.T) {
 	if !p.Purged {
 		t.Fatal("adı serbest bırakılmış satır öyle okunmadı — " +
 			"aynı ürün aynı hesap için iki farklı cevap verir")
+	}
+}
+
+/*
+ * ⚠️ ANAHTAR SAYILARI TEK SORGUDA VE SIFIRLAR DA GELİYOR.
+ *
+ * Sıfır, bu sayının EN ÖNEMLİ değeri: anahtarı olmayan hesap, rolü ne
+ * olursa olsun hiçbir hedefe SSH ile ulaşamıyor. LEFT JOIN yerine düz
+ * bir JOIN yazılsaydı o satırlar haritadan tamamen düşerdi ve liste
+ * onları boş gösterirdi — yani cevaplaması gereken tek soruyu
+ * cevaplayamazdı.
+ */
+func TestPublicKeyCountsIncludesAccountsWithNone(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	for _, n := range []string{"ayse", "deniz", "kerem"} {
+		if _, err := s.CreateUser(ctx, n, n+"@warewave.io", n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 2; i++ {
+		pub, _, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sshPub, err := ssh.NewPublicKey(pub)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.AddPublicKey(ctx, "ayse", sshPub.Marshal(), "k"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	counts, err := s.PublicKeyCounts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts["ayse"] != 2 {
+		t.Fatalf("ayse = %d, 2 bekleniyordu", counts["ayse"])
+	}
+	for _, n := range []string{"deniz", "kerem"} {
+		v, ok := counts[n]
+		if !ok {
+			t.Fatalf("%s haritada YOK — anahtarı olmayan hesap listede boş "+
+				"görünür ve 'kim hiç bağlanamıyor' cevapsız kalır", n)
+		}
+		if v != 0 {
+			t.Fatalf("%s = %d, 0 bekleniyordu", n, v)
+		}
+	}
+
+	// Adı serbest bırakılmış satır listede yok: Users() de göstermiyor.
+	if err := s.SetAccountState(ctx, "kerem", StateDeleted); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PurgeAccount(ctx, "kerem", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	counts, err = s.PublicKeyCounts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := counts["kerem"]; ok {
+		t.Fatal("adı serbest bırakılmış satır sayımda görünüyor")
 	}
 }

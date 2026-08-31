@@ -96,6 +96,13 @@
 
   --terminal-bg: #fbf1c7;
 
+  /*
+   * Açılır listenin oku. Yerleşik ok İŞLETİM SİSTEMİNİN çizdiği şey ve
+   * kendi zeminini getiriyor: koyu temada açık gri bir üçgen olarak
+   * kutunun dışında duruyordu. Kendi okumuzu çizip temaya bağlıyoruz.
+   */
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23473f3a' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
   --radius-sm: 6px;
   --radius: 9px;
   --radius-lg: 13px;
@@ -179,6 +186,7 @@
     --shadow-lg: 0 20px 48px rgba(0, 0, 0, 0.62), 0 2px 10px rgba(0, 0, 0, 0.5);
     --edge-hi: inset 0 1px 0 rgba(255, 255, 255, 0.045);
     --ring: 0 0 0 3px rgba(165, 195, 184, 0.24);
+    --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23d5c4a1' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   }
 }
 
@@ -226,6 +234,7 @@
   --shadow-lg: 0 20px 48px rgba(0, 0, 0, 0.62), 0 2px 10px rgba(0, 0, 0, 0.5);
   --edge-hi: inset 0 1px 0 rgba(255, 255, 255, 0.045);
   --ring: 0 0 0 3px rgba(165, 195, 184, 0.24);
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23d5c4a1' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 * {
@@ -875,6 +884,49 @@ textarea {
   background: var(--surface);
   color: var(--ink);
   max-width: 100%;
+}
+
+/*
+ * Açılır liste.
+ *
+ * ⚠️ ÜÇ AYRI KUSURU BİRDEN KAPATIYOR ve üçü de ölçülerek bulundu:
+ *
+ *   1. YÜKSEKLİK TUTMUYORDU. Yerleşik açılır liste 35px, yanındaki
+ *      düğme 31px çiziliyordu; ikisi aynı satırda duruyor ("Add a
+ *      role" + "Assign") ve 4px'lik fark, satırı hizasız gösteriyordu.
+ *      Tarayıcının kendi iç dolgusunu appearance ile kapatıp yüksekliği
+ *      düğmelerle aynı kurala bağlıyoruz.
+ *
+ *   2. OK İŞLETİM SİSTEMİNİN. Kendi rengini ve zeminini getiriyordu:
+ *      koyu temada kutunun içine yapıştırılmış açık gri bir üçgen gibi
+ *      duruyordu. Kendi okumuz temanın --muted rengini izliyor.
+ *
+ *   3. TIKLANABİLİR OLDUĞU BELLİ DEĞİLDİ: imleç ok, üzerine gelince
+ *      hiçbir şey olmuyordu. Kutu artık düğmeler gibi davranıyor.
+ */
+select {
+  appearance: none;
+  /* Sağ dolgu okun yerini AÇIYOR: olmadan uzun bir seçenek okun
+     altından geçiyor ve iki şey üst üste okunuyordu. */
+  padding: 0.5rem 2rem 0.5rem 0.6rem;
+  line-height: 1;
+  /* Düğmelerle aynı yükseklik: 13px metin + 2×0.5rem dolgu + kenarlık. */
+  height: calc(1em + 1rem + 2px);
+  background-image: var(--chevron);
+  background-repeat: no-repeat;
+  background-position: right 0.65rem center;
+  cursor: pointer;
+}
+select:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  background-color: var(--hover);
+}
+select:disabled {
+  cursor: not-allowed;
+  color: var(--faint);
+  /* Kapalıyken ok da soluyor: açılmayacak bir kutuda parlak bir ok,
+     tıklamaya davet ediyor. */
+  opacity: 0.75;
 }
 input::placeholder {
   color: var(--faint);

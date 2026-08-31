@@ -197,11 +197,29 @@ func (s *Server) adminListUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	/*
+	 * ⚠️ ANAHTAR SAYILARI TEK SORGUDA.
+	 *
+	 * Bu sayı eskiden satır başına PublicKeys() çağrılarak
+	 * toplanıyordu; 200 kullanıcı = 201 sorgu ve okunup atılan 200
+	 * anahtar blob'u. Gerekçe store.PublicKeyCounts'ta.
+	 */
+	keyCounts, err := s.store.PublicKeyCounts(r.Context())
+	if err != nil {
+		s.storeErr(w, "users.list", err)
+		return
+	}
+
 	type row struct {
 		Name   string   `json:"name"`
 		OSUser string   `json:"os_user"`
 		Admin  bool     `json:"admin"`
 		Roles  []string `json:"roles"`
+		// Sayı, liste ekranındaki "kim hiç bağlanamıyor" sorusunun
+		// cevabı. Anahtarların KENDİSİ burada dönmüyor: listede
+		// gösterilmiyor ve dönen her bayt saklanmasına gerek olmayan
+		// bir bayt.
+		Keys int `json:"keys"`
 		/*
 		 * ⚠️ DURUM VE SON DOĞRULANMA GÖRÜNÜR OLMAK ZORUNDA.
 		 *
@@ -225,7 +243,7 @@ func (s *Server) adminListUsers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		r := row{Name: u.Name, OSUser: u.OSUser, Admin: u.Admin,
-			Roles: roles, State: state}
+			Roles: roles, Keys: keyCounts[u.Name], State: state}
 		if !confirmed.IsZero() {
 			r.Confirmed = confirmed.Format(time.RFC3339)
 		}

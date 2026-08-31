@@ -119,6 +119,10 @@ export type User = {
   os_user: string;
   admin: boolean;
   roles: string[];
+  /** ⚠️ SAYI, anahtarların kendisi değil. Listenin cevapladığı soru
+   *  "kim hiç bağlanamıyor" — sıfır anahtarlı hesap, rolü ne olursa
+   *  olsun hiçbir hedefe SSH ile ulaşamıyor. */
+  keys: number;
   /**
    * ⚠️ Hesabın yaşam döngüsü. Kaynağın bir süredir doğrulamadığı
    * hesaplar kendiliğinden pasifleşiyor; bunu göstermeyen bir liste

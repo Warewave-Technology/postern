@@ -709,3 +709,47 @@ func (s *Store) UserProfile(ctx context.Context, username string) (UserProfile, 
 	}
 	return p, nil
 }
+
+/*
+ * PublicKeyCounts, kullanıcı adı → anahtar sayısı.
+ *
+ * ⚠️ TEK SORGU, KULLANICI BAŞINA BİR SORGU DEĞİL.
+ *
+ * Liste bu sayıyı eskiden satır başına PublicKeys() çağırarak
+ * topluyordu: 200 kullanıcılı bir kurulumda tek bir sayfa açılışı 201
+ * sorgu demekti ve dönen anahtarların BLOB'ları da okunup atılıyordu —
+ * ekranda görünen tek şey bir sayıyken.
+ *
+ * Sayı ekranda kalmak zorunda: "kim hiç bağlanamıyor" sorusunun cevabı
+ * bu ve onu göstermeyen bir liste, yöneticiyi her kullanıcıyı tek tek
+ * açmaya gönderiyordu.
+ *
+ * Adı serbest bırakılmış satırlar dışarıda: onları Users() da
+ * göstermiyor ve aynı ürünün iki farklı cevabı olmamalı.
+ */
+func (s *Store) PublicKeyCounts(ctx context.Context) (map[string]int, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT u.username, count(k.user_id)
+		FROM users u
+		LEFT JOIN user_public_keys k ON k.user_id = u.id
+		WHERE u.purged_at IS NULL
+		GROUP BY u.username;`)
+	if err != nil {
+		return nil, translateErr("store.PublicKeyCounts", err)
+	}
+	defer rows.Close()
+
+	out := map[string]int{}
+	for rows.Next() {
+		var name string
+		var n int
+		if err := rows.Scan(&name, &n); err != nil {
+			return nil, translateErr("store.PublicKeyCounts", err)
+		}
+		out[name] = n
+	}
+	if err := rows.Err(); err != nil {
+		return nil, translateErr("store.PublicKeyCounts", err)
+	}
+	return out, nil
+}

@@ -222,6 +222,41 @@ export default function Users({
           </span>
         ),
     },
+    /*
+     * ⚠️ SAYI, DÜĞME DEĞİL.
+     *
+     * Bu sütun bir ara "Keys" düğmesi taşıyordu ve satırın altına bir
+     * panel açıyordu; o panel kişinin kendi sayfasına taşındı. Sayının
+     * KALMASI ise ayrı bir karar: sıfır anahtarlı bir hesap, rolü ne
+     * olursa olsun hiçbir hedefe SSH ile ulaşamıyor. Onu göstermeyen
+     * bir liste, "kim hiç bağlanamıyor" sorusu için yöneticiyi her
+     * kullanıcıyı tek tek açmaya gönderiyordu.
+     *
+     * ⚠️ Anahtar girişi KAPALIYKEN sütun hiç çizilmiyor. Devre dışı bir
+     * sütun göstermek daha kötü olurdu: kullanıcı özelliğin bozuk mu
+     * yoksa kapalı mı olduğunu ayırt edemez.
+     */
+    ...(publicKeyLogin
+      ? [
+          {
+            key: "keys",
+            header: "Keys",
+            className: "num",
+            value: (u: User) => u.keys,
+            render: (u: User) =>
+              u.keys === 0 ? (
+                <span
+                  className="muted"
+                  title="no key on file — this account cannot connect over SSH"
+                >
+                  0
+                </span>
+              ) : (
+                u.keys
+              ),
+          } as Column<User>,
+        ]
+      : []),
     {
       key: "actions",
       header: "Actions",

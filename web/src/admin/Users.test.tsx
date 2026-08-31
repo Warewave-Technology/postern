@@ -9,6 +9,7 @@ const user = (over: Partial<User> = {}): User => ({
   os_user: "suheda",
   admin: false,
   roles: [],
+  keys: 0,
   state: "active",
   ...over,
 });
@@ -147,5 +148,48 @@ describe("admin sütunu", () => {
     expect(cells).toContain("no");
     // "admin" YALNIZCA kullanıcı adı olarak geçebilir, hücrede değil.
     expect(cells).not.toContain("admin");
+  });
+});
+
+/*
+ * ⚠️ ANAHTAR SAYISI LİSTEDE.
+ *
+ * Sıfır anahtarlı bir hesap, rolü ne olursa olsun hiçbir hedefe SSH ile
+ * ulaşamıyor. Sayıyı göstermeyen bir liste, "kim hiç bağlanamıyor"
+ * sorusu için yöneticiyi her kullanıcıyı tek tek açmaya gönderiyordu.
+ */
+describe("anahtar sayısı", () => {
+  it("sayıyı gösteriyor ve sıfırı sessizce vurguluyor", async () => {
+    vi.spyOn(api, "users").mockResolvedValue([
+      user({ name: "ayse", keys: 2 }),
+      user({ name: "deniz", keys: 0 }),
+    ]);
+
+    render(<Users publicKeyLogin localSource={true} />);
+    await screen.findByText("ayse");
+
+    const keysCol = [...document.querySelectorAll("tbody tr")].map((tr) =>
+      (tr as HTMLTableRowElement).cells[5].textContent?.trim(),
+    );
+    expect(keysCol).toEqual(["2", "0"]);
+    // Sıfır bir açıklama taşıyor: sayı tek başına neden önemli olduğunu
+    // söylemiyor.
+    expect(
+      screen.getByTitle(/cannot connect over SSH/i).textContent?.trim(),
+    ).toBe("0");
+  });
+
+  // Anahtar girişi kapalıyken sütun HİÇ çizilmiyor: devre dışı bir
+  // sütun, özelliğin bozuk mu kapalı mı olduğunu belirsiz bırakır.
+  it("anahtar girişi kapalıyken sütun yok", async () => {
+    vi.spyOn(api, "users").mockResolvedValue([user({ keys: 3 })]);
+    render(<Users publicKeyLogin={false} localSource={true} />);
+    await screen.findByRole("link", { name: "suheda" }).catch(() => null);
+    await waitFor(() =>
+      expect(document.querySelectorAll("tbody tr").length).toBe(1),
+    );
+    expect(
+      [...document.querySelectorAll("th")].map((t) => t.textContent?.trim()),
+    ).not.toContain("Keys");
   });
 });
