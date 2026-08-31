@@ -124,10 +124,40 @@ describe("kurulum sihirbazi", () => {
   // onaylanan kişinin rolleri de oradan geliyor.
   it("eslemenin her iki durumda da gerektigini soyler", async () => {
     render(<Setup meName="ops" />);
-    await waitFor(() => expect(screen.getByText(/Which source opens the panel/i)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText(/Which source opens the panel/i)).toBeInTheDocument(),
+    );
+    // Kaynak temelli bir kurulum: eşleme orada gerçekten gerekli.
+    await userEvent.click(screen.getByRole("radio", { name: /Directory \(LDAP\)/i }));
     await userEvent.click(screen.getByRole("button", { name: /Groups and roles/i }));
 
     expect(screen.getByText(/Mapping is needed either way/i)).toBeInTheDocument();
+  });
+
+  /*
+   * ⚠️ YEREL MODDA EŞLEME DE OTOMATİK AÇILIŞ DA ANLAMSIZ.
+   *
+   * Kodda doğrulandı: yerel giriş hiç grup çözmüyor ve hesap açma yolu
+   * (admitOrQueue) yalnızca dizin kapısından çağrılıyor. İkisini
+   * göstermek, operatöre hiçbir şey yapmayan iki kontrol sunmak olurdu
+   * — ve "eşleme yaptım ama çalışmıyor" diye aratırdı.
+   */
+  it("yerel modda esleme ve otomatik acilis gosterilmez", async () => {
+    render(<Setup meName="ops" />);
+    await waitFor(() =>
+      expect(screen.getByText(/Which source opens the panel/i)).toBeInTheDocument(),
+    );
+    await userEvent.click(
+      screen.getByRole("radio", { name: /postern's own credentials/i }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: /Groups and roles/i }));
+
+    expect(screen.queryByText(/Do accounts open on their own/i)).toBeNull();
+    expect(screen.queryByText(/Mapping is needed either way/i)).toBeNull();
+    // Yerine ne yapılacağı yazıyor: boş bir adım bırakmak "bir şey mi
+    // eksik" sorusunu doğururdu.
+    expect(screen.getByText(/there is nothing to map/i)).toBeInTheDocument();
+    expect(screen.getByText(/postern user add/)).toBeInTheDocument();
   });
 
   // Yönetici grubu yoksa uyarı çıkmalı: o modda yöneticilik yalnızca

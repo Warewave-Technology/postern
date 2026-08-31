@@ -428,54 +428,97 @@ export default function Setup({
 
       {step === "mapping" && (
         <>
-          <div className="panel">
-            <h3>Do accounts open on their own?</h3>
-            {/*
-              ⚠️ Bu anahtar eşlemenin YERİNE geçmiyor. Kapalıyken de
-              eşleme şart: onayladığınız kişinin rolleri oradan geliyor.
-            */}
-            <label className="source-row">
-              <div>
-                <input
-                  type="radio"
-                  name="auto"
-                  checked={!autoCreate}
-                  onChange={() => setAuto(false)}
-                />{" "}
-                <b>No — put them in a queue</b>
-                <p className="note">
-                  Someone the source authenticates but postern does not know is
-                  told their account is waiting, and appears under{" "}
-                  <b>Pending</b>.
-                </p>
-              </div>
-            </label>
-            <label className="source-row">
-              <div>
-                <input
-                  type="radio"
-                  name="auto"
-                  checked={autoCreate}
-                  onChange={() => setAuto(true)}
-                />{" "}
-                <b>Yes — create the account</b>
-                <p className="note">
-                  Still only when at least one of their groups is mapped below.
-                  An account that reaches nothing is not access.
-                </p>
-              </div>
-            </label>
-          </div>
-
           {/*
-            ⚠️ Eşleme, yukarıdaki anahtardan BAĞIMSIZ olarak gerekli:
-            kuyruktan onayladığınız kişinin rolleri de buradan geliyor.
+            ⚠️ YEREL MODDA EŞLEME DE OTOMATİK AÇILIŞ DA ANLAMSIZ.
+            Kodda doğrulandı: yerel giriş hiç grup çözmüyor (hesabın
+            yerel kimlik bilgisi doğrulanıyor, o kadar) ve hesap açma
+            yolu (admitOrQueue) yalnızca dizin kapısından çağrılıyor.
+            İkisini de göstermek, operatöre hiçbir şey yapmayan iki
+            kontrol sunmak olurdu — ve "eşleme yaptım ama çalışmıyor"
+            diye aratırdı.
           */}
-          <p className="note">
-            Mapping is needed either way. It is what turns a group in your
-            source into access here — including for people you approve by hand.
-          </p>
-          <Mappings />
+          {choice === "local" ? (
+            <div className="panel">
+              <h3>Accounts and roles</h3>
+              <p className="note">
+                With postern&apos;s own credentials there is no source to read
+                groups from, so there is nothing to map. Accounts and their
+                access are created by hand:
+              </p>
+              <ul className="problem-list">
+                <li>
+                  <b>Roles</b> — create a role and give it targets. A role is
+                  a set of machines, and it is what access means here.
+                </li>
+                <li>
+                  <b>Users</b> — create the account with{" "}
+                  <code>postern user add</code> on the bastion host, then
+                  assign roles to it from the Users screen.
+                </li>
+                <li>
+                  <b>Administrators</b> — only{" "}
+                  <code>postern admin issue</code> on the host. There is no
+                  group to inherit it from.
+                </li>
+              </ul>
+              <p className="note">
+                Nothing to do here now — both screens stay available after
+                setup.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="panel">
+                <h3>Do accounts open on their own?</h3>
+                {/*
+                  ⚠️ Bu anahtar eşlemenin YERİNE geçmiyor. Kapalıyken de
+                  eşleme şart: onayladığınız kişinin rolleri oradan geliyor.
+                */}
+                <label className="source-row">
+                  <div>
+                    <input
+                      type="radio"
+                      name="auto"
+                      checked={!autoCreate}
+                      onChange={() => setAuto(false)}
+                    />{" "}
+                    <b>No — put them in a queue</b>
+                    <p className="note">
+                      Someone the source authenticates but postern does not
+                      know is told their account is waiting, and appears under{" "}
+                      <b>Pending</b>.
+                    </p>
+                  </div>
+                </label>
+                <label className="source-row">
+                  <div>
+                    <input
+                      type="radio"
+                      name="auto"
+                      checked={autoCreate}
+                      onChange={() => setAuto(true)}
+                    />{" "}
+                    <b>Yes — create the account</b>
+                    <p className="note">
+                      Still only when at least one of their groups is mapped
+                      below. An account that reaches nothing is not access.
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              {/*
+                ⚠️ Eşleme, yukarıdaki anahtardan BAĞIMSIZ olarak gerekli:
+                kuyruktan onayladığınız kişinin rolleri de buradan geliyor.
+              */}
+              <p className="note">
+                Mapping is needed either way. It is what turns a group in your
+                source into access here — including for people you approve by
+                hand.
+              </p>
+              <Mappings />
+            </>
+          )}
 
           <div className="wizard-nav">
             <button onClick={() => setStep("admins")}>Back</button>

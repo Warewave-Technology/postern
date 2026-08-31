@@ -2296,12 +2296,41 @@ label > textarea {
 }
 .source-row:last-child {
   border-bottom: 0;
+  /*
+   * ⚠️ SON SATIRIN ALT DOLGUSU DA YOK.
+   *
+   * Ölçüldü: son paragrafın altında 46px boşluk kalıyordu — paragrafın
+   * kendi alt kenar boşluğu, satırın alt dolgusu ve kartın dolgusu üst
+   * üste biniyor. Üçü de tek başına doğru; toplamı kartın dibini boş
+   * bırakıyor.
+   */
+  padding-bottom: 0;
+}
+/* Satır içindeki son paragrafın alt boşluğu da gereksiz: sınırı zaten
+   satırın kendisi çiziyor. */
+.source-row p:last-child {
+  margin-bottom: 0;
 }
 .source-row h3 {
   margin: 0 0 0.25rem;
   font-size: 0.95rem;
 }
-.source-row > div:last-child {
+/*
+ * ⚠️ SON ÇOCUK KURALI, YALNIZCA İKİ ÇOCUKLU SATIRLAR İÇİN.
+ *
+ * Bu kural Sign-in ekranı için yazıldı: solda açıklama, sağda düğme;
+ * düğme büyümesin. Ama kurulum sihirbazının radyo satırlarında TEK
+ * çocuk var ve o da :last-child'a uyuyordu — yani metin büyüyemeyen dar
+ * bir sütuna sıkışıp aşırı sarıyor, kartın geri kalanı boş kalıyordu.
+ * (Ölçüldü: üç satırlık bir açıklama 465px yer kaplıyordu.)
+ */
+.source-row > div:first-child {
+  flex: 1 1 auto;
+  /* min-width:0 olmadan flex çocuk kendi içeriğinden küçülemez ve uzun
+     bir kelime satırı taşırır. */
+  min-width: 0;
+}
+.source-row > div:last-child:not(:first-child) {
   flex: 0 0 auto;
 }
 
