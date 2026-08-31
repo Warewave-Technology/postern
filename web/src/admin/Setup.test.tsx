@@ -354,3 +354,45 @@ describe("kurulumun bitisi", () => {
     expect(await screen.findByText(/All is set/i)).toBeInTheDocument();
   });
 });
+
+/*
+ * ⚠️ GERİ DÖNÜŞ YOLU, TAM UNUTULACAĞI ANDA SÖYLENMELİ.
+ *
+ * Kaynağı çevirmek yerel kapıyı kapatıyor ve operatör tam o an elindeki
+ * hesabın işinin bittiğini sanıyor — ona geçici bir ad veriyor, sırrını
+ * atıyor. Oysa o hesap kalıcı ve dizin çöktüğü gün tek giriş yolu o.
+ */
+describe("geri donus yolu", () => {
+  it("kaynaktan cikarken yerel hesabin kaldigini soyler", async () => {
+    render(<Setup meName="ops" dirBound />);
+    await waitFor(() =>
+      expect(screen.getByText(/Which source opens the panel/i)).toBeInTheDocument(),
+    );
+    await userEvent.click(screen.getByRole("radio", { name: /Directory \(LDAP\)/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /Link yourself, then switch/i }),
+    );
+
+    // Metin <b>not</b> ile bölündüğü için kesintisiz bir parçaya
+    // bakıyoruz: aksi hâlde test cümlenin biçimine bağlanırdı.
+    expect(
+      screen.getByText(/They stay as the way back/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/auth\.source --value/)).toBeInTheDocument();
+  });
+
+  // Yerel modda o cümle anlamsız: zaten oradasın.
+  it("yerel modda o cumleyi tekrarlamaz", async () => {
+    render(<Setup meName="ops" />);
+    await waitFor(() =>
+      expect(screen.getByText(/Which source opens the panel/i)).toBeInTheDocument(),
+    );
+    await userEvent.click(
+      screen.getByRole("radio", { name: /postern's own credentials/i }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Link yourself, then switch/i }),
+    );
+    expect(screen.queryByText(/They stay as the way back/i)).toBeNull();
+  });
+});

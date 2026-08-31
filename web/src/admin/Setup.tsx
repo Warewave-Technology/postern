@@ -613,6 +613,24 @@ export default function Setup({
             </p>
           )}
 
+          {/*
+            ⚠️ YOL GERİ DÖNÜŞ YOLU, BURADA SÖYLENMELİ.
+            Kaynağı çevirmek yerel kapıyı kapatıyor ve operatör tam o an
+            elindeki hesabın "işi bitti" sandığı için ona geçici bir ad
+            veriyor, sırrını atıyor. Oysa o hesap kalıcı: dizin çöktüğü
+            gün tek giriş yolu o. En çok unutulacağı an, söylenmesi
+            gereken an.
+          */}
+          {choice !== "local" && (
+            <p className="note">
+              Your local account and its secret are <b>not</b> discarded by
+              this. They stay as the way back: if the source ever stops
+              answering, <code>postern settings set --key auth.source --value
+              local</code> on the bastion host opens that door again and the
+              same secret still works. Keep it somewhere you will find it.
+            </p>
+          )}
+
           <div className="wizard-nav">
             <button onClick={() => setStep("mapping")}>Back</button>
             <span className="spacer" />
