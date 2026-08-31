@@ -187,6 +187,22 @@ func (s *Server) adminSetSetting(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	/*
+	 * ⚠️ PAROLA TABANI DA YAZMADAN ÖNCE ÇÖZÜLÜYOR — ve burada bir taban
+	 * da var, yalnızca biçim değil.
+	 *
+	 * İki ayrı sessiz arıza kapanıyor: "on iki" yazan operatör
+	 * politikanın 12'de kaldığını fark etmezdi, ve "4" yazan operatör
+	 * politikayı tamamen kapatabilirdi. İkincisi bir ayar değil bir
+	 * güvenlik kontrolünün kapatılması; ayarın alt sınırı bu yüzden
+	 * ayarlanabilir değil.
+	 */
+	if in.Key == auth.KeyPasswordMinLength {
+		if _, perr := auth.ParsePasswordMinLength(in.Value); perr != nil {
+			writeErr(w, http.StatusBadRequest, perr.Error())
+			return
+		}
+	}
 
 	// Sır olduğu BİZİM tarafımızda belirleniyor, istemcinin dediğine
 	// göre değil: istemci "secret: false" diyerek parolayı düz metne
@@ -455,16 +471,17 @@ func (s *Server) adminSyncRuns(w http.ResponseWriter, r *http.Request) {
 
 // knownSettingKeys, panelden yazılabilecek ayarlar.
 var knownSettingKeys = map[string]bool{
-	ldap.KeyURL:            true,
-	ldap.KeyBindDN:         true,
-	ldap.KeyBindPassword:   true,
-	ldap.KeyUserBase:       true,
-	ldap.KeyUserFilter:     true,
-	ldap.KeyGroupAttribute: true,
-	ldap.KeyGroupBase:      true,
-	ldap.KeyGroupFilter:    true,
-	ldap.KeyGroupNameFrom:  true,
-	ldap.KeyGroupScope:     true,
+	auth.KeyPasswordMinLength: true,
+	ldap.KeyURL:               true,
+	ldap.KeyBindDN:            true,
+	ldap.KeyBindPassword:      true,
+	ldap.KeyUserBase:          true,
+	ldap.KeyUserFilter:        true,
+	ldap.KeyGroupAttribute:    true,
+	ldap.KeyGroupBase:         true,
+	ldap.KeyGroupFilter:       true,
+	ldap.KeyGroupNameFrom:     true,
+	ldap.KeyGroupScope:        true,
 
 	// ⚠️ auth.source, ldap.admin_group ve oidc.* BİLEREK YOK.
 	//

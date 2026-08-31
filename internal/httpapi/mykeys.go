@@ -3,12 +3,13 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/warewave/postern/internal/auth"
 	"github.com/warewave/postern/internal/store"
 )
 
@@ -84,8 +85,24 @@ func (s *Server) handleMyKeys(w http.ResponseWriter, r *http.Request) {
 // postern'de doğrulanabilir bir sırrı yok; onun için yol yöneticiden
 // geçiyor ve panel bunu açıkça söylüyor.
 func (s *Server) canReauth(ctx context.Context, name string) bool {
-	_, err := s.store.LocalCredential(ctx, name)
-	return err == nil
+	c, err := s.store.LocalCredential(ctx, name)
+	if err != nil {
+		return false
+	}
+	/*
+	 * ⚠️ DEĞİŞTİRİLMEMİŞ BİR KİMLİK BİLGİSİ YENİDEN DOĞRULAMA SAYILMAZ.
+	 *
+	 * must_change taşıyan değeri YÖNETİCİ üretti ve iletti; kişi onu
+	 * henüz değiştirmedi, yani değer İKİ kişinin elinde. Bu dosyanın
+	 * başındaki gerekçe "ikinci anahtar eklemek saldırganın kalıcılık
+	 * kurma hamlesinin ta kendisi" diyor — o hamleyi, sahibinden başka
+	 * birinin de bildiği bir değerle onaylamak, kontrolü tamamen boşa
+	 * çıkarır.
+	 *
+	 * Sonuç kullanıcı için kapalı bir kapı değil: parolasını
+	 * değiştirdiği an burası açılıyor.
+	 */
+	return !c.MustChange
 }
 
 // handleAddMyKey: POST /api/me/keys
@@ -109,6 +126,32 @@ func (s *Server) handleAddMyKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	/*
+	 * ⚠️ ZORUNLU PAROLA DEĞİŞİKLİĞİ, "İLK ANAHTAR BEDAVA" KURALINDAN
+	 * ÖNCE — ve blok DIŞINDA.
+	 *
+	 * Bu kontrol önce `if stamped` bloğunun içindeydi ve orada YANLIŞTI:
+	 * anahtarı hiç olmayan bir hesapta ilk anahtar hiçbir doğrulama
+	 * istemeden ekleniyor (kural ve gerekçesi bu dosyanın başında).
+	 * Yani parolasını henüz değiştirmemiş biri — değeri VEREN kişinin de
+	 * bildiği biri — tek istekle kalıcı SSH erişimi kurabilirdi, ve
+	 * "parolanı değiştirene kadar hiçbir şey yapamazsın" kısıtı tam
+	 * olarak engellemesi gereken şeyi engellemezdi.
+	 *
+	 * Yönlendirici de bu ucu kısıtlı oturuma kapatıyor (weblogin.go).
+	 * İkisi birden duruyor: tek bir listeye bağlı kalan bir kural,
+	 * listeye eklenen bir sonraki satırla sessizce açılır.
+	 *
+	 * ErrNotFound "kısıt yok" demek: kimliği dizinden ya da kimlik
+	 * sağlayıcıdan gelen hesabın postern'de parolası yok.
+	 */
+	if c, cerr := s.store.LocalCredential(r.Context(), name); cerr == nil && c.MustChange {
+		writeErr(w, http.StatusForbidden,
+			"change your password first — a credential you have not chosen yourself "+
+				"cannot authorise adding an SSH key")
+		return
+	}
+
 	stamped, err := s.store.FirstKeyAdded(r.Context(), name)
 	if err != nil {
 		s.storeErr(w, "me.keys.add", err)
@@ -116,7 +159,7 @@ func (s *Server) handleAddMyKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if stamped {
-		verifier, verr := s.store.LocalCredential(r.Context(), name)
+		cred, verr := s.store.LocalCredential(r.Context(), name)
 		switch {
 		case errors.Is(verr, store.ErrNotFound):
 			// Doğrulayacak bir sır yok: bu hesabın kimliği başka bir
@@ -136,6 +179,25 @@ func (s *Server) handleAddMyKey(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusTooManyRequests, "too many attempts; try again in a minute")
 			return
 		}
+
+		/*
+		 * ⚠️ ARTAN GECİKME BURADA DA.
+		 *
+		 * Bu uç, giriş kapısıyla AYNI değeri doğruluyor. Gecikme
+		 * yalnızca /auth/local'e konsaydı, tahmin eden kişi iki uç
+		 * arasında dönüşümlü deneyerek onu tamamen atlardı — üstelik
+		 * buradaki denemeler oturumlu olduğu için daha az göze
+		 * batarak. Sayaç ORTAK: aynı hesap, aynı adres, aynı kova.
+		 */
+		bkey := backoffKey(name, clientKey(r))
+		if wait := s.guessBackoff.retryAfter(bkey); wait > 0 {
+			secs := int(wait.Seconds()) + 1
+			w.Header().Set("Retry-After", strconv.Itoa(secs))
+			writeErr(w, http.StatusTooManyRequests, fmt.Sprintf(
+				"too many failed attempts from here; try again in %d seconds", secs))
+			return
+		}
+
 		select {
 		case s.localSlots <- struct{}{}:
 			defer func() { <-s.localSlots }()
@@ -145,7 +207,13 @@ func (s *Server) handleAddMyKey(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if !auth.VerifyLocalSecret(verifier, in.Reauth) {
+		if !verifyCredential(cred, in.Reauth) {
+			// Muafiyetin gerekçesi locallogin.go'da: sır tutan hesaplar
+			// gecikmiyor, yoksa vekil arkasında bir yabancı acil durum
+			// yöneticisini dışarıda tutabilirdi.
+			if cred.Chosen {
+				s.guessBackoff.fail(bkey)
+			}
 			s.logger.Warn("key add refused: re-auth failed", "user", name)
 			if aerr := s.store.LogAdmin(r.Context(), store.AdminLogEntry{
 				Actor: name, Via: "web", Action: "user.key_reauth_failed", Entity: name,
@@ -156,6 +224,7 @@ func (s *Server) handleAddMyKey(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusUnauthorized, "wrong secret")
 			return
 		}
+		s.guessBackoff.succeed(bkey)
 	}
 
 	pub, comment, okKey := parseAuthorizedKey(w, in.AuthorizedKey)

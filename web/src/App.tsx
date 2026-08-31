@@ -17,6 +17,7 @@ import Pending from "./admin/Pending";
 import AuthSource from "./admin/AuthSource";
 import Settings from "./admin/Settings";
 import Setup from "./admin/Setup";
+import ChangePassword from "./ChangePassword";
 import Overview from "./admin/Overview";
 import Home from "./Home";
 import ShellPage, { shellTargetFromPath } from "./ShellPage";
@@ -74,7 +75,18 @@ const NAV: { title?: string; items: [Section, string, ReactNode][] }[] = [
     items: [["targets", "Targets", <TargetIcon key="i" />]],
   },
   {
-    title: "Directory",
+    /*
+     * ⚠️ "Directory" DEĞİL.
+     *
+     * Bu grup üç kaynağın da evi: yerel hesaplar, kimlik sağlayıcısı ve
+     * dizin. "Directory" başlığı üçünden yalnızca birinde doğruydu —
+     * OIDC kurulumunda kullanıcı bir dizin aramaya, yerel kurulumda ise
+     * olmayan bir dizini yapılandırmaya çıkıyordu.
+     *
+     * Kaynağa göre başlık YAZDIRMADIK: her modda doğru olan tek bir
+     * kelime, üç koşullu daldan hem daha kısa hem daha az kırılgan.
+     */
+    title: "Identity",
     items: [
       ["signin", "Sign-in", <KeyIcon key="i" />],
       ["ldap", "LDAP", <DirectoryIcon key="i" />],
@@ -420,12 +432,41 @@ export default function App() {
       </header>
 
       {/*
+        ⚠️ PAROLA DEĞİŞTİRİLMEDEN BAŞKA HİÇBİR ŞEY YOK — ve bu kontrol
+        kurulum sihirbazından da ÖNCE.
+
+        Sıra kasıtlı: yönetici tarafından verilen değeri veren de
+        biliyor, yani bu hâldeki bir oturum henüz "o kişinin" oturumu
+        değil. O oturuma kurulum sihirbazını açmak, kurulumun tamamını
+        değeri bilen ikinci kişiye açmak olurdu.
+
+        Asıl koruma sunucuda (requireSession, weblogin.go): ekranın
+        doğru çizilmesine güvenerek açık bırakılan bir kapı, kapalı
+        değildir. Buradaki iş yalnızca kullanıcıya çıkış yolunu
+        göstermek.
+      */}
+      {me.must_change_password && (
+        <main className="app">
+          <ChangePassword
+            name={me.name}
+            policy={me.password_policy}
+            onDone={() => {
+              // Sunucu belirteci yeniledi ve kısıt kalktı. /api/me'yi
+              // yeniden okumak yerine sayfayı tazeliyoruz: ekranın her
+              // parçası artık farklı bir yetkiyle çiziliyor.
+              window.location.assign("/");
+            }}
+          />
+        </main>
+      )}
+
+      {/*
         ⚠️ KURULUM BİTMEDİYSE BAŞKA HİÇBİR ŞEY YOK.
         Sekmeler ve bölümler çizilmiyor: yarım kurulmuş bir bastion'ın
         yönetim ekranlarını gezdirmek, ayarları kaynağı seçilmeden
         değiştirmeye davet etmek olurdu.
       */}
-      {needsSetup && me.admin && (
+      {!me.must_change_password && needsSetup && me.admin && (
         <main className="app">
           <Setup meName={me.name} dirBound={me.dir_bound} />
         </main>
@@ -433,7 +474,7 @@ export default function App() {
 
       {/* Kurulum bitmemiş ve YÖNETİCİ DEĞİLSE: girecek yer yok, ama
           sebebini söylüyoruz — boş bir ekran arıza gibi görünürdü. */}
-      {needsSetup && !me.admin && (
+      {!me.must_change_password && needsSetup && !me.admin && (
         <main className="center">
           <div className="center-card">
             <h1>Not set up yet</h1>
@@ -446,7 +487,7 @@ export default function App() {
         </main>
       )}
 
-      {!needsSetup && (
+      {!me.must_change_password && !needsSetup && (
         <>
           <nav className="tabs" aria-label="Sections">
             <div className="tabs-inner">
@@ -475,8 +516,7 @@ export default function App() {
                     // Kaynağa bağlı ekranlar yerel modda listelenmiyor.
                     const items = group.items.filter(
                       ([s]) =>
-                        !sourceIsLocal ||
-                        (s !== "mappings" && s !== "pending"),
+                        !sourceIsLocal || (s !== "mappings" && s !== "pending"),
                     );
                     if (items.length === 0) return null;
                     return (

@@ -36,11 +36,34 @@ func (s *Store) AddLocalCredential(ctx context.Context, username, verifier, by s
 		return err
 	}
 
+	/*
+	 * ⚠️ SIRRIN DEĞİŞTİRİLMESİ ZORUNLU MU: YÖNETİCİ OLMAMASINA BAĞLI,
+	 * bir bayrağa değil.
+	 *
+	 * Kural tek cümle: yönetici olmayan bir hesaba verilen kimlik
+	 * bilgisi, o kişinin PAROLASI olmaya gidiyor — kim verdiyse
+	 * versin. Kapattığı somut açık, veren kişinin değeri bilmesi:
+	 * sohbete yapıştırılmış, telefonda okunmuş, ekranda kalmış bir
+	 * değer, kişi onu değiştirene kadar İKİ kişinin elindedir.
+	 *
+	 * Yönetici hesaplarına konmuyor çünkü onlar parolaya HİÇ
+	 * geçemiyor (göç 026): acil durum kapısı makine üretimi bir değere
+	 * bağlı kalmak zorunda. Oraya "değiştir" demek, değiştirilemeyecek
+	 * bir şeyi istemek ve hesabı hiçbir şey yapamaz hâlde kilitlemek
+	 * olurdu.
+	 */
+	var isAdmin bool
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT is_admin FROM users WHERE id = $1;`, userID).Scan(&isAdmin); err != nil {
+		return translateErr("store.AddLocalCredential", err)
+	}
+
 	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO local_credentials (user_id, verifier, created_at, created_by)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO local_credentials
+			(user_id, verifier, created_at, created_by, must_change, holder_is_admin)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (user_id) DO NOTHING;`,
-		userID, verifier, time.Now().Unix(), by)
+		userID, verifier, time.Now().Unix(), by, !isAdmin, isAdmin)
 	if err != nil {
 		return translateErr("store.AddLocalCredential", err)
 	}
@@ -79,17 +102,150 @@ func (s *Store) UserByNameFold(ctx context.Context, name string) (string, error)
 	return found, nil
 }
 
-// LocalCredential, hesabın doğrulayıcısını döner. Yoksa ErrNotFound.
-func (s *Store) LocalCredential(ctx context.Context, username string) (string, error) {
-	var verifier string
+/*
+ * Credential, hesabın yerel kimlik bilgisi. Yoksa ErrNotFound.
+ *
+ * ⚠️ ARTIK DÜZ BİR DİZE DEĞİL. Eskiden yalnızca doğrulayıcı dönüyordu
+ * ve doğruydu: tek bir kimlik bilgisi türü vardı. İki tür olduğu an
+ * çağıranın HANGİ türle karşılaştığını bilmesi şart — yanlış doğrulama
+ * yolunu seçmek, ya kullanıcıyı dışarıda bırakır ya da biçim kontrolünü
+ * atlar. Türü çağıranın tahmin etmesine bırakmak yerine tek sorguda
+ * veriyoruz.
+ */
+type Credential struct {
+	Verifier string
+	// Chosen: değeri KULLANICI seçti (parola). Değilse makine üretimi
+	// sır (015'in dünyası, acil durum kapısı).
+	Chosen bool
+	// MustChange: bir sonraki girişte değiştirilmek zorunda.
+	MustChange bool
+}
+
+// LocalCredential, hesabın kimlik bilgisini döner. Yoksa ErrNotFound.
+func (s *Store) LocalCredential(ctx context.Context, username string) (Credential, error) {
+	var (
+		c      Credential
+		chosen sql.NullInt64
+	)
 	err := s.db.QueryRowContext(ctx, `
-		SELECT c.verifier FROM local_credentials c
+		SELECT c.verifier, c.chosen_at, c.must_change
+		FROM local_credentials c
 		JOIN users u ON u.id = c.user_id
-		WHERE u.username = $1;`, username).Scan(&verifier)
+		WHERE u.username = $1;`, username).Scan(&c.Verifier, &chosen, &c.MustChange)
 	if err != nil {
-		return "", translateErr("store.LocalCredential", err)
+		return Credential{}, translateErr("store.LocalCredential", err)
 	}
-	return verifier, nil
+	c.Chosen = chosen.Valid
+	return c, nil
+}
+
+/*
+ * SetChosenPassword, kullanıcının SEÇTİĞİ parolayı yazar.
+ *
+ * ⚠️ AddLocalCredential'DAN AYRI. O, üstüne yazmayı REDDEDİYOR ve bu
+ * kasıtlı (bkz. oradaki not): var olan bir sırrı sessizce döndürmek,
+ * elindeki değerle çalışan operatörü dışarıda bırakırdı. Burada tam
+ * tersi isteniyor — amaç zaten üstüne yazmak. İki niyeti tek fonksiyona
+ * bayrakla toplamak, o korumayı bir gün yanlışlıkla açık bırakırdı.
+ *
+ * ⚠️ YÖNETİCİ KONTROLÜ BURADA YOK. Kasıtlı: kuralı veritabanı tutuyor
+ * (göç 026'daki CHECK). Buraya bir `if` yazmak, kuralın ikinci bir
+ * kopyası olurdu ve iki kopyadan biri er ya da geç geride kalır.
+ * Yönetici hesabında bu çağrı 23514 ile düşüyor ve çağıran onu
+ * ErrAdminPasswordRefused olarak görüyor.
+ */
+func (s *Store) SetChosenPassword(ctx context.Context, username, verifier string, at time.Time) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE local_credentials
+		   SET verifier = $1, chosen_at = $2, must_change = FALSE
+		 WHERE user_id = (SELECT id FROM users WHERE username = $3);`,
+		verifier, at.Unix(), username)
+	if err != nil {
+		if isCheckViolation(err) {
+			return fmt.Errorf("store.SetChosenPassword[%s]: %w", username, ErrAdminPasswordRefused)
+		}
+		return translateErr("store.SetChosenPassword", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return translateErr("store.SetChosenPassword", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("store.SetChosenPassword[%s]: %w", username, ErrNotFound)
+	}
+	return nil
+}
+
+/*
+ * ReplaceLocalCredential, panelden verilen kimlik bilgisi. Var olanın
+ * ÜSTÜNE YAZAR ve yalnızca YÖNETİCİ OLMAYAN hesaplar için çalışır.
+ *
+ * ⚠️ AddLocalCredential'IN ÜSTÜNE YAZMAMA KURALI KALDIRILMADI, YALNIZCA
+ * BURADA GEÇERLİ DEĞİL — ve iki fonksiyonun ayrı durmasının sebebi tam
+ * olarak bu. Oradaki kural şunu koruyordu: yazma yetkisi olan biri,
+ * kurulumun tek yöneticisinin kimlik bilgisini sessizce döndüremesin.
+ * Aşağıdaki `is_admin = FALSE` koşulu o korumayı aynen sürdürüyor —
+ * yöneticiye bu yoldan dokunulamıyor, hiç.
+ *
+ * Üstüne yazmak burada ise ZORUNLU: "kullanıcı parolasını unuttu"
+ * panelden çözülemezse, panelden sır verme özelliğinin var olma sebebi
+ * — yöneticiyi host kabuğuna göndermemek — ilk gerçek olayda çöker.
+ *
+ * ⚠️ KOŞUL SQL'İN İÇİNDE, ÇAĞIRANDA DEĞİL. Çağıranın `if u.Admin`
+ * yazması unutulabilir; buradaki WHERE unutulamaz. Üstüne bir de göç
+ * 026'nın bileşik yabancı anahtarı var: holder_is_admin uydurulamıyor.
+ *
+ * Dönen değer: var olan bir kimlik bilgisinin üstüne mi yazıldı.
+ * Denetim kaydı için — "verildi" ile "değiştirildi" farklı olaylar.
+ */
+func (s *Store) ReplaceLocalCredential(ctx context.Context, username, verifier, by string) (replaced bool, err error) {
+	var existed bool
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM local_credentials c
+			JOIN users u ON u.id = c.user_id
+			WHERE u.username = $1);`, username).Scan(&existed); err != nil {
+		return false, translateErr("store.ReplaceLocalCredential", err)
+	}
+
+	res, err := s.db.ExecContext(ctx, `
+		INSERT INTO local_credentials
+			(user_id, verifier, created_at, created_by, must_change, holder_is_admin)
+		SELECT id, $2, $3, $4, TRUE, FALSE
+		  FROM users
+		 WHERE username = $1 AND is_admin = FALSE AND purged_at IS NULL
+		ON CONFLICT (user_id) DO UPDATE SET
+			verifier     = EXCLUDED.verifier,
+			created_at   = EXCLUDED.created_at,
+			created_by   = EXCLUDED.created_by,
+			must_change  = TRUE,
+			-- ⚠️ chosen_at sıfırlanıyor: yeni değeri kullanıcı seçmedi,
+			-- yönetici üretti. Sıfırlamasaydık doğrulama parola yolundan
+			-- geçer, yani makine üretimi bir değer biçim kontrolüne hiç
+			-- uğramadan kabul edilirdi.
+			chosen_at    = NULL,
+			-- Kullanım damgası da sıfırlanıyor: "en son ne zaman
+			-- kullanıldı" sorusu ESKİ değer hakkındaydı.
+			last_used_at = NULL;`,
+		username, verifier, time.Now().Unix(), by)
+	if err != nil {
+		if isCheckViolation(err) {
+			return false, fmt.Errorf("store.ReplaceLocalCredential[%s]: %w",
+				username, ErrAdminPasswordRefused)
+		}
+		return false, translateErr("store.ReplaceLocalCredential", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, translateErr("store.ReplaceLocalCredential", err)
+	}
+	if n == 0 {
+		// Hesap yok, silinmiş, ya da YÖNETİCİ. Çağıran ayrımı kendi
+		// yapıyor; buradaki iş sadece yapmamak.
+		return false, fmt.Errorf("store.ReplaceLocalCredential[%s]: %w",
+			username, ErrAdminPasswordRefused)
+	}
+	return existed, nil
 }
 
 // TouchLocalCredential, son kullanım anını damgalar.
@@ -162,6 +318,25 @@ type LocalCredentialHolder struct {
 	CreatedAt  time.Time
 	CreatedBy  string
 	LastUsedAt time.Time
+
+	// Chosen: değeri kullanıcı seçti (parola), makine üretmedi.
+	Chosen bool
+	// MustChange: ilk girişte değiştirilmek zorunda, yani henüz
+	// kullanılmamış bir "veren de biliyor" değeri.
+	MustChange bool
+
+	/*
+	 * ⚠️ State BURADA OLMAK ZORUNDA.
+	 *
+	 * Ölçülen tutarsızlık: iki ayrı kilitlenme koruması (panelde
+	 * canSwitchTo, CLI'da settings set) "yerel kimlik bilgisi olan bir
+	 * yönetici var" gördüğünde paneli kapatmaya izin veriyor. Ama
+	 * locallogin.go silinmiş hesabı REDDEDİYOR. Yani silinmiş bir
+	 * yönetici, iki korumayı da tatmin edip kimsenin giremediği bir
+	 * panel bırakabiliyordu. Durumu taşımayan bir liste, o soruyu
+	 * cevaplayamaz.
+	 */
+	State string
 }
 
 /*
@@ -174,9 +349,11 @@ type LocalCredentialHolder struct {
  */
 func (s *Store) LocalCredentialHolders(ctx context.Context) ([]LocalCredentialHolder, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT u.username, u.is_admin, c.created_at, c.created_by, c.last_used_at
+		SELECT u.username, u.is_admin, c.created_at, c.created_by, c.last_used_at,
+		       c.chosen_at IS NOT NULL, c.must_change, u.state
 		FROM local_credentials c
 		JOIN users u ON u.id = c.user_id
+		WHERE u.purged_at IS NULL
 		ORDER BY u.username;`)
 	if err != nil {
 		return nil, translateErr("store.LocalCredentialHolders", err)
@@ -188,7 +365,8 @@ func (s *Store) LocalCredentialHolders(ctx context.Context) ([]LocalCredentialHo
 		var h LocalCredentialHolder
 		var created int64
 		var last sql.NullInt64
-		if err := rows.Scan(&h.Username, &h.IsAdmin, &created, &h.CreatedBy, &last); err != nil {
+		if err := rows.Scan(&h.Username, &h.IsAdmin, &created, &h.CreatedBy, &last,
+			&h.Chosen, &h.MustChange, &h.State); err != nil {
 			return nil, translateErr("store.LocalCredentialHolders", err)
 		}
 		h.CreatedAt = time.Unix(created, 0).UTC()
@@ -223,11 +401,41 @@ func (s *Store) SetGroupAdmin(ctx context.Context, username string, admin bool) 
 	if admin {
 		via = "group"
 	}
-	_, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return translateErr("store.SetGroupAdmin", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // commit sonrası no-op
+
+	// ⚠️ Yönetici parola tutamaz (göç 026). Gerekçe ve neden reddetmek
+	// yerine düşürdüğümüz SetUserAdmin'de yazılı — burada da aynı,
+	// üstelik daha keskin: bu yol GİRİŞ ANINDA çalışıyor, yani ret
+	// kişinin girişini düşürürdü.
+	if admin {
+		if _, derr := tx.ExecContext(ctx, `
+			DELETE FROM local_credentials
+			 WHERE created_by <> 'cli'
+			   AND user_id = (SELECT id FROM users WHERE username = $1)
+			   AND (SELECT admin_via IS DISTINCT FROM 'cli'
+			          FROM users WHERE username = $1);`, username); derr != nil {
+			return translateErr("store.SetGroupAdmin", derr)
+		}
+		if _, derr := tx.ExecContext(ctx, `
+			UPDATE local_credentials SET must_change = FALSE
+			 WHERE user_id = (SELECT id FROM users WHERE username = $1)
+			   AND (SELECT admin_via IS DISTINCT FROM 'cli'
+			          FROM users WHERE username = $1);`, username); derr != nil {
+			return translateErr("store.SetGroupAdmin", derr)
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `
 		UPDATE users SET is_admin = $1, admin_via = $2
 		WHERE username = $3 AND admin_via IS DISTINCT FROM 'cli';`,
-		val, via, username)
-	if err != nil {
+		val, via, username); err != nil {
+		return translateErr("store.SetGroupAdmin", err)
+	}
+	if err := tx.Commit(); err != nil {
 		return translateErr("store.SetGroupAdmin", err)
 	}
 	// Satır güncellenmemiş olabilir (CLI yöneticisi) — bu bir hata
@@ -366,6 +574,30 @@ func (s *Store) ApplyAdminGroup(ctx context.Context, members []string) (granted,
 	for _, u := range all {
 		switch {
 		case want[u.name] && u.via != "group":
+			/*
+			 * ⚠️ ÖNCE PAROLA, SONRA YÜKSELTME.
+			 *
+			 * Bu TEK bir işlem ve tüm kurulumu kapsıyor. Parolası olan
+			 * bir kişiyi yükseltmeye kalkmak göç 026'daki CHECK'e
+			 * takılır ve işlemi düşürür — yani BİR kişinin parolası,
+			 * kurulumun TAMAMINDA yönetici eşitlemesini durdururdu.
+			 * Kaybedilen bir şey yok: yönetici acil durum sırrıyla
+			 * giriyor.
+			 */
+			if _, derr := tx.ExecContext(ctx, `
+				DELETE FROM local_credentials
+				 WHERE created_by <> 'cli'
+				   AND user_id = (SELECT id FROM users WHERE username = $1);`,
+				u.name); derr != nil {
+				return nil, nil, translateErr("store.ApplyAdminGroup", derr)
+			}
+			if _, derr := tx.ExecContext(ctx, `
+				UPDATE local_credentials SET must_change = FALSE
+				 WHERE user_id = (SELECT id FROM users WHERE username = $1);`,
+				u.name); derr != nil {
+				return nil, nil, translateErr("store.ApplyAdminGroup", derr)
+			}
+
 			// ⚠️ CLI koşulu burada da: elle açılmış yöneticinin kaynağı
 			// 'group'a düşerse, gruptan çıkarıldığı gün acil durum
 			// hesabı da kapanır.

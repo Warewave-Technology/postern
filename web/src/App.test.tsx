@@ -233,10 +233,18 @@ describe("App oturum bitisi", () => {
         });
       }
       if (url.includes("/api/auth/methods")) {
-        return new Response(JSON.stringify({ source: "oidc", oidc: true, local: false, ldap: false }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({
+            source: "oidc",
+            oidc: true,
+            local: false,
+            ldap: false,
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
       }
       // Hedef listesi: oturum bu arada düştü.
       return new Response(JSON.stringify({ error: "unauthenticated" }), {
@@ -421,8 +429,9 @@ describe("dizin kapisi", () => {
     expect(screen.queryByLabelText(/Sign-in secret/i)).toBeNull();
     // ⚠️ Ve bunun SSH'ı ilgilendirmediğini söylüyor: kullanıcı bu
     // parolayı ssh'ta denemeye kalkmasın.
-    expect(screen.getByText(/Your SSH access does not use this password/i))
-      .toBeInTheDocument();
+    expect(
+      screen.getByText(/Your SSH access does not use this password/i),
+    ).toBeInTheDocument();
   });
 
   // Aynı anda tek kapı: sunucu iki kapıyı birden açık bildirmiyor, ama
@@ -456,7 +465,11 @@ describe("dizin kapisi", () => {
  */
 describe("ilk kurulum zorunlulugu", () => {
   it("kurulum bitmediyse baska hicbir sekme cizilmez", async () => {
-    vi.spyOn(api, "me").mockResolvedValue({ ...me, admin: true, setup_required: true });
+    vi.spyOn(api, "me").mockResolvedValue({
+      ...me,
+      admin: true,
+      setup_required: true,
+    });
     vi.spyOn(api, "authSource").mockResolvedValue({
       source: "local",
       stored: false,
@@ -468,11 +481,17 @@ describe("ilk kurulum zorunlulugu", () => {
     });
     vi.spyOn(api, "settings").mockResolvedValue([]);
     vi.spyOn(api, "oidcSettings").mockResolvedValue({
-      issuer_url: "", client_id: "", client_secret_set: false,
-      managed_in_db: false, configured: false, live: false,
+      issuer_url: "",
+      client_id: "",
+      client_secret_set: false,
+      managed_in_db: false,
+      configured: false,
+      live: false,
     });
     vi.spyOn(api, "adminGroup").mockResolvedValue({
-      group: "", holders: [], enumerable: false,
+      group: "",
+      holders: [],
+      enumerable: false,
     });
 
     render(<App />);
@@ -487,10 +506,16 @@ describe("ilk kurulum zorunlulugu", () => {
 
   // Yönetici olmayan biri o sırada girerse: boş ekran değil, sebep.
   it("yonetici olmayana sebebini soyler", async () => {
-    vi.spyOn(api, "me").mockResolvedValue({ ...me, admin: false, setup_required: true });
+    vi.spyOn(api, "me").mockResolvedValue({
+      ...me,
+      admin: false,
+      setup_required: true,
+    });
     render(<App />);
     await waitFor(() =>
-      expect(screen.getByText(/has not finished its first-run setup/i)).toBeInTheDocument(),
+      expect(
+        screen.getByText(/has not finished its first-run setup/i),
+      ).toBeInTheDocument(),
     );
   });
 });
@@ -537,7 +562,9 @@ describe("kaynaga bagli menu", () => {
     expect(screen.getByRole("button", { name: /^Users$/ })).toBeInTheDocument();
     // Kaynağı değiştirebileceği ekran DURUYOR: yoksa geri dönüş yolu
     // da kaybolurdu.
-    expect(screen.getByRole("button", { name: /^Sign-in$/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /^Sign-in$/ }),
+    ).toBeInTheDocument();
   });
 
   it("dizin modunda ikisi de listelenir", async () => {
@@ -547,8 +574,64 @@ describe("kaynaga bagli menu", () => {
       await screen.findByRole("button", { name: /^Settings$/ }),
     );
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /^Mappings$/ })).toBeInTheDocument(),
+      expect(
+        screen.getByRole("button", { name: /^Mappings$/ }),
+      ).toBeInTheDocument(),
     );
-    expect(screen.getByRole("button", { name: /^Pending$/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /^Pending$/ }),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("zorunlu parola değişikliği", () => {
+  /*
+   * ⚠️ PANELİN GERİ KALANI HİÇ ÇİZİLMİYOR.
+   *
+   * Yönetici tarafından verilen değeri veren de biliyor, yani bu
+   * hâldeki oturum henüz "o kişinin" oturumu değil. Sekmeler, menü ve
+   * kurulum sihirbazı bu ekranın yanında görünmemeli — asıl koruma
+   * sunucuda, ama ekranın da yanlış bir şey vaat etmemesi gerekiyor.
+   */
+  it("parola değiştirilene kadar başka hiçbir şey çizilmiyor", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({
+      name: "ayse",
+      os_user: "ayse",
+      admin: true,
+      targets: [],
+      terminal_enabled: true,
+      public_key_login: true,
+      must_change_password: true,
+      password_policy: { min_length: 12, max_length: 256, min_distinct: 5 },
+    });
+
+    render(<App />);
+    await screen.findByText("Set your password");
+
+    expect(screen.queryByRole("button", { name: "Settings" })).toBeNull();
+    expect(screen.queryByText("Your targets")).toBeNull();
+  });
+
+  /*
+   * ⚠️ KURULUM SİHİRBAZINDAN DA ÖNCE.
+   *
+   * Sıra kasıtlı: kısıtlı bir oturuma kurulum sihirbazını açmak,
+   * kurulumun tamamını değeri bilen ikinci kişiye açmak olurdu.
+   */
+  it("kurulum sihirbazının önüne geçiyor", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({
+      name: "ayse",
+      os_user: "ayse",
+      admin: true,
+      targets: [],
+      terminal_enabled: true,
+      public_key_login: true,
+      setup_required: true,
+      must_change_password: true,
+    });
+
+    render(<App />);
+    await screen.findByText("Set your password");
+    expect(screen.queryByText(/set up sign-in/i)).toBeNull();
   });
 });

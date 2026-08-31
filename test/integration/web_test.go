@@ -59,6 +59,10 @@ type meResponse struct {
 	OSUser  string   `json:"os_user"`
 	Admin   bool     `json:"admin"`
 	Targets []string `json:"targets"`
+
+	// Zorunlu parola değişikliği: panel bunu görürse başka hiçbir şey
+	// çizmiyor ve sunucu başka hiçbir uca izin vermiyor.
+	MustChangePassword bool `json:"must_change_password"`
 }
 
 func fetchMe(t *testing.T, client *http.Client, apiURL string) (meResponse, int) {

@@ -445,7 +445,7 @@ func (s *Server) refuseIfLastAdmin(ctx context.Context, want []string) error {
 		return nil
 	}
 	return errors.New("this would leave postern with no administrator at all — " +
-		"create one on the bastion host first (`postern admin issue <name>`), " +
+		"create one on the bastion host first (`postern admin issue --name <name>`), " +
 		"or pick a group that has at least one member with a postern account")
 }
 

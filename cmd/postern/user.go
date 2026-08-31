@@ -33,6 +33,7 @@ func newUserCmd() *cobra.Command {
 	cmd.AddCommand(newUserListCmd())
 	cmd.AddCommand(newUserModifyCmd())
 	cmd.AddCommand(newUserAllowBindCmd())
+	cmd.AddCommand(newUserStateCmd())
 	cmd.AddCommand(newUserPurgeCmd())
 	return cmd
 }
@@ -49,6 +50,74 @@ func newUserCmd() *cobra.Command {
  * ⚠️ YALNIZCA 'deleted' hesaplar: aktif birinin adını almak, o kişi
  * hâlâ kullanıyorken kimliğini elinden almak olurdu.
  */
+/*
+ * newUserStateCmd, hesabın durumunu HOST'TAN geri alır.
+ *
+ * ⚠️ NEDEN VAR: hesap yaşam döngüsü işi (internal/accountlife) kaynağın
+ * bir süredir doğrulamadığı hesapları önce pasife, sonra 'deleted'
+ * durumuna çeviriyor. Pasif hesap bir sonraki girişte kendiliğinden
+ * canlanıyor; SİLİNMİŞ hesap canlanmıyor — giriş bilerek reddediliyor
+ * (göç 023).
+ *
+ * Bu, panelden düzeltilebilen bir durum. Ama panelin açılamadığı gün
+ * düzeltilemiyordu ve postern'in kendi kuralı şu: CLI cam kırılınca
+ * kullanılan araçtır ve hiçbir duruma "buradan çıkış yok" dedirtmemeli.
+ * Otomatik bir işlemin geri alınamaması, tam olarak o kuralın ihlali.
+ *
+ * Yönetici hesapları bu işten zaten etkilenmiyor (StaleAccounts yalnızca
+ * sso_only ya da dizine bağlı hesapları tarıyor) — ama "etkilenmiyor"
+ * ile "kurtarılabilir" ayrı şeyler.
+ */
+func newUserStateCmd() *cobra.Command {
+	var configPath, name, state string
+
+	cmd := &cobra.Command{
+		Use:   "state",
+		Short: "Set an account's state (active, inactive, deleted)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if name == "" || state == "" {
+				return errors.New("--name and --set are both required")
+			}
+			db, ctx, err := openStore(configPath)
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+
+			before, _, err := db.AccountState(ctx, name)
+			if err != nil {
+				return err
+			}
+			if err := db.SetAccountState(ctx, name, state); err != nil {
+				return err
+			}
+			// ⚠️ Denetim kaydı ŞART: bu komut, otomatik bir kararı elle
+			// geri alıyor. "Neden bu hesap yine aktif" sorusunun cevabı
+			// başka hiçbir yerde yok.
+			if err := db.LogAdmin(ctx, store.AdminLogEntry{
+				Actor: "cli", Via: "cli", Action: "user.state", Entity: name,
+				Details: fmt.Sprintf("state %s -> %s (set on the host)", before, state),
+			}); err != nil {
+				return err
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(), "%q: %s -> %s\n", name, before, state)
+			if state == store.StateActive {
+				fmt.Fprint(cmd.OutOrStdout(),
+					"\nThe account can sign in again. If the source still does not "+
+						"confirm it, the lifecycle job will deactivate it once more — "+
+						"fix it at the source, or this is only a reprieve.\n")
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
+	cmd.Flags().StringVar(&name, "name", "", "postern username")
+	cmd.Flags().StringVar(&state, "set", "", "active, inactive or deleted")
+	return cmd
+}
+
 func newUserPurgeCmd() *cobra.Command {
 	var configPath, name string
 

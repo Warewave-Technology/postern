@@ -243,8 +243,23 @@ func newAdminIssueCmd() *cobra.Command {
 			fmt.Fprintf(out, "  sign-in secret:  %s\n\n", secret)
 			fmt.Fprint(out, "This is the only time it is shown.\n")
 			if !u.Admin {
-				fmt.Fprint(out, "\nNote: this account is not an administrator. "+
-					"Use `postern user modify --admin` if that is what you meant.\n")
+				/*
+				 * ⚠️ SIRADAN HESAPTA BU DEĞER GEÇİCİ ve operatör bunu
+				 * bilmeli.
+				 *
+				 * Kural store'da: yönetici olmayan bir hesaba verilen
+				 * kimlik bilgisi "değiştirilmek zorunda" doğuyor, çünkü
+				 * onu VEREN de biliyor. Komut bunu söylemezse, operatör
+				 * değeri kalıcı sanıp bir kasaya koyar ve kişi ilk
+				 * girişte değiştirince o kayıt sessizce ölür.
+				 */
+				fmt.Fprint(out, "\nThis account is not an administrator, so the value is "+
+					"TEMPORARY: they must set their own password at their first "+
+					"sign-in, and this secret stops working then. Do not file it.\n")
+				fmt.Fprint(out, "\nIf you meant to make them an administrator, use "+
+					"`postern user modify --name "+u.Name+" --admin=true` — note that "+
+					"doing so drops any password they hold, because an administrator's "+
+					"credential has to come from this host.\n")
 			}
 			return nil
 		},
@@ -291,14 +306,30 @@ func newAdminListCmd() *cobra.Command {
 			}
 
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "USERNAME\tADMIN\tCREATED\tBY\tLAST USED")
+			fmt.Fprintln(w, "USERNAME\tADMIN\tKIND\tSTATE\tCREATED\tBY\tLAST USED")
 			for _, h := range holders {
 				last := "never"
 				if !h.LastUsedAt.IsZero() {
 					last = h.LastUsedAt.Format("2006-01-02 15:04")
 				}
-				fmt.Fprintf(w, "%s\t%t\t%s\t%s\t%s\n",
-					h.Username, h.IsAdmin,
+				/*
+				 * ⚠️ TÜR SÜTUNU BİR TEŞHİS ARACI.
+				 *
+				 * "Neden giremiyor" sorusunun cevabı çoğu zaman burada:
+				 * hesap "issued (must change)" hâlindeyse kişi giriyor
+				 * ama paneli açamıyor, çünkü önce parolasını koyması
+				 * gerekiyor. Bu ayrımı göstermeyen bir liste, operatörü
+				 * olmayan bir arızayı aramaya gönderir.
+				 */
+				kind := "secret"
+				switch {
+				case h.Chosen:
+					kind = "password"
+				case h.MustChange:
+					kind = "issued (must change)"
+				}
+				fmt.Fprintf(w, "%s\t%t\t%s\t%s\t%s\t%s\t%s\n",
+					h.Username, h.IsAdmin, kind, h.State,
 					h.CreatedAt.Format("2006-01-02"), h.CreatedBy, last)
 			}
 			return w.Flush()

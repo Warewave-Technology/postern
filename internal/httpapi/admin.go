@@ -31,6 +31,8 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/admin/users/{name}", admin(s.adminDeleteUser))
 	mux.Handle("POST /api/admin/users/{name}/roles", admin(s.adminAssignRole))
 	mux.Handle("DELETE /api/admin/users/{name}/roles/{role}", admin(s.adminRevokeRole))
+	// ⚠️ Yalnızca YÖNETİCİ OLMAYAN hesaplar için — gerekçe handler'da.
+	mux.Handle("POST /api/admin/users/{name}/credential", admin(s.adminIssueCredential))
 	mux.Handle("POST /api/admin/users/{name}/keys", admin(s.adminAddKey))
 	mux.Handle("POST /api/admin/users/{name}/keys/remove", admin(s.adminRemoveKey))
 
@@ -384,6 +386,7 @@ func (s *Server) adminAddKey(w http.ResponseWriter, r *http.Request) {
 		s.storeErr(w, "user.add_key", err)
 		return
 	}
+	// Damga store.AddPublicKey içinde vuruluyor — gerekçesi orada.
 	s.audit(r, "user.add_key", name, ssh.FingerprintSHA256(pub))
 	ok(w)
 }

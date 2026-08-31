@@ -225,7 +225,7 @@ func newSettingsSetCmd() *cobra.Command {
 				if admins, aerr := db.Admins(ctx); aerr == nil && len(admins) == 0 {
 					fmt.Fprintln(cmd.ErrOrStderr(),
 						"warning: postern now has no administrator at all — "+
-							"run `postern admin issue <name>` to create one")
+							"run `postern admin issue --name <name>` to create one")
 				}
 			}
 			return nil
@@ -400,7 +400,7 @@ func explainLoginSource(cmd *cobra.Command, db *store.Store, ctx context.Context
 		// için asıl tehlikeli olan bu: yerel kapı yalnızca yerel
 		// kimlik bilgisi OLAN hesapları alıyor.
 		fmt.Fprintln(errOut, "warning: no local administrator has a sign-in secret — "+
-			"run `postern admin issue <name>` or nobody can sign in to the panel")
+			"run `postern admin issue --name <name>` or nobody can sign in to the panel")
 
 	case auth.SourceOIDC:
 		fmt.Fprintln(out, "panel sign-in now goes through the identity provider; "+

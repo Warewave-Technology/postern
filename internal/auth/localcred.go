@@ -151,9 +151,36 @@ func hashSecret(secret string) (string, error) {
 func VerifyLocalSecret(verifier, input string) bool {
 	normalized, err := NormalizeSecret(input)
 	if err != nil {
+		/*
+		 * ⚠️ ERKEN DÖNMÜYORUZ, MALİYETİ YİNE ÖDÜYORUZ.
+		 *
+		 * Eskiden burada düz bir `return false` vardı ve doğruydu:
+		 * postern'in TEK kimlik bilgisi türü makine üretimi sırdı, yani
+		 * her hesap aynı yoldan geçiyordu ve ölçülecek bir fark yoktu.
+		 *
+		 * Parola (password.go) eklendiği an bu bozuldu. İki yol iki
+		 * farklı maliyet demek: biçimsiz bir tahmin, sır tutan bir
+		 * hesapta mikrosaniyeler, parola tutan bir hesapta argon2
+		 * süresi. Aradaki fark ölçülebilir ve tam olarak şunu söyler:
+		 * "bu kullanıcı ACİL DURUM sırrı taşıyor" — yani saldırganın
+		 * hangi hesabı hedefleyeceğini seçmesine yarayan tek bilgi.
+		 *
+		 * Sahte bir doğrulama yaparak farkı kapatıyoruz. Sonuç yine
+		 * false; ödenen tek şey zaman.
+		 */
+		compareArgon2(verifier, uniformCostInput)
 		return false
 	}
+	return compareArgon2(verifier, normalized)
+}
 
+// uniformCostInput, biçim kontrolü düştüğünde argon2'ye verilen sabit
+// değer. İçeriği önemsiz — tek işi aynı maliyeti ödetmek.
+const uniformCostInput = "postern-uniform-cost"
+
+// compareArgon2, kendini tanımlayan doğrulayıcıyı çözüp sabit zamanlı
+// karşılaştırır. İki kimlik bilgisi türünün ORTAK yanı yalnızca bu.
+func compareArgon2(verifier, input string) bool {
 	parts := strings.Split(verifier, "$")
 	if len(parts) != 5 || parts[0] != "argon2id" {
 		return false
@@ -175,7 +202,7 @@ func VerifyLocalSecret(verifier, input string) bool {
 	}
 
 	// #nosec G115 -- parametreler bizim yazdığımız doğrulayıcıdan geliyor
-	got := argon2.IDKey([]byte(normalized), salt,
+	got := argon2.IDKey([]byte(input), salt,
 		uint32(time), uint32(memory), uint8(threads), uint32(len(want)))
 	return subtle.ConstantTimeCompare(got, want) == 1
 }

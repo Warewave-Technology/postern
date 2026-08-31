@@ -66,6 +66,21 @@ var (
 	 */
 	ErrAccountNotProvisioned = errors.New("store: account does not exist and auto-create is off")
 
+	/*
+	 * ErrAdminPasswordRefused: yönetici hesabına kullanıcı parolası
+	 * konmak istendi.
+	 *
+	 * ⚠️ KURALI VERİTABANI TUTUYOR (göç 026), bu sentinel yalnızca onun
+	 * reddini konuşulabilir bir hataya çeviriyor. Burada bir `if`
+	 * yazmıyoruz: kural bir kez, kaçınılmaz olduğu yerde duruyor.
+	 *
+	 * Neden kural: acil durum kapısı tahmin edilebilir bir değere
+	 * bağlanamaz. Yönetici hesabının kimlik bilgisi makine üretimi
+	 * kalmak zorunda — postern'in "her şey bozulduğunda içeri girilir"
+	 * iddiası tam olarak buna dayanıyor.
+	 */
+	ErrAdminPasswordRefused = errors.New("store: an administrator account cannot hold a password")
+
 	// errNotImplementedS51, S5.1 iskeletinin bekleyen fonksiyonları.
 	errNotImplementedS51 = errors.New("store: not implemented")
 
@@ -1456,7 +1471,54 @@ func (s *Store) SetUserAdmin(ctx context.Context, username string, admin bool) e
 	if admin {
 		via = "cli"
 	}
-	res, err := s.db.ExecContext(ctx,
+
+	/*
+	 * ⚠️ YÜKSELTMEDEN ÖNCE PAROLA DÜŞÜYOR — ve bunu TEK İŞLEMDE
+	 * yapıyoruz.
+	 *
+	 * Göç 026 "yönetici parola tutamaz" diyor ve kuralı veritabanı
+	 * uyguluyor: parolası olan birini yönetici yapma girişimi, tetikle
+	 * güncellenen holder_is_admin üzerinden CHECK'e takılıp DÜŞÜYOR.
+	 * Doğru davranış, ama tek başına bir çıkmaz: operatör "neden
+	 * olmuyor" diye bakar, cevabı SQLSTATE'te bulur.
+	 *
+	 * Çözüm, kuralı gevşetmek değil önünü açmak: parola siliniyor,
+	 * sonra yükseltme yapılıyor. Kişi hiçbir şey kaybetmiyor — yönetici
+	 * olarak zaten acil durum sırrıyla girecek (`postern admin issue`),
+	 * ve bu iki adım aynı işlemde olduğu için arada "parolası da yok
+	 * yöneticiliği de yok" diye bir an oluşmuyor.
+	 *
+	 * DÜŞÜRMEK YERİNE REDDETMEK denenebilirdi ama dizin grubundan gelen
+	 * yükseltmede başında insan yok; orada ret, tüm eşitlemenin durması
+	 * demek.
+	 */
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return translateErr("store.SetUserAdmin", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // commit sonrası no-op
+
+	if admin {
+		if _, derr := tx.ExecContext(ctx, `
+			DELETE FROM local_credentials
+			 WHERE created_by <> 'cli'
+			   AND user_id = (SELECT id FROM users WHERE username = $1);`,
+			username); derr != nil {
+			return translateErr("store.SetUserAdmin", derr)
+		}
+		// ⚠️ Bayrak da düşüyor: yöneticinin değiştirebileceği bir parola
+		// yok, dolayısıyla "değiştirene kadar hiçbir şey yapamazsın"
+		// demek onu kalıcı olarak kilitlerdi. Gerekçenin tamamı göç
+		// 026'daki CHECK'in başında.
+		if _, derr := tx.ExecContext(ctx, `
+			UPDATE local_credentials SET must_change = FALSE
+			 WHERE user_id = (SELECT id FROM users WHERE username = $1);`,
+			username); derr != nil {
+			return translateErr("store.SetUserAdmin", derr)
+		}
+	}
+
+	res, err := tx.ExecContext(ctx,
 		`UPDATE users SET is_admin = $1, admin_via = $2 WHERE username = $3;`,
 		admin, via, username)
 	if err != nil {
@@ -1468,6 +1530,9 @@ func (s *Store) SetUserAdmin(ctx context.Context, username string, admin bool) e
 	}
 	if n == 0 {
 		return fmt.Errorf("store.SetUserAdmin: %w", ErrNotFound)
+	}
+	if err := tx.Commit(); err != nil {
+		return translateErr("store.SetUserAdmin", err)
 	}
 	return nil
 }
@@ -1664,6 +1729,27 @@ func (s *Store) AddPublicKey(ctx context.Context, username string, keyBlob []byt
 	}
 
 	if affected > 0 {
+		/*
+		 * ⚠️ "İLK ANAHTAR EKLENDİ" DAMGASI BURADA, ÇAĞIRANDA DEĞİL.
+		 *
+		 * Damga, "ilk anahtar bedava, ikincisi yeniden doğrulama ister"
+		 * kuralının dayanağı (httpapi/mykeys.go). Eskiden yalnızca
+		 * kullanıcının kendi ekleme yolu vuruyordu ve iki yol açık
+		 * kalıyordu: panelden yönetici ekleyince ve CLI'dan
+		 * `postern user key add` ile eklenince damga konmuyordu. Sonuç
+		 * ölçülebilir bir açık — hesabın anahtarı ZATEN VARKEN "ilk
+		 * anahtar" muafiyeti hâlâ açık kalıyor, yani kişi hiçbir
+		 * doğrulama olmadan kendi anahtarını ekleyebiliyordu.
+		 *
+		 * Aynı gerekçe göç 026'da da yazılı: kuralı çağıranlara
+		 * dağıtmak, bir sonraki çağrı yolunun onu sessizce delmesi
+		 * demek. Kural, kaçınılmaz olduğu yerde duruyor.
+		 *
+		 * COALESCE sayesinde ikinci çağrı ilk anın damgasını KAYDIRMIYOR.
+		 */
+		if merr := s.MarkFirstKeyAdded(ctx, username, time.Now()); merr != nil {
+			return merr
+		}
 		return nil
 	}
 

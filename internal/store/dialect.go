@@ -54,6 +54,7 @@ func limitArgs(limit int, base ...any) []any {
 const (
 	sqlstateUniqueViolation     = "23505"
 	sqlstateForeignKeyViolation = "23503"
+	sqlstateCheckViolation      = "23514"
 )
 
 // pgCode, hatanın SQLSTATE'ini döner; PostgreSQL hatası değilse "".
@@ -84,6 +85,19 @@ func isUniqueViolation(err error) bool {
 // RESTRICT için 1811.)
 func isForeignKeyViolation(err error) bool {
 	return pgCode(err) == sqlstateForeignKeyViolation
+}
+
+/*
+ * isCheckViolation, bir CHECK kısıtının reddi mi?
+ *
+ * ⚠️ BU KOD BİR PROGRAMLAMA HATASI DEĞİL, BİR KURAL. Göç 026'daki
+ * "yönetici parola tutamaz" kısıtı buradan geri geliyor. Kuralın
+ * uygulama katmanında ikinci bir kopyası YOK — kopya olsaydı biri
+ * geride kalırdı — dolayısıyla veritabanının reddini anlamlı bir hataya
+ * çevirmek bu fonksiyonun işi.
+ */
+func isCheckViolation(err error) bool {
+	return pgCode(err) == sqlstateCheckViolation
 }
 
 // isRestrictViolation, "bu satıra hâlâ referans var" hatası mı? (DELETE)

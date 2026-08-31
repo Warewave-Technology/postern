@@ -245,6 +245,26 @@ func (s *Store) PurgeAccount(ctx context.Context, username string, at time.Time)
 				"(this one is %s): %w", username, state, ErrConflict)
 	}
 
+	/*
+	 * ⚠️ KİMLİK BİLGİSİ DE SİLİNİYOR.
+	 *
+	 * Eskiden kalıyordu ve o gün zararsızdı: satır, makine üretimi bir
+	 * acil durum sırrının doğrulayıcısıydı ve hesap zaten 'deleted'
+	 * durumundaydı. Artık orada gerçek bir insanın PAROLASININ
+	 * doğrulayıcısı olabiliyor — yani hesabı bittikten sonra da
+	 * saklanan bir kişisel veri. Üstelik SetAccountState hâlâ
+	 * deleted -> active geçişine izin veriyor, yani unutulmuş satır bir
+	 * gün yeniden canlanabilirdi.
+	 *
+	 * 015'teki ON DELETE CASCADE bunu YAPMIYOR: purge, users satırını
+	 * bilerek KORUYOR (denetim izi sahipsiz kalmasın diye), dolayısıyla
+	 * cascade hiç tetiklenmiyor.
+	 */
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM local_credentials WHERE user_id = $1;`, id); err != nil {
+		return res, translateErr("store.PurgeAccount", err)
+	}
+
 	kr, err := tx.ExecContext(ctx, `DELETE FROM user_public_keys WHERE user_id = $1;`, id)
 	if err != nil {
 		return res, translateErr("store.PurgeAccount", err)

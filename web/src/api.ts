@@ -20,6 +20,30 @@ export type Me = {
    *  bağlı bir ekran olarak bırakıldığında atlanıyor ve geriye kaynağı
    *  seçilmemiş bir kurulum kalıyordu. */
   setup_required?: boolean;
+  /** ⚠️ Parola değiştirilmeden panel KULLANILAMAZ. Yönetici tarafından
+   *  verilen değeri veren de biliyor; bu bayrak, o hâli tek bir girişle
+   *  sınırlıyor. Asıl koruma sunucuda (requireSession): ekranın doğru
+   *  çizilmesine güvenerek açık bırakılan bir kapı, kapalı değildir. */
+  must_change_password?: boolean;
+  /** Kuralın TEK KAYNAĞI sunucu. Ekrana ikinci bir kopyasını yazmak,
+   *  bir güvenlik kontrolünü iki yerde tutmak olurdu. */
+  password_policy?: PasswordPolicy;
+};
+
+/** PasswordPolicy, parolanın geçmesi gereken kurallar. */
+export type PasswordPolicy = {
+  min_length: number;
+  max_length: number;
+  min_distinct: number;
+};
+
+/** IssuedCredential, panelden verilen giriş bilgisi. */
+export type IssuedCredential = {
+  username: string;
+  /** ⚠️ TEK GÖSTERİM — hiçbir yerde saklanmıyor, yeniden üretilemez. */
+  secret: string;
+  /** Var olanın üstüne mi yazıldı ("parolamı unuttum" yolu). */
+  replaced: boolean;
 };
 
 /** OIDCSettings, kimlik sağlayıcı ayarlarının panel görünümü. */
@@ -539,6 +563,19 @@ export const api = {
   completeSetup: () =>
     req<{ ok: boolean }>("POST", "/api/admin/setup/complete", {}),
   authSource: () => req<AuthSourceStatus>("GET", "/api/admin/auth/source"),
+
+  /** Kendi parolamı değiştir. Zorunlu değişiklik kısıtından çıkışın
+   *  TEK yolu — mevcut değeri de istiyor. */
+  changePassword: (current: string, next: string) =>
+    req<{ ok: true }>("POST", "/api/me/password", { current, new: next }),
+
+  /** Panelden giriş bilgisi ver. Yönetici hesaplarında sunucu
+   *  reddediyor: onların kimlik bilgisi acil durum kapısı. */
+  issueCredential: (name: string) =>
+    req<IssuedCredential>(
+      "POST",
+      `/api/admin/users/${encodeURIComponent(name)}/credential`,
+    ),
   /** ⚠️ Kaynağı çevirmeden ÖNCE çağrılır: oturum zaten açıkken kendi
    *  dizin kimliğini bağlar, yani kurulumu yapan kişi kendini dışarıda
    *  bırakmaz. */

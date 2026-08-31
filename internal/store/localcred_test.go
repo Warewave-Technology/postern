@@ -28,8 +28,8 @@ func TestLocalCredentialRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != "argon2id$deneme" {
-		t.Fatalf("doğrulayıcı = %q", v)
+	if v.Verifier != "argon2id$deneme" {
+		t.Fatalf("doğrulayıcı = %q", v.Verifier)
 	}
 
 	holders, err := s.LocalCredentialHolders(ctx)
@@ -85,8 +85,8 @@ func TestAddLocalCredentialRefusesToOverwrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != "birinci" {
-		t.Fatalf("doğrulayıcı ezilmiş: %q", v)
+	if v.Verifier != "birinci" {
+		t.Fatalf("doğrulayıcı ezilmiş: %q", v.Verifier)
 	}
 }
 

@@ -412,11 +412,39 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Strings(targets)
 
+	/*
+	 * ⚠️ KISIT VE POLİTİKA BURADAN GİDİYOR.
+	 *
+	 * Zorunlu değişiklik ekranını çizen oturum KISITLI: yalnızca bu uca
+	 * ve parola ucuna ulaşabiliyor. Politikayı ayarlar ucundan okumak
+	 * (yönetici gerektiriyor) onun için imkânsız. Kuralı ekrana ikinci
+	 * kez YAZMAK ise bir güvenlik kontrolünün ikinci kopyası olurdu ve
+	 * iki kopyadan biri er ya da geç geride kalır. Tek kaynak sunucu,
+	 * ve bu uç zaten açık.
+	 */
+	mustChange := false
+	if cred, cerr := s.store.LocalCredential(r.Context(), u.Name); cerr == nil {
+		mustChange = cred.MustChange
+	}
+	policy := auth.LoadPasswordPolicy(r.Context(), s.store)
+
+	// Kısıtlıyken hedef listesi GÖNDERİLMİYOR: kişi henüz hiçbir şey
+	// yapamıyor ve envanter, ekranın işine yaramayan bir bilgi.
+	if mustChange {
+		targets = []string{}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"name":    u.Name,
 		"os_user": u.OSUser,
 		"admin":   u.Admin,
 		"targets": targets,
+
+		// Panel bunu görürse yalnızca parola ekranını çiziyor. Asıl
+		// koruma uçta (requireSession): ekranın doğru çizilmesine
+		// güvenerek açık bırakılan bir kapı, kapalı değildir.
+		"must_change_password": mustChange,
+		"password_policy":      policy,
 
 		// Terminal rotası yalnızca EnableTerminal çağrıldıysa var.
 		// Panel bunu bilmezse kapanmamış bir kapı sunar: düğmeye basan
@@ -464,7 +492,7 @@ func (s *Server) requireSession(next http.Handler) http.Handler {
 			return
 		}
 
-		username, err := s.webSessions.Resolve(c.Value)
+		username, viaLocal, err := s.webSessions.ResolveSession(c.Value)
 		if err != nil {
 			// Bayat cookie her istekte 401 üretmesin: temizle.
 			s.clearSessionCookie(w)
@@ -472,8 +500,95 @@ func (s *Server) requireSession(next http.Handler) http.Handler {
 			return
 		}
 
+		if viaLocal && !s.passwordChangeDone(w, r, username, c.Value) {
+			return
+		}
+
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxUser, username)))
 	})
+}
+
+/*
+ * changePasswordAllowed, ZORUNLU PAROLA DEĞİŞİKLİĞİ sırasında açık
+ * kalan uçlar.
+ *
+ * ⚠️ TAM DESEN EŞLEŞMESİ, ÖNEK DEĞİL — ve bu, bu dosyadaki en kolay
+ * gözden kaçacak güvenlik kararı.
+ *
+ * "/api/me ile başlayan her şey serbest" demek şunu açardı:
+ * POST /api/me/keys de o önekin altında ve o uç, hesabın İLK anahtarını
+ * hiçbir kimlik doğrulaması istemeden ekliyor (kural ve gerekçesi
+ * mykeys.go'da: ilk anahtar bedava). Yani "parolanı değiştirene kadar
+ * hiçbir şey yapamazsın" kısıtı, tam olarak kalıcı SSH erişimi
+ * kurmanın önündeki tek engeli kaldırırdı. Bir öneki gevşetmek, bir
+ * kapıyı gevşetmez — o önekin altına ileride eklenecek HER kapıyı
+ * gevşetir.
+ *
+ * r.Pattern kullanılıyor, r.URL.Path değil: yönlendiricinin gerçekten
+ * seçtiği rota bu ve yol normalizasyonuyla oynanamaz.
+ *
+ * ⚠️ KAPSAM PANELDİR, SSH DEĞİL — ve bu bir eksik değil, bir karar.
+ * SSH bu oturumlardan hiç geçmiyor: kimlik orada bir AÇIK ANAHTARLA
+ * kanıtlanıyor ve yerel parolanın o kapıda hiçbir rolü yok. Zaten
+ * varolan anahtarını, panel parolası yüzünden çalışmaz hâle getirmek,
+ * kimsenin istemediği bir kesinti olurdu. Kapatılan şey YENİ anahtar
+ * EKLEMEK — yani kalıcılık kurmak — ve o kontrol hem burada hem
+ * mykeys.go'da duruyor.
+ */
+var changePasswordAllowed = map[string]bool{
+	// Panelin kim olduğunu ve kuralın ne olduğunu öğrenmesi için.
+	"GET /api/me": true,
+	// Kısıttan çıkışın TEK yolu.
+	"POST /api/me/password": true,
+}
+
+/*
+ * passwordChangeDone, oturumun kısıtlı olup olmadığını karara bağlar.
+ * false dönerse cevap YAZILMIŞTIR ve çağıran hemen dönmelidir.
+ *
+ * ⚠️ KARAR HER İSTEKTE VERİTABANINDAN OKUNUYOR, oturuma damgalanmıyor.
+ * websession.go'nun başındaki kuralın aynısı: oturuma damgalanan yetki,
+ * değiştiği an görünmez olur. İki yönde de somut:
+ *   - Kişi parolasını değiştirir ve kısıt HEMEN kalkmalı; damgalanmış
+ *     olsaydı 12 saat daha ekranda kalırdı.
+ *   - Yönetici bir hesaba "değiştirmek zorunda" der ve o kişinin AÇIK
+ *     oturumu da hemen kısıtlanmalı; damga yalnızca yeni oturumları
+ *     etkilerdi.
+ *
+ * ⚠️ VARSAYILAN RET. Kimlik bilgisi satırı okunamıyorsa ya da hiç yoksa
+ * oturum düşüyor. Sebebi ölçülmüş bir açık: sırrı İPTAL EDİLEN kişinin
+ * (`postern admin revoke`) satırı kalkıyor; "satır yok → kısıt yok"
+ * deseydik, iptal etmek kısıtı KALDIRIRDI ve oturum tam yetkiyle
+ * devam ederdi. İptal, oturumu bitirmeli.
+ */
+func (s *Server) passwordChangeDone(w http.ResponseWriter, r *http.Request,
+	username, token string) bool {
+
+	cred, err := s.store.LocalCredential(r.Context(), username)
+	if err != nil {
+		// Satır yok (iptal edildi) ya da okunamadı: oturum biter.
+		// Yönü güvenli olan taraf bu.
+		if !errors.Is(err, store.ErrNotFound) {
+			s.logger.Error("credential check failed", "user", username, "error", err)
+		}
+		s.webSessions.Destroy(token)
+		s.clearSessionCookie(w)
+		writeErr(w, http.StatusUnauthorized, "unauthenticated")
+		return false
+	}
+	if !cred.MustChange {
+		return true
+	}
+	if changePasswordAllowed[r.Pattern] {
+		return true
+	}
+
+	// 403, 401 değil: kim olduğunu biliyoruz ve oturum geçerli. 401
+	// olsaydı panel kişiyi giriş ekranına atardı ve kişi sonsuz bir
+	// döngüye girerdi — gireceği yer zaten bu ekran.
+	writeErr(w, http.StatusForbidden,
+		"set a new password before using the panel")
+	return false
 }
 
 // sessionUser, requireSession'ın context'e koyduğu adı geri okur.

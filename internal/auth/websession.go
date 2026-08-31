@@ -26,6 +26,23 @@ const webSessionTTL = 12 * time.Hour
 type webSession struct {
 	username  string
 	expiresAt time.Time
+
+	/*
+	 * viaLocal: bu belirteci YEREL PAROLA KAPISI üretti.
+	 *
+	 * ⚠️ BU BİR YETKİ DEĞİL, BİR KÖKEN — ve fark, yukarıdaki kuralın
+	 * çiğnenip çiğnenmediğini belirliyor. Yetki (kişi yönetici mi,
+	 * parolasını değiştirmek zorunda mı) DEĞİŞEBİLİR, o yüzden her
+	 * istekte store'dan okunuyor. Köken değişmez: bu belirteç hangi
+	 * kapıdan çıktıysa ondan çıkmıştır.
+	 *
+	 * Neden gerekli: "parolanı değiştirmeden hiçbir şey yapamazsın"
+	 * kısıtı HESABA değil, O PAROLAYA ait. Hesaba bağlansaydı, dizinden
+	 * ya da kimlik sağlayıcıdan giren biri — hiç kullanmadığı, belki
+	 * varlığından haberi olmadığı eski bir yerel parola yüzünden — bir
+	 * parola değiştirme ekranına hapsolurdu.
+	 */
+	viaLocal bool
 }
 
 // WebSessions, tarayıcı oturumlarının bellek içi kaydı.
@@ -55,6 +72,17 @@ func NewWebSessions() *WebSessions {
 // Token cookie'de yaşayacak ve oturumun KENDİSİ o: 32 bayt crypto/rand,
 // tahmin edilebilirse oturum çalınır.
 func (w *WebSessions) Create(username string) (string, error) {
+	return w.create(username, false)
+}
+
+// CreateLocal, YEREL PAROLA KAPISINDAN açılan oturum. Ayrı bir isim,
+// çünkü köken çağrı yerinde görünmeli: bayrağı unutan bir kapı,
+// zorunlu parola değişikliğini sessizce atlatırdı.
+func (w *WebSessions) CreateLocal(username string) (string, error) {
+	return w.create(username, true)
+}
+
+func (w *WebSessions) create(username string, viaLocal bool) (string, error) {
 	token, err := newID()
 	if err != nil {
 		return "", err
@@ -64,10 +92,37 @@ func (w *WebSessions) Create(username string) (string, error) {
 	w.byToken[token] = webSession{
 		username:  username,
 		expiresAt: w.now().Add(webSessionTTL),
+		viaLocal:  viaLocal,
 	}
 	w.mu.Unlock()
 
 	return token, nil
+}
+
+/*
+ * DestroyUser, bir kullanıcının BÜTÜN oturumlarını düşürür.
+ *
+ * ⚠️ PAROLA DEĞİŞİKLİĞİNİN AMACI BU. Parolasının ele geçtiğini düşünen
+ * kişi onu değiştirir; eski parolayla açılmış oturumlar ayakta kalırsa
+ * değiştirmek hiçbir işe yaramaz — saldırgan zaten içeride ve 12 saat
+ * daha içeride kalır. Kimlik bilgisi iptal edildiğinde de aynısı
+ * geçerli.
+ *
+ * Dönen sayı düşen oturum sayısı: denetim kaydına yazılıyor, çünkü
+ * "kaç oturum kapandı" operatörün soracağı ilk soru.
+ */
+func (w *WebSessions) DestroyUser(username string) int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	n := 0
+	for token, sess := range w.byToken {
+		if sess.username == username {
+			delete(w.byToken, token)
+			n++
+		}
+	}
+	return n
 }
 
 // Resolve, token'ı kullanıcı ADINA çevirir. Tanınmayan ya da süresi
@@ -78,22 +133,29 @@ func (w *WebSessions) Create(username string) (string, error) {
 // kodundaki durum farklıydı: orada iki KISA, tahmin edilebilir değer
 // yan yana geliyordu).
 func (w *WebSessions) Resolve(token string) (string, error) {
+	name, _, err := w.ResolveSession(token)
+	return name, err
+}
+
+// ResolveSession, adın yanında oturumun KÖKENİNİ de döner: belirteci
+// yerel parola kapısı mı üretti?
+func (w *WebSessions) ResolveSession(token string) (username string, viaLocal bool, err error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
 	sess, ok := w.byToken[token]
 	if !ok {
-		return "", ErrNoSession
+		return "", false, ErrNoSession
 	}
 
 	// Tembel temizlik: dokunulmayan çöp zararsızdır, dokunulan çöp
 	// kendini temizler. Ayrı bir süpürücü goroutine'e gerek yok.
 	if !w.now().Before(sess.expiresAt) {
 		delete(w.byToken, token)
-		return "", ErrNoSession
+		return "", false, ErrNoSession
 	}
 
-	return sess.username, nil
+	return sess.username, sess.viaLocal, nil
 }
 
 // Destroy, oturumu düşürür (logout). Olmayan token için sessiz no-op:

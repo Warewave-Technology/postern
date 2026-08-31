@@ -217,13 +217,29 @@ func (s *Server) canSwitchTo(ctx context.Context, want auth.LoginSource) error {
 		if err != nil {
 			return err
 		}
+		/*
+		 * ⚠️ SAYMAK YETMEZ, HESABIN GERÇEKTEN GİREBİLİYOR OLMASI LAZIM.
+		 *
+		 * Ölçülen tutarsızlık: bu kontrol yalnızca "yerel kimlik
+		 * bilgisi olan bir yönetici var mı" diye bakıyordu, ama
+		 * locallogin.go SİLİNMİŞ hesabı reddediyor. Silinmiş bir
+		 * yönetici bu kontrolü geçip paneli kimsenin giremediği bir
+		 * duruma bırakabiliyordu — üstelik bu ekranın var olma sebebi
+		 * tam olarak onu engellemek.
+		 *
+		 * Aynı sebeple must_change de saymıyor: o hesap girebiliyor ama
+		 * parolasını değiştirene kadar HİÇBİR ŞEY yapamıyor, ve
+		 * yapamadığı şeylerden biri kaynağı geri çevirmek. Zaten bir
+		 * yönetici hiç must_change taşıyamaz (göç 026) — kontrol,
+		 * kuralın bir gün değişmesi ihtimaline karşı burada.
+		 */
 		for _, h := range holders {
-			if h.IsAdmin {
+			if h.IsAdmin && h.State == store.StateActive && !h.MustChange {
 				return nil
 			}
 		}
-		return errors.New("no local administrator has a sign-in secret — " +
-			"run `postern admin issue <name>` on the bastion host first, " +
+		return errors.New("no local administrator has a usable sign-in secret — " +
+			"run `postern admin issue --name <name>` on the bastion host first, " +
 			"otherwise switching to local sign-in closes the panel for everyone")
 
 	case auth.SourceOIDC:

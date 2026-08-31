@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { api, Role, User, toMessage } from "../api";
-import { ActionButton, ErrorLine, ListState, OkLine, WarnLine, useList } from "./common";
+import { IssuedCredential, api, Role, User, toMessage } from "../api";
+import {
+  ActionButton,
+  ErrorLine,
+  ListState,
+  OkLine,
+  WarnLine,
+  useList,
+} from "./common";
 import DataTable, { Column } from "./DataTable";
 import Modal from "./Modal";
 
@@ -12,7 +19,9 @@ import Modal from "./Modal";
 // için hosttaki CLI'a geri gönderiyordu — o hâlde panelin varlığı
 // kullanıcıya yalnızca yarım bir yol gösteriyor demekti.
 export default function Users({ publicKeyLogin }: { publicKeyLogin: boolean }) {
-  const { items, error, denied, loading, refresh, setError } = useList<User>(api.users);
+  const { items, error, denied, loading, refresh, setError } = useList<User>(
+    api.users,
+  );
   // Roller ayrıca çekiliyor: adı elle yazdırmak, tek harf yanlışında
   // "role not found" veren bir atama demekti.
   const roles = useList<Role>(api.roles);
@@ -26,6 +35,27 @@ export default function Users({ publicKeyLogin }: { publicKeyLogin: boolean }) {
   // rolü bütün satırlarda seçili gösterir ve yanlış kullanıcıya
   // yetki verdirirdi.
   const [picked, setPicked] = useState<Record<string, string>>({});
+
+  /*
+   * Verilen değer BİR KEZ gösteriliyor ve hiçbir yerde saklanmıyor.
+   *
+   * ⚠️ Modal DEĞİL: mevcut Modal, Esc ve arka plana tıklamayla
+   * kapanıyor (Modal.tsx) ve o davranış burada, kaydedilmemiş bir
+   * kimlik bilgisini kazara yok etmek demek. Değer sayfanın kendisinde,
+   * kullanıcı KAPAT diyene kadar duruyor.
+   */
+  const [issued, setIssued] = useState<IssuedCredential | null>(null);
+
+  const issue = (name: string) => {
+    setError("");
+    return api
+      .issueCredential(name)
+      .then((r) => {
+        setIssued(r);
+        return refresh();
+      })
+      .catch((e: unknown) => setError(toMessage(e)));
+  };
 
   // Anahtar paneli aynı anda tek kullanıcı için açık: iki panel açıkken
   // yapıştırılan anahtarın hangisine gittiği yalnızca tahmin edilirdi.
@@ -47,12 +77,18 @@ export default function Users({ publicKeyLogin }: { publicKeyLogin: boolean }) {
   // tuttuğunu düşündürür ve aynı adı bir daha yazdırır.
   const create = () =>
     api
-      .createUser({ name: name.trim(), os_user: osUser.trim(), email: email.trim() || undefined })
+      .createUser({
+        name: name.trim(),
+        os_user: osUser.trim(),
+        email: email.trim() || undefined,
+      })
       .then(() => {
         setName("");
         setOsUser("");
         setEmail("");
-        setNotice(`${name.trim()} created — give it a role and a key in the table, or it reaches nothing.`);
+        setNotice(
+          `${name.trim()} created — give it a role and a key in the table, or it reaches nothing.`,
+        );
         return refresh().then(() => true);
       })
       .catch((e: unknown) => {
@@ -103,7 +139,9 @@ export default function Users({ publicKeyLogin }: { publicKeyLogin: boolean }) {
       .removeKey(user, keyText.trim())
       .then(() => {
         setKeyText("");
-        setNotice(`Key removed from ${user}. ${user} can no longer connect with it.`);
+        setNotice(
+          `Key removed from ${user}. ${user} can no longer connect with it.`,
+        );
         return refresh();
       })
       .catch(fail);
@@ -276,7 +314,9 @@ export default function Users({ publicKeyLogin }: { publicKeyLogin: boolean }) {
             <select
               aria-label={`role to assign to ${u.name}`}
               value={choice}
-              onChange={(e) => setPicked((p) => ({ ...p, [u.name]: e.target.value }))}
+              onChange={(e) =>
+                setPicked((p) => ({ ...p, [u.name]: e.target.value }))
+              }
               disabled={free.length === 0}
             >
               <option value="">
@@ -294,7 +334,11 @@ export default function Users({ publicKeyLogin }: { publicKeyLogin: boolean }) {
             </select>
             <ActionButton
               onClick={() => assign(u.name, choice)}
-              label={choice ? `assign ${choice} to ${u.name}` : `assign a role to ${u.name}`}
+              label={
+                choice
+                  ? `assign ${choice} to ${u.name}`
+                  : `assign a role to ${u.name}`
+              }
               disabled={!choice}
             >
               Assign
@@ -332,6 +376,39 @@ export default function Users({ publicKeyLogin }: { publicKeyLogin: boolean }) {
           } as Column<User>,
         ]
       : []),
+    /*
+     * ⚠️ SIR VERME DÜĞMESİ YÖNETİCİ SATIRLARINDA YOK.
+     *
+     * Yöneticinin kimlik bilgisi bir ACİL DURUM KAPISI ve yalnızca
+     * host'tan çıkabiliyor. Panelden verilebilseydi, paneli ele
+     * geçiren kişi mevcut bir yöneticinin giriş bilgisini kendi
+     * ürettiği bir değerle değiştirip onun yerine geçerdi — yani
+     * "yöneticilik panelden verilemez" kuralı hiç yokmuş gibi olurdu.
+     *
+     * Düğmeyi gizlemek bir KOLAYLIK. Asıl garanti sunucuda ve göç
+     * 026'daki kısıtta: bu satır silinse bile uç reddediyor.
+     */
+    {
+      key: "signin",
+      header: "Sign-in",
+      render: (u: User) =>
+        u.admin ? (
+          <span
+            className="muted"
+            title="issued on the host with `postern admin issue`"
+          >
+            host only
+          </span>
+        ) : (
+          <ActionButton
+            onClick={() => issue(u.name)}
+            confirm={`Issue a new sign-in value for "${u.name}"? It is shown once, and ${u.name} must change it at their next sign-in. Any value they hold now stops working and their open panel sessions are dropped.`}
+            label={`issue a sign-in value for ${u.name}`}
+          >
+            Issue
+          </ActionButton>
+        ),
+    } as Column<User>,
     {
       key: "actions",
       header: "Actions",
@@ -352,13 +429,38 @@ export default function Users({ publicKeyLogin }: { publicKeyLogin: boolean }) {
 
   return (
     <section>
+      {issued && (
+        <div className="issued-card">
+          <h3>
+            Sign-in value for <b>{issued.username}</b>
+          </h3>
+          <p>
+            {issued.replaced
+              ? "The value they held before no longer works, and their open panel sessions were dropped."
+              : "This account can now sign in to the panel."}
+          </p>
+          <pre className="issued-secret">{issued.secret}</pre>
+          <p className="msg warn">
+            This is the only time it is shown. postern stores a verifier, not
+            the value — it cannot be looked up or printed again. Give it to{" "}
+            {issued.username} over a channel you trust; they must choose their
+            own password before the panel opens for them.
+          </p>
+          <button className="primary" onClick={() => setIssued(null)}>
+            I have copied it
+          </button>
+        </div>
+      )}
+
       <div className="page-bar">
         <div className="page-head">
           <h2>Users</h2>
           <p className="page-sub">
-            Accounts postern knows. The admin flag is read-only here on purpose:
-            it is set from the bastion&apos;s own CLI, so the panel can never
-            hand out administrators.
+            Accounts postern knows. The admin flag is read-only here: it comes
+            from the bastion&apos;s own CLI, or from the directory group set on
+            the Sign-in screen — never from a switch on this page. An
+            administrator&apos;s sign-in value is a break-glass secret and is
+            issued on the host; everyone else can be given one from here.
           </p>
         </div>
         <button className="btn-primary" onClick={() => setAdding(true)}>
@@ -451,8 +553,8 @@ export default function Users({ publicKeyLogin }: { publicKeyLogin: boolean }) {
 
       {!publicKeyLogin && (
         <p className="note">
-          Key-based sign-in is switched off on this bastion
-          (<code>auth.public_key_login</code>), so keys are not managed here.
+          Key-based sign-in is switched off on this bastion (
+          <code>auth.public_key_login</code>), so keys are not managed here.
           Everyone signs in through the identity provider — which is also what
           makes an account disabled there actually lose access.
         </p>
@@ -478,7 +580,11 @@ export default function Users({ publicKeyLogin }: { publicKeyLogin: boolean }) {
           </label>
           <label>
             Email (optional)
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
           </label>
           <ActionButton
             variant="primary"

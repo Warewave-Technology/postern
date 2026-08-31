@@ -101,6 +101,9 @@ type Server struct {
 	// Yerel giriş kapısının yük korumaları (bkz. locallogin.go).
 	localSlots chan struct{}
 	localLimit *localLimiter
+	// guessBackoff, parola tahminine karşı (hesap, adres) başına artan
+	// gecikme. Gerekçesi backoff.go'da.
+	guessBackoff *guessBackoff
 
 	// bindSlots, dizine karşı eşzamanlı bind sayısını sınırlar. Yerel
 	// yuvalardan AYRI: orada postern'in belleği, burada KURUMUN dizini
@@ -174,17 +177,18 @@ func (s *Server) EnableTerminal(deps proxy.Deps, externalURL string) {
 
 func New(o *auth.OIDCHolder, logins *auth.Logins, db *store.Store, logger *slog.Logger) *Server {
 	return &Server{
-		oidc:        o,
-		closing:     make(chan struct{}),
-		localSlots:  make(chan struct{}, localLoginSlots),
-		localLimit:  newLocalLimiter(),
-		bindSlots:   make(chan struct{}, directoryBindSlots),
-		logins:      logins,
-		logger:      logger,
-		store:       db,
-		webSessions: auth.NewWebSessions(),
-		webLogins:   &webPending{},
-		groups:      auth.ClaimGroups{},
+		oidc:         o,
+		closing:      make(chan struct{}),
+		localSlots:   make(chan struct{}, localLoginSlots),
+		localLimit:   newLocalLimiter(),
+		guessBackoff: newGuessBackoff(),
+		bindSlots:    make(chan struct{}, directoryBindSlots),
+		logins:       logins,
+		logger:       logger,
+		store:        db,
+		webSessions:  auth.NewWebSessions(),
+		webLogins:    &webPending{},
+		groups:       auth.ClaimGroups{},
 
 		// ⚠️ VARSAYILAN AÇIK. Sıfır değeri false olsaydı,
 		// SetPublicKeyLogin çağırmayı unutan her yol anahtar girişini
@@ -241,6 +245,15 @@ func (s *Server) Handler() http.Handler {
 		s.requireSession(s.sameOrigin(http.HandlerFunc(s.handleAddMyKey))))
 	mux.Handle("POST /api/me/keys/remove",
 		s.requireSession(s.sameOrigin(http.HandlerFunc(s.handleRemoveMyKey))))
+
+	/*
+	 * Kendi parolam. ZORUNLU DEĞİŞİKLİK KISITINDAN ÇIKIŞIN TEK YOLU —
+	 * gerekçesi weblogin.go'daki changePasswordAllowed'da, ve o harita
+	 * buradaki desenle BİREBİR aynı yazılmak zorunda (eşleşme tam desen
+	 * üzerinden).
+	 */
+	mux.Handle("POST /api/me/password",
+		s.requireSession(s.sameOrigin(http.HandlerFunc(s.handleChangePassword))))
 
 	// Yönetim: oturum + admin + same-origin (admin.go, federation.go).
 	s.registerAdminRoutes(mux)

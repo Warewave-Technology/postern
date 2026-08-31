@@ -2,8 +2,10 @@ package httpapi
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -149,6 +151,27 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	/*
+	 * ⚠️ ARTAN GECİKME, ARGON2 YUVASINDAN ÖNCE.
+	 *
+	 * Sıra kritik: gecikme yuvayı aldıktan sonra uygulansaydı, dört
+	 * bekleyen istek bütün kapıyı kapatırdı — savunma, saldırının aracı
+	 * olurdu. Burada hiçbir yuva alınmadan, anında reddediyoruz.
+	 *
+	 * Anahtar (hesap, adres) çifti; NEDEN yalnızca hesap olmadığı
+	 * backoff.go'da yazılı ve bu dosyanın "kilitleme YOK" kuralının
+	 * ayakta kalmasının tek sebebi.
+	 */
+	bkey := backoffKey(in.Username, clientKey(r))
+	if wait := s.guessBackoff.retryAfter(bkey); wait > 0 {
+		secs := int(wait.Seconds()) + 1
+		w.Header().Set("Retry-After", strconv.Itoa(secs))
+		log.Warn("local login throttled", "seconds", secs)
+		writeErr(w, http.StatusTooManyRequests, fmt.Sprintf(
+			"too many failed attempts from here; try again in %d seconds", secs))
+		return
+	}
+
 	select {
 	case s.localSlots <- struct{}{}:
 		defer func() { <-s.localSlots }()
@@ -158,7 +181,7 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	verifier, err := s.store.LocalCredential(r.Context(), in.Username)
+	cred, err := s.store.LocalCredential(r.Context(), in.Username)
 	switch {
 	case err == nil:
 		// Yerel yol: aşağıda.
@@ -171,14 +194,46 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 		 * yanıt süresi ve metni, "bu kullanıcı adı var" bilgisini
 		 * kimliği doğrulanmamış herkese verirdi.
 		 */
-		verifier = decoyVerifier()
+		/*
+		 * ⚠️ SAHTE SATIR "PAROLA" OLARAK İŞARETLENİYOR.
+		 *
+		 * Aşağıdaki gecikme yalnızca parola tutan hesaplara uygulanıyor
+		 * (gerekçe orada). Olmayan hesap "sır tutuyor" sayılsaydı,
+		 * gecikmenin gelip gelmemesi doğrudan "bu kullanıcı adı var mı"
+		 * sorusunu cevaplardı — decoy'un kapatmak için var olduğu
+		 * kanalın ta kendisi, başka bir kapıdan.
+		 */
+		cred = store.Credential{Verifier: decoyVerifier(), Chosen: true}
 	default:
 		log.Error("local login lookup failed", "error", err)
 		writeErr(w, http.StatusInternalServerError, "sign-in failed")
 		return
 	}
 
-	if !auth.VerifyLocalSecret(verifier, in.Secret) {
+	if !verifyCredential(cred, in.Secret) {
+		/*
+		 * ⚠️ GECİKME YALNIZCA PAROLA TUTAN HESAPLARA.
+		 *
+		 * Makine üretimi sır 128 bit; onu tahmin etmeye çalışan biri
+		 * gecikmeden etkilenmez, ama gecikme ONA UYGULANIRSA bir şey
+		 * kazanır: (hesap, adres) anahtarı ters vekil arkasında tek bir
+		 * adrese çöküyor (clientKey'in kendi notu) ve o kurulumda
+		 * anahtar fiilen yalnızca HESAP oluyor. Yani vekil arkasındaki
+		 * bir yabancı, üst üste yanlış deneyerek acil durum
+		 * yöneticisini panelden dışarıda tutabilirdi — localcred.go:30
+		 * "kilitleme YOK" derken tam olarak bunu yasaklıyor.
+		 *
+		 * Sır tutan hesapları muaf tutmak o düğmeyi kırıyor ve hiçbir
+		 * şey kaybettirmiyor: gecikmenin koruduğu şey tahmin edilebilir
+		 * değerler, ve orada tahmin edilebilir bir değer yok.
+		 *
+		 * Sızan bilgi: "gecikme geldi" = parola ya da olmayan hesap,
+		 * "gelmedi" = henüz değiştirilmemiş makine üretimi değer. İki
+		 * sınıf da kalabalık; yönetici listesi vermiyor.
+		 */
+		if cred.Chosen {
+			s.guessBackoff.fail(bkey)
+		}
 		/*
 		 * ⚠️ DENENEN KULLANICI ADI HAM OLARAK KAYDEDİLMİYOR.
 		 *
@@ -203,6 +258,10 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Doğru değer geldi: sayaç sıfırlanıyor. Doğru parolayı bilen kişi
+	// hiçbir zaman gecikmeyle karşılaşmasın (bkz. backoff.go).
+	s.guessBackoff.succeed(bkey)
+
 	// ⚠️ Silinmiş hesap girişle geri gelmez (bkz. göç 023).
 	if derr := s.store.RefuseIfDeleted(r.Context(), in.Username); derr != nil {
 		log.Warn("local login denied: account is deleted", "user", in.Username)
@@ -217,7 +276,9 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := s.webSessions.Create(u.Name)
+	// ⚠️ CreateLocal: oturumun kökeni yerel parola kapısı. Zorunlu
+	// parola değişikliği kısıtı buna bakıyor (weblogin.go'daki gate).
+	token, err := s.webSessions.CreateLocal(u.Name)
 	if err != nil {
 		log.Error("web session create failed", "error", err)
 		writeErr(w, http.StatusInternalServerError, "sign-in failed")
@@ -234,6 +295,25 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 		Secure:   s.secureCookies || r.TLS != nil,
 	})
 
+	/*
+	 * ⚠️ YEREL KAPI DA ONAY DAMGASI VURUYOR.
+	 *
+	 * Diğer iki kapı (dizin ve kimlik sağlayıcı) bunu zaten yapıyordu;
+	 * burası unutulmuştu ve o gün zararsızdı: StaleAccounts yalnızca
+	 * sso_only ya da dizine bağlı hesapları tarıyor, saf yerel hesaba
+	 * hiç dokunmuyordu.
+	 *
+	 * Panelden parola verilen kurulumlarda bu artık doğru değil: yerel
+	 * kapı ASIL kapı oluyor. Damga vurulmazsa, hesap yaşam döngüsü işi
+	 * her gün giriş yapan insanları önce pasife, sonra silinmişe
+	 * çeviriyor — ve sshd'nin "paneline bir kez gir, hesabın yeniden
+	 * aktifleşir" mesajı yalan oluyor, çünkü giriş işe yarıyor ama
+	 * hiçbir şeyi tazelemiyor.
+	 */
+	if cerr := s.store.ConfirmAccount(r.Context(), u.Name, time.Now()); cerr != nil {
+		log.Error("account confirm failed", "user", u.Name, "error", cerr)
+	}
+
 	if terr := s.store.TouchLocalCredential(r.Context(), u.Name, time.Now()); terr != nil {
 		// Kullanım damgası bir teşhis bilgisi; yazılamaması kimliği
 		// doğrulanmış bir kullanıcıyı dışarıda bırakmak için sebep değil.
@@ -248,6 +328,28 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 
 	log.Info("local login", "user", u.Name)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+/*
+ * verifyCredential, kimlik bilgisini TÜRÜNE GÖRE doğrular.
+ *
+ * ⚠️ TÜR SATIRDAN GELİYOR, GİRDİDEN DEĞİL. Girdinin biçimine bakıp
+ * "base32 gibi duruyor, sır yolunu deneyeyim" demek, hangi kapının
+ * açılacağını SALDIRGANIN seçmesine izin vermek olurdu: kurumsal
+ * parolasını yazan kişiye parola yolunu, sırrı deneyene sır yolunu
+ * açardı. Hangi yol açık olduğu veritabanındaki satırın işi.
+ *
+ * İKİ YOLU DA DENEMEK de yasak ve sebebi aynı: bir hesap için tek bir
+ * doğru yol var, ikincisini denemek biçim kontrolünü baypas ederdi.
+ *
+ * Maliyet iki yolda da bir argon2 — gerekçesi her iki fonksiyonun
+ * içinde yazılı.
+ */
+func verifyCredential(c store.Credential, input string) bool {
+	if c.Chosen {
+		return auth.VerifyPassword(c.Verifier, input)
+	}
+	return auth.VerifyLocalSecret(c.Verifier, input)
 }
 
 /*

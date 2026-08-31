@@ -2402,3 +2402,63 @@ label > textarea {
     stroke-dashoffset: 0;
   }
 }
+
+/*
+ * Panelden verilen kimlik bilgisinin TEK GÖSTERİMİ.
+ *
+ * ⚠️ Değer bir daha gösterilemiyor, dolayısıyla bu kutunun kazara
+ * kapanmaması gerekiyor: sayfanın akışında duruyor, üstü örten bir
+ * katman değil. Modal olsaydı Esc ya da arka plana tıklama onu yok
+ * ederdi ve kaydedilmemiş bir kimlik bilgisi kaybolurdu.
+ */
+.issued-card {
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 1rem 1.1rem;
+  margin-bottom: 1.4rem;
+  background: var(--surface);
+}
+.issued-card h3 {
+  margin: 0 0 0.4rem;
+}
+.issued-card p {
+  margin: 0 0 0.6rem;
+}
+.issued-secret {
+  font-family: var(--mono);
+  font-size: 1.05rem;
+  letter-spacing: 0.04em;
+  /* Seçilebilir ve kesilmeden sarmalı: kullanıcı bunu kopyalayacak. */
+  user-select: all;
+  white-space: pre-wrap;
+  word-break: break-all;
+  padding: 0.7rem 0.8rem;
+  border-radius: var(--radius);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  margin: 0 0 0.6rem;
+}
+
+/* Zorunlu parola değişikliği ekranı: giriş ekranı gibi ortalanmış. */
+.setup-gate {
+  display: flex;
+  justify-content: center;
+  padding: 2.5rem 1rem;
+}
+.change-password {
+  width: min(28rem, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+.change-password label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.policy-list {
+  margin: 0.2rem 0 0.4rem;
+  padding-left: 1.1rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
