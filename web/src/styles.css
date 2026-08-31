@@ -1039,8 +1039,16 @@ label > textarea {
   border-radius: var(--radius);
   border: 1px solid transparent;
   border-left-width: 3px;
-  margin: 0 0 1rem;
+  /* Üstten de boşluk: bu kutular bir şeyin ARDINDAN çıkıyor (bir
+     tablonun, bir alanın, bir başlığın) ve yapışık durduklarında o
+     şeyin parçası gibi okunuyorlardı. */
+  margin: 0.9rem 0 1rem;
   font-size: 13px;
+}
+/* Kabın ilk çocuğuysa üst boşluk zaten kabın padding'inden geliyor;
+   ikisini toplamak kutuyu ortada asılı bırakıyor. */
+.msg:first-child {
+  margin-top: 0;
 }
 .msg::before {
   font-weight: 660;
