@@ -1646,7 +1646,10 @@ func TestProvisionUserRequiresMappedGroup(t *testing.T) {
 
 	// Hiçbir grubu eşleşmiyor: kullanıcı oluşturulmamalı.
 	_, err := s.ProvisionUser(ctx, ProvisionRequest{
-		Username: "ayse.yilmaz", Email: "ayse@warewave.io",
+		// Bu testlerin konusu hesabın AÇILMASI; otomatik
+		// açılış anahtarı ayrı bir testte sınanıyor.
+		AutoCreate: true,
+		Username:   "ayse.yilmaz", Email: "ayse@warewave.io",
 		GroupsResolved: true,
 		Groups:         []string{"hr", "marketing"},
 		Issuer:         "https://idp.local", Subject: "sub-ayse",
@@ -1664,7 +1667,10 @@ func TestProvisionUserRequiresMappedGroup(t *testing.T) {
 
 	// Eşleşiyor: kullanıcı oluşur, os_user = username, sso_only doğar.
 	u, err := s.ProvisionUser(ctx, ProvisionRequest{
-		Username: "yigit.basalma", Email: "yigit@warewave.io",
+		// Bu testlerin konusu hesabın AÇILMASI; otomatik
+		// açılış anahtarı ayrı bir testte sınanıyor.
+		AutoCreate: true,
+		Username:   "yigit.basalma", Email: "yigit@warewave.io",
 		GroupsResolved: true,
 		Groups:         []string{"sysadmins", "hr"},
 		Issuer:         "https://idp.local", Subject: "sub-yigit",
@@ -1699,7 +1705,10 @@ func TestProvisionUserSyncsExistingUser(t *testing.T) {
 	}
 
 	req := ProvisionRequest{Username: "yigit.basalma", Email: "yigit@warewave.io",
-		Issuer: "https://idp.local", Subject: "sub-yigit", GroupsResolved: true}
+		// Bu testlerin konusu hesabın AÇILMASI; otomatik
+		// açılış anahtarı ayrı bir testte sınanıyor.
+		AutoCreate: true,
+		Issuer:     "https://idp.local", Subject: "sub-yigit", GroupsResolved: true}
 
 	req.Groups = []string{"sysadmins", "dbteam"}
 	u, err := s.ProvisionUser(ctx, req)
@@ -1764,7 +1773,10 @@ func TestProvisionUserRefusesSubjectCollision(t *testing.T) {
 
 	// Gerçek kullanıcı giriyor ve hesabı kimliğine bağlanıyor.
 	first, err := s.ProvisionUser(ctx, ProvisionRequest{
-		Username: "yigit.basalma", Email: "yigit@warewave.io",
+		// Bu testlerin konusu hesabın AÇILMASI; otomatik
+		// açılış anahtarı ayrı bir testte sınanıyor.
+		AutoCreate: true,
+		Username:   "yigit.basalma", Email: "yigit@warewave.io",
 		GroupsResolved: true,
 		Groups:         []string{"sysadmins"}, Issuer: issuer, Subject: "sub-gercek",
 	})
@@ -1779,7 +1791,10 @@ func TestProvisionUserRefusesSubjectCollision(t *testing.T) {
 
 	// SALDIRGAN: IdP'de adını aynı yapmış, BAŞKA bir sub.
 	_, err = s.ProvisionUser(ctx, ProvisionRequest{
-		Username: "yigit.basalma", Email: "saldirgan@warewave.io",
+		// Bu testlerin konusu hesabın AÇILMASI; otomatik
+		// açılış anahtarı ayrı bir testte sınanıyor.
+		AutoCreate: true,
+		Username:   "yigit.basalma", Email: "saldirgan@warewave.io",
 		GroupsResolved: true,
 		Groups:         []string{"sysadmins"}, Issuer: issuer, Subject: "sub-saldirgan",
 	})
@@ -1829,7 +1844,10 @@ func TestProvisionUserFollowsRenamedIdentity(t *testing.T) {
 	const issuer, subject = "https://idp.local", "sub-sabit"
 
 	first, err := s.ProvisionUser(ctx, ProvisionRequest{
-		Username: "yigit.basalma", GroupsResolved: true,
+		// Bu testlerin konusu hesabın AÇILMASI; otomatik
+		// açılış anahtarı ayrı bir testte sınanıyor.
+		AutoCreate: true,
+		Username:   "yigit.basalma", GroupsResolved: true,
 		Groups: []string{"sysadmins"},
 		Issuer: issuer, Subject: subject,
 	})
@@ -1839,7 +1857,10 @@ func TestProvisionUserFollowsRenamedIdentity(t *testing.T) {
 
 	// Aynı sub, YENİ kullanıcı adı (IdP'de evlenip soyadı değişmiş).
 	second, err := s.ProvisionUser(ctx, ProvisionRequest{
-		Username: "yigit.yeniadi", GroupsResolved: true,
+		// Bu testlerin konusu hesabın AÇILMASI; otomatik
+		// açılış anahtarı ayrı bir testte sınanıyor.
+		AutoCreate: true,
+		Username:   "yigit.yeniadi", GroupsResolved: true,
 		Groups: []string{"sysadmins"},
 		Issuer: issuer, Subject: subject,
 	})
@@ -1862,10 +1883,13 @@ func TestProvisionUserRefusesIdentityWithoutSubject(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// ⚠️ Bu test kimlik EKSİKLİĞİNİ sınıyor ve o kontrol otomatik
+	// açılıştan ÖNCE geliyor — AutoCreate'in değeri sonucu
+	// değiştirmemeli. Açık veriyoruz ki test doğru sebeple geçsin.
 	for _, req := range []ProvisionRequest{
-		{Username: "a", Groups: []string{"sysadmins"}},
-		{Username: "b", Groups: []string{"sysadmins"}, Issuer: "https://idp.local"},
-		{Username: "c", Groups: []string{"sysadmins"}, Subject: "sub-x"},
+		{Username: "a", Groups: []string{"sysadmins"}, AutoCreate: true},
+		{Username: "b", Groups: []string{"sysadmins"}, Issuer: "https://idp.local", AutoCreate: true},
+		{Username: "c", Groups: []string{"sysadmins"}, Subject: "sub-x", AutoCreate: true},
 	} {
 		if _, err := s.ProvisionUser(ctx, req); !errors.Is(err, ErrAccessDenied) {
 			t.Errorf("%+v = %v, ErrAccessDenied bekleniyordu", req, err)
@@ -1894,7 +1918,10 @@ func TestProvisionUserRefusesReservedAccountNames(t *testing.T) {
 	for _, name := range []string{"root", "postgres", "backup", "www-data", "nobody", "sshd"} {
 		t.Run(name, func(t *testing.T) {
 			_, err := s.ProvisionUser(ctx, ProvisionRequest{
-				Username: name, GroupsResolved: true,
+				// Bu testlerin konusu hesabın AÇILMASI; otomatik
+				// açılış anahtarı ayrı bir testte sınanıyor.
+				AutoCreate: true,
+				Username:   name, GroupsResolved: true,
 				Groups: []string{"sysadmins"},
 				Issuer: "https://idp.local", Subject: "sub-" + name,
 			})
@@ -1909,7 +1936,10 @@ func TestProvisionUserRefusesReservedAccountNames(t *testing.T) {
 
 	// Sıradan bir ad etkilenmemeli.
 	if _, err := s.ProvisionUser(ctx, ProvisionRequest{
-		Username: "yigit.basalma", GroupsResolved: true,
+		// Bu testlerin konusu hesabın AÇILMASI; otomatik
+		// açılış anahtarı ayrı bir testte sınanıyor.
+		AutoCreate: true,
+		Username:   "yigit.basalma", GroupsResolved: true,
 		Groups: []string{"sysadmins"},
 		Issuer: "https://idp.local", Subject: "sub-normal",
 	}); err != nil {
@@ -1941,7 +1971,10 @@ func TestProvisionUserAuditsAutomaticAccountCreation(t *testing.T) {
 	}
 
 	if _, err := s.ProvisionUser(ctx, ProvisionRequest{
-		Username: "yeni.kullanici", GroupsResolved: true,
+		// Bu testlerin konusu hesabın AÇILMASI; otomatik
+		// açılış anahtarı ayrı bir testte sınanıyor.
+		AutoCreate: true,
+		Username:   "yeni.kullanici", GroupsResolved: true,
 		Groups: []string{"sysadmins"},
 		Issuer: "https://idp.local", Subject: "sub-yeni",
 	}); err != nil {
@@ -1994,7 +2027,10 @@ func TestProvisionUserKeepsRolesWhenGroupsUnresolved(t *testing.T) {
 	}
 
 	req := ProvisionRequest{
-		Username: "yigit.basalma", Email: "yigit@warewave.io",
+		// Bu testlerin konusu hesabın AÇILMASI; otomatik
+		// açılış anahtarı ayrı bir testte sınanıyor.
+		AutoCreate: true,
+		Username:   "yigit.basalma", Email: "yigit@warewave.io",
 		Issuer: "https://idp.local", Subject: "sub-yigit",
 		GroupsResolved: true, Groups: []string{"sysadmins"},
 	}
@@ -2022,7 +2058,10 @@ func TestProvisionUserRefusesNewAccountWhenGroupsUnresolved(t *testing.T) {
 	s := newTestStore(t)
 
 	_, err := s.ProvisionUser(ctx, ProvisionRequest{
-		Username: "yeni.kisi", Email: "yeni@warewave.io",
+		// Bu testlerin konusu hesabın AÇILMASI; otomatik
+		// açılış anahtarı ayrı bir testte sınanıyor.
+		AutoCreate: true,
+		Username:   "yeni.kisi", Email: "yeni@warewave.io",
 		Issuer: "https://idp.local", Subject: "sub-yeni",
 		GroupsResolved: false,
 	})
@@ -2047,7 +2086,10 @@ func TestProvisionUserStillRevokesWhenPresentWithNoGroups(t *testing.T) {
 	}
 
 	req := ProvisionRequest{
-		Username: "yigit.basalma", Issuer: "https://idp.local", Subject: "sub-yigit",
+		// Bu testlerin konusu hesabın AÇILMASI; otomatik
+		// açılış anahtarı ayrı bir testte sınanıyor.
+		AutoCreate: true,
+		Username:   "yigit.basalma", Issuer: "https://idp.local", Subject: "sub-yigit",
 		GroupsResolved: true, Groups: []string{"sysadmins"},
 	}
 	if _, err := s.ProvisionUser(ctx, req); err != nil {

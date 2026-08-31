@@ -586,9 +586,12 @@ func TestLDAPGroupsDriveProvisioning(t *testing.T) {
 	}
 
 	u, err := db.ProvisionUser(ctx, store.ProvisionRequest{
-		Username: ldapUser,
-		Email:    "yigit@warewave.io",
-		Groups:   gres.Groups,
+		// Bu testlerin konusu hesabın AÇILMASI; otomatik
+		// açılış anahtarı ayrı bir testte sınanıyor.
+		AutoCreate: true,
+		Username:   ldapUser,
+		Email:      "yigit@warewave.io",
+		Groups:     gres.Groups,
 		// ⚠️ Cevabın GÜVENİLİR olduğu ayrıca söyleniyor: boş bir grup
 		// listesi tek başına "yetkisi yok" demek değil.
 		GroupsResolved: gres.Presence == auth.GroupsPresent,

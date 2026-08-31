@@ -491,6 +491,19 @@ h4 {
 .page-head {
   margin-bottom: 1.25rem;
 }
+/*
+ * ⚠️ SAYFADAKİ İKİNCİ BÖLÜM BAŞLIĞININ ÜSTÜNDE BOŞLUK OLMALI.
+ *
+ * Ölçüldü: "Groups seen but not mapped" başlığının üst boşluğu 0'dı,
+ * altındaki 20px. Bir önceki bölümün kutusuna yapışıyor ve o kutunun
+ * alt yazısı gibi okunuyordu — oysa yeni bir bölüm başlatıyor.
+ *
+ * page-bar içindeki başlığa DOKUNMUYOR: orası sayfanın ilk başlığı ve
+ * boşluğu page-bar'ın kendisi veriyor.
+ */
+section > .page-head:not(:first-child) {
+  margin-top: 2rem;
+}
 .page-head h2 {
   font-size: 20px;
   line-height: 1.3;

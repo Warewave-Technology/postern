@@ -319,6 +319,8 @@ func (s *Server) resolveIdentity(ctx context.Context, id auth.Identity) (model.U
 			Issuer:           id.Issuer,
 			Subject:          id.Subject,
 			AdminGroupMember: adminMember,
+			// ⚠️ Kapalıysa hesap açılmıyor; kişi kuyruğa yazılıyor.
+			AutoCreate: auth.AutoCreateEnabled(ctx, s.db),
 		})
 		if err == nil {
 			// ⚠️ Silinmiş hesap girişle geri gelmez.
@@ -343,6 +345,21 @@ func (s *Server) resolveIdentity(ctx context.Context, id auth.Identity) (model.U
 		// mesaj. "Kimlik çatışması" diye loglansaydı, meşru bir
 		// yöneticinin ilk girişi de bir saldırı gibi görünürdü — ve
 		// tersi: gerçek deneme, rutin bir çatışma gibi.
+		if errors.Is(err, store.ErrAccountNotProvisioned) {
+			// Kapı kapanmıyor, kuyruğa yazılıyor (bkz. httpapi'deki
+			// aynı not). Kimlikle anahtarlı: adını değiştirip yeniden
+			// başvurma yok.
+			if _, perr := s.db.RecordPending(ctx, store.PendingUser{
+				Subject: id.Subject, Source: "oidc", Username: id.Username,
+				Email: id.Email, SeenGroups: res.Groups,
+			}); perr != nil {
+				s.logger.Error("pending record failed", "error", perr)
+				return model.User{}, perr
+			}
+			s.logger.Info("pending account recorded", "idp_user", id.Username)
+			return model.User{}, fmt.Errorf(
+				"your account is waiting for an administrator to approve it")
+		}
 		if errors.Is(err, store.ErrAdminBindRefused) {
 			s.logger.Warn("oob login denied: this username belongs to an administrator account "+
 				"and cannot be claimed by a first sign-in",

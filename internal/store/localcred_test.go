@@ -860,3 +860,60 @@ func TestEmailMatchedOrdinaryAccountStillWorks(t *testing.T) {
 		t.Fatalf("bağlı hesap ikinci kimliğe verildi: %v", err)
 	}
 }
+
+/*
+ * ⚠️ OTOMATİK AÇILIŞ KAPALIYKEN KAPI KAPANMIYOR, KUYRUĞA YAZILIYOR.
+ *
+ * ÖLÇÜLEN ARIZA: auth.auto_create YALNIZCA dizin kapısında okunuyordu.
+ * OIDC kurulumlarında ayar yazılıyor, sihirbaz "kuyruğa al" diyor ve
+ * hiçbir şey olmuyordu — hesaplar yine kendiliğinden açılıyordu. Yani
+ * ekran yalan söylüyordu.
+ *
+ * Ayrı bir sentinel şart: ErrAccessDenied ile aynı olsaydı çağıran
+ * kuyruğa yazmayı bilemez ve kuyruk hiç dolmazdı.
+ */
+func TestProvisionRefusesToCreateWhenAutoCreateIsOff(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	if _, err := s.CreateRole(ctx, "developer"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddGroupMapping(ctx, "developers", "developer", "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	req := ProvisionRequest{
+		Username: "yeni.kisi", Groups: []string{"developers"}, GroupsResolved: true,
+		Issuer: "https://idp.example/realms/x", Subject: "sub-yeni",
+	}
+
+	// Kapalı: hesap AÇILMIYOR ve sebep ayırt edilebilir.
+	if _, err := s.ProvisionUser(ctx, req); !errors.Is(err, ErrAccountNotProvisioned) {
+		t.Fatalf("otomatik açılış kapalıyken hata = %v", err)
+	}
+	if _, err := s.User(ctx, "yeni.kisi"); !errors.Is(err, ErrNotFound) {
+		t.Fatal("otomatik açılış kapalıyken hesap yine de açıldı")
+	}
+
+	// ⚠️ VE KONTROL ROL KAPISINDAN ÖNCE: hiçbir grubu eşleşmeyen kişi
+	// de kuyruğa düşmeli, yoksa kuyruğun var olma sebebi olan nüfus
+	// kapıda kalırdı.
+	grupsuz := req
+	grupsuz.Username = "grupsuz"
+	grupsuz.Groups = []string{"hicbiryerde"}
+	grupsuz.Subject = "sub-grupsuz"
+	if _, err := s.ProvisionUser(ctx, grupsuz); !errors.Is(err, ErrAccountNotProvisioned) {
+		t.Fatalf("eşlemesiz kişi kuyruğa değil kapıya yönlendirildi: %v", err)
+	}
+
+	// Açık: hesap açılıyor — ama rol eşlemesi hâlâ kapıda.
+	req.AutoCreate = true
+	if _, err := s.ProvisionUser(ctx, req); err != nil {
+		t.Fatalf("otomatik açılış açıkken hesap açılmadı: %v", err)
+	}
+	grupsuz.AutoCreate = true
+	if _, err := s.ProvisionUser(ctx, grupsuz); !errors.Is(err, ErrAccessDenied) {
+		t.Fatalf("eşlemesiz kişiye hesap açıldı: %v", err)
+	}
+}

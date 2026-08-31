@@ -103,6 +103,22 @@ func oobBastionOpts(t *testing.T, oobTimeout time.Duration, terminal bool, fresh
 	// (web /api uçları da aynı veritabanını okuyacak).
 	skipSeed := len(fresh) > 0 && fresh[0]
 	srv, pub, _, db := newBastionOpts(t, caKeyPath, skipSeed, tc)
+
+	/*
+	 * ⚠️ HESAPLARIN KENDİLİĞİNDEN AÇILMASI AÇIK.
+	 *
+	 * Varsayılan KAPALI ve o karar doğru: "IdP'de hesabın olması
+	 * postern'de hesabın olması demek değil". Ama bu düzenek JIT
+	 * sağlamayı sınıyor — kapalıyken kullanıcılar hesap almak yerine
+	 * onay kuyruğuna düşer ve testler kendi konularını değil ayarı
+	 * ölçmüş olur.
+	 *
+	 * Kuyruk davranışının kendisi ayrı testlerde sınanıyor.
+	 */
+	if err := db.SetSetting(context.Background(), auth.KeyAutoCreate,
+		"true", false, "test"); err != nil {
+		t.Fatalf("auto_create: %v", err)
+	}
 	// Dinlemeye başlamadan ÖNCE: EnableOOB kilitsiz alanlara yazıyor.
 	srv.EnableOOB(logins, oobTimeout)
 

@@ -547,6 +547,9 @@ func (s *Server) resolveIdentity(ctx context.Context, log *slog.Logger, id auth.
 			// ProvisionRequest.AdminGroupMember). Yalnızca gruplar
 			// gerçekten çözüldüyse sorulabilir.
 			AdminGroupMember: adminMember,
+			// ⚠️ Kapalıysa hesap açılmıyor; kişi kuyruğa yazılıyor
+			// (aşağıdaki ErrAccountNotProvisioned dalı).
+			AutoCreate: auth.AutoCreateEnabled(ctx, s.store),
 		})
 		switch {
 		case err == nil:
@@ -578,6 +581,29 @@ func (s *Server) resolveIdentity(ctx context.Context, log *slog.Logger, id auth.
 				log.Error("confirm stamp failed", "user", u.Name, "error", cerr)
 			}
 			return u, nil
+		case errors.Is(err, store.ErrAccountNotProvisioned):
+			/*
+			 * ⚠️ KAPI KAPANMIYOR, KUYRUĞA YAZILIYOR.
+			 *
+			 * Kimlik doğrulandı ama postern bu kişiyi tanımıyor ve
+			 * hesapların kendiliğinden açılması kapalı. Kuyruk satırı
+			 * KARARLI KİMLİKLE anahtarlı (göç 022): reddedilen kişi
+			 * IdP'de adını değiştirip yeniden başvuramaz.
+			 */
+			st, perr := s.store.RecordPending(ctx, store.PendingUser{
+				Subject: id.Subject, Source: "oidc", Username: id.Username,
+				Email: id.Email, SeenGroups: res.Groups,
+			})
+			if perr != nil {
+				log.Error("pending record failed", "error", perr)
+				return model.User{}, perr
+			}
+			if st == store.PendingRejected {
+				log.Warn("rejected identity tried again", "idp_user", id.Username)
+			} else {
+				log.Info("pending account recorded", "idp_user", id.Username)
+			}
+			return model.User{}, store.ErrAccessDenied
 		case errors.Is(err, store.ErrAdminBindRefused):
 			/*
 			 * Adı bir YÖNETİCİ hesabıyla eşleşen, ilk kez görülen bir

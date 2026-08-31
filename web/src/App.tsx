@@ -215,6 +215,31 @@ export default function App() {
    */
   const needsSetup = me?.setup_required === true;
 
+  /*
+   * ⚠️ YEREL KAYNAKTA GRUP DİYE BİR ŞEY YOK.
+   *
+   * Kodda doğrulandı: hiçbir RolesForGroups çağrısı yerel giriş
+   * yolunda değil, ve onay kuyruğuna yazma (admitOrQueue /
+   * ErrAccountNotProvisioned) yalnızca kaynak kapılarından geçiyor.
+   * Yani yerel modda Mappings ve Pending ekranları hiçbir şeye
+   * bakmıyor. Boş duran iki menü maddesi, operatöre "burada bir şey
+   * yapmam gerekiyor mu" diye sordurur ve eşleme yapıp neden
+   * çalışmadığını aratır.
+   *
+   * Kaynak değiştiğinde geri geliyorlar: karar sunucudan okunuyor,
+   * panelin kendi çıkarımı değil.
+   */
+  const [sourceIsLocal, setSourceIsLocal] = useState(false);
+  useEffect(() => {
+    if (!me?.admin || needsSetup) return;
+    api
+      .authSource()
+      .then((st) => setSourceIsLocal(st.source === "local"))
+      .catch(() => {
+        // Menüyü daraltmak bir kolaylık; hatası ekranı bozmamalı.
+      });
+  }, [me?.admin, needsSetup]);
+
   // ⚠️ Kabuk artık PANELİN İÇİNDE DEĞİL, kendi sekmesinde (/shell/…).
   // Panel içindeki terminal ekranın yarısını çevre kabuğa veriyordu ve
   // sekme değiştirmek çalışan oturumu gizliyordu. Kendi sekmesinde
@@ -446,23 +471,32 @@ export default function App() {
             {top === "settings" && me.admin && (
               <div className="settings">
                 <nav className="side-nav" aria-label="Settings sections">
-                  {NAV.map((group, gi) => (
-                    <div className="side-group" key={group.title ?? `g${gi}`}>
-                      {group.title && (
-                        <div className="side-title">{group.title}</div>
-                      )}
-                      {group.items.map(([s, label, icon]) => (
-                        <button
-                          key={s}
-                          onClick={() => setSection(s)}
-                          aria-current={section === s ? "page" : undefined}
-                        >
-                          {icon}
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  ))}
+                  {NAV.map((group, gi) => {
+                    // Kaynağa bağlı ekranlar yerel modda listelenmiyor.
+                    const items = group.items.filter(
+                      ([s]) =>
+                        !sourceIsLocal ||
+                        (s !== "mappings" && s !== "pending"),
+                    );
+                    if (items.length === 0) return null;
+                    return (
+                      <div className="side-group" key={group.title ?? `g${gi}`}>
+                        {group.title && (
+                          <div className="side-title">{group.title}</div>
+                        )}
+                        {items.map(([s, label, icon]) => (
+                          <button
+                            key={s}
+                            onClick={() => setSection(s)}
+                            aria-current={section === s ? "page" : undefined}
+                          >
+                            {icon}
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })}
                 </nav>
 
                 <div>

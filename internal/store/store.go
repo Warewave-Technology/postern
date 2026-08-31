@@ -55,6 +55,17 @@ var (
 	 */
 	ErrAdminBindRefused = errors.New("store: administrator account cannot be claimed by username")
 
+	/*
+	 * ErrAccountNotProvisioned: kimlik doğrulandı, postern hesabı yok ve
+	 * hesapların kendiliğinden açılması KAPALI.
+	 *
+	 * ⚠️ ErrAccessDenied'dan AYRI, çünkü çağıranın yapacağı şey farklı:
+	 * orada kapı kapanıyor, burada kişi onay kuyruğuna yazılıyor ve
+	 * bunu ekranda görüyor. Tek sentinel altında toplansalardı kuyruk
+	 * hiç dolmazdı.
+	 */
+	ErrAccountNotProvisioned = errors.New("store: account does not exist and auto-create is off")
+
 	// errNotImplementedS51, S5.1 iskeletinin bekleyen fonksiyonları.
 	errNotImplementedS51 = errors.New("store: not implemented")
 
@@ -873,6 +884,18 @@ type ProvisionRequest struct {
 	 * unutan bir yol, kapıyı AÇMIŞ değil KAPATMIŞ olur.
 	 */
 	AdminGroupMember bool
+
+	/*
+	 * AutoCreate, hesabın KENDİLİĞİNDEN açılabileceği.
+	 *
+	 * ⚠️ Sıfır değeri false ve bu kasıtlı: alanı doldurmayı unutan bir
+	 * çağrı yolu hesap AÇMAZ, açar değil. İki yanlıştan geri
+	 * dönülebilir olanı bu.
+	 *
+	 * Kapalıyken kullanıcı ErrAccountNotProvisioned alıyor ve çağıran
+	 * onu onay kuyruğuna yazıyor — kapıda bırakmıyor.
+	 */
+	AutoCreate bool
 }
 
 /*
@@ -1098,6 +1121,24 @@ func (s *Store) ProvisionUser(ctx context.Context, req ProvisionRequest) (model.
 			}
 		}
 	case errors.Is(err, ErrNotFound):
+		/*
+		 * ⚠️ OTOMATİK AÇILIŞ KAPALIYSA BURADA DURUYORUZ — rol
+		 * kontrolünden ÖNCE.
+		 *
+		 * Kuyruk, "seni tanımıyoruz" hâlinin tamamı için: hiçbir grubu
+		 * eşleşmeyen kişi de oraya düşmeli ki yönetici onaylayıp elle
+		 * rol verebilsin. Rol kapısını önce uygulasaydık, tam da
+		 * kuyruğun var olma sebebi olan nüfusu kapıda bırakırdık.
+		 *
+		 * ⚠️ Bu kontrol eskiden YALNIZCA dizin kapısındaydı: OIDC
+		 * kurulumlarında ayar okunuyor ama hiçbir şey yapmıyordu, yani
+		 * sihirbazın "kuyruğa al" seçeneği orada yalandı.
+		 */
+		if !req.AutoCreate {
+			return model.User{}, fmt.Errorf(
+				"store.ProvisionUser[%s]: %w", req.Username, ErrAccountNotProvisioned)
+		}
+
 		// Yeni kullanıcı: yalnızca en az bir rol eşleşiyorsa yarat.
 		if len(roles) == 0 {
 			return model.User{}, fmt.Errorf("store.ProvisionUser[%s]: %w", req.Username, ErrAccessDenied)

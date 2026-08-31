@@ -80,7 +80,10 @@ func (f *syncFixture) provision(t *testing.T, username, email string, groups []s
 	t.Helper()
 
 	if _, err := f.db.ProvisionUser(context.Background(), store.ProvisionRequest{
-		Username: username, Email: email, Groups: groups,
+		// Bu testlerin konusu hesabın AÇILMASI; otomatik
+		// açılış anahtarı ayrı bir testte sınanıyor.
+		AutoCreate: true,
+		Username:   username, Email: email, Groups: groups,
 		// Bu yardımcı "dizin cevap verdi" hâlini kuruyor: senkron
 		// testlerinin başlangıç durumu, rolleri gerçekten olan bir
 		// kullanıcı.

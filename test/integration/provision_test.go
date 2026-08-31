@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/warewave/postern/internal/store"
+	"github.com/warewave/postern/internal/auth"
 )
 
 // JIT sağlamanın uçtan uca kanıtı: postern'de "yigit" diye bir kullanıcı
@@ -150,5 +150,59 @@ func TestProvisionSyncsRolesOnEachLogin(t *testing.T) {
 	if _, err := db.User(ctx, kcUser); err != nil {
 		t.Error("erişimi biten kullanıcı silinmiş — denetim izi sahipsiz kalır")
 	}
-	_ = store.ProvisionRequest{}
+}
+
+/*
+ * ⚠️ OTOMATİK AÇILIŞ KAPALIYKEN OIDC KAPISI DA KUYRUĞA YAZMALI.
+ *
+ * ÖLÇÜLEN ARIZA: auth.auto_create yalnızca dizin kapısında okunuyordu.
+ * OIDC kurulumlarında sihirbaz "kuyruğa al" diyor, ayar yazılıyor ve
+ * hiçbir şey olmuyordu — hesaplar yine kendiliğinden açılıyordu. Yani
+ * ekran yalan söylüyordu ve kuyruk hiç dolmuyordu.
+ */
+func TestOIDCQueuesWhenAutoCreateIsOff(t *testing.T) {
+	_, apiURL, _, db := oobBastionFresh(t)
+	ctx := context.Background()
+
+	if err := db.SetSetting(ctx, auth.KeyAutoCreate, "false", false, "test"); err != nil {
+		t.Fatal(err)
+	}
+	// ⚠️ Eşleme VAR: reddin sebebi "grubu yok" değil, "otomatik açılış
+	// kapalı" olsun. Aksi halde test kendi konusunu ölçmez.
+	if _, err := db.CreateRole(ctx, "ops"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AddGroupMapping(ctx, "sysadmins", "ops", "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
+	browserSignInExpectingDenial(t, client, apiURL)
+
+	// Hesap AÇILMAMIŞ olmalı...
+	if _, err := db.User(ctx, kcUser); err == nil {
+		t.Fatal("otomatik açılış kapalıyken hesap yine de açıldı")
+	}
+
+	// ...ama kişi KAPIDA da kalmamalı: kuyrukta olmalı.
+	pending, err := db.ListPending(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 {
+		t.Fatalf("kuyruk = %d satır, 1 bekleniyordu — kapı kapandı ama kimse "+
+			"kuyruğa yazılmadı", len(pending))
+	}
+	if pending[0].Username != kcUser {
+		t.Fatalf("kuyruktaki ad = %q", pending[0].Username)
+	}
+	// ⚠️ Kuyruk KARARLI KİMLİKLE anahtarlı: IdP'de adını değiştiren
+	// kişi yeniden başvuramasın diye.
+	if pending[0].Subject == "" {
+		t.Fatal("kuyruk satırı kimliksiz — adını değiştiren yeniden başvurabilir")
+	}
+	if pending[0].Source != "oidc" {
+		t.Fatalf("kaynak = %q, oidc bekleniyordu", pending[0].Source)
+	}
 }

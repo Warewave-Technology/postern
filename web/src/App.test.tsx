@@ -494,3 +494,61 @@ describe("ilk kurulum zorunlulugu", () => {
     );
   });
 });
+
+/*
+ * ⚠️ YEREL KAYNAKTA GRUP DİYE BİR ŞEY YOK.
+ *
+ * Kodda doğrulandı: hiçbir RolesForGroups çağrısı yerel giriş yolunda
+ * değil ve onay kuyruğuna yazma yalnızca kaynak kapılarından geçiyor.
+ * Boş duran iki menü maddesi, operatöre "burada bir şey yapmam
+ * gerekiyor mu" diye sordurur ve eşleme yapıp neden çalışmadığını
+ * aratır.
+ */
+describe("kaynaga bagli menu", () => {
+  const mocks = (source: "local" | "ldap") => {
+    vi.spyOn(api, "me").mockResolvedValue({
+      ...me,
+      admin: true,
+      setup_required: false,
+    });
+    vi.spyOn(api, "authSource").mockResolvedValue({
+      source,
+      stored: true,
+      options: [
+        { source: "local", eligible: true },
+        { source: "oidc", eligible: true },
+        { source: "ldap", eligible: true },
+      ],
+    });
+  };
+
+  it("yerel modda Mappings ve Pending listelenmez", async () => {
+    mocks("local");
+    render(<App />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^Settings$/ }),
+    );
+    // ⚠️ Menü daraltması SUNUCUNUN cevabına bağlı, yani asenkron:
+    // varlığı beklemek yetmiyor, YOKLUĞU beklemek gerekiyor.
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /^Mappings$/ })).toBeNull(),
+    );
+    expect(screen.queryByRole("button", { name: /^Pending$/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Users$/ })).toBeInTheDocument();
+    // Kaynağı değiştirebileceği ekran DURUYOR: yoksa geri dönüş yolu
+    // da kaybolurdu.
+    expect(screen.getByRole("button", { name: /^Sign-in$/ })).toBeInTheDocument();
+  });
+
+  it("dizin modunda ikisi de listelenir", async () => {
+    mocks("ldap");
+    render(<App />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^Settings$/ }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^Mappings$/ })).toBeInTheDocument(),
+    );
+    expect(screen.getByRole("button", { name: /^Pending$/ })).toBeInTheDocument();
+  });
+});
