@@ -58,6 +58,17 @@ type Server struct {
 	// kapı dışında bırakması demekti.
 	publicKeyLogin bool
 
+	/*
+	 * sshHost/sshPort, KULLANICIYA GÖSTERİLEN ssh adresi.
+	 *
+	 * ⚠️ Hiçbir erişim kararına girmiyor: panel yalnızca kopyalanacak
+	 * komutu bununla kuruyor. sshHost boşsa panel kopyalama seçeneğini
+	 * hiç göstermiyor — yapıştırıldığında çalışmayacak bir komut
+	 * vermektense hiç vermemek (config.SSHEndpoint).
+	 */
+	sshHost string
+	sshPort int
+
 	// syncDefaults, YAML'daki sync bloğu — saklanan ayar yokken geçerli
 	// olan değerler. Panel ETKİN değeri göstermek zorunda: "ayarlanmamış"
 	// demek, döngünün 15 dakikada bir koştuğu bir kurulumda yanlış bilgi.
@@ -146,6 +157,12 @@ func (s *Server) BeginShutdown() {
  * eklenebilirdi ve kapalı sanılan kapı açık kalırdı.
  */
 func (s *Server) SetPublicKeyLogin(on bool) { s.publicKeyLogin = on }
+
+// SetSSHEndpoint, panelin göstereceği ssh adresini bildirir.
+// Dinlemeye başlamadan ÖNCE çağrılmalı: alan kilitsiz.
+func (s *Server) SetSSHEndpoint(host string, port int) {
+	s.sshHost, s.sshPort = host, port
+}
 
 // SetSyncDefaults, YAML'dan gelen senkronizasyon varsayılanlarını bildirir.
 func (s *Server) SetSyncDefaults(d groupsync.Settings) { s.syncDefaults = d }

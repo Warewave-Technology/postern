@@ -13,6 +13,8 @@ const me: Me = {
   targets: ["web01"],
   terminal_enabled: true,
   public_key_login: true,
+  ssh_host: "bastion.io",
+  ssh_port: 2222,
 };
 
 describe("App önyükleme", () => {
@@ -170,24 +172,101 @@ describe("App kabuk baglantisi", () => {
     expect(
       screen.getByText(/browser terminal is switched off/i),
     ).toBeInTheDocument();
+
+    /*
+     * ⚠️ AMA KART BOŞ KALMIYOR. Eskiden düğme tamamen terminale
+     * bağlıydı: terminali kapatan kurulumda kartta hiçbir eylem
+     * yoktu — oysa ssh komutu o kurulumda da geçerli, hatta tek yol o.
+     */
+    await userEvent.click(
+      screen.getByRole("button", { name: /shell options for web01/i }),
+    );
+    expect(screen.queryByRole("menuitem", { name: /connect/i })).toBeNull();
+    expect(
+      screen.getByRole("menuitem", { name: /copy ssh command/i }),
+    ).toBeTruthy();
   });
 
-  // ⚠️ DÜĞME DEĞİL BAĞLANTI ve yeni sekmede açılıyor: orta tık ve
-  // "yeni sekmede aç" bağlam menüsü çalışsın, ve kabuk panelin
-  // içinde ekranın yarısını çevre kabuğa vermesin.
-  it("terminal aciksa yeni sekmede acilan kabuk baglantisi var", async () => {
+  /*
+   * ⚠️ BAĞLANTI ARTIK MENÜNÜN İÇİNDE ama hâlâ BİR BAĞLANTI ve yeni
+   * sekmede açılıyor: orta tık ve "yeni sekmede aç" bağlam menüsü
+   * çalışsın, ve kabuk panelin içinde ekranın yarısını çevre kabuğa
+   * vermesin. Menüye taşımak bu üç özelliği kaybettirmemeli.
+   */
+  it("terminal aciksa menude yeni sekmede acilan kabuk baglantisi var", async () => {
     vi.spyOn(api, "me").mockResolvedValue(me);
     vi.spyOn(api, "myTargets").mockResolvedValue(myTargets);
 
     render(<App />);
-    const link = await screen.findByRole("link", {
-      name: /open a shell on web01 in a new tab/i,
-    });
+    await userEvent.click(
+      await screen.findByRole("button", { name: /shell options for web01/i }),
+    );
 
+    const link = screen.getByRole("menuitem", { name: /connect/i });
     expect(link).toHaveAttribute("href", "/shell/web01");
     expect(link).toHaveAttribute("target", "_blank");
     // noopener: açılan sekme window.opener ile bu sayfayı yönlendiremesin.
     expect(link.getAttribute("rel")).toContain("noopener");
+  });
+
+  /*
+   * ⚠️ KOMUT YAPIŞTIRILABİLİR OLMALI.
+   *
+   * Kullanıcının istediği tam olarak buydu: kopyala, iTerm'e yapıştır,
+   * enter. Yer tutuculu bir adres ("<bastion>") o akışı yapıştırıldığı
+   * anda bozar ve kullanıcı hatayı postern'de arar.
+   */
+  /*
+   * ⚠️ SAYFA ALTINDAKİ ÖRNEK DE GERÇEK ADRESİ KULLANMALI. Kart menüsü
+   * gerçek adresli bir komut kopyalatırken notun "<bastion>" demesi,
+   * aynı sayfada iki farklı gerçek gösterirdi.
+   */
+  it("alttaki ornek komut da gercek adresi yaziyor", async () => {
+    vi.spyOn(api, "me").mockResolvedValue(me);
+    vi.spyOn(api, "myTargets").mockResolvedValue(myTargets);
+
+    render(<App />);
+    expect(
+      await screen.findByText("ssh -p 2222 yigit:<target>@bastion.io"),
+    ).toBeInTheDocument();
+  });
+
+  // Adres bilinmiyorsa yer tutucu KALIYOR: uydurma bir adres,
+  // kopyalayan kişiyi yanlış makineye gönderir.
+  it("adres yoksa yer tutucu kaliyor", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({
+      ...me,
+      ssh_host: undefined,
+      ssh_port: undefined,
+    });
+    vi.spyOn(api, "myTargets").mockResolvedValue(myTargets);
+
+    render(<App />);
+    expect(
+      await screen.findByText("ssh yigit:<target>@<bastion>"),
+    ).toBeInTheDocument();
+  });
+
+  it("ssh komutunu adresiyle birlikte kopyalatiyor", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+      writable: true,
+    });
+    vi.spyOn(api, "me").mockResolvedValue(me);
+    vi.spyOn(api, "myTargets").mockResolvedValue(myTargets);
+
+    render(<App />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /shell options for web01/i }),
+    );
+    await userEvent.click(
+      screen.getByRole("menuitem", { name: /copy ssh command/i }),
+    );
+    expect(writeText).toHaveBeenCalledWith(
+      "ssh -p 2222 yigit:web01@bastion.io",
+    );
   });
 
   it("etiketler kutuda gorunur ve sorguyla suzulur", async () => {

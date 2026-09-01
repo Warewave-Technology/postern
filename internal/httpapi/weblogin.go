@@ -481,6 +481,17 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		"public_key_login": s.publicKeyLogin,
 
 		/*
+		 * ssh_host/ssh_port: panelin kopyalattığı komutun adresi.
+		 *
+		 * ⚠️ Yetki DEĞİL, gösterim. Boş host, "adresi bilmiyoruz"
+		 * demek ve panel o zaman kopyalama seçeneğini hiç çizmiyor:
+		 * yapıştırıldığında çalışmayacak bir komut, hiç komut
+		 * olmamasından kötü.
+		 */
+		"ssh_host": s.sshHost,
+		"ssh_port": s.sshPort,
+
+		/*
 		 * Hesap bir DİZİN kimliğine bağlı mı.
 		 *
 		 * Kurulum sihirbazı buna bakıyor: kaynağı dizine çevirmeden önce

@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { Me, MyTarget, api } from "./api";
 import { ErrorLine, ListState, useList } from "./admin/common";
-import { ExternalIcon, HostIcon, SearchIcon, ShellIcon } from "./icons";
+import { HostIcon, SearchIcon } from "./icons";
+import ShellMenu from "./ShellMenu";
 import { Fields, describe as explain, matches, parse } from "./query";
 
 /**
@@ -38,6 +39,19 @@ function toFields(t: MyTarget): Fields {
  */
 export function shellURL(target: string): string {
   return `/shell/${encodeURIComponent(target)}`;
+}
+
+/*
+ * shellHint, sayfa altındaki örnek komut.
+ *
+ * Adres bilinmiyorsa yer tutucu kalıyor — uydurma bir adres yazmak,
+ * kopyalayan kişiyi yanlış makineye göndermek olurdu.
+ */
+function shellHint(me: Me): string {
+  const target = "<target>";
+  if (!me.ssh_host) return `ssh ${me.name}:${target}@<bastion>`;
+  const p = me.ssh_port && me.ssh_port !== 22 ? `-p ${me.ssh_port} ` : "";
+  return `ssh ${p}${me.name}:${target}@${me.ssh_host}`;
 }
 
 export default function Home({ me }: { me: Me }) {
@@ -129,19 +143,22 @@ export default function Home({ me }: { me: Me }) {
                       <HostIcon />
                       {t.name}
                     </span>
-                    {me.terminal_enabled && (
-                      <a
-                        className="btn btn-primary btn-shell"
-                        href={shellURL(t.name)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        aria-label={`open a shell on ${t.name} in a new tab`}
-                      >
-                        <ShellIcon />
-                        Shell
-                        <ExternalIcon />
-                      </a>
-                    )}
+                    {/*
+                      ⚠️ MENÜ, web terminali KAPALI olsa da çiziliyor.
+                      Eskiden düğme tamamen terminale bağlıydı ve
+                      terminali kapatan kurulumda kartta hiçbir eylem
+                      kalmıyordu — oysa ssh komutu o kurulumda da
+                      geçerli, hatta tek yol o.
+                    */}
+                    <ShellMenu
+                      target={t.name}
+                      user={me.name}
+                      sshHost={me.ssh_host}
+                      sshPort={me.ssh_port}
+                      connectHref={
+                        me.terminal_enabled ? shellURL(t.name) : undefined
+                      }
+                    />
                   </header>
 
                   <div className="tcard-body">
@@ -186,15 +203,21 @@ export default function Home({ me }: { me: Me }) {
       )}
 
       <p className="note">
+        {/*
+          ⚠️ ADRES BİLİNİYORSA YER TUTUCU YAZILMIYOR.
+          
+          Kart menüsü gerçek adresli bir komut kopyalatırken bu notun
+          "<bastion>" demesi, aynı sayfada iki farklı gerçek gösterirdi
+          ve okuyan hangisinin doğru olduğunu bilemezdi.
+        */}
         {me.terminal_enabled ? (
           <>
-            From a shell, connect with{" "}
-            <code>ssh {me.name}:&lt;target&gt;@&lt;bastion&gt;</code>.
+            From a shell, connect with <code>{shellHint(me)}</code>.
           </>
         ) : (
           <>
             The browser terminal is switched off on this bastion. Connect over
-            SSH: <code>ssh {me.name}:&lt;target&gt;@&lt;bastion&gt;</code>
+            SSH: <code>{shellHint(me)}</code>
           </>
         )}
       </p>

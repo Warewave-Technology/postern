@@ -2343,6 +2343,77 @@ label > textarea {
 }
 
 /*
+ * Hedef kartındaki Shell menüsü.
+ *
+ * ⚠️ KART İÇİNDE AÇILAN BİR KATMAN. position:relative kapsayıcı şart:
+ * olmadan menü sayfanın köküne göre konumlanıp kartın dışına düşüyor.
+ * z-index ise komşu kartların üstünde kalması için — altta kalan bir
+ * menü, yarısı görünmez bir menüdür.
+ */
+.shell-menu {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.shell-menu .caret {
+  font-size: 10px;
+  opacity: 0.8;
+}
+.shell-menu-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  min-width: 15rem;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--raised);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 28%);
+}
+.shell-menu-list > * {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+.shell-menu-list > *:hover,
+.shell-menu-list > *:focus-visible {
+  background: var(--hover, rgb(255 255 255 / 6%));
+}
+.shell-menu-list .hint {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+/*
+ * ⚠️ KOMUT SARILIYOR, KESİLMİYOR. Kesilen bir komut, kullanıcının
+ * kopyaladığı şeyin tamamını göremediği bir komuttur.
+ */
+.shell-menu-list .hint code {
+  overflow-wrap: anywhere;
+}
+.shell-copied {
+  color: var(--muted);
+  font-size: 12px;
+}
+.shell-copied.manual code {
+  overflow-wrap: anywhere;
+}
+
+/*
  * QR kutusu.
  *
  * ⚠️ BEYAZ ZEMİN KART İÇİNDE DE KORUNUYOR. Koyu temada kartın zeminine

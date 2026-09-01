@@ -9,6 +9,8 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -206,6 +208,22 @@ type DatabaseConfig struct {
 
 type ListenConfig struct {
 	Addr string `yaml:"addr"` // e.g. ":2222"
+
+	/*
+	 * ExternalAddr, KULLANICININ ssh ile bağlandığı adres
+	 * ("bastion.warewave.io:2222" gibi).
+	 *
+	 * ⚠️ Addr'dan TÜRETİLEMEZ — http.external_url'in var olma
+	 * gerekçesinin aynısı: ":2222" dış dünyada bir şey ifade etmiyor,
+	 * "0.0.0.0" hiç etmiyor, ve bastion NAT ya da yük dengeleyici
+	 * arkasında olabilir.
+	 *
+	 * Yazılmazsa panel şunu türetiyor: host'u http.external_url'den,
+	 * portu Addr'dan. Kurulumların çoğunda doğru olan bu; olmadığı yerde
+	 * burası yazılır. Bu değer yalnızca panelin GÖSTERDİĞİ komutu
+	 * etkiliyor — hiçbir erişim kararına girmiyor.
+	 */
+	ExternalAddr string `yaml:"external_addr"`
 
 	// --- Sınırlar ---
 	//
@@ -536,4 +554,54 @@ func (r RecordingConfig) MinFreeBytes() (uint64, error) {
 			"(try 2GiB, 500MiB or a number of bytes)", r.MinFree)
 	}
 	return n * mult, nil
+}
+
+/*
+ * SSHEndpoint, kullanıcıya GÖSTERİLECEK ssh adresi.
+ *
+ * ⚠️ NEDEN VAR: panel "ssh kullanıcı:hedef@bastion" komutunu
+ * kopyalatıyor ve <bastion> yerine gerçek bir adres yazması gerekiyor.
+ * Yer tutucu bırakmak, kopyalanan komutu yapıştırıldığı anda bozuk
+ * yapardı; dinleme adresini olduğu gibi vermek ise ":2222" ya da
+ * "0.0.0.0:2222" gibi dışarıda anlamsız bir şey verirdi.
+ *
+ * Sıra: açıkça yazılmış listen.external_addr; yoksa host'u
+ * http.external_url'den (operatörün ZATEN beyan ettiği dış kimlik),
+ * portu listen.addr'dan.
+ *
+ * Çözülemezse boş host dönüyor ve panel kopyalama seçeneğini hiç
+ * göstermiyor — çalışmayacak bir komut vermektense hiç vermemek.
+ */
+func (c Config) SSHEndpoint() (host string, port int) {
+	port = addrPort(c.Listen.Addr)
+
+	if ext := strings.TrimSpace(c.Listen.ExternalAddr); ext != "" {
+		h, p, err := net.SplitHostPort(ext)
+		if err != nil {
+			// Portsuz yazılmış: adresin tamamı host, port dinlemeden.
+			return ext, port
+		}
+		if n, cerr := strconv.Atoi(p); cerr == nil {
+			port = n
+		}
+		return h, port
+	}
+
+	if c.HTTP.ExternalURL != "" {
+		if u, err := url.Parse(c.HTTP.ExternalURL); err == nil && u.Hostname() != "" {
+			return u.Hostname(), port
+		}
+	}
+	return "", port
+}
+
+// addrPort, "host:port" ya da ":port" biçiminden portu çıkarır.
+// Çözülemezse SSH'ın varsayılanı (22) dönüyor.
+func addrPort(addr string) int {
+	if _, p, err := net.SplitHostPort(strings.TrimSpace(addr)); err == nil {
+		if n, cerr := strconv.Atoi(p); cerr == nil && n > 0 {
+			return n
+		}
+	}
+	return 22
 }

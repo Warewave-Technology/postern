@@ -62,3 +62,82 @@ func TestRecordingRetentionDefaults(t *testing.T) {
 		}
 	}
 }
+
+/*
+ * ⚠️ KOPYALANAN KOMUT YAPIŞTIRILDIĞINDA ÇALIŞMALI.
+ *
+ * Panel "ssh kullanıcı:hedef@bastion" komutunu kopyalatıyor. <bastion>
+ * yerine dinleme adresini koymak dışarıda anlamsız bir şey verirdi
+ * (":2222", "0.0.0.0:2222"); yer tutucu bırakmak ise komutu
+ * yapıştırıldığı anda bozuk yapardı. Sıra: açık external_addr, yoksa
+ * host http.external_url'den + port listen.addr'dan.
+ */
+func TestSSHEndpoint(t *testing.T) {
+	cases := []struct {
+		name     string
+		listen   string
+		external string
+		httpURL  string
+		wantHost string
+		wantPort int
+	}{
+		{
+			name:     "http dis adresinden turetiliyor",
+			listen:   "127.0.0.1:2299",
+			httpURL:  "http://127.0.0.1:56188",
+			wantHost: "127.0.0.1",
+			wantPort: 2299,
+		},
+		{
+			// ⚠️ ":2222" dış dünyada bir şey ifade etmiyor; host yine
+			// beyan edilmiş dış kimlikten geliyor.
+			name:     "dinleme adresi portsuz host icermiyor",
+			listen:   ":2222",
+			httpURL:  "https://bastion.warewave.io",
+			wantHost: "bastion.warewave.io",
+			wantPort: 2222,
+		},
+		{
+			name:     "acik external_addr her seyi ezer",
+			listen:   "127.0.0.1:2299",
+			external: "ssh.warewave.io:22",
+			httpURL:  "https://panel.warewave.io",
+			wantHost: "ssh.warewave.io",
+			wantPort: 22,
+		},
+		{
+			// Portsuz yazılmış dış adres: port dinlemeden tamamlanıyor.
+			name:     "external_addr portsuz",
+			listen:   "0.0.0.0:2222",
+			external: "ssh.warewave.io",
+			httpURL:  "https://panel.warewave.io",
+			wantHost: "ssh.warewave.io",
+			wantPort: 2222,
+		},
+		{
+			/*
+			 * ⚠️ ÇÖZÜLEMİYORSA BOŞ HOST. Panel bunu görünce kopyalama
+			 * seçeneğini hiç göstermiyor — çalışmayacak bir komut
+			 * vermektense hiç vermemek.
+			 */
+			name:     "hicbir dis kimlik yok",
+			listen:   ":2222",
+			wantHost: "",
+			wantPort: 2222,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			cfg := Config{
+				Listen: ListenConfig{Addr: c.listen, ExternalAddr: c.external},
+				HTTP:   HTTPConfig{ExternalURL: c.httpURL},
+			}
+			host, port := cfg.SSHEndpoint()
+			if host != c.wantHost || port != c.wantPort {
+				t.Errorf("SSHEndpoint() = (%q, %d), beklenen (%q, %d)",
+					host, port, c.wantHost, c.wantPort)
+			}
+		})
+	}
+}

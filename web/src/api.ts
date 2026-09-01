@@ -13,6 +13,11 @@ export type Me = {
   /** Anahtarla giriş açık mı (auth.public_key_login). Kapalıysa panel
    *  anahtar yönetimini hiç çizmiyor — asıl koruma sunucuda. */
   public_key_login: boolean;
+  /** Panelin kopyalattığı ssh komutunun adresi. BOŞ = adres bilinmiyor
+   *  ve kopyalama seçeneği hiç çizilmiyor: yapıştırıldığında
+   *  çalışmayacak bir komut, hiç komut olmamasından kötü. */
+  ssh_host?: string;
+  ssh_port?: number;
   /** Hesap bir dizin kimliğine bağlı mı. Sihirbaz buna bakıyor: zaten
    *  bağlı olana "önce bağla" demek, ilerleyemeyeceği bir duvar olurdu. */
   dir_bound?: boolean;

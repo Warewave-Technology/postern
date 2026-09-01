@@ -485,6 +485,10 @@ func newServeCmd() *cobra.Command {
 
 				webAPI := httpapi.New(oidcHolder, logins, db, logger)
 				webAPI.SetPublicKeyLogin(cfg.Auth.PublicKeyLoginEnabled())
+
+				// Panelin kopyalattığı ssh komutunun adresi. Gösterim
+				// amaçlı; hiçbir erişim kararına girmiyor.
+				webAPI.SetSSHEndpoint(cfg.SSHEndpoint())
 				webAPI.UseGroupSource(groupSwitch)
 				webAPI.UseEventBus(bus)
 				// Terminal açık olmasa da gerekli: oturum çerezinin
