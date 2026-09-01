@@ -1,0 +1,239 @@
+<title>postern</title>
+<style>
+  :root {
+    --bg: #1d2021; --surface: #282828; --raised: #32302f; --sunken: #1b1b1b;
+    --line: #3c3836; --line-soft: #32302f;
+    --ink: #ebdbb2; --muted: #a89984; --dim: #7c6f64;
+    --accent: #8ec07c; --warn: #fabd2f; --bad: #fb4934; --link: #83a598;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--sans); font-size: 16px; line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 1.5rem; }
+  a { color: var(--link); }
+
+  header.top { border-bottom: 1px solid var(--line); position: sticky; top: 0; background: rgba(29,32,33,.92); backdrop-filter: blur(8px); z-index: 10; }
+  header.top .wrap { display: flex; align-items: center; justify-content: space-between; height: 56px; }
+  .brand { display: inline-flex; align-items: center; gap: .55rem; font-weight: 600; letter-spacing: -.01em; }
+  .brand svg { display: block; }
+  nav.top-nav { display: flex; gap: 1.25rem; font-size: 14px; }
+  nav.top-nav a { color: var(--muted); text-decoration: none; }
+  nav.top-nav a:hover { color: var(--ink); }
+
+  .hero { padding: 5rem 0 3.5rem; }
+  .hero h1 { font-size: clamp(2.4rem, 6vw, 3.6rem); line-height: 1.08; margin: 0 0 1.1rem; letter-spacing: -.03em; }
+  .hero .lede { font-size: 1.2rem; color: var(--muted); margin: 0 0 1rem; max-width: 46rem; }
+  .hero .lede strong { color: var(--ink); font-weight: 600; }
+  .status { display: inline-flex; align-items: center; gap: .5rem; margin-bottom: 1.6rem; padding: .2rem .6rem; border: 1px solid var(--line); border-radius: 999px; font-size: 12.5px; color: var(--muted); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+
+  .cta { display: flex; flex-wrap: wrap; gap: .7rem; margin-top: 1.8rem; }
+  .btn { display: inline-block; padding: .6rem 1.1rem; border-radius: 8px; text-decoration: none; font-size: 14.5px; font-weight: 550; border: 1px solid var(--line); color: var(--ink); }
+  .btn.primary { background: var(--accent); color: #1d2021; border-color: var(--accent); }
+  .btn:hover { border-color: var(--muted); }
+  .btn.primary:hover { filter: brightness(1.08); }
+
+  section { padding: 2.6rem 0; border-top: 1px solid var(--line); }
+  section h2 { font-size: 1.45rem; margin: 0 0 .5rem; letter-spacing: -.015em; }
+  section > .wrap > p { color: var(--muted); margin-top: 0; }
+  section p strong, li strong { color: var(--ink); font-weight: 600; }
+
+  .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); margin-top: 1.5rem; }
+  .card { border: 1px solid var(--line); border-radius: 10px; padding: 1.05rem 1.15rem; background: var(--surface); }
+  .card h3 { margin: 0 0 .4rem; font-size: 1rem; }
+  .card p { margin: 0; color: var(--muted); font-size: 14.5px; }
+
+  pre { background: var(--sunken); border: 1px solid var(--line); border-radius: 10px; padding: .95rem 1.1rem; overflow-x: auto; font-family: var(--mono); font-size: 13.5px; line-height: 1.6; margin: 1.2rem 0; }
+  code { font-family: var(--mono); font-size: .92em; }
+  p code, li code, td code { background: var(--raised); border: 1px solid var(--line-soft); border-radius: 5px; padding: .05rem .35rem; }
+  .c { color: var(--dim); }
+  .g { color: var(--accent); }
+
+  ul.plain { list-style: none; padding: 0; margin: 1.1rem 0 0; }
+  ul.plain li { padding: .55rem 0 .55rem 1.55rem; position: relative; border-top: 1px solid var(--line-soft); color: var(--muted); }
+  ul.plain li:first-child { border-top: 0; }
+  ul.plain li::before { content: "→"; position: absolute; left: 0; color: var(--dim); }
+
+  .not { border: 1px solid var(--line); border-left: 3px solid var(--warn); border-radius: 8px; padding: 1rem 1.2rem; background: var(--surface); margin-top: 1.3rem; }
+  .not h3 { margin: 0 0 .5rem; font-size: 1rem; color: var(--warn); }
+  .not ul { margin: 0; padding-left: 1.1rem; color: var(--muted); font-size: 14.5px; }
+  .not li { margin: .3rem 0; }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 1.2rem; font-size: 14.5px; }
+  th, td { text-align: left; padding: .6rem .7rem; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+  th { color: var(--dim); font-weight: 550; font-size: 12.5px; text-transform: uppercase; letter-spacing: .04em; }
+  td:first-child { color: var(--ink); white-space: nowrap; }
+
+  footer { border-top: 1px solid var(--line); padding: 2.2rem 0 3rem; color: var(--dim); font-size: 14px; }
+  footer a { color: var(--muted); }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #fbf1c7; --surface: #f9f5d7; --raised: #f2e5bc; --sunken: #f2e5bc;
+      --line: #d5c4a1; --line-soft: #ebdbb2;
+      --ink: #3c3836; --muted: #665c54; --dim: #7c6f64;
+      --accent: #427b58; --warn: #b57614; --bad: #9d0006; --link: #076678;
+    }
+    :root:not([data-theme="dark"]) header.top { background: rgba(251,241,199,.92); }
+    :root:not([data-theme="dark"]) .btn.primary { color: #fbf1c7; }
+  }
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <span class="brand">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>
+      </svg>
+      postern
+    </span>
+    <nav class="top-nav">
+      <a href="docs/index.html">Docs</a>
+      <a href="#what">What it is</a>
+      <a href="#not">What it isn't</a>
+      <a href="#start">Install</a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap hero">
+  <div class="status"><span class="dot"></span> 1.0 &middot; SSH and SFTP</div>
+  <h1>Nobody keeps a key to your servers.</h1>
+  <p class="lede">
+    postern is an SSH bastion that mints a <strong>short-lived certificate per
+    session</strong> and records what happens. Targets hold no
+    <code>authorized_keys</code>, users land as themselves, and a session that
+    cannot be recorded does not start.
+  </p>
+  <div class="cta">
+    <a class="btn primary" href="docs/index.html#install">Install</a>
+    <a class="btn" href="docs/index.html">Read the docs</a>
+  </div>
+</div>
+
+<section id="what">
+  <div class="wrap">
+    <h2>One connection, four decisions</h2>
+    <p>Everything postern does happens between <code>ssh</code> and your server.</p>
+<pre><span class="c"># the user types this — no client, no agent, no plugin</span>
+$ ssh <span class="g">yigit:web-01</span>@bastion
+</pre>
+    <ul class="plain">
+      <li><strong>Who are you.</strong> A local credential, your directory, or your identity provider. An OIDC identity is bound by <code>(iss, sub)</code> — never by a username somebody can edit.</li>
+      <li><strong>What may you reach.</strong> Roles, resolved live at connect time, so a revoked grant does not wait for a session to end. No role, no answer.</li>
+      <li><strong>How do you get in.</strong> A fresh ed25519 key is generated for this one session, signed by postern's CA for a single principal, and valid for five minutes — long enough to finish a handshake, not long enough to be worth stealing. It never touches disk, it carries <code>permit-pty</code> and nothing else, and the target never holds a key of yours.</li>
+      <li><strong>What happened.</strong> The session is recorded as asciicast v2 and replays in the panel or with <code>asciinema play</code>. If the recording cannot be written, the session is refused.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Refusals are the feature</h2>
+    <p>Most of postern is a list of things it declines to do, each with a reason.</p>
+    <div class="grid">
+      <div class="card">
+        <h3>Only accountable requests cross</h3>
+        <p>Agent forwarding and X11 are refused: both open a second channel around the bastion. Unknown request types are refused too — default deny, so tomorrow's SSH extension does not slip through.</p>
+      </div>
+      <div class="card">
+        <h3>SFTP is read, not waved through</h3>
+        <p>File transfer is off by default. Switched on, every open, transfer, rename and delete is recorded per file — with the bytes that actually crossed, and refusals kept as refusals.</p>
+      </div>
+      <div class="card">
+        <h3>Host keys are pinned</h3>
+        <p>Every target's key is stored and checked. <code>InsecureIgnoreHostKey</code> appears nowhere in the source. A target that presents a different key is reported, not accepted.</p>
+      </div>
+      <div class="card">
+        <h3>"Empty" is not "unknown"</h3>
+        <p>A directory that answers with no groups and a directory that cannot be reached are different facts, and postern keeps them apart. An outage never reads as "this user lost access".</p>
+      </div>
+      <div class="card">
+        <h3>A second key needs a second proof</h3>
+        <p>Adding a further SSH key is how someone keeps a stolen account, so it asks again — a password, or a code from an authenticator you enrol yourself. Directory users are not sent to an administrator.</p>
+      </div>
+      <div class="card">
+        <h3>The way back in stays open</h3>
+        <p>A break-glass administrator lives on the host, not in your identity provider. Switching the panel to SSO leaves it in place, so an IdP outage is not a lockout.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="not">
+  <div class="wrap">
+    <h2>What it isn't</h2>
+    <p>1.0 is deliberately narrow. If you need something below, postern is the wrong tool today and probably tomorrow.</p>
+    <div class="not">
+      <h3>Not in this release</h3>
+      <ul>
+        <li><strong>SSH and SFTP only.</strong> No HTTP, RDP, VNC, MySQL, PostgreSQL or Kubernetes proxying.</li>
+        <li><strong>One node.</strong> No clustering, no shared state between instances, no S3 offload — recordings are files on the bastion's disk.</li>
+        <li><strong>No port forwarding.</strong> <code>direct-tcpip</code> is refused; a tunnel postern cannot record is a tunnel it will not carry.</li>
+        <li><strong>TOTP only</strong> for the second factor — no WebAuthn, no push.</li>
+        <li><strong>No agent on the target.</strong> That is the point, and it is also the limit: postern sees the SSH channel, not the processes behind it.</li>
+      </ul>
+    </div>
+    <p style="margin-top:1.3rem">
+      It is also new. The proxy, certificates, recording, RBAC, the panel, OIDC
+      and LDAP are exercised against real OpenSSH, Keycloak and OpenLDAP on
+      every change — but 1.0 means "we think this is right", not "this has run
+      in twenty companies for three years".
+    </p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>What an operator actually holds</h2>
+    <table>
+      <tr><th>Piece</th><th>What it is</th></tr>
+      <tr><td>The bastion</td><td>One Go binary. The panel is compiled into it; there is no second service to run.</td></tr>
+      <tr><td>State</td><td>PostgreSQL. Users, roles, targets, sessions, audit — all of it, in schema you can read.</td></tr>
+      <tr><td>Recordings</td><td>Plain asciicast files on disk, one per session, pruned on a retention you set.</td></tr>
+      <tr><td>On each target</td><td>One line of <code>sshd_config</code> trusting postern's CA. No daemon, no package.</td></tr>
+    </table>
+    <p style="margin-top:1.4rem">Nine Go modules at runtime, four in the panel. Nothing is pulled in that could be written in an afternoon and tested in a morning — the TOTP, QR and SFTP-audit code is postern's own, checked against the RFC test vectors and a reference encoder.</p>
+  </div>
+</section>
+
+<section id="start">
+  <div class="wrap">
+    <h2>Fifteen minutes, honestly</h2>
+<pre><span class="c"># 1. keys and schema</span>
+$ postern ca init --key /etc/postern/ca_ed25519
+$ postern db migrate
+
+<span class="c"># 2. the way back in — the secret is printed once</span>
+$ postern admin bootstrap
+
+<span class="c"># 3. one line on every target</span>
+TrustedUserCAKeys /etc/ssh/postern_ca.pub
+
+<span class="c"># 4. connect</span>
+$ ssh <span class="g">you:web-01</span>@bastion
+</pre>
+    <p>
+      Step 3 is the only thing that touches your servers, and
+      <a href="docs/index.html#targets">an Ansible role</a> does it: it validates with
+      <code>sshd -t</code> before installing and reloads rather than restarts,
+      so nobody's session dies for it.
+    </p>
+    <div class="cta">
+      <a class="btn primary" href="docs/index.html#install">Full instructions</a>
+      <a class="btn" href="docs/index.html#checklist">Production checklist</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    postern — a certificate-based, session-recording SSH bastion.
+    <a href="docs/index.html">Documentation</a>.
+  </div>
+</footer>

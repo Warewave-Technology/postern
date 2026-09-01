@@ -532,6 +532,46 @@ postern serve --config postern.yaml
 `db migrate` takes a PostgreSQL advisory lock, so running it from two
 places at once is safe: the second waits and then finds nothing to do.
 
+### The panel, and the proxy in front of it
+
+postern serves the panel over **plain HTTP**. There is no
+`ListenAndServeTLS` and no certificate field: terminating TLS is a
+reverse proxy's job, or you bind `addr` to localhost and reach it through
+an SSH tunnel.
+
+```yaml
+http:
+  addr: "127.0.0.1:8088"
+  external_url: "https://bastion.example.com"
+  trusted_proxies: ["10.0.0.9"]
+  terminal_enabled: false
+```
+
+`external_url` is not decorative and cannot be derived from `addr`:
+sign-in links and the OIDC `redirect_url` are built from it, and a
+bastion behind NAT has no idea what `:8088` means outside. Its scheme
+also decides whether the session cookie carries `Secure`.
+
+`trusted_proxies` is what makes the sign-in rate limit survive that
+proxy. Attempts are counted per *(account, source address)* so an
+attacker can only slow themselves down — but behind a proxy every
+request arrives from the proxy's address, the pair collapses onto the
+account, and an unauthenticated stranger can hold your administrator at
+the door indefinitely with one request every five minutes. (`admin` is
+the default name from `postern admin bootstrap`, so nothing has to be
+guessed.) List the addresses the proxy actually connects from; only for
+those is `X-Forwarded-For` read, and the chain is walked from the right
+so a client cannot claim someone else's bucket by prepending an address.
+Empty — the default — means the header is never read, which is correct
+for a directly exposed bastion. A malformed entry stops startup rather
+than leaving you believing you configured something you did not.
+
+`terminal_enabled` is **off by default** and that is a security
+decision, not an oversight: the browser terminal turns any XSS in the
+panel into command execution on your targets, where the same XSS could
+otherwise only reach the API. An installation that does not need it
+should not carry the surface.
+
 ## Development
 
 ```bash

@@ -1,0 +1,870 @@
+<title>postern docs</title>
+<style>
+  :root {
+    --bg: #1d2021; --surface: #282828; --raised: #32302f; --sunken: #1b1b1b;
+    --line: #3c3836; --line-soft: #32302f;
+    --ink: #ebdbb2; --muted: #a89984; --dim: #7c6f64;
+    --accent: #8ec07c; --warn: #fabd2f; --bad: #fb4934; --link: #83a598;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--sans); font-size: 16px; line-height: 1.68;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--link); }
+
+  header.top { border-bottom: 1px solid var(--line); position: sticky; top: 0; background: rgba(29,32,33,.94); backdrop-filter: blur(8px); z-index: 20; }
+  header.top .bar { max-width: 1180px; margin: 0 auto; padding: 0 1.5rem; display: flex; align-items: center; justify-content: space-between; height: 56px; }
+  .brand { display: inline-flex; align-items: center; gap: .55rem; font-weight: 600; letter-spacing: -.01em; color: var(--ink); text-decoration: none; }
+  .brand .tag { color: var(--dim); font-weight: 400; }
+  nav.top-nav { display: flex; gap: 1.25rem; font-size: 14px; }
+  nav.top-nav a { color: var(--muted); text-decoration: none; }
+  nav.top-nav a:hover { color: var(--ink); }
+
+  .shell { max-width: 1180px; margin: 0 auto; padding: 0 1.5rem; display: grid; grid-template-columns: 15rem minmax(0, 1fr); gap: 3rem; }
+
+  aside { position: sticky; top: 56px; align-self: start; max-height: calc(100vh - 56px); overflow-y: auto; padding: 2rem 0 3rem; font-size: 14.5px; }
+  aside h4 { margin: 1.4rem 0 .45rem; font-size: 11.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--dim); font-weight: 600; }
+  aside h4:first-child { margin-top: 0; }
+  aside a { display: block; padding: .16rem 0 .16rem .7rem; color: var(--muted); text-decoration: none; border-left: 2px solid transparent; }
+  aside a:hover { color: var(--ink); border-left-color: var(--line); }
+
+  main { padding: 2rem 0 5rem; min-width: 0; }
+  main > section { padding-bottom: .5rem; }
+  h1 { font-size: 2.1rem; letter-spacing: -.025em; margin: .4rem 0 .6rem; }
+  h2 { font-size: 1.5rem; letter-spacing: -.02em; margin: 2.8rem 0 .5rem; padding-top: 1.6rem; border-top: 1px solid var(--line); }
+  h3 { font-size: 1.08rem; margin: 1.9rem 0 .35rem; }
+  p { margin: .7rem 0; }
+  .lede { color: var(--muted); font-size: 1.08rem; }
+
+  pre { background: var(--sunken); border: 1px solid var(--line); border-radius: 10px; padding: .9rem 1.05rem; overflow-x: auto; font-family: var(--mono); font-size: 13.5px; line-height: 1.6; margin: 1rem 0; }
+  code { font-family: var(--mono); font-size: .92em; }
+  p code, li code, td code, dd code { background: var(--raised); border: 1px solid var(--line-soft); border-radius: 5px; padding: .05rem .35rem; }
+  .c { color: var(--dim); }
+  .g { color: var(--accent); }
+  .y { color: var(--warn); }
+
+  ul, ol { padding-left: 1.3rem; }
+  li { margin: .3rem 0; }
+  li > strong { color: var(--ink); }
+
+  .note, .warn, .stop { border: 1px solid var(--line); border-left: 3px solid var(--dim); border-radius: 8px; padding: .85rem 1.1rem; background: var(--surface); margin: 1.2rem 0; font-size: 14.8px; }
+  .note { border-left-color: var(--link); }
+  .warn { border-left-color: var(--warn); }
+  .stop { border-left-color: var(--bad); }
+  .note p:first-child, .warn p:first-child, .stop p:first-child { margin-top: 0; }
+  .note p:last-child, .warn p:last-child, .stop p:last-child { margin-bottom: 0; }
+  .note b, .warn b, .stop b { display: block; margin-bottom: .15rem; font-size: 12.5px; letter-spacing: .05em; text-transform: uppercase; }
+  .note b { color: var(--link); } .warn b { color: var(--warn); } .stop b { color: var(--bad); }
+
+  table { width: 100%; border-collapse: collapse; margin: 1.1rem 0; font-size: 14.5px; display: block; overflow-x: auto; }
+  th, td { text-align: left; padding: .55rem .7rem; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+  th { color: var(--dim); font-weight: 550; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+  td:first-child { white-space: nowrap; }
+
+  .cards { display: grid; gap: .9rem; grid-template-columns: repeat(auto-fit, minmax(13.5rem, 1fr)); margin: 1.4rem 0; }
+  .card { border: 1px solid var(--line); border-radius: 10px; padding: .9rem 1rem; background: var(--surface); }
+  .card h4 { margin: 0 0 .3rem; font-size: .95rem; }
+  .card a { text-decoration: none; }
+  .card p { margin: 0; color: var(--muted); font-size: 14px; }
+
+  footer { border-top: 1px solid var(--line); margin-top: 3rem; padding: 1.8rem 0 3rem; color: var(--dim); font-size: 14px; }
+
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    aside { position: static; max-height: none; border-bottom: 1px solid var(--line); padding-bottom: 1.2rem; }
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #fbf1c7; --surface: #f9f5d7; --raised: #f2e5bc; --sunken: #f2e5bc;
+      --line: #d5c4a1; --line-soft: #ebdbb2;
+      --ink: #3c3836; --muted: #665c54; --dim: #7c6f64;
+      --accent: #427b58; --warn: #b57614; --bad: #9d0006; --link: #076678;
+    }
+    :root:not([data-theme="dark"]) header.top { background: rgba(251,241,199,.94); }
+  }
+</style>
+
+<header class="top">
+  <div class="bar">
+    <a class="brand" href="../index.html">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>
+      </svg>
+      postern <span class="tag">docs</span>
+    </a>
+    <nav class="top-nav">
+      <a href="../index.html">Home</a>
+      <a href="#install">Install</a>
+      <a href="#checklist">Checklist</a>
+      <a href="#trouble">Troubleshooting</a>
+    </nav>
+  </div>
+</header>
+
+<div class="shell">
+  <aside>
+    <h4>Start here</h4>
+    <a href="#how">How it works</a>
+    <a href="#install">Install</a>
+    <a href="#first">Your first connection</a>
+    <a href="#panel">The panel</a>
+
+    <h4>Targets</h4>
+    <a href="#targets">Registering a target</a>
+    <a href="#trust">Trusting the CA</a>
+    <a href="#discover">Discovery</a>
+    <a href="#labels">Labels</a>
+
+    <h4>Access control</h4>
+    <a href="#roles">Users and roles</a>
+    <a href="#sources">Where identities come from</a>
+    <a href="#mappings">Group mappings</a>
+    <a href="#sync">Directory sync</a>
+    <a href="#totp">Second factor</a>
+    <a href="#breakglass">Break-glass</a>
+
+    <h4>Operations</h4>
+    <a href="#sessions">Sessions and replay</a>
+    <a href="#sftp">SFTP audit</a>
+    <a href="#retention">Retention</a>
+    <a href="#config">Config reference</a>
+    <a href="#checklist">Production checklist</a>
+    <a href="#rotate">Rotating the CA</a>
+    <a href="#backup">Backup</a>
+
+    <h4>Reference</h4>
+    <a href="#refuse">What postern refuses</a>
+    <a href="#trouble">Troubleshooting</a>
+    <a href="#limits">Limits of 1.0</a>
+  </aside>
+
+  <main>
+    <h1>Documentation</h1>
+    <p class="lede">
+      Everything below describes postern 1.0 as it is built and tested — not as
+      it is planned. Where something is missing, <a href="#limits">§ Limits</a>
+      says so plainly.
+    </p>
+
+    <div class="cards">
+      <div class="card"><h4><a href="#install">Install</a></h4><p>CA, database, first start. Fifteen minutes.</p></div>
+      <div class="card"><h4><a href="#trust">Trust the CA</a></h4><p>The one line each target needs — and the Ansible role that installs it safely.</p></div>
+      <div class="card"><h4><a href="#checklist">Go live</a></h4><p>What to check before real people connect.</p></div>
+    </div>
+
+    <section id="how">
+      <h2>How it works</h2>
+      <p>
+        A user connects to postern, not to the server. postern authenticates
+        them, decides whether they may reach the target they asked for, mints an
+        SSH certificate for that one session, opens the connection on their
+        behalf, and records it.
+      </p>
+<pre><span class="c">user                      postern                     target</span>
+ |                          |                            |
+ |-- ssh <span class="g">yigit:web-01</span>@ ---&gt;|                            |
+ |                          |-- who are you?             |
+ |                          |   (local / LDAP / OIDC)    |
+ |                          |-- may you reach web-01?    |
+ |                          |   (roles, resolved now)    |
+ |                          |-- mint cert, principal <span class="g">yigit</span>|
+ |                          |   valid minutes, in memory |
+ |                          |---- ssh with cert -------&gt;|
+ |&lt;===== session, recorded to asciicast =====&gt;|
+</pre>
+      <p>The target never holds a key belonging to the user. Removing someone's access is a change in postern, not a sweep across a fleet of <code>authorized_keys</code> files.</p>
+
+      <h3>What the certificate actually says</h3>
+      <p>
+        A fresh ed25519 key pair is generated per session, in memory. The
+        certificate over it:
+      </p>
+      <table>
+        <tr><th>Field</th><th>Value</th></tr>
+        <tr><td>Validity</td><td>five minutes, with a small backdate for clock skew</td></tr>
+        <tr><td>Principals</td><td>exactly one — the user's <code>os_user</code></td></tr>
+        <tr><td>Extensions</td><td><code>permit-pty</code>, and nothing else</td></tr>
+        <tr><td>Serial</td><td>random, 64-bit</td></tr>
+        <tr><td>Key ID</td><td>identifies the session in the audit trail</td></tr>
+      </table>
+      <p>
+        The missing extensions are the interesting part: no
+        <code>permit-agent-forwarding</code>, no <code>permit-port-forwarding</code>,
+        no <code>permit-X11-forwarding</code>. Even if postern's own refusals
+        were bypassed, the target's sshd would still decline them.
+      </p>
+      <p>
+        Five minutes is enough to complete a handshake; the session then runs as
+        long as <a href="#retention">your session limits allow</a>. A certificate
+        captured off the wire is worth nothing shortly after it is issued.
+      </p>
+      <div class="note"><b>Clock skew</b><p>postern refuses to sign if the host clock is before 1970 rather than emitting a certificate that wraps into "never valid" — which surfaces on the target as <i>certificate is not yet valid</i> and sends you looking in the wrong place entirely. Keep NTP running: a bastion with a wrong clock issues certificates nothing will accept.</p></div>
+
+      <h3>The username carries the destination</h3>
+      <p>
+        There is no client, plugin or agent. The routing lives in the SSH
+        username, split by <code>:</code> — <code>&lt;login&gt;:&lt;target&gt;</code>.
+      </p>
+<pre>$ ssh yigit:web-01@bastion          <span class="c"># login as yigit, go to web-01</span>
+$ ssh -J bastion ...                <span class="c"># not this; postern is not a jump host</span>
+</pre>
+      <p>
+        The Linux account you land in is the user's <code>os_user</code>, held in
+        postern. It defaults to their username and an administrator can change
+        it; the certificate's principal is that value, so a target's
+        <code>AuthorizedPrincipalsFile</code> stays the final say.
+      </p>
+    </section>
+
+    <section id="install">
+      <h2>Install</h2>
+
+      <h3>1. Build</h3>
+<pre>$ git clone https://github.com/warewave/postern &amp;&amp; cd postern
+$ make build          <span class="c"># builds the panel and embeds it in the binary</span>
+</pre>
+      <div class="note"><b>Note</b><p>The panel is compiled into the binary with <code>go:embed</code>. Rebuilding the web assets alone does not change a running server — you need a new binary.</p></div>
+
+      <h3>2. Database</h3>
+<pre>CREATE ROLE postern LOGIN PASSWORD 'choose-one';
+CREATE DATABASE postern OWNER postern;
+</pre>
+      <p>
+        Put the connection string in the config, or keep the password out of the
+        file with <code>POSTERN_DATABASE_DSN</code>, which overrides
+        <code>database.dsn</code> when set.
+      </p>
+      <div class="warn"><b>sslmode</b><p>If your DSN names no <code>sslmode</code>, postern uses <code>verify-full</code>. libpq's own default silently falls back to plaintext when TLS is unavailable — not a trade a bastion should make on your behalf. Set <code>sslmode=disable</code> explicitly if the database is on the same host and you mean it.</p></div>
+
+      <h3>3. Keys and schema</h3>
+<pre>$ postern ca init --key /etc/postern/ca_ed25519      <span class="c"># prints the CA public key</span>
+$ ssh-keygen -t ed25519 -N '' -f /etc/postern/host_ed25519
+$ postern secret init --config postern.yaml          <span class="c"># seals stored settings</span>
+$ postern db migrate --config postern.yaml
+</pre>
+      <div class="stop"><b>Back these up now</b><p>The CA private key and the secret key are not recoverable. Lose the CA and every target must be re-trusted; lose the secret key and stored LDAP/OIDC credentials cannot be decrypted. <a href="#backup">§ Backup</a>.</p></div>
+
+      <h3>4. The way back in</h3>
+<pre>$ postern admin bootstrap --config postern.yaml
+administrator: admin
+sign-in secret: <span class="y">XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XX</span>   <span class="c"># shown once</span>
+</pre>
+      <p>
+        The secret is generated by the host and printed once. It is never a
+        password somebody chose, and it is never shown again — reissue with
+        <code>postern admin issue</code> if it is lost.
+      </p>
+
+      <h3>5. Start</h3>
+<pre>$ postern serve --config postern.yaml
+</pre>
+      <p><code>deploy/systemd/</code> in the repository runs it as a service.</p>
+    </section>
+
+    <section id="first">
+      <h2>Your first connection</h2>
+      <ol>
+        <li>Open the panel and sign in with the bootstrap secret. An unconfigured bastion shows first-run setup and nothing else.</li>
+        <li>Register a target (<a href="#targets">§ Targets</a>) and trust the CA on it (<a href="#trust">§ Trusting the CA</a>).</li>
+        <li>Create a role, grant it the target, give it to a user.</li>
+        <li>Add your public key under <b>Profile → SSH keys</b>, then connect.</li>
+      </ol>
+<pre>$ postern role add --name ops --target web-01 --config postern.yaml
+$ postern user add --name yigit --os-user yigit --role ops \
+      --key ~/.ssh/id_ed25519.pub --config postern.yaml
+$ ssh yigit:web-01@bastion -p 2222
+</pre>
+    </section>
+
+    <section id="panel">
+      <h2>The panel</h2>
+      <p>
+        The panel is served by the same binary — no second service. Users see
+        their own targets, their own sessions, and their own profile;
+        administrators additionally see users, roles, targets, mappings, sync
+        and every session.
+      </p>
+<pre>http:
+  addr: "127.0.0.1:8088"
+  external_url: "https://bastion.example.com"   <span class="c"># what the browser reaches</span>
+  trusted_proxies: ["10.0.0.9"]                 <span class="c"># your TLS terminator</span>
+  terminal_enabled: false                       <span class="c"># see below</span>
+</pre>
+      <p>
+        <code>external_url</code> is not decorative and cannot be derived from
+        <code>addr</code>: sign-in links and the OIDC <code>redirect_url</code>
+        are built from it, and a bastion behind a proxy or NAT has no idea what
+        <code>:8088</code> means to the outside world.
+      </p>
+
+      <h3>The browser terminal is off by default</h3>
+      <p>
+        With <code>terminal_enabled</code> on, the <b>shell</b> button on a
+        target opens a session inside the panel. That is genuinely convenient,
+        and it changes what a cross-site scripting bug in the panel is worth:
+        with the terminal off, an XSS can call the API; with it on, the same XSS
+        can run commands on your servers.
+      </p>
+      <p>
+        So it is opt-in. An installation that does not need it should not carry
+        the surface — the code existing is not a reason for the door to be open.
+        The same menu copies the <code>ssh</code> command for a real terminal,
+        which most operators end up preferring anyway.
+      </p>
+      <div class="warn"><b>If you turn it on</b><p>Serve the panel over HTTPS (an <code>https://</code> <code>external_url</code>) and keep it behind the reverse proxy. postern already sends a strict CSP and checks <code>Origin</code> on the WebSocket upgrade; those defences assume the transport is not plaintext.</p></div>
+      <h3>Tell postern about your reverse proxy</h3>
+      <p>
+        postern rate-limits sign-in attempts per <i>(account, source
+        address)</i>, so one attacker can only slow themselves down. Behind a
+        proxy, every request arrives from the proxy's address and that pair
+        collapses to the account alone — at which point an unauthenticated
+        stranger can keep your administrator waiting at the door indefinitely,
+        one request every five minutes, without needing to guess anything
+        (<code>admin</code> is the default name).
+      </p>
+      <p>
+        <code>trusted_proxies</code> fixes it. List the addresses your proxy
+        actually connects from; only for those does postern read
+        <code>X-Forwarded-For</code>, and it walks the chain from the right so a
+        client cannot claim someone else's quota by prepending an address.
+      </p>
+<pre>http:
+  trusted_proxies: ["10.0.0.9", "10.1.0.0/24"]
+</pre>
+      <div class="stop"><b>List the proxy, not the network</b><p>Empty is the default and means the header is never read — correct for a directly exposed bastion, because otherwise any client could pick its own rate-limit bucket. Listing a broad range hands that choice to everyone inside it. A malformed entry stops startup rather than leaving you thinking you configured something you didn't.</p></div>
+
+      <div class="warn"><b>Put TLS in front of it either way</b><p>postern serves the panel over plain HTTP. Terminate TLS at a reverse proxy, or bind <code>addr</code> to localhost and reach it over an SSH tunnel. Session cookies are <code>HttpOnly</code> and <code>SameSite</code>, but a plaintext hop is a plaintext hop.</p></div>
+    </section>
+
+    <section id="targets">
+      <h2>Registering a target</h2>
+<pre>$ ssh-keyscan -p 22 10.0.0.11 &gt; web-01.pub    <span class="c"># look at it before trusting it</span>
+$ postern target add --name web-01 --host 10.0.0.11 --port 22 \
+      --host-key-file web-01.pub --grant-role ops --config postern.yaml
+$ postern target list --config postern.yaml
+</pre>
+      <p>
+        <code>--host-key-file</code> is required. postern will not register a
+        target whose host key it was not given, and from then on that key is
+        <b>pinned</b>: a target presenting a different one is reported, never
+        silently accepted. <code>InsecureIgnoreHostKey</code> appears nowhere in
+        the source.
+      </p>
+      <p>
+        The panel offers to fetch the key for you, and is careful about what
+        that means: the fetched key is shown as a fingerprint for you to compare
+        against the machine itself, and nothing is stored until you say you
+        compared it. If the same address is already registered under a different
+        key, it says so — and it distinguishes <i>a different key</i> from
+        <i>a different key type</i>, because giving a real alarm the same voice
+        as a common, innocent situation is how alarms stop working.
+      </p>
+      <div class="note"><b>This is still trust on first use</b><p>Pasting the output of <code>ssh-keyscan</code> was always TOFU too — usually run from the same network. The fetch removes the typo and the temptation to leave the field blank; it does not remove your obligation to check the fingerprint on the console of the machine.</p></div>
+    </section>
+
+    <section id="trust">
+      <h2>Trusting the CA</h2>
+      <p>This is the only change postern needs on your servers.</p>
+<pre><span class="c"># /etc/ssh/sshd_config</span>
+TrustedUserCAKeys /etc/ssh/postern_ca.pub
+AuthorizedPrincipalsFile /etc/ssh/auth_principals/%u
+</pre>
+<pre><span class="c"># /etc/ssh/auth_principals/yigit</span>
+yigit
+</pre>
+      <p>Print the key to install with:</p>
+<pre>$ postern ca show --key /etc/postern/ca_ed25519
+</pre>
+      <h3>Across a fleet</h3>
+      <p>
+        <code>deploy/ansible/</code> does it. The role validates the resulting
+        configuration with <code>sshd -t</code> <i>before</i> installing it, and
+        reloads rather than restarts.
+      </p>
+      <div class="stop"><b>Why that matters</b><p>An invalid <code>sshd_config</code> takes the host away at its next restart, and you cannot SSH in to fix it. Never install one unvalidated — and keep a second way into a new target until you have proved certificate login works on it.</p></div>
+<pre>$ ansible-playbook -i inventory.ini deploy/ansible/example/targets.yml
+</pre>
+
+      <h3>Proving it works</h3>
+<pre>$ ssh -v yigit:web-01@bastion -p 2222
+<span class="c"># on the target, if it does not:</span>
+$ journalctl -u ssh -n 50
+</pre>
+      <p><code>test/integration/testdata/certtarget/Dockerfile</code> is the same setup as a runnable file, and is what the certificate tests run against.</p>
+    </section>
+
+    <section id="discover">
+      <h2>Discovery</h2>
+      <p>
+        If your machines live on Proxmox or vSphere, postern can read them from
+        the hypervisor and turn a tag into a role grant. Without
+        <code>--apply</code> it only prints what it would do.
+      </p>
+<pre>$ postern discover proxmox \
+    --url https://pve.example.com:8006 \
+    --token-id 'postern@pve!discovery' \
+    --token-secret "$PVE_TOKEN" \
+    --tag-key role \
+    --config postern.yaml
+</pre>
+      <p>
+        Proxmox tags are flat strings, so the key and value share one tag. The
+        separator may be <code>=</code>, <code>:</code> or <code>_</code>, with
+        or without spaces — and because Proxmox itself only permits
+        <code>[a-z0-9_.+-]</code>, in practice you will write
+        <code>role_os-admins</code>.
+      </p>
+      <table>
+        <tr><th>Tag</th><th>With <code>--tag-key role</code></th></tr>
+        <tr><td><code>role_os-admins</code></td><td>grants to role <code>os-admins</code></td></tr>
+        <tr><td><code>role=ops</code></td><td>grants to role <code>ops</code> (vSphere, where <code>=</code> is legal)</td></tr>
+        <tr><td><code>production</code></td><td>ignored — no key</td></tr>
+      </table>
+      <p>
+        vSphere carries real tag categories, so <code>--tag-key</code> names the
+        category:
+      </p>
+<pre>$ postern discover vsphere --url https://vcenter.example.com \
+    --username 'discovery@vsphere.local' --password "$VC_PASS" \
+    --tag-key role --config postern.yaml
+</pre>
+      <div class="note"><b>Read-only, and dry by default</b><p>Use a credential with read permission only. Nothing is written without <code>--apply</code>, and an <code>--apply</code> that matched nothing exits non-zero and prints the tags it actually saw — so a typo in <code>--tag-key</code> fails loudly instead of quietly doing nothing.</p></div>
+    </section>
+
+    <section id="labels">
+      <h2>Labels</h2>
+      <p>
+        Labels are free-form <code>key=value</code> pairs on a target, used to
+        group and filter in the panel.
+      </p>
+<pre>$ postern target label set --target web-01 --key env --value prod --config postern.yaml
+$ postern target label remove --target web-01 --key env --config postern.yaml
+</pre>
+      <p>Labels describe; they do not grant. Access comes only from roles.</p>
+    </section>
+
+    <section id="roles">
+      <h2>Users and roles</h2>
+      <p>
+        A role is a named set of targets. A user's access is the union of their
+        roles, resolved at connect time — so revoking a role takes effect on the
+        next connection, not at the end of the working day.
+      </p>
+<pre>$ postern role add --name ops --target web-01 --target web-02 --config postern.yaml
+$ postern user add --name suleyman --os-user suleyman --role ops --config postern.yaml
+$ postern user list --config postern.yaml
+$ postern user modify --name suleyman --os-user deploy --config postern.yaml
+</pre>
+      <h3>Leaving</h3>
+      <p>
+        Accounts are not deleted out from under the audit trail. An account moves
+        through states, and a departed one keeps its record:
+      </p>
+<pre>$ postern user state --name suleyman --set deleted --config postern.yaml
+$ postern user purge --name suleyman --config postern.yaml   <span class="c"># frees the username,</span>
+                                                             <span class="c"># keeps that it existed</span>
+</pre>
+      <table>
+        <tr><th>State</th><th>Meaning</th></tr>
+        <tr><td><code>active</code></td><td>may sign in and connect</td></tr>
+        <tr><td><code>inactive</code></td><td>the directory stopped confirming them; no access, record intact</td></tr>
+        <tr><td><code>deleted</code></td><td>gone, but their sessions still have an owner</td></tr>
+      </table>
+    </section>
+
+    <section id="sources">
+      <h2>Where identities come from</h2>
+      <table>
+        <tr><th>Source</th><th>Use</th></tr>
+        <tr><td>local</td><td>Small teams and the break-glass administrator. Host-issued secrets, argon2id.</td></tr>
+        <tr><td>LDAP / AD</td><td>Users and groups read from the directory; group membership becomes roles.</td></tr>
+        <tr><td>OIDC</td><td>Sign-in at your IdP; groups from a claim become roles.</td></tr>
+      </table>
+      <p>Configure through first-run setup in the panel, or with the CLI:</p>
+<pre>$ postern settings set --key auth.source --value ldap --config postern.yaml
+$ postern settings set --key ldap.url --value ldaps://dc.example.com --config postern.yaml
+$ postern settings set --key ldap.bind_password --secret --config postern.yaml
+                                                <span class="c"># value left blank: asked for</span>
+                                                <span class="c"># at the terminal, stored sealed</span>
+$ postern settings test-ldap --config postern.yaml     <span class="c"># before you rely on it</span>
+$ postern settings list --config postern.yaml          <span class="c"># secrets masked</span>
+</pre>
+
+      <h3>Identity is bound by (iss, sub)</h3>
+      <p>
+        An OIDC user is bound to your postern account by the issuer and the
+        subject — stable, opaque values. Not by <code>preferred_username</code>,
+        which people rename and administrators reassign. Renaming somebody in the
+        IdP does not hand them another person's access.
+      </p>
+      <p>
+        First binding is confirmed out of band: postern shows a code in the
+        browser that must be matched in the terminal, so a stolen browser session
+        alone cannot attach an identity to an account.
+      </p>
+
+      <h3>Just-in-time accounts</h3>
+      <p>
+        With <code>auth.auto_create</code> on, a user whose group maps to a role
+        gets an account on first sign-in. With it off, they are written to a
+        pending queue for an administrator to approve — keyed by their stable
+        identity, so renaming does not let anyone apply twice. Either way, a user
+        with no mapped group is refused and no account appears.
+      </p>
+    </section>
+
+    <section id="mappings">
+      <h2>Group mappings</h2>
+<pre>$ postern mapping add --group sysadmins --role ops --config postern.yaml
+$ postern mapping list --config postern.yaml
+$ postern mapping unmapped --config postern.yaml   <span class="c"># groups seen at login</span>
+                                                   <span class="c"># with no role behind them</span>
+</pre>
+      <p>
+        <code>unmapped</code> is the diagnostic to reach for when somebody says
+        "I signed in but I can't see anything": their group arrived and nothing
+        was waiting for it.
+      </p>
+      <div class="warn"><b>Large AD groups</b><p>Active Directory returns big groups in slices (<code>member;range=0-1499</code>) and may answer with referrals. postern follows both, up to a bound. When it stops early the result is marked truncated rather than presented as the whole group — an incomplete answer is never rendered as an empty one.</p></div>
+    </section>
+
+    <section id="sync">
+      <h2>Directory sync</h2>
+      <p>
+        Sync reconciles postern with the directory on a schedule: accounts whose
+        source stops confirming them go quiet instead of vanishing.
+      </p>
+<pre>$ postern sync run --dry-run --config postern.yaml   <span class="c"># report, write nothing</span>
+$ postern sync run --config postern.yaml
+$ postern sync status --config postern.yaml
+</pre>
+      <p>The brakes exist because a half-answering directory is more dangerous than a silent one:</p>
+      <table>
+        <tr><th>Setting</th><th>Default</th><th>Stops</th></tr>
+        <tr><td><code>sync.max_zero_fraction</code></td><td>0.10</td><td>a run where too many groups came back empty</td></tr>
+        <tr><td><code>sync.min_zero_floor</code></td><td>3</td><td>the same, on small installations</td></tr>
+        <tr><td><code>sync.max_unknown_fraction</code></td><td>0.25</td><td>a run where too much could not be resolved</td></tr>
+        <tr><td><code>sync.max_revoke_per_run</code></td><td>25</td><td>a run that would revoke a fleet's worth of access at once</td></tr>
+        <tr><td><code>sync.grace</code></td><td>—</td><td>how long an unconfirmed account waits before going inactive</td></tr>
+        <tr><td><code>sync.dry_run</code></td><td>false</td><td>everything; reports what it would do</td></tr>
+      </table>
+      <div class="note"><b>Turn it on dry first</b><p>Run with <code>sync.dry_run</code> for a cycle and read <code>sync status</code>. A directory filter that is subtly wrong looks identical to a directory that lost people.</p></div>
+    </section>
+
+    <section id="totp">
+      <h2>Second factor</h2>
+      <p>
+        Users enrol an authenticator themselves under <b>Profile →
+        Authenticator</b>: postern shows a QR code and the secret, and enrolment
+        only completes once a correct code proves the app works.
+      </p>
+      <p>
+        It is RFC 6238 TOTP — SHA-1, six digits, thirty seconds, one step of
+        tolerance either way. A code that has been used cannot be used again,
+        even inside its window.
+      </p>
+      <p>
+        Its main job is guarding the thing that would otherwise let a stolen
+        session become permanent: <b>adding another SSH key</b>. That asks for a
+        password or a TOTP code, and directory users are not left waiting for an
+        administrator to do it for them.
+      </p>
+    </section>
+
+    <section id="breakglass">
+      <h2>Break-glass</h2>
+      <p>
+        The bootstrap administrator lives on the bastion's host, not in your
+        identity provider. Switching the panel to LDAP or OIDC does not remove
+        it. An IdP outage is an inconvenience, not a lockout.
+      </p>
+<pre>$ postern admin list --config postern.yaml           <span class="c"># who holds a local secret</span>
+$ postern admin issue --name admin --config postern.yaml
+$ postern admin revoke --name someone --config postern.yaml
+</pre>
+      <div class="stop"><b>Administrator is not a panel button</b><p><code>is_admin</code> comes from the CLI on the host, or from a directory group you nominate. It cannot be granted from inside the panel — a compromised panel session must not be able to promote itself.</p></div>
+      <p>
+        To bind an existing SSO identity to the break-glass account, open the
+        door deliberately for one sign-in:
+      </p>
+<pre>$ postern user allow-bind --name admin --config postern.yaml
+</pre>
+    </section>
+
+    <section id="sessions">
+      <h2>Sessions and replay</h2>
+<pre>$ postern session list --limit 20 --config postern.yaml
+$ postern session list --user yigit --config postern.yaml
+$ postern session show &lt;session-id&gt; --config postern.yaml
+$ asciinema play /var/lib/postern/recordings/&lt;...&gt;.cast
+</pre>
+      <p>
+        Recordings are asciicast v2 — plain files that replay in the panel or in
+        any asciinema client. Output is always recorded; input is recorded only
+        if you set <code>recording.record_input</code>.
+      </p>
+      <div class="stop"><b>No recording, no session</b><p>If the recording cannot be opened, the session is refused rather than allowed to proceed unwatched. That is a deliberate audit-first choice: a bastion whose recording silently fails is worse than no bastion, because you believe you have a trail.</p></div>
+      <p>
+        Watch the disk. A full disk stops sessions from starting — which is the
+        intended behaviour, and still an outage. See
+        <code>recording.min_free</code> in <a href="#retention">§ Retention</a>.
+      </p>
+    </section>
+
+    <section id="sftp">
+      <h2>SFTP audit</h2>
+      <p>File transfer is <b>off by default</b>. Turn it on per installation:</p>
+<pre><span class="c"># postern.yaml</span>
+session:
+  sftp: true
+</pre>
+      <p>
+        With it on, postern decodes the SFTP protocol as it passes and records a
+        row per file: the operation, the path, and the bytes that actually
+        crossed. Reads, writes, renames, deletes and directory operations are all
+        kept.
+      </p>
+      <ul>
+        <li><b>Failures are kept as failures.</b> A denied open is evidence, not noise.</li>
+        <li><b>Counts are what crossed</b>, not what was requested — an interrupted transfer is flushed with what it actually moved.</li>
+        <li><b>Undecodable is not ignorable.</b> If the stream stops making sense, the session is torn down rather than carried blind.</li>
+      </ul>
+      <p>Per-file records appear on the session's page in the panel next to its replay.</p>
+
+      <h3>Connecting with an sftp client</h3>
+      <p>
+        The <code>sftp</code> command splits its argument on the first
+        <code>:</code>, so the usual <code>login:target@bastion</code> form is
+        read as a remote path and fails with <i>could not resolve hostname</i>.
+        Pass the user separately:
+      </p>
+<pre>$ sftp -o <span class="g">"User=yigit:web-01"</span> -P 2222 bastion
+</pre>
+      <p>
+        <code>scp</code> has the same constraint; <code>rsync -e</code> takes
+        the same <code>-o User=</code>. Graphical clients have a plain username
+        field, so <code>yigit:web-01</code> goes in it unchanged.
+      </p>
+    </section>
+
+    <section id="retention">
+      <h2>Retention</h2>
+<pre><span class="c"># postern.yaml</span>
+recording:
+  dir: /var/lib/postern/recordings
+  record_input: false
+  retain: 90d
+  min_free: 5GB
+session:
+  idle_timeout: 30m
+  max_lifetime: 12h
+</pre>
+      <table>
+        <tr><th>Setting</th><th>Effect</th></tr>
+        <tr><td><code>recording.retain</code></td><td>how long recordings are kept before pruning</td></tr>
+        <tr><td><code>recording.min_free</code></td><td>free space below which postern stops rather than filling the disk</td></tr>
+        <tr><td><code>recording.record_input</code></td><td>record keystrokes as well as output — off by default, and it will capture anything typed, including things typed by mistake</td></tr>
+        <tr><td><code>session.idle_timeout</code></td><td>close a session that has gone quiet</td></tr>
+        <tr><td><code>session.max_lifetime</code></td><td>close a session no matter how busy</td></tr>
+      </table>
+      <div class="warn"><b>record_input is a privacy decision</b><p>Keystroke capture records a password typed into a prompt on the target. Decide it deliberately, tell the people it applies to, and protect the recordings accordingly.</p></div>
+    </section>
+
+    <section id="config">
+      <h2>Config reference</h2>
+      <p>
+        The file holds <b>infrastructure only</b> — addresses, paths, limits.
+        Identity, users, roles and targets live in the database, so a config file
+        can be copied between hosts without carrying access with it.
+      </p>
+<pre>listen:
+  addr: ":2222"
+  external_addr: "bastion.example.com:2222"  <span class="c"># what the panel tells users</span>
+  max_conns: 200
+  max_conns_per_ip: 10
+  handshake_timeout: 30s
+  max_auth_tries: 6
+  max_channels_per_conn: 10
+  max_pending_logins: 64
+
+host_key: /etc/postern/host_ed25519
+secret_key_file: /etc/postern/secret.key
+
+ca:
+  key_file: /etc/postern/ca_ed25519
+
+database:
+  dsn: postgres://postern@localhost:5432/postern   <span class="c"># or POSTERN_DATABASE_DSN</span>
+
+http:
+  addr: "127.0.0.1:8088"
+  external_url: "https://bastion.example.com"
+  trusted_proxies: []          <span class="c"># see § The panel — required behind a proxy</span>
+  terminal_enabled: false      <span class="c"># browser terminal; opt-in, see § The panel</span>
+
+session:
+  sftp: false
+  idle_timeout: 30m
+  max_lifetime: 12h
+  accept_env: ["LANG", "LC_*"]
+
+recording:
+  dir: /var/lib/postern/recordings
+  retain: 90d
+  min_free: 5GB
+
+target_probe:
+  enabled: true
+  refresh: 5m
+  timeout: 5s
+
+sync:
+  enabled: true
+  interval: 1h
+  grace: 24h
+  dry_run: true
+</pre>
+      <p>
+        Relative paths resolve against the config file's own directory.
+        <code>accept_env</code> is an allowlist: environment variables a user
+        sends are dropped unless they match it.
+      </p>
+    </section>
+
+    <section id="checklist">
+      <h2>Production checklist</h2>
+      <ul>
+        <li><b>TLS in front of the panel.</b> Reverse proxy, or bind to localhost and tunnel.</li>
+        <li><b><code>trusted_proxies</code> set to that proxy's address</b> — otherwise the sign-in rate limit collapses onto the account and can be used to lock your administrator out.</li>
+        <li><b>CA key and secret key backed up</b>, offline, and readable only by the service user. Neither is recoverable.</li>
+        <li><b>Database backed up</b>, and its DSN not sitting in a world-readable file — use <code>POSTERN_DATABASE_DSN</code>.</li>
+        <li><b>A second break-glass administrator</b>, its secret stored where the bastion being down does not block reaching it.</li>
+        <li><b>Sync run dry for a cycle</b> before it is allowed to revoke anything.</li>
+        <li><b>Recording disk monitored</b> — <code>min_free</code> makes a full disk refuse sessions, which is correct and still an outage.</li>
+        <li><b>A second way into new targets</b> until you have proved certificate login works on each.</li>
+        <li><b>Decide <code>record_input</code> deliberately</b> and tell the people it applies to.</li>
+        <li><b>Restrict who reaches the SSH port.</b> postern is the door; it is not a firewall.</li>
+        <li><b>Practise the recovery</b>: revoke your own admin role in a test install and get back in with the CLI. Find out now, not during an incident.</li>
+      </ul>
+    </section>
+
+    <section id="rotate">
+      <h2>Rotating the CA</h2>
+      <p>Rotation is additive — trust both keys, then drop the old one.</p>
+      <ol>
+        <li><code>postern ca init</code> against a new path.</li>
+        <li>Append the new public key to <code>/etc/ssh/postern_ca.pub</code> on every target (<code>TrustedUserCAKeys</code> accepts several).</li>
+        <li>Point <code>ca.key_file</code> at the new key and restart. New sessions use it.</li>
+        <li>Once no live session predates the switch, remove the old key from targets.</li>
+      </ol>
+      <div class="stop"><b>Never rotate by replacing</b><p>Swapping the key on the bastion before targets trust the new one locks everyone out of everything at the same moment.</p></div>
+    </section>
+
+    <section id="backup">
+      <h2>Backup</h2>
+      <table>
+        <tr><th>What</th><th>Why</th></tr>
+        <tr><td>CA private key</td><td>Lose it and every target must be re-trusted by hand.</td></tr>
+        <tr><td>Secret key</td><td>Seals stored LDAP/OIDC credentials. Lose it and they must be re-entered.</td></tr>
+        <tr><td>Host key</td><td>Lose it and every user gets a host-key warning — indistinguishable from an attack.</td></tr>
+        <tr><td>Database</td><td>Users, roles, targets, mappings, the audit trail.</td></tr>
+        <tr><td>Recordings</td><td>Only if your retention obligation outlives the disk.</td></tr>
+      </table>
+      <p>Restore is: put the keys back, restore the database, start. Nothing on the targets changes as long as the CA key is the same one.</p>
+    </section>
+
+    <section id="refuse">
+      <h2>What postern refuses</h2>
+      <p>Each of these is a deliberate refusal with a reason, not a gap.</p>
+      <table>
+        <tr><th>Refused</th><th>Because</th></tr>
+        <tr><td>Agent forwarding</td><td>It hands the target a channel back to the user's keys, around the bastion.</td></tr>
+        <tr><td>X11 forwarding</td><td>Same shape: a second path postern cannot see.</td></tr>
+        <tr><td>Port forwarding (<code>direct-tcpip</code>)</td><td>A tunnel postern cannot record is a tunnel it will not carry.</td></tr>
+        <tr><td>Unknown request types</td><td>Default deny, so a future SSH extension does not arrive pre-approved.</td></tr>
+        <tr><td>Environment variables outside <code>accept_env</code></td><td>User-controlled environment reaches a shell you did not write.</td></tr>
+        <tr><td>A session that cannot be recorded</td><td><a href="#sessions">§ Sessions</a>.</td></tr>
+        <tr><td>A target whose host key changed</td><td>The pin is the point.</td></tr>
+        <tr><td>Granting <code>is_admin</code> from the panel</td><td>A compromised session must not be able to promote itself.</td></tr>
+      </table>
+    </section>
+
+    <section id="trouble">
+      <h2>Troubleshooting</h2>
+
+      <h3>"Permission denied (publickey)" from the target</h3>
+      <p>
+        postern authenticated you and the target rejected the certificate.
+        Check on the target: is <code>TrustedUserCAKeys</code> pointing at the
+        key <code>postern ca show</code> prints, and does
+        <code>auth_principals/&lt;os_user&gt;</code> contain the principal? Then
+        read <code>journalctl -u ssh</code> there — sshd says exactly which of
+        the two failed.
+      </p>
+
+      <h3>The panel says a target is unreachable</h3>
+      <p>
+        The probe dials from the bastion. Check <code>target_probe.timeout</code>,
+        then try the dial by hand from the bastion host — a firewall between
+        bastion and target is the usual answer.
+      </p>
+
+      <h3>"no route to host" only from some places</h3>
+      <p>
+        On macOS, a process needs Local Network permission to reach hosts on the
+        LAN. A binary launched from a terminal that has not been granted it sees
+        local addresses fail while WAN addresses work. Grant the terminal
+        application the permission and run it again.
+      </p>
+
+      <h3>Signed in, but no targets</h3>
+      <p>
+        Their group arrived and nothing was mapped to it:
+        <code>postern mapping unmapped --config postern.yaml</code>. If the group looks empty, check
+        whether it is <i>truncated</i> rather than empty
+        (<a href="#mappings">§ Group mappings</a>).
+      </p>
+
+      <h3>Discovery matched nothing</h3>
+      <p>
+        The command prints the tags it saw. Compare them to
+        <code>--tag-key</code>; on Proxmox remember the value is in the same flat
+        tag, separated by <code>_</code>.
+      </p>
+
+      <h3>The panel did not change after a rebuild</h3>
+      <p><code>make web</code> alone does nothing to a running server — the assets are embedded. Rebuild the binary.</p>
+
+      <h3>Locked out of the panel</h3>
+      <p>Go to the host. <code>postern admin issue --name &lt;user&gt;</code> prints a fresh secret. This is why the local administrator is never removed.</p>
+    </section>
+
+    <section id="limits">
+      <h2>Limits of 1.0</h2>
+      <ul>
+        <li><b>SSH and SFTP only.</b> No HTTP, RDP, VNC, database or Kubernetes proxying.</li>
+        <li><b>Single node.</b> No clustering or shared state; recordings are local files.</li>
+        <li><b>TOTP only</b> as a second factor — no WebAuthn, no push.</li>
+        <li><b>No port forwarding</b>, by design.</li>
+        <li><b>No object storage</b> for recordings; retention is disk plus <code>retain</code>.</li>
+        <li><b>The panel speaks HTTP</b>; TLS is your reverse proxy's job.</li>
+        <li><b>Certificate login only on targets.</b> postern does not carry a user's own key or a password through to a server that does not trust the CA.</li>
+      </ul>
+      <p>
+        1.0 means the paths above are built and tested against real OpenSSH,
+        Keycloak, OpenLDAP and PostgreSQL on every change. It does not mean years
+        of production behind it. Treat it as a careful new tool, and keep the
+        second way in.
+      </p>
+    </section>
+
+    <footer>
+      postern — a certificate-based, session-recording SSH bastion.
+      <a href="../index.html">Home</a>.
+    </footer>
+  </main>
+</div>
