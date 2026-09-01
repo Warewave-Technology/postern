@@ -25,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/warewave/postern/internal/qr"
 	"github.com/warewave/postern/internal/totp"
 )
 
@@ -81,7 +82,10 @@ func enrol(t *testing.T, client *http.Client, apiURL string) string {
 	if code != http.StatusOK {
 		t.Fatalf("kayıt başlatılamadı: %d %s", code, body)
 	}
-	var out struct{ Secret, URI string }
+	var out struct {
+		Secret, URI string
+		QR          []string `json:"qr"`
+	}
 	if err := json.Unmarshal([]byte(body), &out); err != nil {
 		t.Fatal(err)
 	}
@@ -90,6 +94,40 @@ func enrol(t *testing.T, client *http.Client, apiURL string) string {
 	}
 	if !strings.HasPrefix(out.URI, "otpauth://totp/postern:") {
 		t.Errorf("otpauth bağlantısı beklenen biçimde değil: %q", out.URI)
+	}
+
+	/*
+	 * ⚠️ QR, DÖNDÜRÜLEN BAĞLANTIYI KODLAMALI.
+	 *
+	 * "QR alanı dolu mu" diye bakan bir test, yanlış bir dizgiyi —
+	 * eski bir sırrı, boş bir bağlantıyı — kodlayan bir hatayı
+	 * göremez. Kullanıcı o kodu okutur, uygulaması yanlış sırrı
+	 * kaydeder, ve arıza "kodlarım hiç tutmuyor" olarak günler sonra
+	 * çıkar. Burada matrisi bağlantıdan YENİDEN üretip karşılaştırıyoruz.
+	 */
+	if len(out.QR) == 0 {
+		t.Fatal("kayıt cevabında QR yok")
+	}
+	want, qerr := qr.Encode(out.URI, qr.M)
+	if qerr != nil {
+		t.Fatalf("bağlantı kodlanamadı: %v", qerr)
+	}
+	if len(want) != len(out.QR) {
+		t.Fatalf("QR boyutu = %d, %d bekleniyordu", len(out.QR), len(want))
+	}
+	for y, row := range want {
+		var sb strings.Builder
+		for _, dark := range row {
+			if dark {
+				sb.WriteByte('1')
+			} else {
+				sb.WriteByte('0')
+			}
+		}
+		if sb.String() != out.QR[y] {
+			t.Fatalf("QR %d. satırda ayrışıyor — kod, dönen bağlantıdan "+
+				"BAŞKA bir şeyi taşıyor", y)
+		}
 	}
 
 	now := time.Now()

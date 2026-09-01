@@ -29,6 +29,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/warewave/postern/internal/qr"
 	"github.com/warewave/postern/internal/store"
 	"github.com/warewave/postern/internal/totp"
 )
@@ -162,6 +163,38 @@ func (s *Server) handleTOTPBegin(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("audit write failed", "error", aerr)
 	}
 
+	uri := totp.URI(totpIssuer, name, secret)
+
+	/*
+	 * QR, kayıt bağlantısının modül matrisi.
+	 *
+	 * ⚠️ SUNUCUDA ÜRETİLİYOR, PANELDE DEĞİL. Kodlayıcı burada bağımsız
+	 * bir uygulamaya (Apple CoreImage) karşı bit bit doğrulanıyor
+	 * (internal/qr); panele ikinci bir kodlayıcı koymak, ikinci bir
+	 * doğrulama yükü ve sessizce ayrışabilecek iki gerçek demek olurdu.
+	 *
+	 * ⚠️ ÜRETİLEMEZSE KAYIT DÜŞMÜYOR. QR bir kolaylık; kurulum anahtarı
+	 * ve otpauth bağlantısı zaten dönüyor ve ikisi de tek başına
+	 * yeterli. Kolaylığın arızası, kullanıcıyı hesabından etmemeli.
+	 */
+	var rows []string
+	if m, qerr := qr.Encode(uri, qr.M); qerr != nil {
+		s.logger.Error("totp qr could not be rendered",
+			"user", name, "error", qerr)
+	} else {
+		rows = make([]string, len(m))
+		for y, line := range m {
+			b := make([]byte, len(line))
+			for x, dark := range line {
+				b[x] = '0'
+				if dark {
+					b[x] = '1'
+				}
+			}
+			rows[y] = string(b)
+		}
+	}
+
 	/*
 	 * ⚠️ SIR YALNIZCA BURADA, YALNIZCA BİR KEZ DÖNÜYOR. Durum ucundan
 	 * okunabilseydi, oturumu çalan biri onu alıp kendi telefonuna
@@ -169,7 +202,8 @@ func (s *Server) handleTOTPBegin(w http.ResponseWriter, r *http.Request) {
 	 */
 	writeJSON(w, http.StatusOK, map[string]any{
 		"secret": secret,
-		"uri":    totp.URI(totpIssuer, name, secret),
+		"uri":    uri,
+		"qr":     rows,
 	})
 }
 

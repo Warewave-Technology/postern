@@ -57,6 +57,7 @@ describe("kimlik doğrulayıcı", () => {
     vi.spyOn(api, "totpBegin").mockResolvedValue({
       secret: "ABCDEFGHIJKLMNOP",
       uri: "otpauth://totp/postern:yigit?secret=ABCDEFGHIJKLMNOP",
+      qr: ["101", "010", "101"],
     });
     render(<Authenticator />);
 
@@ -74,6 +75,16 @@ describe("kimlik doğrulayıcı", () => {
      * hiç tutmayınca fark eder.
      */
     expect(await screen.findByText("ABCD EFGH IJKL MNOP")).toBeInTheDocument();
+
+    /*
+     * ⚠️ QR NORMAL YOL, ELLE GİRİŞ YEDEK — ikisi de olmalı. Yalnızca
+     * QR gösteren bir ekran, kamerasız bir masaüstünden kurulum yapan
+     * kullanıcıyı çıkmazda bırakır; yalnızca metin gösteren ekran ise
+     * herkesi 32 karakter yazmaya zorlar.
+     */
+    expect(
+      screen.getByRole("img", { name: /scan it with your authenticator/i }),
+    ).toBeInTheDocument();
   });
 
   /*

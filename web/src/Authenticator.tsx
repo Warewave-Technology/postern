@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, TOTPStatus, toMessage } from "./api";
+import QRCode from "./QRCode";
 import { ActionButton, ErrorLine, OkLine } from "./admin/common";
 
 /*
@@ -21,9 +22,11 @@ function group(secret: string): string {
 
 export default function Authenticator() {
   const [status, setStatus] = useState<TOTPStatus | null>(null);
-  const [secret, setSecret] = useState<{ secret: string; uri: string } | null>(
-    null,
-  );
+  const [secret, setSecret] = useState<{
+    secret: string;
+    uri: string;
+    qr: string[];
+  } | null>(null);
   const [reauth, setReauth] = useState("");
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
@@ -173,21 +176,32 @@ export default function Authenticator() {
             }}
           >
             <p className="state">
-              Add this to your authenticator app, then enter the code it shows.
+              Scan this with your authenticator app, then enter the code it
+              shows.
             </p>
             {/*
-              QR yok: sır elle giriliyor. Elle yazılmış bir QR kodlayıcının
-              sessizce yanlış sır üretmesi, kullanıcının ancak kodları hiç
-              tutmayınca fark edeceği bir arızadır — ve o noktada hesabına
-              giremiyor olur.
+              ⚠️ QR VE ELLE GİRİŞ BİRLİKTE DURUYOR.
+
+              QR normal yol. Ama elle giriş kaldırılamaz: kamerası
+              olmayan bir masaüstünden kurulum yapan ya da kodu başka
+              bir cihaza geçiren kullanıcı, tek yol QR olsaydı burada
+              kalırdı.
             */}
+            {secret.qr.length > 0 && (
+              <div className="qr-wrap">
+                <QRCode
+                  rows={secret.qr}
+                  label="Enrolment QR code — scan it with your authenticator app"
+                />
+              </div>
+            )}
             <label>
               Setup key
               <code className="totp-secret">{group(secret.secret)}</code>
               <span className="wfield-hint">
-                On a phone you can open{" "}
-                <a href={secret.uri}>this enrolment link</a> instead, and your
-                app will fill it in. This key is shown once.
+                Can't scan? Type this into your app instead, or open{" "}
+                <a href={secret.uri}>the enrolment link</a> on the phone itself.
+                It is shown once.
               </span>
             </label>
             <label>

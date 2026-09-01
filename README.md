@@ -452,6 +452,15 @@ Two things about it are deliberate:
   code cannot both win — measured under a 16-way race, not assumed. Confirming
   the enrolment spends a code too, so the next key needs the next code.
 
+The setup key is shown as a QR code and as text. The encoder is ours
+(`internal/qr`), and the reason it is trustworthy is not that it looks right:
+its output is compared module for module against Apple CoreImage's encoder
+across all 40 versions and all four correction levels. A hand-written QR
+encoder's likely failure is not an unreadable code but a *scannable and wrong*
+one, which surfaces days later as "my codes never work" — with the person
+locked out of their own account. Goldens generated from our own output would
+have caught none of that; a wrong encoder agrees with itself perfectly.
+
 **Enrolling one takes over the check.** An account that had a password and then
 enrols an authenticator is asked for a code from that point on, not the
 password. That is the point of enrolling — otherwise the password would still

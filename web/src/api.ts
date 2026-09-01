@@ -424,7 +424,14 @@ export type TOTPStatus = {
   last_used_at?: string;
 };
 
-export type TOTPEnrolment = { secret: string; uri: string };
+export type TOTPEnrolment = {
+  secret: string;
+  uri: string;
+  /* qr: sunucunun ürettiği modül matrisi ('0'/'1' satırları). Panelde
+     ikinci bir kodlayıcı tutmuyoruz — kodlayıcı Go tarafında bağımsız
+     bir uygulamaya karşı doğrulanıyor (internal/qr). */
+  qr: string[];
+};
 
 export type RecordingState = "none" | "missing" | "partial" | "complete";
 

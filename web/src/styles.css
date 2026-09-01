@@ -2331,6 +2331,28 @@ label > textarea {
 }
 
 /*
+ * QR kutusu.
+ *
+ * ⚠️ BEYAZ ZEMİN KART İÇİNDE DE KORUNUYOR. Koyu temada kartın zeminine
+ * bırakılan bir QR, kenar boşluğunu kaybeder ve sessiz bölge fiilen yok
+ * olur — tarayıcı arkadaki koyu alanı kodun parçası sanar.
+ */
+.qr-wrap {
+  display: flex;
+  justify-content: center;
+  margin: 4px 0 10px;
+}
+.qr {
+  width: 100%;
+  max-width: 240px;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  /* Yazdırırken de koyu üstüne açık kalsın. */
+  background: #fff;
+}
+
+/*
  * TOTP kurulum anahtarı.
  *
  * ⚠️ Kullanıcı bunu TELEFONA ELLE GEÇİRİYOR (QR yok). Dar ya da kesilen
