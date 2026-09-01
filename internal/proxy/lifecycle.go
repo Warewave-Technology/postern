@@ -406,7 +406,19 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 		// sayfasında "en son ne zaman çalıştı" ile "en son neden
 		// çalışmadı" ayrı ayrı duruyor.
 		recordTargetOutcome(ctx, deps, log, req.TargetName, model.TargetFacts{}, err)
-		return nil, fmt.Errorf("proxy.Open: %w", ErrUnavailable)
+		/*
+		 * ⚠️ SEBEP SARMALANARAK TAŞINIYOR.
+		 *
+		 * Eskiden yalnızca ErrUnavailable dönüyordu ve neden
+		 * bağlanamadığımız SADECE günlükte kalıyordu. Web terminali
+		 * bunu kullanıcıya "[disconnected]" diye gösteriyordu — yani
+		 * hedefi bu bastion'a güvenecek şekilde yapılandırmamış bir
+		 * operatör, ekranda yapması gerekeni söyleyen hiçbir şey
+		 * görmüyordu. Çağıran artık upstream sınıflarını
+		 * (ErrRefused / ErrUnreachable / ErrHostKeyMismatch)
+		 * errors.Is ile ayırt edebiliyor.
+		 */
+		return nil, fmt.Errorf("proxy.Open: %w: %w", ErrUnavailable, err)
 	}
 	recordTargetOutcome(ctx, deps, log, req.TargetName, conn.Facts(), nil)
 	maybeProbe(ctx, deps, log, conn, req.TargetName, req.Username)

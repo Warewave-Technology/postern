@@ -17,6 +17,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/warewave/postern/internal/proxy"
+	"github.com/warewave/postern/internal/upstream"
 )
 
 // handleTerminal, tarayıcıya hedefte bir kabuk açar.
@@ -52,22 +53,39 @@ func (s *Server) handleTerminal(w http.ResponseWriter, r *http.Request) {
 		host = r.RemoteAddr
 	}
 
-	// 2. YETKİ — upgrade'DEN ÖNCE.
-	//
-	// Reddi düzgün bir HTTP durum koduyla söylemek, WS kurup sonra
-	// kapatmaktan iyidir: istemci sebebi görür, tarayıcı konsolunda
-	// anlamsız bir "connection closed" kalmaz.
+	/*
+	 * 2. OTURUMU AÇ.
+	 *
+	 * ⚠️ BAŞARISIZLIK, UPGRADE'DEN SONRA SÖYLENİYOR — VE BU BİR
+	 * DÜZELTME.
+	 *
+	 * Burada eskiden upgrade'den ÖNCE writeErr çağrılıyordu; yorumu da
+	 * "istemci sebebi görür" diyordu. O gerekçe tarayıcı için YANLIŞ:
+	 * WebSocket el sıkışması 101 dışında bir şeyle biterse, tarayıcı
+	 * durum kodunu da gövdeyi de JavaScript'e VERMİYOR (WHATWG
+	 * sözleşmesi bunu kasten yapıyor). Sayfaya ulaşan tek şey boş bir
+	 * error/close olayı oluyordu.
+	 *
+	 * ÖLÇÜLDÜ: hedefi bu bastion'ın CA'sına güvenecek şekilde
+	 * yapılandırmamış bir kurulumda, panelde kabuk düğmesine basan
+	 * kullanıcının gördüğü tek şey "[disconnected]" idi. Sunucu sebebi
+	 * biliyordu ve günlüğüne yazıyordu; kullanıcı ise özelliğin bozuk
+	 * olduğunu sanıyordu.
+	 *
+	 * Sebep artık KAPANIŞ ÇERÇEVESİYLE gidiyor: tarayıcı CloseEvent'in
+	 * code ve reason alanlarını JavaScript'e veriyor.
+	 *
+	 * Kimlik doğrulama ve site-dışı istek kontrolleri YUKARIDA, hâlâ
+	 * upgrade'den önce: onlar bir kullanıcıya açıklanacak durumlar
+	 * değil, sokete hiç hakkı olmayan çağrılar.
+	 */
 	sess, err := proxy.Open(r.Context(), *s.proxyDeps, proxy.Request{
 		Username:   sessionUser(r),
 		TargetName: r.PathValue("target"),
 		SrcIP:      host,
 	})
 	if err != nil {
-		if errors.Is(err, proxy.ErrAccessDenied) {
-			writeErr(w, http.StatusForbidden, "access denied")
-			return
-		}
-		writeErr(w, http.StatusServiceUnavailable, "session unavailable")
+		s.refuseTerminal(w, r, err)
 		return
 	}
 
@@ -176,4 +194,80 @@ func sameOriginURL(a, b string) bool {
 		return false
 	}
 	return strings.EqualFold(ua.Scheme, ub.Scheme) && strings.EqualFold(ua.Host, ub.Host)
+}
+
+/*
+ * Kapanış kodları.
+ *
+ * ⚠️ 4000-4999 uygulamaya ayrılmış aralık (RFC 6455 §7.4.2). Standart
+ * kodları (1008, 1011) kullanmak, tarayıcının ya da bir ara vekilin
+ * ürettiği kapanışlarla bizimkini ayırt edilemez kılardı.
+ */
+const (
+	closeDenied      = 4403 // kullanıcının bu hedefe yetkisi yok
+	closeUnavailable = 4503 // oturum açılamadı
+)
+
+/*
+ * refuseTerminal, oturumun NEDEN açılamadığını tarayıcıya söyler.
+ *
+ * ⚠️ SOKET AÇILIP HEMEN KAPANIYOR ve sebebi bu tek yol taşıyor. Kapanış
+ * çerçevesinin reason alanı 123 BAYT ile sınırlı (RFC 6455 §5.5) —
+ * metinler bu yüzden kısa; ayrıntı sunucu günlüğünde ve hedefin
+ * sayfasında ("en son neden çalışmadı") duruyor.
+ *
+ * Upgrade'in kendisi başarısız olursa geriye HTTP hatası yazmak
+ * kalıyor: soket yok, söyleyecek kanal da yok.
+ */
+func (s *Server) refuseTerminal(w http.ResponseWriter, r *http.Request, err error) {
+	code, reason := terminalRefusal(err)
+
+	s.logger.Warn("terminal session refused",
+		"user", sessionUser(r), "target", r.PathValue("target"),
+		"code", code, "error", err)
+
+	conn, upErr := websocket.Accept(w, r, &websocket.AcceptOptions{
+		InsecureSkipVerify: true,
+	})
+	if upErr != nil {
+		// Soket kurulamadı: elimizde yalnızca HTTP var.
+		writeErr(w, http.StatusServiceUnavailable, reason)
+		return
+	}
+	_ = conn.Close(websocket.StatusCode(code), reason)
+}
+
+/*
+ * terminalRefusal, hatayı kullanıcıya söylenecek bir cümleye çevirir.
+ *
+ * ⚠️ CÜMLELER NE YAPILACAĞINI SÖYLÜYOR. "session unavailable" teknik
+ * olarak doğru ama okuyan kişiye hiçbir şey vermiyordu; bu ekranı gören
+ * kişi çoğu zaman hedefi henüz yapılandırmamış olan operatörün ta
+ * kendisi.
+ */
+func terminalRefusal(err error) (int, string) {
+	switch {
+	case errors.Is(err, proxy.ErrAccessDenied):
+		return closeDenied, "You do not have access to this target."
+
+	case errors.Is(err, upstream.ErrRefused):
+		// Uzaktaki sshd bizi reddetti. Neredeyse her zaman tek bir
+		// sebep: hedef bu bastion'ın CA'sına güvenmiyor.
+		return closeUnavailable,
+			"The target refused this bastion's certificate — it needs to trust the CA."
+
+	case errors.Is(err, upstream.ErrUnreachable):
+		return closeUnavailable, "The bastion could not reach this target."
+
+	case errors.Is(err, upstream.ErrHostKeyMismatch):
+		// ⚠️ "Yapılandırma değişmiş olabilir" demiyoruz: postern bunu
+		// bilemez, ve sabitlenmiş anahtarın tutmaması araya girme de
+		// olabilir. Kararı operatöre bırakan bir cümle.
+		return closeUnavailable,
+			"The target presented a different host key than the one postern has pinned."
+
+	case errors.Is(err, proxy.ErrRecordingFailed):
+		return closeUnavailable, "The session was refused because it could not be recorded."
+	}
+	return closeUnavailable, "The session could not be opened."
 }

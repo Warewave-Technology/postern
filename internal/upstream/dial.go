@@ -163,7 +163,7 @@ func dialer(ctx context.Context, t model.Target, user string, signer ssh.Signer)
 	var d net.Dialer
 	nc, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
-		return nil, fmt.Errorf("target %s: %w", t.Name, err)
+		return nil, fmt.Errorf("target %s: %w", t.Name, classifyDial(err))
 	}
 
 	stop := context.AfterFunc(ctx, func() { nc.Close() })
@@ -173,7 +173,10 @@ func dialer(ctx context.Context, t model.Target, user string, signer ssh.Signer)
 	c, chans, reqs, err := ssh.NewClientConn(nc, addr, ccfg)
 	if err != nil {
 		nc.Close()
-		return nil, fmt.Errorf("target %s: %w", t.Name, err)
+		// Sınıflandırma burada: taşıma kurulduktan sonraki hata ya
+		// hedefin kimliğidir ya da bizi kabul etmemesidir, ve ikisi
+		// operatöre farklı şeyler söylüyor (hostkey.go).
+		return nil, fmt.Errorf("target %s: %w", t.Name, classifyHandshake(err))
 	}
 
 	client := ssh.NewClient(c, chans, reqs)

@@ -14,7 +14,6 @@ const detail = (over: Partial<Detail> = {}): Detail => ({
   sso_only: false,
   dir_bound: false,
   roles: [],
-  targets: [],
   keys: [],
   sessions: [],
   ...over,

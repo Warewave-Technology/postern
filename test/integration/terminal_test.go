@@ -140,13 +140,91 @@ func TestTerminalDeniesUngrantedTarget(t *testing.T) {
 	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
 	browserSignIn(t, client, apiURL)
 
-	conn, resp, err := dialTerminal(t, client, apiURL, "yasak01", apiURL)
-	if err == nil {
-		conn.Close(websocket.StatusNormalClosure, "")
+	/*
+	 * ⚠️ SOKET AÇILIYOR VE SEBEBİYLE KAPANIYOR — VE BU BİR DÜZELTME.
+	 *
+	 * Bu test eskiden el sıkışmanın 403 ile başarısız olmasını
+	 * sabitliyordu. Sunucu tarafında doğru görünüyordu ama TARAYICIDA
+	 * hiçbir şey ifade etmiyordu: WebSocket el sıkışması 101 dışında
+	 * bir şeyle bitince tarayıcı durum kodunu da gövdeyi de
+	 * JavaScript'e vermiyor (WHATWG bunu kasten yapıyor). Panelde
+	 * görünen tek şey "[disconnected]" idi.
+	 *
+	 * Sebep artık kapanış çerçevesiyle geliyor; tarayıcı CloseEvent'in
+	 * code ve reason alanlarını veriyor.
+	 */
+	conn, _, err := dialTerminal(t, client, apiURL, "yasak01", apiURL)
+	if err != nil {
+		t.Fatalf("soket hiç açılmadı: %v — sebep taşınamaz", err)
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	_, _, readErr := conn.Read(context.Background())
+	if readErr == nil {
 		t.Fatal("yetkisiz hedefe terminal açıldı")
 	}
-	if resp != nil && resp.StatusCode != http.StatusForbidden {
-		t.Errorf("durum = %d, beklenen 403", resp.StatusCode)
+	if got := websocket.CloseStatus(readErr); got != 4403 {
+		t.Errorf("kapanış kodu = %d, 4403 bekleniyordu: %v", got, readErr)
+	}
+	if !strings.Contains(readErr.Error(), "do not have access") {
+		t.Errorf("sebep kullanıcıya ulaşmıyor: %v", readErr)
+	}
+}
+
+/*
+ * ⚠️ HEDEF BİZİ REDDEDİYORSA EKRAN BUNU SÖYLEMELİ.
+ *
+ * ÖLÇÜLEN ARIZA: hedefi bu bastion'ın CA'sına güvenecek şekilde
+ * yapılandırmamış bir kurulumda, panelde kabuk düğmesine basan
+ * kullanıcının gördüğü tek şey "[disconnected]" idi. Sunucu sebebi
+ * biliyor ve günlüğüne yazıyordu; ekranda özelliğin BOZUK olduğunu
+ * düşündüren boş bir satır kalıyordu.
+ *
+ * Burada hedef GERÇEKTEN başka bir CA'ya güveniyor, yani reddi gerçek
+ * bir OpenSSH sunucusu veriyor.
+ */
+func TestTerminalSaysWhyTheTargetRefusedUs(t *testing.T) {
+	_, apiURL, _, db := oobBastionWithTerminal(t)
+
+	// Bizim CA'mıza DEĞİL, başkasına güvenen bir hedef.
+	rogue := testAuthority(t)
+	stranger := startCertTarget(t, rogue.AuthorizedKey())
+	tc := stranger.target()
+	tc.Name = "yabanci01"
+	if _, err := db.CreateTarget(context.Background(), tc); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.GrantTarget(context.Background(), "ops", "yabanci01"); err != nil {
+		t.Fatal(err)
+	}
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
+	browserSignIn(t, client, apiURL)
+
+	conn, _, err := dialTerminal(t, client, apiURL, "yabanci01", apiURL)
+	if err != nil {
+		t.Fatalf("soket hiç açılmadı: %v", err)
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	_, _, readErr := conn.Read(context.Background())
+	if readErr == nil {
+		t.Fatal("bize güvenmeyen hedefe oturum açıldı")
+	}
+	if got := websocket.CloseStatus(readErr); got != 4503 {
+		t.Errorf("kapanış kodu = %d, 4503 bekleniyordu: %v", got, readErr)
+	}
+	/*
+	 * Cümle NE YAPILACAĞINI söylemeli. "session unavailable" teknik
+	 * olarak doğruydu ve okuyan kişiye hiçbir şey vermiyordu — üstelik
+	 * bu ekranı gören kişi çoğu zaman hedefi henüz yapılandırmamış
+	 * olan operatörün ta kendisi.
+	 */
+	for _, want := range []string{"certificate", "CA"} {
+		if !strings.Contains(readErr.Error(), want) {
+			t.Errorf("sebep %q içermiyor: %v", want, readErr)
+		}
 	}
 }
 

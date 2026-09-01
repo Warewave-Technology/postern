@@ -64,8 +64,12 @@ export type UserDetail = {
   last_confirmed?: string;
   sso_only: boolean;
   dir_bound: boolean;
+  /* ⚠️ Hedefler ROL BAŞINA geliyor; düz bir "targets" alanı YOK.
+     Burada zorunlu bir string[] olarak duruyordu ve sunucu onu hiç
+     göndermiyordu — TypeScript'in var saydığı, çalışma anında hep
+     undefined olan bir alan. Okuyan olmadığı için hata vermiyordu;
+     okuyan ilk kişi için bir tuzaktı. */
   roles: { name: string; targets: string[] }[];
-  targets: string[];
   keys: { fingerprint: string; comment: string; added_at: string }[];
   sessions: { id: string; target: string; started: string; ended?: string }[];
   /** Hesabın postern'de doğrulanabilir bir değeri varsa. Yoksa kimliği

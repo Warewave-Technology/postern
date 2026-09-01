@@ -43,7 +43,9 @@ export default function Terminal({
     // ws:// veya wss:// — sayfanın şemasını izle. Sunucu https ise
     // terminal de tls üzerinden gider (config zaten https zorunlu kılıyor).
     const scheme = location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${scheme}//${location.host}/api/terminal/${encodeURIComponent(target)}`);
+    const ws = new WebSocket(
+      `${scheme}//${location.host}/api/terminal/${encodeURIComponent(target)}`,
+    );
     ws.binaryType = "arraybuffer";
 
     const sendResize = () => {
@@ -52,7 +54,9 @@ export default function Terminal({
       // bir faydası yok: hedefteki kabuk de bu boyutu görüyor.
       if (term.cols < 1 || term.rows < 1) return;
       if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+        ws.send(
+          JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }),
+        );
       }
     };
 
@@ -66,20 +70,47 @@ export default function Terminal({
         // Kontrol mesajı (exit gibi) — veri akışına karışmaz.
         try {
           const msg = JSON.parse(ev.data);
-          if (msg.type === "exit") term.writeln(`\r\n[session ended: status ${msg.status}]`);
-        } catch { /* tanınmayan kontrol mesajını yok say */ }
+          if (msg.type === "exit")
+            term.writeln(`\r\n[session ended: status ${msg.status}]`);
+        } catch {
+          /* tanınmayan kontrol mesajını yok say */
+        }
         return;
       }
       term.write(new Uint8Array(ev.data));
     };
 
-    ws.onclose = () => term.writeln("\r\n[disconnected]");
+    /*
+     * ⚠️ KAPANIŞ SEBEBİ VARSA ONU YAZ.
+     *
+     * ÖLÇÜLEN ARIZA: hedefi bu bastion'ın CA'sına güvenecek şekilde
+     * yapılandırmamış bir kurulumda, kabuk düğmesine basan kullanıcının
+     * gördüğü tek şey "[disconnected]" idi. Sunucu sebebi biliyordu
+     * ama upgrade'den ÖNCE HTTP hatası döndürüyordu — ve tarayıcı,
+     * başarısız bir WebSocket el sıkışmasının durum kodunu da gövdesini
+     * de JavaScript'e vermiyor. Sebep artık kapanış çerçevesiyle
+     * geliyor (internal/httpapi/terminal.go).
+     *
+     * Sebep YOKSA eski metin kalıyor: normal çıkışta da onclose
+     * çalışıyor ve orada söylenecek bir şey yok.
+     */
+    ws.onclose = (ev) => {
+      const why = (ev.reason || "").trim();
+      term.writeln(why ? `\r\n[${why}]` : "\r\n[disconnected]");
+    };
+    /*
+     * onerror'da sebep YOK ve olamaz: tarayıcı el sıkışma hatasının
+     * ayrıntısını kasten gizliyor. Buraya bir açıklama uydurmak,
+     * bilmediğimiz bir şeyi biliyormuş gibi göstermek olurdu — onclose
+     * hemen ardından çalışıyor ve varsa gerçek sebebi o yazıyor.
+     */
     ws.onerror = () => term.writeln("\r\n[connection error]");
 
     // Klavye girdisi ham bayt olarak gider: xterm zaten kaçış dizilerini
     // üretiyor, bizim yorumlamamıza gerek yok.
     const dataSub = term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(new TextEncoder().encode(data));
+      if (ws.readyState === WebSocket.OPEN)
+        ws.send(new TextEncoder().encode(data));
     });
 
     /*

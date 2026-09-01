@@ -4,6 +4,7 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"io"
 	"path/filepath"
 	"strings"
@@ -179,11 +180,93 @@ func TestDialWithCertUntrustedCA(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if _, err := upstream.DialWithCert(ctx, tgt.target(), upstream.Identity{
+	_, err := upstream.DialWithCert(ctx, tgt.target(), upstream.Identity{
 		PosternUser: "saldirgan@example.com",
 		OSUser:      "postern",
-	}, rogue); err == nil {
+	}, rogue)
+	if err == nil {
 		t.Fatal("güvenilmeyen CA'nın sertifikası kabul edildi")
+	}
+
+	/*
+	 * ⚠️ SINIFLANDIRMA GERÇEK sshd'YE KARŞI SABİTLENİYOR.
+	 *
+	 * "Hedef bizi reddetti" ile "hedefe ulaşamadım" operatöre bambaşka
+	 * şeyler söylüyor ve web terminali bu ayrımı kullanıcıya gösteren
+	 * cümleyi buradan seçiyor (httpapi/terminal.go). Ayrım
+	 * kütüphanenin hata METNİNE bakılarak yapılsaydı, x/crypto o metni
+	 * değiştirdiği gün sessizce yanlış sınıfa düşerdik — ve kullanıcı
+	 * "hedefe ulaşılamıyor" diye yanlış yere bakardı. Burada gerçek
+	 * bir OpenSSH sunucusu gerçekten reddediyor.
+	 */
+	if !errors.Is(err, upstream.ErrRefused) {
+		t.Errorf("hata ErrRefused değil: %v — terminal ekranı yanlış "+
+			"sebebi gösterir", err)
+	}
+	if errors.Is(err, upstream.ErrUnreachable) {
+		t.Error("reddedilen sertifika 'erişilemez' diye sınıflandı")
+	}
+}
+
+/*
+ * ⚠️ HOST ANAHTARI UYUŞMAZLIĞI, REDDEN AYRI BİR OLAY.
+ *
+ * Biri "hedef bize güvenmiyor" (yapılandırma eksik), diğeri "hedefin
+ * kimliği sabitlediğimizden başka" (yapılandırma değişmiş ya da araya
+ * giren var). İkisini aynı mesajla göstermek, ikincisini görmezden
+ * gelinecek bir kuruluma çevirirdi.
+ */
+func TestDialClassifiesHostKeyMismatch(t *testing.T) {
+	authority := testAuthority(t)
+	tgt := startCertTarget(t, authority.AuthorizedKey())
+
+	// Hedefi DOĞRU adresle ama YANLIŞ host anahtarıyla kaydet.
+	target := tgt.target()
+	other := testAuthority(t)
+	target.HostKey = other.AuthorizedKey()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	_, err := upstream.DialWithCert(ctx, target, upstream.Identity{
+		PosternUser: "yigit", OSUser: "postern",
+	}, authority)
+	if err == nil {
+		t.Fatal("yanlış host anahtarıyla bağlantı kuruldu")
+	}
+	if !errors.Is(err, upstream.ErrHostKeyMismatch) {
+		t.Errorf("hata ErrHostKeyMismatch değil: %v", err)
+	}
+	if errors.Is(err, upstream.ErrRefused) {
+		t.Error("anahtar uyuşmazlığı 'sertifika reddi' diye sınıflandı — " +
+			"operatör yanlış yeri düzeltmeye çalışır")
+	}
+}
+
+/*
+ * Erişilemeyen hedef: kapalı bir porta bağlanmak ErrUnreachable
+ * vermeli. Yanlış sınıflanırsa ekran "hedef sertifikamızı reddetti"
+ * der ve operatör var olmayan bir CA sorununu kovalar.
+ */
+func TestDialClassifiesUnreachable(t *testing.T) {
+	authority := testAuthority(t)
+	tgt := startCertTarget(t, authority.AuthorizedKey())
+
+	target := tgt.target()
+	// Kapalı olduğu bilinen bir port.
+	target.Port = 1
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	_, err := upstream.DialWithCert(ctx, target, upstream.Identity{
+		PosternUser: "yigit", OSUser: "postern",
+	}, authority)
+	if err == nil {
+		t.Fatal("kapalı porta bağlanıldı")
+	}
+	if !errors.Is(err, upstream.ErrUnreachable) {
+		t.Errorf("hata ErrUnreachable değil: %v", err)
 	}
 }
 
