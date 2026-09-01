@@ -9,6 +9,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/warewave/postern/internal/record"
+	"github.com/warewave/postern/internal/sftpaudit"
 )
 
 // requestSender, üzerine request gönderilebilen uç (ssh.Channel bunu sağlar).
@@ -43,6 +44,25 @@ type Broker struct {
 	// idle nil olabilir: boşta kalma sınırı kapalıysa sarmalayıcı yok.
 	idle *idleGuard
 
+	// sftpSink nil olabilir: SFTP kapalıysa denetim de kurulmuyor ve
+	// süzgeç subsystem'i zaten reddediyor.
+	sftpSink SFTPSink
+	// sftp, kanal SFTP'ye geçtiğinde dolan çözümleyici (sftp.go).
+	sftp sftpState
+	// abortOnce, denetim çökünce kanalı bir kez kapatmak için.
+	abortOnce sync.Once
+	/*
+	 * aborted, Run'a "hemen dön" diyen sinyal.
+	 *
+	 * ⚠️ KANALLARI KAPATMAK YETMİYOR — ölçüldü. Run, ctx ile üç
+	 * goroutine'in bitişi arasında seçim yapıyor; o üçlünün içinde
+	 * hedeften gelen request'leri dinleyen döngü de var ve o döngü
+	 * ancak karşı taraf kanalı kapatınca bitiyor. Yalnızca Close
+	 * çağıran bir sonlandırma, denetim çökmüşken oturumu akmaya devam
+	 * ettiriyordu.
+	 */
+	aborted chan struct{}
+
 	logger *slog.Logger
 }
 
@@ -51,33 +71,69 @@ type Broker struct {
 // rec nil geçilebilir (kayıt kapalı). recordInput yalnızca config açıkça
 // istediğinde true olmalı.
 func New(down ssh.Channel, downR <-chan *ssh.Request, up ssh.Channel, upR <-chan *ssh.Request, rec *record.Writer, recordInput bool, policy RequestPolicy, logger *slog.Logger) *Broker {
-	return &Broker{down: down, downR: downR, up: up, upR: upR, rec: rec, recordInput: recordInput, policy: policy, logger: logger}
+	return &Broker{down: down, downR: downR, up: up, upR: upR, rec: rec,
+		recordInput: recordInput, policy: policy, logger: logger,
+		aborted: make(chan struct{})}
+}
+
+// WithSFTP, SFTP denetim hedefini bağlar.
+//
+// Ayrı bir kurucu yerine ayarlayıcı olması bilinçli: SFTP kapalıyken
+// (varsayılan) çağıranların hiçbiri değişmiyor.
+func (b *Broker) WithSFTP(sink SFTPSink) *Broker {
+	b.sftpSink = sink
+	return b
 }
 
 // outputSink returns where target→user bytes should be written: the user's
 // channel alone, or that channel tee'd into the recording.
 func (b *Broker) outputSink() io.Writer {
-	if b.rec != nil {
-		return b.idle.wrap(io.MultiWriter(b.down, b.rec.OutputStream()))
-	}
-	return b.idle.wrap(b.down)
+	return b.idle.wrap(b.tap(b.down, b.recStream(true), feedFromTarget))
 }
 
 // inputSink is the same for user→target bytes, gated by recordInput.
 func (b *Broker) inputSink() io.Writer {
+	var rec io.Writer
 	if b.rec != nil && b.recordInput {
-		return b.idle.wrap(io.MultiWriter(b.up, b.rec.InputStream()))
+		rec = b.rec.InputStream()
 	}
-	return b.idle.wrap(b.up)
+	return b.idle.wrap(b.tap(b.up, rec, feedFromClient))
 }
 
 // errorSink returns where target→user bytes should be written: the user's
 // channel alone, or that channel tee'd into the recording.
 func (b *Broker) stderrSink() io.Writer {
+	// ⚠️ stderr ÇÖZÜMLENMİYOR: SFTP protokolü stderr üzerinde akmaz.
+	// Buraya sunucunun uyarı metinleri düşer ve onlar kayda ait.
 	if b.rec != nil {
 		return b.idle.wrap(io.MultiWriter(b.down.Stderr(), b.rec.OutputStream()))
 	}
 	return b.idle.wrap(b.down.Stderr())
+}
+
+// recStream, kayıt akışını döner (kapalıysa nil).
+func (b *Broker) recStream(output bool) io.Writer {
+	if b.rec == nil {
+		return nil
+	}
+	if output {
+		return b.rec.OutputStream()
+	}
+	return b.rec.InputStream()
+}
+
+// tap, veri yoluna kopya alıcıyı takar.
+//
+// SFTP hiç kurulmamışsa (sftpSink nil) fazladan katman koymuyoruz:
+// varsayılan yol, bu özellik eklenmeden önceki yolla aynı kalıyor.
+func (b *Broker) tap(dst io.Writer, rec io.Writer, feed func(*sftpaudit.Session, []byte) error) io.Writer {
+	if b.sftpSink == nil {
+		if rec != nil {
+			return io.MultiWriter(dst, rec)
+		}
+		return dst
+	}
+	return &sftpTap{dst: dst, rec: rec, feed: feed, b: b}
 }
 
 // Run shuttles data and requests until the session ends, then returns.
@@ -135,7 +191,14 @@ func (b *Broker) Run(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 	case <-wgCloseSignal:
+	case <-b.aborted:
 	}
+
+	// ⚠️ Kapanış SIRASI: önce yarım kalan transferler yazılıyor. Kanal
+	// kapandıktan sonra yazmaya kalksaydık, koparılmış bir transferin
+	// izi kaybolurdu — yani veriyi çekip bağlantıyı koparmak, denetimden
+	// kaçmanın yolu olurdu.
+	b.finishSFTP()
 
 	b.down.Close()
 	b.up.Close()
@@ -184,6 +247,7 @@ func (b *Broker) relayRequests(dst ssh.Channel, src <-chan *ssh.Request, dir dir
 		if observe {
 			b.recordResize(req)
 			b.recordIntent(req)
+			b.beginSFTP(req)
 		}
 
 		if req.WantReply {

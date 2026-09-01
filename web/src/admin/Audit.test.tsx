@@ -37,6 +37,8 @@ describe("kayıt izleme", () => {
     vi.spyOn(api, "sessionDetail").mockResolvedValue({
       ...session(),
       recording: { state: "none", size: 0 },
+
+      files: [],
     });
     show();
 
@@ -56,6 +58,8 @@ describe("kayıt izleme", () => {
     vi.spyOn(api, "sessionDetail").mockResolvedValue({
       ...session(),
       recording: { state: "missing", size: 0 },
+
+      files: [],
     });
     show();
 
@@ -74,6 +78,8 @@ describe("kayıt izleme", () => {
     vi.spyOn(api, "sessionDetail").mockResolvedValue({
       ...session(),
       recording: { state: "partial", size: 10 },
+
+      files: [],
     });
     show();
 
@@ -81,5 +87,96 @@ describe("kayıt izleme", () => {
       await screen.findByRole("button", { name: /watch/i }),
     );
     await waitFor(() => expect(screen.getByText(/incomplete/i)).toBeTruthy());
+  });
+});
+
+/*
+ * ⚠️ SFTP OTURUMUNUN TERMİNAL KAYDI BOŞTUR.
+ *
+ * Protokol ham ikili aktığı için kayda hiç yazılmıyor — kanalın yıllarca
+ * kapalı kalma sebebi zaten şişen ve oynatılamayan kayıtlardı
+ * (proxy/sftp.go). Ama bu, denetçinin boş bir oynatıcıya bakıp "bu
+ * oturumda bir şey olmamış" demesi anlamına GELMEMELİ: dosya olayları
+ * elde kalan tek kanıt ve görünür olmak zorunda.
+ */
+describe("SFTP dosya olayları", () => {
+  const openSession = async () => {
+    vi.spyOn(api, "sessions").mockResolvedValue([session()]);
+    render(<Sessions theme="dark" />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /watch/i }),
+    );
+  };
+
+  it("kaydı olmayan oturumda bile dosya olaylarını gösteriyor", async () => {
+    vi.spyOn(api, "sessionDetail").mockResolvedValue({
+      ...session(),
+      recording: { state: "none", size: 0 },
+      files: [
+        {
+          id: "f1",
+          at: "2026-08-31T10:01:00Z",
+          op: "transfer",
+          path: "/etc/shadow",
+          flags: "read",
+          read: 4196,
+          wrote: 0,
+          ok: true,
+        },
+      ],
+    });
+    await openSession();
+
+    expect(await screen.findByText("/etc/shadow")).toBeInTheDocument();
+    // Bayt sayısı okunur olmalı: denetçi "4,1 KB" ile karşılaştırma yapar.
+    expect(screen.getByText("4.1 KB")).toBeInTheDocument();
+    // ...ve "hiç kayıt yok" cümlesi, elde kanıt VARKEN kurulmamalı.
+    expect(
+      screen.getByText(/file events below show what it did/i),
+    ).toBeInTheDocument();
+  });
+
+  it("reddedilen işlemi gizlemiyor, reddedildi diye gösteriyor", async () => {
+    vi.spyOn(api, "sessionDetail").mockResolvedValue({
+      ...session(),
+      recording: { state: "complete", size: 120 },
+      files: [
+        {
+          id: "f1",
+          at: "2026-08-31T10:01:00Z",
+          op: "remove",
+          path: "/etc/passwd",
+          read: 0,
+          wrote: 0,
+          ok: false,
+          detail: "permission denied",
+        },
+      ],
+    });
+    await openSession();
+
+    expect(await screen.findByText("/etc/passwd")).toBeInTheDocument();
+    // Başarısız satır SİLİNMEZ: engelin çalıştığının kanıtı.
+    expect(screen.getByText(/denied — permission denied/i)).toBeInTheDocument();
+  });
+
+  /*
+   * ⚠️ "DOKUNULMADI" İLE "BAKAMADIK" AYNI ŞEY DEĞİL.
+   *
+   * Olay listesi okunamadığında boş tablo göstermek, denetçiye
+   * "bu oturumda dosyaya dokunulmadı" dedirtirdi.
+   */
+  it("olaylar okunamadıysa bunu boş liste gibi göstermiyor", async () => {
+    vi.spyOn(api, "sessionDetail").mockResolvedValue({
+      ...session(),
+      recording: { state: "complete", size: 120 },
+      files: [],
+      files_error: true,
+    });
+    await openSession();
+
+    expect(
+      await screen.findByText(/not a statement that no files were touched/i),
+    ).toBeInTheDocument();
   });
 });

@@ -116,6 +116,24 @@ func (s *Server) adminSessionDetail(w http.ResponseWriter, r *http.Request) {
 		f.Close()
 	}
 
+	/*
+	 * ⚠️ DOSYA OLAYLARI DETAYIN PARÇASI, AYRI BİR UÇ NOKTA DEĞİL.
+	 *
+	 * SFTP oturumunun terminal kaydı BOŞTUR — protokol ham ikili aktığı
+	 * için kayda hiç yazılmıyor (bkz. proxy/sftp.go). Dosya olayları
+	 * ayrı bir yerde dursaydı, denetçi boş bir oynatıcı görüp "bu
+	 * oturumda bir şey olmamış" sonucuna varırdı. Oysa tam da o oturumda
+	 * dosya taşınmış olabilir.
+	 *
+	 * Okunamamaları oturum detayını düşürmüyor ama SESSİZ de geçmiyor:
+	 * boş liste "dosyaya dokunulmadı" demek, "bakamadık" demek değil.
+	 */
+	files, ferr := s.store.SessionFiles(r.Context(), sess.ID)
+	if ferr != nil {
+		s.logger.Error("session file events unavailable",
+			"session", sess.ID, "error", ferr)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id":         sess.ID,
 		"user":       sess.User,
@@ -125,6 +143,9 @@ func (s *Server) adminSessionDetail(w http.ResponseWriter, r *http.Request) {
 		"started_at": sess.StartedAt.Format(time.RFC3339),
 		"ended_at":   endedAt(sess),
 		"recording":  map[string]any{"state": state, "size": size},
+		"files":      files,
+		// files_error, "dokunulmadı" ile "bakamadık"ı ayırıyor.
+		"files_error": ferr != nil,
 	})
 }
 

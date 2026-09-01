@@ -10,8 +10,7 @@ binary.
 **Status: in development.** The proxy, certificate model, persistence, RBAC,
 session recording, the admin panel, OIDC and LDAP sign-in, and directory-backed
 identity are built and exercised against real OpenSSH, Keycloak and OpenLDAP.
-Not production-ready: file transfer (SFTP/SCP) is still refused and there is no
-deployment tooling yet. The roadmap lives in
+Not production-ready: TOTP is still missing. The roadmap lives in
 [postern-PLAN.md](postern-PLAN.md) (Turkish).
 
 ## What it does today
@@ -27,8 +26,11 @@ deployment tooling yet. The roadmap lives in
 - Decides access from roles and refuses by default, recording the reason
 - Pins every target's host key; `InsecureIgnoreHostKey` appears nowhere
 - Relays only the session requests it can account for, and logs the rest
+- Audits **file transfer per file** when SFTP is enabled: who opened what, how
+  many bytes actually crossed, what was renamed or deleted, and what the target
+  refused — without the transfer ever entering the terminal recording
 
-Still ahead: TOTP and an SFTP relay.
+Still ahead: TOTP.
 
 ### Watching a session back
 
@@ -71,7 +73,8 @@ Refused today, and why:
 
 | Request | Why not |
 |---|---|
-| `subsystem` (`sftp`, `scp`) | Transfers would be recorded as raw protocol bytes in a terminal recording: unplayable, and no answer to "who took which file". The SFTP relay is a planned feature that needs per-file audit, not a side effect. |
+| `subsystem` other than `sftp` | postern can only audit a protocol it can read. Relaying a subsystem whose wire format is unknown would mean claiming an audit that does not exist. |
+| `subsystem sftp`, unless `session.sftp` is on | Off by default so that upgrading does not hand an operator a new data-egress path they never asked for. When on, every file event is recorded (see below). |
 | `x11-req` | Opens a second channel that bypasses the bastion. |
 | `auth-agent-req@openssh.com` | Hands the user's private key to the target. A compromised target becomes a compromised key. |
 
@@ -369,6 +372,39 @@ This was not a theoretical gap. Before the filter existed, `sftp` worked
 end to end through postern, and the transfer landed in the `.cast` file
 as binary SFTP protocol under an `80x24` header that no terminal ever
 had.
+
+### File transfer, and what makes it auditable
+
+`sftp` is relayed when `session.sftp` is on, and only then:
+
+```yaml
+session:
+  sftp: true                  # off by default
+```
+
+postern does not put an SFTP server in the middle. Bytes reach the target
+unchanged; a copy is decoded on the way past, and what comes out is a
+file-level record — one row per open, transfer, rename, delete and
+permission change, written to `session_files` and shown under the session
+in the panel.
+
+Three details decide whether that record is worth anything:
+
+- **Events are written from the reply, not the request.** A delete that
+  came back "permission denied" is recorded as a denied delete. Recording
+  the request would tell an investigator a file was gone when it is still
+  there.
+- **Byte counts are what crossed, not what was asked for.** A read that
+  requests 4 KB and receives 100 bytes at end-of-file counts 100.
+- **Failed operations are kept.** "Nobody tried" and "they tried and were
+  refused" are different findings, and only one of them means the target
+  is configured correctly.
+
+If the stream cannot be decoded, or the events cannot be written, the
+session ends. That is the same rule recording already follows: a channel
+that cannot be audited does not get to carry data. The raw transfer never
+enters the terminal recording — that shape is what kept the channel shut
+in the first place.
 
 ## Setting up
 

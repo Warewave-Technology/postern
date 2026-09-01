@@ -532,7 +532,29 @@ func (s *Session) Run(ctx context.Context, down ssh.Channel, downR <-chan *ssh.R
 	b := New(down, downR, s.up, s.upR, s.rec, s.deps.RecordInput, s.deps.Requests, s.Log)
 	b.idle = guard
 
+	/*
+	 * SFTP denetimi yalnızca kanal AÇIKKEN kuruluyor.
+	 *
+	 * ⚠️ Sıra tersine çevrilemez: süzgeç kapalıyken `subsystem sftp`
+	 * zaten reddediliyor, o yüzden burada günlükçü kurmak boşuna bir
+	 * goroutine olurdu. Açıkken ise kurulmaması, kanalı denetimsiz
+	 * açmak demek olurdu — kanalın var olma koşulu bu günlükçü.
+	 */
+	var journal *sftpJournal
+	if s.deps.Requests.AllowSFTP {
+		journal = newSFTPJournal(s.deps.Store, s.ID, s.Log, func(err error) {
+			b.abortAudit(err)
+		})
+		b.WithSFTP(journal)
+	}
+
 	err := b.Run(ctx)
+
+	if journal != nil {
+		if n := journal.Close(); n > 0 {
+			s.Log.Info("sftp file events recorded", "events", n)
+		}
+	}
 
 	// Oturumun NEDEN bittiğini logla. "Kullanıcı çıktı", "boşta kaldı" ve
 	// "ömrü doldu" denetim kaydında ayrı olaylar; hepsini "session ended"

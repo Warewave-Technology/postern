@@ -319,6 +319,22 @@ type SessionConfig struct {
 	// root kabuğu.
 	IdleTimeout time.Duration `yaml:"idle_timeout"`
 
+	/*
+	 * SFTP, `subsystem sftp` kanalını açar. VARSAYILAN KAPALI.
+	 *
+	 * ⚠️ Kapalı olması bilinçli. Bu kanal uzun süre HİÇ yoktu ve
+	 * gerekçesi ölçülmüştü: transfer terminal kaydına ham ikili olarak
+	 * düşüyor, "kim hangi dosyayı aldı" cevapsız kalıyordu. Artık
+	 * dosya seviyesinde denetleniyor (internal/sftpaudit) — ama
+	 * varsayılan açık gelseydi, yükseltme yapan bir operatör hiçbir
+	 * şey yapmadan yeni bir veri ÇIKIŞ yolu kazanırdı. Yeni bir çıkış
+	 * yolu, açıkça istenerek açılır.
+	 *
+	 * Açıkken her dosya olayı session_files tablosuna yazılıyor;
+	 * yazılamıyorsa oturum kapanıyor.
+	 */
+	SFTP bool `yaml:"sftp"`
+
 	// MaxLifetime, oturumun mutlak ömrü. VARSAYILAN KAPALI (0).
 	//
 	// Gerekçesi somut: süreli rol atamaları (AssignRole expiresAt)

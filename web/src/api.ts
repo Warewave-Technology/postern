@@ -403,8 +403,33 @@ export type MyKeys = {
 
 export type RecordingState = "none" | "missing" | "partial" | "complete";
 
+/*
+ * SessionFile, SFTP oturumunda gerçekleşen tek bir dosya olayı.
+ *
+ * ⚠️ ok=false satırlar da geliyor ve gösterilmeli: izinsizlikten dönen
+ * bir silme denemesi, engelin çalıştığının kanıtı. Yalnızca başarılıları
+ * gösteren bir ekran, "kimse denemedi" ile "denediler ama giremediler"i
+ * aynı gösterirdi.
+ */
+export type SessionFile = {
+  id: string;
+  at: string;
+  op: string;
+  path: string;
+  new_path?: string;
+  flags?: string;
+  read: number;
+  wrote: number;
+  ok: boolean;
+  detail?: string;
+};
+
 export type SessionDetail = Session & {
   recording: { state: RecordingState; size: number };
+  files: SessionFile[];
+  // files_error: liste okunamadı. Boş liste ile karıştırılmamalı —
+  // "dokunulmadı" ile "bakamadık" farklı şeyler.
+  files_error?: boolean;
 };
 
 export type LogEntry = {

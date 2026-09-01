@@ -44,9 +44,12 @@ func (d direction) String() string {
 //
 // Listede OLMAYANLAR ve neden:
 //
-//	subsystem                   → sftp/scp denetlenemiyor (bkz. dosya başı).
-//	                              SFTP relay planda ayrı bir iş; dosya
-//	                              seviyesinde denetimle geldiğinde açılacak.
+//	subsystem                   → sftp DIŞINDAKİLER. sftp artık dosya
+//	                              seviyesinde denetlenerek geçebiliyor
+//	                              (session.sftp, varsayılan kapalı);
+//	                              adını bilmediğimiz bir altsistemi
+//	                              denetleyemeyiz, o yüzden kalanlar
+//	                              reddedilmeye devam ediyor.
 //	x11-req                     → X11 yönlendirme bastion'ı atlayan ikinci
 //	                              bir kanal açar.
 //	auth-agent-req@openssh.com  → agent yönlendirme, kullanıcının özel
@@ -96,6 +99,19 @@ type RequestPolicy struct {
 	// nil = varsayılan (defaultAcceptEnv). BOŞ DİLİM = hiçbiri; ikisi
 	// farklı şeyler ve YAML bu ikisini ayırt edebiliyor.
 	AcceptEnv []string
+
+	/*
+	 * AllowSFTP, `subsystem sftp` kanalını açar.
+	 *
+	 * ⚠️ VARSAYILAN KAPALI ve öyle kalmalı. Açık geldiğinde, yükseltme
+	 * yapan bir operatör hiçbir şey yapmadan yeni bir veri çıkış yolu
+	 * kazanmış olurdu — üstelik farkında olmadan.
+	 *
+	 * Açıkken bile SFTP yalnızca dosya olayları denetlenerek geçiyor
+	 * (sftp.go). Denetim kurulamıyorsa kanal AÇILMIYOR: bu bayrağın
+	 * anlamı "sftp serbest" değil, "denetimli sftp serbest".
+	 */
+	AllowSFTP bool
 }
 
 // acceptEnv, etkin whitelist'i döner.
@@ -120,9 +136,21 @@ func (p RequestPolicy) allow(dir direction, req *ssh.Request) (bool, string) {
 
 	if !clientRequests[req.Type] {
 		if req.Type == "subsystem" {
+			name := subsystemName(req.Payload)
+			// ⚠️ YALNIZCA sftp. "AllowSFTP" bir subsystem anahtarı
+			// değil: adı çözümleyebildiğimiz tek altsistem sftp ve
+			// denetim de yalnızca onun tel biçimini biliyor. Bayrağı
+			// tüm subsystem'lere açmak, adı bilinmeyen bir kanalı
+			// "denetleniyor" diye geçirmek olurdu.
+			if p.AllowSFTP && name == "sftp" {
+				return true, ""
+			}
 			// Adı log'a yazmak teşhisi kolaylaştırıyor: "sftp mi denendi,
 			// başka bir şey mi" sorusu operatörün ilk sorusu olacak.
-			return false, fmt.Sprintf("subsystem %q is not relayed (no per-file audit yet)", subsystemName(req.Payload))
+			if name == "sftp" {
+				return false, "subsystem \"sftp\" is disabled (session.sftp)"
+			}
+			return false, fmt.Sprintf("subsystem %q is not relayed (only audited sftp is supported)", name)
 		}
 		return false, "request type is not allowed"
 	}

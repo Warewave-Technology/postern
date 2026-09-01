@@ -123,7 +123,10 @@ func (s *Server) ProxyDeps() proxy.Deps {
 		// bir değer yüzünden her bağlantının ayrı ayrı düşmesi yerine
 		// açılışta bir kez hata veriyor (config.MinFreeBytes).
 		RecordMinFree: s.recordMinFree,
-		Requests:      proxy.RequestPolicy{AcceptEnv: s.cfg.Session.AcceptEnv},
+		Requests: proxy.RequestPolicy{
+			AcceptEnv: s.cfg.Session.AcceptEnv,
+			AllowSFTP: s.cfg.Session.SFTP,
+		},
 
 		// Oturum sınırları buradan geçiyor, dolayısıyla web terminali de
 		// (EnableTerminal aynı Deps'i alıyor) aynı sınırlara tabi.

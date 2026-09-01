@@ -98,6 +98,8 @@ FUZZ_TARGETS = \
 	internal/proxy:FuzzPolicyDefaultDeny \
 	internal/proxy:FuzzParsePtyRoundTrip \
 	internal/proxy:FuzzRecordResize \
+	internal/sftpaudit:FuzzDecoderSurvivesHostileStreams \
+	internal/sftpaudit:FuzzFinishIsAlwaysSafe \
 	internal/record:FuzzWriterChunking \
 	internal/record:FuzzSplitIncompleteUTF8 \
 	internal/record:FuzzWriterStreamSeparation \

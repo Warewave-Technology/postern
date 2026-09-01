@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, LogEntry, Session, toMessage } from "../api";
+import { api, LogEntry, Session, SessionFile, toMessage } from "../api";
 import {
   ActionButton,
   ErrorLine,
@@ -70,6 +70,110 @@ function sortableTime(v: string | null): number {
   return Number.isNaN(t) ? 0 : t;
 }
 
+/*
+ * Bayt sayısını okunur hâle getirir.
+ *
+ * Denetçinin sorusu "4823905 bayt mı" değil "4,6 MB mı". Ham sayı, iki
+ * transferi gözle karşılaştırmayı imkânsız kılıyordu.
+ */
+function bytes(n: number): string {
+  if (n === 0) return "—";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let v = n;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${i === 0 ? v : v.toFixed(1)} ${units[i]}`;
+}
+
+/*
+ * SessionFiles, bir oturumda dokunulan dosyaları listeler.
+ *
+ * ⚠️ NİYE OYNATICININ YANINDA DURUYOR: SFTP oturumunun terminal kaydı
+ * BOŞTUR — protokol ham ikili aktığı için kayda hiç yazılmıyor
+ * (proxy/sftp.go). Bu tablo olmasa denetçi boş bir oynatıcı görür ve
+ * "bu oturumda bir şey olmamış" sonucuna varırdı; oysa tam o oturumda
+ * dosya taşınmış olabilir.
+ */
+function SessionFiles({
+  files,
+  failed,
+}: {
+  files: SessionFile[];
+  failed?: boolean;
+}) {
+  if (failed) {
+    return (
+      <WarnLine
+        msg={
+          "The file events for this session could not be read, so this is " +
+          "not a statement that no files were touched."
+        }
+      />
+    );
+  }
+  if (files.length === 0) return null;
+
+  return (
+    <div className="card">
+      <h3>Files</h3>
+      <p className="page-sub">
+        What this session did over SFTP. A transfer row counts the bytes that
+        actually crossed, not the bytes requested.
+      </p>
+      <table className="data">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Op</th>
+            <th>Path</th>
+            <th>Read</th>
+            <th>Wrote</th>
+            <th>Result</th>
+          </tr>
+        </thead>
+        <tbody>
+          {files.map((f) => (
+            <tr key={f.id}>
+              <td>
+                <Timestamp value={f.at} />
+              </td>
+              <td>{f.op}</td>
+              <td>
+                <code title={f.path}>{f.path}</code>
+                {f.new_path && (
+                  <>
+                    {" → "}
+                    <code title={f.new_path}>{f.new_path}</code>
+                  </>
+                )}
+              </td>
+              <td>{bytes(f.read)}</td>
+              <td>{bytes(f.wrote)}</td>
+              <td>
+                {/*
+                  Başarısız satırlar SİLİNMİYOR, işaretleniyor: reddedilen
+                  bir silme denemesi engelin çalıştığının kanıtı ve
+                  denetimin göstermesi gereken tam olarak bu.
+                */}
+                {f.ok ? (
+                  "ok"
+                ) : (
+                  <span className="bad" title={f.detail}>
+                    denied{f.detail ? ` — ${f.detail}` : ""}
+                  </span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function Sessions({ theme }: { theme: Resolved }) {
   const { items, error, denied, loading, refresh } = useList<Session>(
     api.sessions,
@@ -78,6 +182,10 @@ export function Sessions({ theme }: { theme: Resolved }) {
   // izlemenin bir faydası yok, ikisini birden beslemenin maliyeti var.
   const [playing, setPlaying] = useState<string | null>(null);
   const [why, setWhy] = useState("");
+  // Açılan oturumun dosya olayları. Oynatıcıdan BAĞIMSIZ tutuluyor:
+  // kaydı olmayan bir oturumun bile dosya olayları olabilir.
+  const [files, setFiles] = useState<SessionFile[]>([]);
+  const [filesFailed, setFilesFailed] = useState(false);
 
   /*
    * ⚠️ OYNATMADAN ÖNCE KAYDIN DURUMU SORULUYOR.
@@ -93,14 +201,27 @@ export function Sessions({ theme }: { theme: Resolved }) {
    */
   const watch = (id: string) => {
     setWhy("");
+    setFiles([]);
+    setFilesFailed(false);
     return api
       .sessionDetail(id)
       .then((d) => {
+        // ⚠️ Dosya olayları KAYITTAN ÖNCE yerleşiyor. Aşağıdaki
+        // dallardan bazıları erken dönüyor (kayıt yok / kayıp) ve
+        // olaylar sonra atansaydı, tam da kaydı olmayan oturumlarda
+        // hiç görünmezlerdi — oysa denetçinin elinde kalan tek kanıt
+        // orada bunlar oluyor.
+        setFiles(d.files ?? []);
+        setFilesFailed(Boolean(d.files_error));
+        const hasFiles = (d.files ?? []).length > 0;
         switch (d.recording.state) {
           case "none":
             setWhy(
-              "No recording was kept for this session — the bastion was not " +
-                "recording when it ran.",
+              hasFiles
+                ? "No terminal recording was kept for this session, but the " +
+                    "file events below show what it did."
+                : "No recording was kept for this session — the bastion was " +
+                    "not recording when it ran.",
             );
             return;
           case "missing":
@@ -200,9 +321,20 @@ export function Sessions({ theme }: { theme: Resolved }) {
         <CastPlayer
           sessionId={playing}
           theme={theme}
-          onClose={() => setPlaying(null)}
+          onClose={() => {
+            setPlaying(null);
+            setFiles([]);
+            setFilesFailed(false);
+          }}
         />
       )}
+
+      {/*
+        ⚠️ Oynatıcıya BAĞLI DEĞİL. SFTP oturumunda terminal kaydı boş
+        olduğu için oynatıcı hiç açılmayabiliyor; tabloyu oynatıcının
+        içine koymak, tam da onun gerektiği oturumlarda gizlerdi.
+      */}
+      <SessionFiles files={files} failed={filesFailed} />
 
       <ListState
         loading={loading}

@@ -778,12 +778,17 @@ bağlantı kopunca SSH oturumu kapanıyor.
 Bu aşamayı şimdi detaylandırmıyorum — S1–S4'ten gelecek gerçek bilgi planı
 değiştirecek. Kabaca kapsam:
 
-- SFTP subsystem relay (`pkg/sftp`) — ⚠️ ÖLÇÜLDÜ: süzgeç yazılmadan önce
-  `subsystem sftp` uçtan uca ÇALIŞIYORDU ve transfer `.cast` dosyasına
-  ham ikili protokol olarak düşüyordu. Şimdi reddediliyor
-  (`internal/proxy/requests.go`). Açılması dosya seviyesinde denetime
-  bağlı — yoksa denetlenemez bir kanal geri gelir.
-- `scp` protokol modu — modern `scp` zaten SFTP kullanıyor, aynı iş
+- SFTP subsystem relay — ✅ BİTTİ, ama plandakinden BAŞKA bir yolla.
+  Plan `pkg/sftp` ile relay diyordu; bu, araya tam bir SFTP sunucusu
+  koymak demekti. Onun yerine akış SONLANDIRILMIYOR: baytlar hedefe
+  olduğu gibi gidiyor, kopyası çözümlenip dosya olaylarına dönüşüyor
+  (`internal/sftpaudit`, `internal/proxy/sftp.go`). Gerekçe: protokolü
+  yeniden uygulamak, kendi hatalarımızı kullanıcıyla hedefin arasına
+  koymak olurdu. `pkg/sftp` yalnızca TEST bağımlılığı olarak duruyor —
+  gerçek bir istemcinin ürettiği paketlerle doğrulamak için.
+  Açılması `session.sftp` ile, VARSAYILAN KAPALI. Olaylar
+  `session_files` tablosunda ve oturum detayında.
+- `scp` protokol modu — ✅ modern `scp` zaten SFTP kullanıyor, aynı iş
 - Port forwarding (`direct-tcpip`) — istenirse. Şu an kanal tipi
   reddediliyor (`internal/sshd/channel.go`)
 - Agent forwarding — ✅ reddediliyor (request süzgeci)
@@ -834,7 +839,7 @@ değiştirecek. Kabaca kapsam:
 - [ ] Terminal penceresi resize edilince uzak uygulama uyum sağlıyor
 - [ ] `Ctrl+C` sinyali iletiliyor
 - [ ] `exit 3` → istemci 3 dönüyor
-- [ ] `scp` dosya kopyalıyor
+- [x] `scp` dosya kopyalıyor (SFTP üzerinden, denetimli)
 - [ ] Uzun çıktı (`yes | head -1000000`) tıkanmıyor
 - [ ] Kayıt `asciinema play` ile oynatılıyor
 - [ ] Bağlantı koparsa kayıt bozulmadan kapanıyor
