@@ -3,7 +3,6 @@
 package policy
 
 import (
-	"regexp"
 	"slices"
 
 	"github.com/warewave/postern/internal/model"
@@ -23,7 +22,6 @@ import (
 // İlk karakterin harf ya da alt çizgi olması şart: nokta ya da tire ile
 // başlayan adlar hem useradd'de sorun çıkarır hem komut satırında
 // bayrak sanılabilir.
-var osUserNamePatternRegex = regexp.MustCompile(`^[a-z_][a-z0-9_.-]{0,31}$`)
 
 type Decision struct {
 	Allowed bool
@@ -61,5 +59,8 @@ func Authorize(u model.User, t model.Target, requested string) Decision {
 }
 
 func validateOSUserName(osUser string) bool {
-	return osUserNamePatternRegex.MatchString(osUser)
+	// Tek tanim model.ValidOSUserName. Buradaki kontrol YİNE DE
+	// duruyor: yazma yollari kurali uygulasa bile bu, veritabanina
+	// elle dokunulmus bir satira karsi son savunma.
+	return model.ValidOSUserName(osUser)
 }

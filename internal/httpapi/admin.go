@@ -148,6 +148,13 @@ func (s *Server) storeErr(w http.ResponseWriter, op string, err error) {
 		// GİTMEZ; ayrıntı log'a, çağırana olayın adı.
 		s.logger.Warn("admin api conflict", "op", op, "error", err)
 		writeErr(w, http.StatusConflict, "already exists")
+	case errors.Is(err, store.ErrInvalid):
+		// ⚠️ BU HATANIN METNİ GÖVDEYE GİDİYOR ve bu bilinçli. İçerik,
+		// operatörün AZ ÖNCE YAZDIĞI değere dair — sır taşımıyor — ve
+		// tam olarak eksik olan şey: kuralı bilmeyen kişi "internal
+		// error" görüp neyi düzelteceğini bilemezdi.
+		s.logger.Warn("admin api invalid value", "op", op, "error", err)
+		writeErr(w, http.StatusBadRequest, err.Error())
 	default:
 		s.logger.Error("admin api store error", "op", op, "error", err)
 		writeErr(w, http.StatusInternalServerError, "internal error")

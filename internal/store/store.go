@@ -24,6 +24,12 @@ var (
 	// (aynı adla ikinci bir kullanıcı, rol, hedef...).
 	ErrConflict = errors.New("store: already exists")
 
+	// ErrInvalid: değerin kendisi kabul edilebilir değil — çağıranın
+	// yeniden denemesi değil, DÜZELTMESİ gerekiyor. ErrConflict'ten
+	// ayrı, çünkü "zaten var" ile "böyle olamaz" farklı cevaplar
+	// gerektiriyor (409'a karşı 400).
+	ErrInvalid = errors.New("store: invalid value")
+
 	// ErrAccessDenied: kimlik geçerli ama postern'de karşılığı yok —
 	// JIT sağlamada hiçbir grup role eşleşmediğinde.
 	ErrAccessDenied = errors.New("store: access denied")
@@ -142,7 +148,42 @@ func newID() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
+/*
+ * refuseBadOSUser, hedeflerdeki hesap adını YAZMADAN ÖNCE eler.
+ *
+ * ⚠️ ÖLÇÜLEN ARIZA: kural yalnızca politika kapısındaydı, yazma
+ * yollarında yoktu. Sonuç, "kurulmuş görünüp her oturumda reddedilen"
+ * hesaplardı: JIT sağlama os_user'ı IdP kullanıcı adından birebir
+ * alıyor (ProvisionUser -> CreateUser(..., req.Username)), Entra ID ise
+ * preferred_username'e UPN koyuyor. "yigit@corp.com" desene uymuyor.
+ * Hesap açılıyor, roller veriliyor, panelde hedef kartları görünüyor —
+ * ve her bağlantı "access denied" ile düşüyor. Sebebi açıklayan tek
+ * cümle ("OSUser name violation") yalnızca bastion'ın log'unda.
+ *
+ * ⚠️ RET, GİRİŞ ANINDA VE GÜRÜLTÜLÜ OLMALI. Bu yüzden kontrol
+ * CreateUser'da: yeni bir çağıran eklendiğinde kuralı hatırlaması
+ * gerekmesin diye kapı, tabloya yazan yerin kendisinde.
+ *
+ * ⚠️ NORMALLEŞTİRMİYORUZ. "yigit@corp.com" -> "yigit" cazip ama
+ * a@x.com ile a@y.com'u aynı hesaba çarptırırdı; iki insanı tek
+ * principal'da birleştirmek, bu projenin (iss,sub) ile bağlama
+ * kararının tam tersi olurdu.
+ */
+func refuseBadOSUser(op, osUser string) error {
+	if model.ValidOSUserName(osUser) {
+		return nil
+	}
+	return fmt.Errorf("%s: %q is not a usable account name on targets "+
+		"(lowercase letter or _ first, then letters, digits, _ . -, at most 32); "+
+		"create the account explicitly with a valid os-user: %w",
+		op, osUser, ErrInvalid)
+}
+
 func (s *Store) CreateUser(ctx context.Context, username, email, osUser string) (string, error) {
+	if err := refuseBadOSUser("store.CreateUser", osUser); err != nil {
+		return "", err
+	}
+
 	userID, err := newID()
 	if err != nil {
 		return "", fmt.Errorf("store.CreateUser: %w", err)
@@ -1571,6 +1612,10 @@ func (s *Store) SetUserEmail(ctx context.Context, username, email string) error 
 // principal'ını değiştirir — geçmiş denetim kayıtlarına dokunmaz
 // (sessions.os_user o günkü kararı saklar; sebebi şemada yazıyor).
 func (s *Store) SetUserOSUser(ctx context.Context, username, osUser string) error {
+	if err := refuseBadOSUser("store.SetUserOSUser", osUser); err != nil {
+		return err
+	}
+
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE users SET os_user = $1 WHERE username = $2;`, osUser, username)
 	if err != nil {

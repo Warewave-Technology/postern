@@ -6,6 +6,8 @@
 // motorun SQLite'tan PostgreSQL'e geçmesi de bu pakete dokunmadı.
 package model
 
+import "regexp"
+
 // User, bastion'da kimliği doğrulanmış kişi.
 type User struct {
 	// Name, postern kullanıcı adı ("yigit"). auth.go'nun doğruladığı ve
@@ -45,4 +47,22 @@ type User struct {
 	// olmayan biri terminale girebilir, admin olan biri rolü yoksa hiçbir
 	// hedefe giremez. İki eksen bilerek ayrık.
 	Admin bool
+}
+
+// osUserNamePattern is what a target's account name may look like.
+//
+// ⚠️ KURAL BURADA, ÇÜNKÜ İKİ YERDE GEREKİYOR: politika kapısı (son
+// savunma) ve YAZMA yolları (hesabın hiç bozuk doğmaması). İkisine ayrı
+// birer kopya koymak, ölçülmüş bir arızanın tam olarak sebebiydi:
+// kural yalnızca politikada vardı, yazma yollarında yoktu ve hesap
+// "kurulmuş görünüp her oturumda reddedilen" bir hâlde doğuyordu.
+//
+// Desen kasten dar: POSIX'in taşınabilir kullanıcı adı kümesi. Büyük
+// harf yok (çoğu sistemde ayrı bir hesap demek), '@' yok (Entra ID'nin
+// UPN'i buraya düşer), Türkçe harf yok.
+var osUserNamePattern = regexp.MustCompile(`^[a-z_][a-z0-9_.-]{0,31}$`)
+
+// ValidOSUserName reports whether name may be used as a target account.
+func ValidOSUserName(name string) bool {
+	return osUserNamePattern.MatchString(name)
 }
