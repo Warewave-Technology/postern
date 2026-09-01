@@ -33,7 +33,7 @@ describe("kendi anahtarlarim", () => {
     await userEvent.click(screen.getByRole("button", { name: /Add key/i }));
 
     await waitFor(() =>
-      expect(add).toHaveBeenCalledWith("ssh-ed25519 AAAA test", ""),
+      expect(add).toHaveBeenCalledWith("ssh-ed25519 AAAA test", "", ""),
     );
   });
 
@@ -66,7 +66,7 @@ describe("kendi anahtarlarim", () => {
     await userEvent.click(screen.getByRole("button", { name: /Add key/i }));
 
     await waitFor(() =>
-      expect(add).toHaveBeenCalledWith("ssh-ed25519 BBBB", "AAAA-BBBB"),
+      expect(add).toHaveBeenCalledWith("ssh-ed25519 BBBB", "AAAA-BBBB", ""),
     );
   });
 
@@ -81,7 +81,12 @@ describe("kendi anahtarlarim", () => {
 
     render(<MyKeys />);
     await waitFor(() =>
-      expect(screen.getByText(/Ask an administrator/i)).toBeInTheDocument(),
+      // ⚠️ Metin bilerek değişti: eskiden tek yol "yöneticine sor" idi
+      // ve dizin kullanan bir kurumda bu herkes demekti. Artık
+      // kullanıcı kendi kimlik doğrulayıcısını bağlayabiliyor.
+      expect(
+        screen.getByText(/Set up an authenticator above/i),
+      ).toBeInTheDocument(),
     );
     expect(screen.queryByLabelText(/Public key/i)).not.toBeInTheDocument();
   });
@@ -175,5 +180,76 @@ describe("kendi anahtarımı kaldırmak", () => {
       screen.getByRole("button", { name: /remove key SHA256:abc123/i }),
     );
     expect(confirmSpy.mock.calls[0][0] ?? "").toMatch(/last one/i);
+  });
+});
+
+/*
+ * ⚠️ HANGİ KANITIN İSTENDİĞİ EKRANDA DOĞRU YAZMALI.
+ *
+ * Kimlik doğrulayıcı bağlamış bir kullanıcıya "sign-in secret" sormak,
+ * onu olmayan bir parolayı aramaya gönderir. Sunucu ayrımı yapıyor
+ * (reauth_totp); ekranın da yapması gerekiyor.
+ */
+describe("yeniden doğrulama biçimi", () => {
+  it("ikinci faktör varsa parola değil KOD istiyor", async () => {
+    vi.spyOn(api, "myKeys").mockResolvedValue({
+      keys: [
+        {
+          fingerprint: "SHA256:aaa",
+          comment: "dizustu",
+          added_at: "2026-08-01T10:00:00Z",
+        },
+      ],
+      reauth_required: true,
+      reauth_possible: true,
+      reauth_totp: true,
+    });
+    render(<MyKeys />);
+
+    expect(
+      await screen.findByLabelText(/code from your authenticator/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText(/sign-in secret/i)).toBeNull();
+  });
+
+  it("ikinci faktör yoksa eskisi gibi sır istiyor", async () => {
+    vi.spyOn(api, "myKeys").mockResolvedValue({
+      keys: [
+        {
+          fingerprint: "SHA256:aaa",
+          comment: "dizustu",
+          added_at: "2026-08-01T10:00:00Z",
+        },
+      ],
+      reauth_required: true,
+      reauth_possible: true,
+      reauth_totp: false,
+    });
+    render(<MyKeys />);
+
+    expect(await screen.findByLabelText(/sign-in secret/i)).toBeInTheDocument();
+  });
+
+  /*
+   * Hiçbir kanıt yoksa kullanıcı artık YÖNETİCİYE değil, kendi kayıt
+   * ekranına yönlendirilmeli — ekranın var olma sebebi o çıkmazdı.
+   */
+  it("kanıt yoksa kullanıcıyı kendi çözümüne yönlendiriyor", async () => {
+    vi.spyOn(api, "myKeys").mockResolvedValue({
+      keys: [
+        {
+          fingerprint: "SHA256:aaa",
+          comment: "dizustu",
+          added_at: "2026-08-01T10:00:00Z",
+        },
+      ],
+      reauth_required: true,
+      reauth_possible: false,
+    });
+    render(<MyKeys />);
+
+    expect(
+      await screen.findByText(/set up an authenticator above/i),
+    ).toBeInTheDocument();
   });
 });

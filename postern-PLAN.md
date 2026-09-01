@@ -855,7 +855,7 @@ Her sürüm öncesi, tek tek:
 - [ ] Sertifika süresi kontrol ediliyor
 - [ ] Principal listesi asla boş değil
 - [ ] `state`/`nonce` OIDC'de doğrulanıyor
-- [ ] TOTP replay koruması var
+- [x] TOTP replay koruması var (store.UseTOTPStep: tek ifadede karşılaştır-ve-yaz; 16 yollu yarışla ölçüldü)
 
 **SSH**
 - [ ] `InsecureIgnoreHostKey` hiçbir yerde yok

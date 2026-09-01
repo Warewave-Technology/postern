@@ -1,10 +1,13 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
 	"golang.org/x/crypto/ssh"
+
+	"github.com/warewave/postern/internal/store"
 )
 
 /*
@@ -163,6 +166,24 @@ func (s *Server) adminUserDetail(w http.ResponseWriter, r *http.Request) {
 			cred["last_used_at"] = p.CredLastUsed.Format(time.RFC3339)
 		}
 		out["credential"] = cred
+	}
+
+	/*
+	 * İkinci faktör durumu.
+	 *
+	 * ⚠️ Yönetici bunu GÖRMELİ: telefonunu kaybeden kullanıcının tek
+	 * kurtarma yolu sıfırlama, ve sıfırlanacak bir şey olup olmadığını
+	 * görmeden verilen bir "sıfırla" düğmesi hata döndürüp yöneticiyi
+	 * hesabın bozuk olduğuna inandırırdı.
+	 */
+	if t, terr := s.store.TOTP(r.Context(), name); terr == nil {
+		totpOut := map[string]any{"enrolled": t.Confirmed}
+		if !t.LastUsedAt.IsZero() {
+			totpOut["last_used_at"] = t.LastUsedAt.Format(time.RFC3339)
+		}
+		out["totp"] = totpOut
+	} else if !errors.Is(terr, store.ErrNotFound) {
+		s.logger.Error("totp status unavailable", "user", name, "error", terr)
 	}
 
 	writeJSON(w, http.StatusOK, out)

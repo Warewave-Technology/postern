@@ -37,6 +37,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/admin/users/{name}/roles/{role}", admin(s.adminRevokeRole))
 	// ⚠️ Yalnızca YÖNETİCİ OLMAYAN hesaplar için — gerekçe handler'da.
 	mux.Handle("POST /api/admin/users/{name}/credential", admin(s.adminIssueCredential))
+	mux.Handle("POST /api/admin/users/{name}/totp/reset", admin(s.adminResetTOTP))
 	mux.Handle("POST /api/admin/users/{name}/keys", admin(s.adminAddKey))
 	mux.Handle("POST /api/admin/users/{name}/keys/remove", admin(s.adminRemoveKey))
 

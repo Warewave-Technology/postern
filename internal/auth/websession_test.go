@@ -101,3 +101,61 @@ func TestWebSessionExpiry(t *testing.T) {
 		t.Fatal("dokunulan oturumun süresi uzamış — kayan pencere istenmiyordu")
 	}
 }
+
+/*
+ * ⚠️ OTURUMUN VAR OLMASI, KİMLİĞİN AZ ÖNCE KANITLANMASI DEĞİLDİR.
+ *
+ * 12 saat yaşayan bir belirteci çalan biri, hesabın sahibi kadar "giriş
+ * yapmış" görünüyor. İkinci faktör bağlamak gibi kalıcı sonuçlu adımlar
+ * TAZE bir kanıt istiyor (httpapi/totp.go) ve tazeliğin ölçüsü burası.
+ */
+func TestSessionAgeGrowsWithTheClock(t *testing.T) {
+	w := NewWebSessions()
+	current := time.Now()
+	w.now = func() time.Time { return current }
+
+	token, err := w.Create("yigit")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	age, err := w.Age(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if age != 0 {
+		t.Fatalf("yeni oturumun yaşı = %v, 0 bekleniyordu", age)
+	}
+
+	current = current.Add(30 * time.Minute)
+	age, err = w.Age(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if age != 30*time.Minute {
+		t.Fatalf("yaş = %v, 30dk bekleniyordu — bayat bir oturum taze "+
+			"görünürse, çalınmış bir oturum ikinci faktör bağlayabilir", age)
+	}
+}
+
+// Süresi dolmuş oturumun yaşı SORULAMAZ: "bilinmiyor"u "çok taze" diye
+// okutmamak için hata dönüyor.
+func TestExpiredSessionHasNoAge(t *testing.T) {
+	w := NewWebSessions()
+	current := time.Now()
+	w.now = func() time.Time { return current }
+
+	token, _ := w.Create("yigit")
+	current = current.Add(webSessionTTL + time.Second)
+
+	if _, err := w.Age(token); !errors.Is(err, ErrNoSession) {
+		t.Fatalf("süresi dolmuş oturumun yaşı döndü: %v", err)
+	}
+}
+
+func TestUnknownTokenHasNoAge(t *testing.T) {
+	w := NewWebSessions()
+	if _, err := w.Age("yok-boyle-bir-sey"); !errors.Is(err, ErrNoSession) {
+		t.Fatalf("bilinmeyen belirteç için yaş döndü: %v", err)
+	}
+}

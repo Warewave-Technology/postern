@@ -255,6 +255,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/me/password",
 		s.requireSession(s.sameOrigin(http.HandlerFunc(s.handleChangePassword))))
 
+	// Kendi ikinci faktörüm (totp.go).
+	s.routeTOTP(mux)
+
 	// Yönetim: oturum + admin + same-origin (admin.go, federation.go).
 	s.registerAdminRoutes(mux)
 	s.registerFederationRoutes(mux)

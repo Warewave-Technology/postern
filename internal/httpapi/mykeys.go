@@ -72,9 +72,11 @@ func (s *Server) handleMyKeys(w http.ResponseWriter, r *http.Request) {
 		// yeniden doğrulama gerektiren bir ekleme mi?
 		"reauth_required": stamped,
 		// Bu hesap için yeniden doğrulama YAPILABİLİYOR mu? Yapılamıyorsa
-		// panel kullanıcıyı yöneticiye yönlendirmeli, boş yere sır
+		// panel kullanıcıyı kayıt ekranına yönlendirmeli, boş yere sır
 		// sormamalı.
-		"reauth_possible": s.canReauth(r.Context(), name),
+		"reauth_possible": s.canReauth(r.Context(), name) || s.hasTOTP(r.Context(), name),
+		// Panelin HANGİ alanı göstereceği: kod mu, sır mı?
+		"reauth_totp": s.hasTOTP(r.Context(), name),
 	})
 }
 
@@ -121,6 +123,9 @@ func (s *Server) handleAddMyKey(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		AuthorizedKey string `json:"authorized_key"`
 		Reauth        string `json:"reauth"`
+		// Code, kimlik doğrulayıcı uygulamasından gelen TOTP kodu.
+		// Yerel sırrı olmayan hesapların (SSO/dizin) tek yolu bu.
+		Code string `json:"code"`
 	}
 	if !readJSON(w, r, &in) {
 		return
@@ -159,72 +164,23 @@ func (s *Server) handleAddMyKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if stamped {
-		cred, verr := s.store.LocalCredential(r.Context(), name)
-		switch {
-		case errors.Is(verr, store.ErrNotFound):
-			// Doğrulayacak bir sır yok: bu hesabın kimliği başka bir
-			// yerden geliyor. Uydurma bir onay yerine dürüst bir yol
-			// gösteriyoruz — yönetici ucu zaten var.
-			writeErr(w, http.StatusForbidden,
-				"this account already has a key, and postern has no credential of its own "+
-					"to re-check you with; ask an administrator to add it")
-			return
-		case verr != nil:
-			s.storeErr(w, "me.keys.add", verr)
-			return
-		}
-
-		if !s.localLimit.allow(clientKey(r)) {
-			w.Header().Set("Retry-After", "60")
-			writeErr(w, http.StatusTooManyRequests, "too many attempts; try again in a minute")
-			return
-		}
-
 		/*
-		 * ⚠️ ARTAN GECİKME BURADA DA.
+		 * ⚠️ İKİ YOL, TEK KAPI. İkinci faktör varsa kod isteniyor;
+		 * yoksa yerel sır. Sıra TOTP'den yana çünkü onu bağlamış
+		 * kullanıcı bilinçli olarak "beni bununla doğrula" demiştir —
+		 * ve TOTP tek kullanımlık, parola değil.
 		 *
-		 * Bu uç, giriş kapısıyla AYNI değeri doğruluyor. Gecikme
-		 * yalnızca /auth/local'e konsaydı, tahmin eden kişi iki uç
-		 * arasında dönüşümlü deneyerek onu tamamen atlardı — üstelik
-		 * buradaki denemeler oturumlu olduğu için daha az göze
-		 * batarak. Sayaç ORTAK: aynı hesap, aynı adres, aynı kova.
+		 * Hiçbiri yoksa (SSO hesabı, henüz kayıt yapmamış) kullanıcı
+		 * artık yöneticiye değil, KENDİ kayıt ekranına yönlendiriliyor:
+		 * bu paketin var olma sebebi tam olarak o çıkmazdı.
 		 */
-		bkey := backoffKey(name, clientKey(r))
-		if wait := s.guessBackoff.retryAfter(bkey); wait > 0 {
-			secs := int(wait.Seconds()) + 1
-			w.Header().Set("Retry-After", strconv.Itoa(secs))
-			writeErr(w, http.StatusTooManyRequests, fmt.Sprintf(
-				"too many failed attempts from here; try again in %d seconds", secs))
-			return
-		}
-
-		select {
-		case s.localSlots <- struct{}{}:
-			defer func() { <-s.localSlots }()
-		default:
-			w.Header().Set("Retry-After", "5")
-			writeErr(w, http.StatusServiceUnavailable, "busy; try again shortly")
-			return
-		}
-
-		if !verifyCredential(cred, in.Reauth) {
-			// Muafiyetin gerekçesi locallogin.go'da: sır tutan hesaplar
-			// gecikmiyor, yoksa vekil arkasında bir yabancı acil durum
-			// yöneticisini dışarıda tutabilirdi.
-			if cred.Chosen {
-				s.guessBackoff.fail(bkey)
+		if s.hasTOTP(r.Context(), name) {
+			if !s.spendTOTP(w, r, name, in.Code) {
+				return
 			}
-			s.logger.Warn("key add refused: re-auth failed", "user", name)
-			if aerr := s.store.LogAdmin(r.Context(), store.AdminLogEntry{
-				Actor: name, Via: "web", Action: "user.key_reauth_failed", Entity: name,
-				Details: "adding a further key was refused",
-			}); aerr != nil {
-				s.logger.Error("audit write failed", "error", aerr)
-			}
-			writeErr(w, http.StatusUnauthorized, "wrong secret")
+		} else if !s.checkLocalSecret(w, r, name, in.Reauth, "adding a further key") {
 			return
 		}
-		s.guessBackoff.succeed(bkey)
 	}
 
 	pub, comment, okKey := parseAuthorizedKey(w, in.AuthorizedKey)
@@ -311,4 +267,94 @@ func (s *Server) handleRemoveMyKey(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("audit write failed", "error", aerr)
 	}
 	ok(w)
+}
+
+/*
+ * checkLocalSecret, postern'in KENDİ sırrıyla yeniden doğrular.
+ *
+ * ⚠️ TEK BİR UYGULAMA OLMASI ŞART. Bu kontrol iki yerden çağrılıyor —
+ * ikinci anahtar eklemek ve ikinci faktör bağlamak — ve ikisi de aynı
+ * şeyi koruyor: kalıcılık kurmak. İkinci bir kopya yazılsaydı, hız
+ * sınırını ya da artan gecikmeyi birinde unutmak yeterdi: saldırgan
+ * zayıf olan uçtan dener.
+ *
+ * what, denetim kaydına giren "ne reddedildi" metni.
+ */
+func (s *Server) checkLocalSecret(w http.ResponseWriter, r *http.Request, name, secret, what string) bool {
+	cred, verr := s.store.LocalCredential(r.Context(), name)
+	switch {
+	case errors.Is(verr, store.ErrNotFound):
+		// Doğrulayacak bir sır yok: bu hesabın kimliği başka bir
+		// yerden geliyor. Uydurma bir onay yerine dürüst bir yol
+		// gösteriyoruz — yönetici ucu zaten var.
+		writeErr(w, http.StatusForbidden,
+			"this account has no credential of its own for postern to re-check "+
+				"you with; enrol an authenticator, or ask an administrator")
+		return false
+	case verr != nil:
+		s.storeErr(w, "me.reauth", verr)
+		return false
+	}
+
+	if !s.localLimit.allow(clientKey(r)) {
+		w.Header().Set("Retry-After", "60")
+		writeErr(w, http.StatusTooManyRequests, "too many attempts; try again in a minute")
+		return false
+	}
+
+	/*
+	 * ⚠️ ARTAN GECİKME BURADA DA.
+	 *
+	 * Bu uç, giriş kapısıyla AYNI değeri doğruluyor. Gecikme yalnızca
+	 * /auth/local'e konsaydı, tahmin eden kişi iki uç arasında
+	 * dönüşümlü deneyerek onu tamamen atlardı — üstelik buradaki
+	 * denemeler oturumlu olduğu için daha az göze batarak. Sayaç
+	 * ORTAK: aynı hesap, aynı adres, aynı kova.
+	 */
+	bkey := backoffKey(name, clientKey(r))
+	if wait := s.guessBackoff.retryAfter(bkey); wait > 0 {
+		secs := int(wait.Seconds()) + 1
+		w.Header().Set("Retry-After", strconv.Itoa(secs))
+		writeErr(w, http.StatusTooManyRequests, fmt.Sprintf(
+			"too many failed attempts from here; try again in %d seconds", secs))
+		return false
+	}
+
+	select {
+	case s.localSlots <- struct{}{}:
+		defer func() { <-s.localSlots }()
+	default:
+		w.Header().Set("Retry-After", "5")
+		writeErr(w, http.StatusServiceUnavailable, "busy; try again shortly")
+		return false
+	}
+
+	if !verifyCredential(cred, secret) {
+		// Muafiyetin gerekçesi locallogin.go'da: sır tutan hesaplar
+		// gecikmiyor, yoksa vekil arkasında bir yabancı acil durum
+		// yöneticisini dışarıda tutabilirdi.
+		if cred.Chosen {
+			s.guessBackoff.fail(bkey)
+		}
+		s.logger.Warn("re-auth failed", "user", name, "for", what)
+		if aerr := s.store.LogAdmin(r.Context(), store.AdminLogEntry{
+			Actor: name, Via: "web", Action: "user.key_reauth_failed", Entity: name,
+			Details: what + " was refused",
+		}); aerr != nil {
+			s.logger.Error("audit write failed", "error", aerr)
+		}
+		writeErr(w, http.StatusUnauthorized, "wrong secret")
+		return false
+	}
+	s.guessBackoff.succeed(bkey)
+	return true
+}
+
+// hasTOTP, hesabın DOĞRULANMIŞ bir ikinci faktörü var mı.
+//
+// Doğrulanmamış kayıt sayılmıyor: QR'ı hiç okutmamış kullanıcıdan kod
+// istemek, onu kendi hesabının dışında bırakırdı.
+func (s *Server) hasTOTP(ctx context.Context, name string) bool {
+	c, err := s.store.TOTP(ctx, name)
+	return err == nil && c.Confirmed
 }

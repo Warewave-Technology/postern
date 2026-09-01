@@ -10,7 +10,7 @@ binary.
 **Status: in development.** The proxy, certificate model, persistence, RBAC,
 session recording, the admin panel, OIDC and LDAP sign-in, and directory-backed
 identity are built and exercised against real OpenSSH, Keycloak and OpenLDAP.
-Not production-ready: TOTP is still missing. The roadmap lives in
+The roadmap lives in
 [postern-PLAN.md](postern-PLAN.md) (Turkish).
 
 ## What it does today
@@ -29,8 +29,10 @@ Not production-ready: TOTP is still missing. The roadmap lives in
 - Audits **file transfer per file** when SFTP is enabled: who opened what, how
   many bytes actually crossed, what was renamed or deleted, and what the target
   refused — without the transfer ever entering the terminal recording
+- Lets people **manage their own keys** with a one-time code app, instead of
+  queueing behind an administrator
 
-Still ahead: TOTP.
+
 
 ### Watching a session back
 
@@ -405,6 +407,45 @@ session ends. That is the same rule recording already follows: a channel
 that cannot be audited does not get to carry data. The raw transfer never
 enters the terminal recording — that shape is what kept the channel shut
 in the first place.
+
+### Adding a second key without asking anyone
+
+Adding a *further* SSH key is exactly the move someone makes to keep access
+after taking over an account, so postern re-checks who you are first. It could
+only ever check a local password — which directory-backed and OIDC accounts do
+not have. In the deployments postern is actually built for, that made "ask an
+administrator" the answer for everyone.
+
+An authenticator app closes that. Enrol one from your own page, and a code
+authorises adding a key.
+
+Two things about it are deliberate:
+
+- **Enrolling is not a way around the check.** If any session could enrol,
+  someone with a stolen session would enrol first and add a key second — with
+  the account now *looking* better protected. So enrolling asks for the same
+  proof adding a key does: the local password if the account has one, and
+  otherwise a sign-in from the last ten minutes. A stolen long-lived session
+  cannot produce that.
+- **A code is spent when it is used.** The same code stays valid for 30
+  seconds, and in this context using it twice means adding a second key. The
+  step is consumed in one compare-and-set, so two requests carrying the same
+  code cannot both win — measured under a 16-way race, not assumed. Confirming
+  the enrolment spends a code too, so the next key needs the next code.
+
+**Enrolling one takes over the check.** An account that had a password and then
+enrols an authenticator is asked for a code from that point on, not the
+password. That is the point of enrolling — otherwise the password would still
+be enough on its own and the authenticator would protect nothing. It does mean
+losing the phone means losing this ability until it is reset.
+
+There are no recovery codes, on purpose: a second secret for you to write down
+moves the security of the account onto that piece of paper. Lost your phone? An
+administrator resets the authenticator, and the reset is in the admin log.
+
+The codes themselves are RFC 6238, checked against the RFC's own published
+vectors — so what postern computes is what your phone computes, not merely what
+postern's own tests expect.
 
 ## Setting up
 

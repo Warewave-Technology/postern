@@ -20,6 +20,8 @@ export default function MyKeys() {
   const [data, setData] = useState<MyKeysData | null>(null);
   const [entry, setEntry] = useState("");
   const [reauth, setReauth] = useState("");
+  // TOTP kodu: yerel sırrı olmayan hesapların yeniden doğrulama yolu.
+  const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
   const [busy, setBusy] = useState(false);
@@ -60,7 +62,7 @@ export default function MyKeys() {
     setError("");
     setOk("");
     api
-      .addMyKey(entry.trim(), reauth)
+      .addMyKey(entry.trim(), reauth, code)
       .then(() => {
         setEntry("");
         setReauth("");
@@ -75,6 +77,9 @@ export default function MyKeys() {
 
   const needsReauth = data.reauth_required;
   const blocked = needsReauth && !data.reauth_possible;
+  // Hangi kanıt isteniyor: kod mu, sır mı?
+  const byCode = Boolean(data.reauth_totp);
+  const proof = byCode ? code : reauth;
 
   return (
     <div className="card mykeys">
@@ -140,9 +145,15 @@ export default function MyKeys() {
            * doğrulayabileceği bir sırrı yok — boş yere sır sormak,
            * kullanıcıyı asla geçemeyeceği bir kutuya bakmaya zorlardı.
            */
+          /*
+           * ⚠️ ARTIK ÇIKMAZ DEĞİL. Eskiden burada tek yol "yöneticine
+           * sor" idi ve dizin kullanan bir kurumda bu, herkes demekti.
+           * Kimlik doğrulayıcı bağlamak kullanıcının kendi elinde.
+           */
           <p className="msg msg-warn" role="status">
             This account already has a key, and postern has no credential of its
-            own to re-check you with. Ask an administrator to add another one.
+            own to re-check you with. Set up an authenticator above, and you can
+            add keys yourself.
           </p>
         ) : (
           <form className="key-form" onSubmit={add}>
@@ -158,12 +169,17 @@ export default function MyKeys() {
 
             {needsReauth && (
               <label>
-                Confirm with your sign-in secret
+                {byCode
+                  ? "Code from your authenticator"
+                  : "Confirm with your sign-in secret"}
                 <input
-                  type="password"
+                  type={byCode ? "text" : "password"}
+                  inputMode={byCode ? "numeric" : undefined}
                   autoComplete="one-time-code"
-                  value={reauth}
-                  onChange={(e) => setReauth(e.target.value)}
+                  value={proof}
+                  onChange={(e) =>
+                    byCode ? setCode(e.target.value) : setReauth(e.target.value)
+                  }
                 />
                 <span className="wfield-hint">
                   You already have a key. Adding another one is how someone with
@@ -174,7 +190,7 @@ export default function MyKeys() {
 
             <button
               className="btn btn-primary"
-              disabled={busy || !entry.trim() || (needsReauth && !reauth)}
+              disabled={busy || !entry.trim() || (needsReauth && !proof)}
             >
               {busy ? "Adding…" : "Add key"}
             </button>

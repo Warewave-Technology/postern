@@ -28,6 +28,18 @@ type webSession struct {
 	expiresAt time.Time
 
 	/*
+	 * createdAt, oturumun AÇILDIĞI an.
+	 *
+	 * ⚠️ expiresAt'ten çıkarılabilir görünüyor ama çıkarılmamalı: TTL
+	 * yapılandırmayla değişebilir ve o an "bu oturum ne kadar taze"
+	 * sorusunun cevabı sessizce kayar. Tazelik bir güvenlik kararının
+	 * girdisi (bkz. TOTP kaydı: 12 saatlik bir oturumu çalan biri
+	 * ikinci faktör bağlayamamalı), o yüzden türetilmiş değil ölçülmüş
+	 * bir değer.
+	 */
+	createdAt time.Time
+
+	/*
 	 * viaLocal: bu belirteci YEREL PAROLA KAPISI üretti.
 	 *
 	 * ⚠️ BU BİR YETKİ DEĞİL, BİR KÖKEN — ve fark, yukarıdaki kuralın
@@ -89,9 +101,11 @@ func (w *WebSessions) create(username string, viaLocal bool) (string, error) {
 	}
 
 	w.mu.Lock()
+	now := w.now()
 	w.byToken[token] = webSession{
 		username:  username,
-		expiresAt: w.now().Add(webSessionTTL),
+		createdAt: now,
+		expiresAt: now.Add(webSessionTTL),
 		viaLocal:  viaLocal,
 	}
 	w.mu.Unlock()
@@ -156,6 +170,33 @@ func (w *WebSessions) ResolveSession(token string) (username string, viaLocal bo
 	}
 
 	return sess.username, sess.viaLocal, nil
+}
+
+/*
+ * Age, oturumun ne kadar önce açıldığını döner.
+ *
+ * ⚠️ NEDEN VAR: bir oturumun VAR OLMASI ile kişinin AZ ÖNCE kimliğini
+ * kanıtlamış olması aynı şey değil. 12 saat yaşayan bir belirteci
+ * çalan biri, hesabın sahibi kadar "giriş yapmış" görünüyor. İkinci
+ * faktör bağlamak gibi kalıcı sonuçlu adımlar taze bir kanıt istiyor
+ * ve tazeliğin ölçüsü burası.
+ *
+ * Oturum yoksa hata döner — "bilinmiyor"u "çok taze" diye okutmamak
+ * için.
+ */
+func (w *WebSessions) Age(token string) (time.Duration, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	sess, ok := w.byToken[token]
+	if !ok {
+		return 0, ErrNoSession
+	}
+	if !w.now().Before(sess.expiresAt) {
+		delete(w.byToken, token)
+		return 0, ErrNoSession
+	}
+	return w.now().Sub(sess.createdAt), nil
 }
 
 // Destroy, oturumu düşürür (logout). Olmayan token için sessiz no-op:

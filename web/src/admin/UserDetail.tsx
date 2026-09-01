@@ -413,6 +413,59 @@ export default function UserDetail({
               doğrulamıyor: burada bir şey göstermek, uygulanmayan bir
               mekanizmayı varmış gibi sunmak olurdu.
             */}
+            {/*
+              ⚠️ KİMLİK KAYNAĞINDAN BAĞIMSIZ. İkinci faktör kartı
+              localSource koşuluna BAĞLANMAMALI: bu özelliğin var olma
+              sebebi tam olarak yerel sırrı OLMAYAN hesaplar — dizinden
+              ve kimlik sağlayıcıdan gelenler. Sign-in kartının yanına
+              koyup aynı koşula bağlamak, onu ihtiyacı olan tek grupta
+              gizlerdi.
+            */}
+            <div className="card">
+              <div className="card-head">
+                <h3>Authenticator</h3>
+                <p>Their one-time code app, if they set one up.</p>
+              </div>
+              <div className="card-body">
+                {u.totp?.enrolled ? (
+                  <>
+                    <dl className="kv">
+                      <dt>Status</dt>
+                      <dd>active</dd>
+                      <dt>Last used</dt>
+                      <dd>
+                        {u.totp.last_used_at
+                          ? new Date(u.totp.last_used_at).toLocaleString()
+                          : "never"}
+                      </dd>
+                    </dl>
+                    {/*
+                      Sıfırlama telefonunu kaybedenin TEK yolu: kurtarma
+                      kodu yok, çünkü kullanıcının bir kenara yazacağı
+                      ikinci bir sır, korumayı o kâğıdın güvenliğine
+                      bağlardı.
+                    */}
+                    <ActionButton
+                      variant="danger"
+                      confirm={`Remove the authenticator on ${u.name}? They will be able to enrol a new one, and until they do they cannot add SSH keys themselves.`}
+                      onClick={() =>
+                        run(api.resetUserTOTP(u.name), "Authenticator removed.")
+                      }
+                      label={`remove the authenticator on ${u.name}`}
+                    >
+                      Reset authenticator
+                    </ActionButton>
+                  </>
+                ) : (
+                  <p className="muted">
+                    No authenticator. They can set one up themselves from their
+                    own page — which is what lets them add a further SSH key
+                    without asking an administrator.
+                  </p>
+                )}
+              </div>
+            </div>
+
             {localSource && (
               <div className="card">
                 <div className="card-head">

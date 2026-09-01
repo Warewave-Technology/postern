@@ -72,6 +72,9 @@ export type UserDetail = {
     created_by: string;
     last_used_at?: string;
   };
+  /** İkinci faktör. Yoksa alan hiç gelmiyor — "kayıtlı değil" ile
+   *  "bakamadık"ı ayırmak için (sunucu okuma hatasını logluyor). */
+  totp?: { enrolled: boolean; last_used_at?: string };
 };
 
 /**
@@ -399,7 +402,29 @@ export type MyKeys = {
   keys: MyKey[];
   reauth_required: boolean;
   reauth_possible: boolean;
+  // reauth_totp: doğrulama TOTP koduyla yapılacak (yerel sır yerine).
+  // Panelin hangi alanı göstereceğini belirliyor.
+  reauth_totp?: boolean;
 };
+
+/*
+ * TOTPStatus, hesabın ikinci faktör durumu.
+ *
+ * needs_fresh_login, kaydın NEDEN yapılamayabileceğini söylüyor: yerel
+ * sırrı olmayan hesaplarda (SSO/dizin) kayıt taze bir giriş istiyor,
+ * çünkü çalınmış bir oturumun ikinci faktör bağlaması, korumanın
+ * kendisini atlatmanın yolu olurdu.
+ */
+export type TOTPStatus = {
+  enrolled: boolean;
+  pending: boolean;
+  can_begin: boolean;
+  needs_fresh_login: boolean;
+  confirmed_at?: string;
+  last_used_at?: string;
+};
+
+export type TOTPEnrolment = { secret: string; uri: string };
 
 export type RecordingState = "none" | "missing" | "partial" | "complete";
 
@@ -700,10 +725,20 @@ export const api = {
       { source },
     ),
   myKeys: () => req<MyKeys>("GET", "/api/me/keys"),
-  addMyKey: (authorized_key: string, reauth?: string) =>
+  totpStatus: () => req<TOTPStatus>("GET", "/api/me/totp"),
+  totpBegin: (reauth?: string) =>
+    req<TOTPEnrolment>("POST", "/api/me/totp/begin", { reauth: reauth ?? "" }),
+  totpConfirm: (code: string) =>
+    req<void>("POST", "/api/me/totp/confirm", { code }),
+  totpDisable: (code: string) =>
+    req<void>("POST", "/api/me/totp/disable", { code }),
+  /* reauth: yerel sır. code: TOTP kodu. Hangisinin isteneceğini
+     myKeys().reauth_totp söylüyor. */
+  addMyKey: (authorized_key: string, reauth?: string, code?: string) =>
     req<{ ok: boolean }>("POST", "/api/me/keys", {
       authorized_key,
       reauth: reauth ?? "",
+      code: code ?? "",
     }),
   /** Kendi anahtarımı parmak iziyle sil. Liste ucu metni değil parmak
    *  izini döndürüyor, dolayısıyla panelin elindeki tek tanımlayıcı bu. */
@@ -782,5 +817,11 @@ export const api = {
   // alınıyor (bkz. reqText).
   sessionRecording: (id: string) =>
     reqText("GET", `/api/admin/sessions/${encodeURIComponent(id)}/recording`),
+  /** Kullanıcının ikinci faktörünü sıfırla — telefonunu kaybedenin yolu. */
+  resetUserTOTP: (name: string) =>
+    req<void>(
+      "POST",
+      `/api/admin/users/${encodeURIComponent(name)}/totp/reset`,
+    ),
   adminLog: () => req<LogEntry[]>("GET", "/api/admin/log"),
 };

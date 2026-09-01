@@ -2329,6 +2329,29 @@ label > textarea {
 .mykeys {
   margin-top: 20px;
 }
+
+/*
+ * TOTP kurulum anahtarı.
+ *
+ * ⚠️ Kullanıcı bunu TELEFONA ELLE GEÇİRİYOR (QR yok). Dar ya da kesilen
+ * bir kutu, 32 karakterlik base32 bir değeri yanlış okutur ve
+ * kullanıcı hatayı ancak kodları hiç tutmayınca fark eder. Bu yüzden
+ * satır aralığı geniş, harf aralığı açık, taşma sarmalı.
+ */
+.totp-secret {
+  display: block;
+  margin: 6px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--raised);
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 15px;
+  letter-spacing: 0.08em;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
 .key-list {
   list-style: none;
   margin: 0 0 12px;

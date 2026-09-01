@@ -4,6 +4,7 @@ import { ErrorLine, ListState, useList } from "./admin/common";
 import { ExternalIcon, HostIcon, SearchIcon, ShellIcon } from "./icons";
 import { Fields, describe as explain, matches, parse } from "./query";
 import MyKeys from "./MyKeys";
+import Authenticator from "./Authenticator";
 
 /**
  * Home — herkesin ekranı: erişebildiğin makineler.
@@ -194,6 +195,13 @@ export default function Home({ me }: { me: Me }) {
         özelliğin BOZUK mu yoksa KAPALI mı olduğunu ayırt edemiyordu.
         Yönetim ekranı aynı kararı zaten doğru veriyor (Users).
       */}
+      {/*
+        ⚠️ SIRA: kimlik doğrulayıcı ÖNCE. Anahtar kartındaki "ikinci
+        anahtar için yeniden doğrulama gerekiyor" uyarısının çözümü bu
+        kart; altında dursaydı, kullanıcı çözümü görmeden çıkmazı
+        okurdu.
+      */}
+      {me.public_key_login && <Authenticator />}
       {me.public_key_login && <MyKeys />}
 
       {!me.public_key_login && (
