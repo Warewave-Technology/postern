@@ -182,6 +182,16 @@ type Outcome struct {
 	// Skipped doluysa makine için hiçbir şey yazılmadı ve sebebi bu.
 	Skipped string
 
+	/*
+	 * KeyUnchecked doluysa makine ZATEN KAYITLIYDI ama host anahtarı bu
+	 * turda doğrulanamadı (ağ). Rol bağı yine de yenilendi.
+	 *
+	 * ⚠️ SESSİZ GEÇMİYOR: "kontrol ettim ve aynıydı" ile "kontrol
+	 * edemedim" farklı şeyler, ve ikincisini birincisi gibi göstermek
+	 * değişmiş bir makineyi değişmemiş sanmaya yol açar.
+	 */
+	KeyUnchecked string
+
 	// Aşağıdakiler yalnızca uygulama (apply) turunda dolar.
 	CreatedRole   bool
 	CreatedTarget bool

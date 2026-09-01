@@ -249,3 +249,102 @@ func TestRunSkipsUnusableRoleNames(t *testing.T) {
 		t.Fatal("kullanılamaz addan rol yaratılmış")
 	}
 }
+
+/*
+ * ⚠️ ULAŞILAMAYAN AMA KAYITLI HEDEFTE ROL BAĞI YİNE YENİLENİR.
+ *
+ * ÖLÇÜLEN ARIZA: tarama hatası makineyi koşulsuz atlıyordu ve atlanan
+ * şeylerin arasında GrantTarget da vardı. Oysa grant HİÇ AĞ İSTEMİYOR —
+ * rolle hedef arasında yerel bir bağ. Sonucu şuydu: etiketi değişmiş bir
+ * makine, o anda ağda bir aksaklık olduğu için yeni rolüne geçmiyor ve
+ * bir sonraki koşuma kadar ESKİ rolünde kalıyordu. apply.go'nun kendi
+ * yorumu grant'ın her turda çalışması gerektiğini söylüyor; ağ hatası
+ * onu sessizce erteliyordu.
+ *
+ * Kullanıcının yaşadığı durum bunun tam örneğiydi: yerel ağ izni
+ * yüzünden bütün taramalar EHOSTUNREACH aldı.
+ */
+func TestRunStillGrantsWhenAnExistingTargetIsUnreachable(t *testing.T) {
+	ctx := context.Background()
+	db := newStore(t)
+
+	// Kayıtlı hedef — adresi ULAŞILAMAZ (kapalı port).
+	if _, err := db.CreateTarget(ctx, model.Target{
+		Name: "lab-01", Host: "127.0.0.1", Port: 1,
+		HostKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIcLUQM0UcoZdJVh2EokribDvFZyyNyAVURM/LrCugFM",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := Planner{DB: db, TagKey: "team", Port: 1, Actor: "test"}.
+		Run(ctx, []Machine{{
+			Name: "lab-01", Host: "127.0.0.1",
+			Tags: []string{"team_developer"}, Running: true,
+		}}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 1 {
+		t.Fatalf("sonuç sayısı = %d", len(res))
+	}
+	o := res[0]
+
+	if o.Skipped != "" {
+		t.Fatalf("kayıtlı hedef atlandı: %q — rol bağı ağ hatasına takıldı", o.Skipped)
+	}
+	if !o.Granted {
+		t.Error("rol bağı yenilenmedi; grant ağ istemiyor, ertelenmemeliydi")
+	}
+	/*
+	 * ⚠️ AMA ANAHTARIN DOĞRULANAMADIĞI SÖYLENMELİ. "Kontrol ettim ve
+	 * aynıydı" ile "kontrol edemedim" farklı şeyler; ikincisini
+	 * birincisi gibi göstermek, değişmiş bir makineyi değişmemiş
+	 * sandırır.
+	 */
+	if o.KeyUnchecked == "" {
+		t.Error("anahtarın doğrulanamadığı bildirilmedi")
+	}
+
+	// Rol gerçekten verilmiş olmalı.
+	roles, rerr := db.Roles(ctx)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	var found bool
+	for _, r := range roles {
+		if r.Name != "developer" {
+			continue
+		}
+		for _, n := range r.Targets {
+			if n == "lab-01" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Errorf("rol hedefe bağlanmamış: %+v", roles)
+	}
+}
+
+// Ulaşılamayan ve KAYITLI OLMAYAN makine hâlâ atlanmalı: anahtarsız
+// hedef yazmak, ona ilk bağlanan kişiyi karşısındakini bilmeden
+// bağlatmak olurdu.
+func TestRunStillSkipsUnreachableNewMachines(t *testing.T) {
+	ctx := context.Background()
+	db := newStore(t)
+
+	res, err := Planner{DB: db, TagKey: "team", Port: 1, Actor: "test"}.
+		Run(ctx, []Machine{{
+			Name: "yeni-01", Host: "127.0.0.1",
+			Tags: []string{"team_developer"}, Running: true,
+		}}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 1 || res[0].Skipped == "" {
+		t.Fatalf("ulaşılamayan YENİ makine atlanmadı: %+v", res)
+	}
+	if _, terr := db.Target(ctx, "yeni-01"); terr == nil {
+		t.Fatal("anahtarsız hedef kaydedildi")
+	}
+}

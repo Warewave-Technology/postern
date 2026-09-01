@@ -97,14 +97,43 @@ func (p Planner) Run(ctx context.Context, machines []Machine, apply bool) ([]Out
 		 * makine hedef olmuyor.
 		 */
 		key, serr := upstream.ScanHostKey(ctx, host, p.Port)
-		if serr != nil {
-			o.Skipped = fmt.Sprintf("no host key from %s:%d (%v)", host, p.Port, serr)
-			out = append(out, o)
-			continue
-		}
-		authorized := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
+		t, existing := byName[m.Name]
+		o.Existing = existing
 
-		if t, ok := byName[m.Name]; ok {
+		if serr != nil {
+			/*
+			 * ⚠️ TARAMA HATASI YENİ HEDEFİ DÜŞÜRÜR, VAR OLANI DÜŞÜRMEZ.
+			 *
+			 * ÖLÇÜLEN ARIZA: hata hangi durumda olursa olsun makineyi
+			 * atlıyordu — ve atlanan şeylerin arasında GrantTarget da
+			 * vardı. Oysa grant HİÇ AĞ İSTEMİYOR: rolle hedef arasında
+			 * yerel bir bağ. Sonuç: etiketi değişmiş bir makine, o an
+			 * ağda bir aksaklık olduğu için yeni rolüne geçmiyordu ve
+			 * bir sonraki koşuma kadar eski rolünde kalıyordu — bu
+			 * dosyanın kendi yorumu (aşağıda) grant'ın her turda
+			 * çalışması gerektiğini söylüyor.
+			 *
+			 * Yeni bir hedef için hata hâlâ ölümcül: anahtarsız hedef
+			 * yazmak, ona ilk bağlanan kişinin karşısındakini
+			 * bilmemesi demek.
+			 */
+			if !existing {
+				o.Skipped = fmt.Sprintf("no host key from %s:%d (%v)", host, p.Port, serr)
+				out = append(out, o)
+				continue
+			}
+			// Anahtar bu turda DOĞRULANAMADI ve bu söyleniyor: sessizce
+			// "kontrol ettim" gibi davranmak, değişmiş bir makineyi
+			// değişmemiş göstermek olurdu.
+			o.KeyUnchecked = fmt.Sprintf("host key not re-checked (%v)", serr)
+		}
+
+		var authorized string
+		if serr == nil {
+			authorized = strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
+		}
+
+		if existing && serr == nil {
 			/*
 			 * ⚠️ VAR OLAN HEDEFE DOKUNULMUYOR — anahtarı farklı olsa
 			 * bile, ÖZELLİKLE anahtarı farklıysa.
@@ -115,7 +144,6 @@ func (p Planner) Run(ctx context.Context, machines []Machine, apply bool) ([]Out
 			 * anahtarının var olma sebebini ortadan kaldırır. Fark
 			 * varsa rapora yazılıyor ve kararı insan veriyor.
 			 */
-			o.Existing = true
 			if t.HostKey != "" && fingerprint(t.HostKey) != ssh.FingerprintSHA256(key) {
 				o.Skipped = "already registered with a DIFFERENT host key — " +
 					"left untouched; check the machine before changing it"

@@ -108,8 +108,7 @@ func newDiscoverVSphereCmd() *cobra.Command {
 				return err
 			}
 
-			printDiscovery(cmd, res, apply, tagKey)
-			return nil
+			return printDiscovery(cmd, res, apply, tagKey)
 		},
 	}
 
@@ -210,8 +209,7 @@ func newDiscoverProxmoxCmd() *cobra.Command {
 				return err
 			}
 
-			printDiscovery(cmd, res, apply, tagKey)
-			return nil
+			return printDiscovery(cmd, res, apply, tagKey)
 		},
 	}
 
@@ -232,7 +230,19 @@ func newDiscoverProxmoxCmd() *cobra.Command {
 }
 
 // printDiscovery, sonucu okunur bir tabloya çevirir.
-func printDiscovery(cmd *cobra.Command, res []discover.Outcome, apply bool, tagKey string) {
+/*
+ * printDiscovery, raporu basar ve koşumun BAŞARILI SAYILIP
+ * SAYILMAYACAĞINI döner.
+ *
+ * ⚠️ ÇIKIŞ KODU ÖNEMLİ. Bu komut betikten çalıştırılıyor ve eskiden
+ * HER ZAMAN 0 dönüyordu: bütün makineler atlanmış olsa bile. Yani
+ * zamanlanmış bir keşif, hiçbir şey yapmadan "başarılı" raporluyordu ve
+ * kimse envanterin donduğunu fark etmiyordu.
+ *
+ * Atlama TEK BAŞINA hata değil — kapalı bir sanal makine olağan. Hata
+ * olan şey, --apply istendiği hâlde HİÇBİR ŞEYİN yazılmaması.
+ */
+func printDiscovery(cmd *cobra.Command, res []discover.Outcome, apply bool, tagKey string) error {
 	out := cmd.OutOrStdout()
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "MACHINE\tADDRESS\tROLE\tFROM\tRESULT")
@@ -255,6 +265,11 @@ func printDiscovery(cmd *cobra.Command, res []discover.Outcome, apply bool, tagK
 
 		result := "would add"
 		switch {
+		case o.KeyUnchecked != "":
+			// Kayıtlı hedef, rol bağı yenilendi ama anahtar bu turda
+			// doğrulanamadı. "already registered" demek, kontrol
+			// edilmiş gibi göstermek olurdu.
+			result = "role granted; " + o.KeyUnchecked
 		case o.Skipped != "":
 			result = "SKIPPED: " + o.Skipped
 			skipped++
@@ -312,7 +327,7 @@ func printDiscovery(cmd *cobra.Command, res []discover.Outcome, apply bool, tagK
 		 */
 		fmt.Fprintf(out, "Nothing was written. Re-run with --apply to create "+
 			"the roles and targets above.\n")
-		return
+		return nil
 	}
 	fmt.Fprintf(out, "Created %d target(s) and %d role(s); granted %d.\n",
 		created, roles, granted)
@@ -320,6 +335,11 @@ func printDiscovery(cmd *cobra.Command, res []discover.Outcome, apply bool, tagK
 		"assigning a role to a user, which discovery deliberately does not do.\n")
 	fmt.Fprintf(out, "Machines with no \"%s\" tag are in the %q role.\n",
 		tagKey, discover.UnknownRole)
+
+	if len(res) > 0 && created == 0 && granted == 0 && roles == 0 {
+		return fmt.Errorf("nothing was written: all %d machine(s) were skipped", len(res))
+	}
+	return nil
 }
 
 /*

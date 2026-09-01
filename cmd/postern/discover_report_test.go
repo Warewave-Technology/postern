@@ -12,11 +12,17 @@ import (
 
 func capture(t *testing.T, res []discover.Outcome, tagKey string) string {
 	t.Helper()
+	out, _ := captureApply(t, res, tagKey, false)
+	return out
+}
+
+func captureApply(t *testing.T, res []discover.Outcome, tagKey string, apply bool) (string, error) {
+	t.Helper()
 	cmd := &cobra.Command{}
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)
-	printDiscovery(cmd, res, false, tagKey)
-	return buf.String()
+	err := printDiscovery(cmd, res, apply, tagKey)
+	return buf.String(), err
 }
 
 /*
@@ -88,5 +94,82 @@ func TestReportSaysWhenThereAreNoTagsAtAll(t *testing.T) {
 	}
 	if strings.Contains(out, "tags actually seen") {
 		t.Errorf("boş etiket listesi basıldı:\n%s", out)
+	}
+}
+
+/*
+ * ⚠️ HİÇBİR ŞEY YAZILMADIYSA ÇIKIŞ KODU BUNU SÖYLEMELİ.
+ *
+ * ÖLÇÜLEN ARIZA: komut her zaman 0 dönüyordu — bütün makineler atlanmış
+ * olsa bile. Zamanlanmış bir keşif hiçbir şey yapmadan "başarılı"
+ * raporluyor, envanterin donduğunu kimse fark etmiyordu. Kullanıcının
+ * yaşadığı durum tam buydu: 24 makinenin 24'ü atlandı, komut 0 döndü.
+ */
+func TestApplyThatWroteNothingFails(t *testing.T) {
+	res := []discover.Outcome{
+		{Machine: discover.Machine{Name: "web-01"}, Role: "unknown",
+			Skipped: "not running, so its host key cannot be read"},
+		{Machine: discover.Machine{Name: "db-01"}, Role: "unknown",
+			Skipped: "not running, so its host key cannot be read"},
+	}
+	_, err := captureApply(t, res, "role", true)
+	if err == nil {
+		t.Fatal("hiçbir şey yazılmadığı hâlde başarı döndü — betik bunu " +
+			"fark edemez")
+	}
+	if !strings.Contains(err.Error(), "all 2 machine(s) were skipped") {
+		t.Errorf("hata sebebi belirsiz: %v", err)
+	}
+}
+
+// Bir şey yazıldıysa atlamalar olağandır (kapalı sanal makine) ve
+// koşum başarılıdır: her atlamada bağıran bir çıkış kodu, betikte
+// görmezden gelinen bir çıkış kodudur.
+func TestApplyThatWroteSomethingSucceeds(t *testing.T) {
+	res := []discover.Outcome{
+		{Machine: discover.Machine{Name: "web-01"}, Role: "web",
+			Tagged: true, CreatedTarget: true, Granted: true},
+		{Machine: discover.Machine{Name: "db-01"}, Role: "unknown",
+			Skipped: "not running, so its host key cannot be read"},
+	}
+	if _, err := captureApply(t, res, "role", true); err != nil {
+		t.Fatalf("yazım olduğu hâlde hata döndü: %v", err)
+	}
+}
+
+// Önizleme hiçbir şey yazmaz ve bu bir hata değildir.
+func TestPreviewNeverFails(t *testing.T) {
+	res := []discover.Outcome{
+		{Machine: discover.Machine{Name: "web-01"}, Role: "unknown",
+			Skipped: "not running, so its host key cannot be read"},
+	}
+	if _, err := captureApply(t, res, "role", false); err != nil {
+		t.Fatalf("önizleme hata döndü: %v", err)
+	}
+}
+
+/*
+ * ⚠️ DOĞRULANAMAYAN ANAHTAR, DOĞRULANMIŞ GİBİ GÖSTERİLMEMELİ.
+ *
+ * Kayıtlı bir hedefte tarama başarısız olduğunda rol bağı yine
+ * yenileniyor (grant ağ istemiyor), ama anahtarın kontrol EDİLEMEDİĞİ
+ * raporda yazmalı. "already registered" demek, kontrol edilmiş gibi
+ * göstermek olurdu.
+ */
+func TestReportSaysWhenTheKeyWasNotRechecked(t *testing.T) {
+	res := []discover.Outcome{
+		{Machine: discover.Machine{Name: "lab-01"}, Role: "developer", Tagged: true,
+			Existing: true, Granted: true,
+			KeyUnchecked: "host key not re-checked (dial tcp: no route to host)"},
+	}
+	out, err := captureApply(t, res, "team", true)
+	if err != nil {
+		t.Fatalf("grant yapıldığı hâlde hata: %v", err)
+	}
+	if !strings.Contains(out, "not re-checked") {
+		t.Errorf("anahtarın doğrulanmadığı söylenmiyor:\n%s", out)
+	}
+	if !strings.Contains(out, "role granted") {
+		t.Errorf("rol bağının yenilendiği söylenmiyor:\n%s", out)
 	}
 }

@@ -14,7 +14,7 @@
         # `postern ca init`in bastığı açık anahtar. Boş bırakılırsa rol
         # DURUYOR: hiçbir CA'ya güvenmeyen bir hedef, başarılı bir
         # koşum gibi görünür ve öyle değildir.
-        postern_ca_pubkey: "CHANGE_ME"
+        postern_ca_pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGhngXvk7+k/Ca0QjjzWMOpqImxwc+20bQmWOZ+aJ4J2"
 
         # Hangi OS hesabı hangi principal'ı kabul etsin.
         #
