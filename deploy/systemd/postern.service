@@ -1,0 +1,81 @@
+# postern bastion — systemd birimi.
+#
+# ⚠️ BU DOSYA BİR GÜVENLİK SINIRIDIR, bir başlatma betiği değil.
+# postern'in elinde bir CA anahtarı, bir sır anahtarı ve bütün oturum
+# kayıtları var; süreç ele geçirilirse kaybedilecek şey bunlar.
+# Aşağıdaki kısıtların her biri o kayıp yüzeyini küçültüyor ve hiçbiri
+# süsleme değil.
+#
+# Kurulum:
+#   install -o root -g root -m 0644 postern.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now postern
+
+[Unit]
+Description=postern SSH bastion
+Documentation=https://github.com/warewave/postern
+After=network-online.target
+Wants=network-online.target
+# Veritabanı aynı makinedeyse: postern onsuz açılmıyor.
+After=postgresql.service
+
+[Service]
+Type=simple
+User=postern
+Group=postern
+ExecStart=/usr/local/bin/postern serve --config /etc/postern/postern.yaml
+
+# ⚠️ VERİTABANI PAROLASI KOMUT SATIRINDA DEĞİL, DOSYADA.
+# Komut satırındaki bir DSN'i makinedeki her kullanıcı `ps` ile görür.
+# Dosya postern kullanıcısına ait ve 0600.
+EnvironmentFile=-/etc/postern/postern.env
+
+Restart=on-failure
+RestartSec=5s
+# ⚠️ Sonsuz yeniden başlatma YOK: yapılandırma hatası yüzünden açılmayan
+# bir süreç, saniyede bir yeniden denenerek günlüğü doldurur ve gerçek
+# arızayı görünmez yapar. Beş denemede durup açıkça "failed" demek,
+# operatöre bakılacak yeri gösteriyor.
+StartLimitBurst=5
+StartLimitIntervalSec=120
+
+# --- dosya sistemi ---
+# Yazabildiği tek yer kayıtlar. CA anahtarı ve config OKUNUR.
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/postern/recordings
+PrivateTmp=true
+
+# --- yetki ---
+# ⚠️ 1024 ALTI PORT İÇİN İSTİSNA YOK. postern 2222'de dinliyor ve
+# önünde bir yönlendirme varsa 22'ye o bakıyor. CAP_NET_BIND_SERVICE
+# vermek, bir SSH sunucusuna gereksiz bir yetenek bırakmak olurdu.
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+# postern IPv4/IPv6 TCP konuşuyor; başka bir aileye ihtiyacı yok.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# --- kaynak ---
+# ⚠️ Oturum başına bir dosya tanıtıcısından fazlası gerekiyor (istemci,
+# hedef, kayıt). Varsayılan 1024, birkaç yüz oturumda tükenir ve
+# tükendiğinde postern yeni oturum AÇAMAZ.
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

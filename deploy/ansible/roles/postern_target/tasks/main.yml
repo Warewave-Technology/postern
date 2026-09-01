@@ -1,0 +1,70 @@
+---
+# ⚠️ ÖNCE DOĞRULA, SONRA YAZ.
+#
+# Bu rol sshd'nin kimlik doğrulamasına dokunuyor. Yarım bırakılmış bir
+# koşu — CA yazılmış ama principal dosyaları yazılmamış, ya da tersi —
+# hedefi kimsenin giremediği bir hâlde bırakır. Zorunlu girdiler en
+# başta kontrol ediliyor ki rol hiç başlamasın.
+- name: postern CA public key must be provided
+  ansible.builtin.assert:
+    that:
+      - postern_ca_pubkey | length > 0
+      - postern_ca_pubkey is search('^(ssh|ecdsa)-')
+    fail_msg: >-
+      postern_ca_pubkey is empty or not a public key. Take it from
+      `postern ca init` on the bastion. Running without it would leave this
+      host trusting no CA at all, which looks like success and is not.
+
+- name: Trust the postern certificate authority
+  ansible.builtin.copy:
+    content: "{{ postern_ca_pubkey | trim }}\n"
+    dest: "{{ postern_ca_path }}"
+    owner: root
+    group: root
+    # ⚠️ 0644: sshd bunu okuyor ve içeriği zaten AÇIK anahtar. Gizlemek
+    # bir şey korumaz, ama yazılabilir olması her şeyi kaybettirir.
+    mode: "0644"
+  notify: Reload sshd
+
+- name: Create the principals directory
+  ansible.builtin.file:
+    path: "{{ postern_principals_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Write the principals each account accepts
+  ansible.builtin.copy:
+    content: "{{ item.value | join('\n') }}\n"
+    dest: "{{ postern_principals_dir }}/{{ item.key }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ postern_principals | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  notify: Reload sshd
+
+# ⚠️ AYRI BİR DOSYAYA YAZIYORUZ, sshd_config'i DÜZENLEMİYORUZ.
+#
+# Ana dosyayı satır satır düzenleyen bir rol, elle yapılmış
+# değişikliklerle çakışır ve iki koşu arasında ne olduğu anlaşılmaz
+# olur. Ayrı dosya, geri almayı da tek bir silmeye indiriyor.
+- name: Point sshd at the CA and the principals files
+  ansible.builtin.template:
+    src: 50-postern.conf.j2
+    dest: "{{ postern_sshd_config }}"
+    owner: root
+    group: root
+    mode: "0644"
+    # ⚠️ BOZUK BİR YAPILANDIRMA YAZILMIYOR. sshd -t geçmezse dosya
+    # hiç yerine konmuyor: geçersiz bir sshd_config, bir sonraki
+    # yeniden başlatmada sunucuyu tamamen açılamaz yapar ve o makineye
+    # bir daha SSH ile girilemez.
+    validate: "sshd -t -f %s"
+  notify: Reload sshd
+
+- name: Check that sshd will accept the whole configuration
+  ansible.builtin.command: sshd -t
+  changed_when: false

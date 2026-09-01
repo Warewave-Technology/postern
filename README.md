@@ -394,6 +394,10 @@ yigit
 
 `test/integration/testdata/certtarget/Dockerfile` is the same setup as a
 runnable file, and is what the certificate tests run against.
+[`deploy/ansible/`](deploy/) does it across a fleet, and refuses to install
+a configuration `sshd -t` rejects — an invalid `sshd_config` takes the host
+away at its next restart, and you cannot SSH in to fix it.
+[`deploy/systemd/`](deploy/) runs the bastion itself.
 
 postern keeps users, roles, targets and the session audit trail in
 PostgreSQL. Create a database and a role for it:

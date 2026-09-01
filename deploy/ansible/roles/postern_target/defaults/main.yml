@@ -1,0 +1,28 @@
+---
+# postern_target: bir HEDEF makineyi postern'in sertifikalarına
+# güvenecek hâle getirir.
+#
+# ⚠️ BU ROL BASTION'I KURMUYOR. Hedefe yaptığı tek şey: CA'yı tanıt ve
+# hangi principal'ın hangi hesabı açabileceğini yaz. Bastion'ın kendi
+# kurulumu deploy/systemd altında.
+
+# postern_ca_pubkey: `postern ca init`in bastığı açık anahtar.
+# ⚠️ ZORUNLU ve varsayılanı YOK. Boş bir değerle çalışıp hedefi
+# "hiçbir CA'ya güvenmiyor" hâlinde bırakmak, sessizce hiçbir şey
+# yapmamak olurdu — rol bunu açıkça reddediyor.
+postern_ca_pubkey: ""
+
+# postern_principals: hangi OS hesabı hangi principal'ları kabul etsin.
+#
+#   postern_principals:
+#     yigit: [yigit]
+#     deploy: [yigit, suheda]
+#
+# ⚠️ postern principal olarak KULLANICININ os_user'ını imzalıyor, yani
+# buradaki liste "kim bu hesaba girebilir" demek. Boş bırakmak hedefte
+# hiçbir hesabı açmıyor — ve bu güvenli taraf.
+postern_principals: {}
+
+postern_ca_path: /etc/ssh/postern_ca.pub
+postern_principals_dir: /etc/ssh/auth_principals
+postern_sshd_config: /etc/ssh/sshd_config.d/50-postern.conf

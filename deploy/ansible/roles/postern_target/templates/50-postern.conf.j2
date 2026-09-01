@@ -1,0 +1,5 @@
+# postern tarafından yönetiliyor (deploy/ansible/roles/postern_target).
+# Elle değişiklikler bir sonraki koşuda kaybolur.
+
+TrustedUserCAKeys {{ postern_ca_path }}
+AuthorizedPrincipalsFile {{ postern_principals_dir }}/%u

@@ -1,0 +1,9 @@
+---
+# ⚠️ reload, restart DEĞİL. restart açık oturumları düşürür — postern
+# üzerinden çalışan biri, hedefin yapılandırması güncellendiği için
+# işinden olur. reload yeni bağlantılara yeni ayarları uyguluyor,
+# çalışanlara dokunmuyor.
+- name: Reload sshd
+  ansible.builtin.service:
+    name: sshd
+    state: reloaded
