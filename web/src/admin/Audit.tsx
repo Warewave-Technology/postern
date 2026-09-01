@@ -1,6 +1,12 @@
 import { useState } from "react";
-import { api, LogEntry, Session } from "../api";
-import { ActionButton, ErrorLine, ListState, useList } from "./common";
+import { api, LogEntry, Session, toMessage } from "../api";
+import {
+  ActionButton,
+  ErrorLine,
+  ListState,
+  WarnLine,
+  useList,
+} from "./common";
 import CastPlayer from "./CastPlayer";
 import DataTable, { Column } from "./DataTable";
 import type { Resolved } from "../theme/mode";
@@ -65,10 +71,58 @@ function sortableTime(v: string | null): number {
 }
 
 export function Sessions({ theme }: { theme: Resolved }) {
-  const { items, error, denied, loading, refresh } = useList<Session>(api.sessions);
+  const { items, error, denied, loading, refresh } = useList<Session>(
+    api.sessions,
+  );
   // Oynatılan oturum. Aynı anda tek kayıt: iki terminali yan yana
   // izlemenin bir faydası yok, ikisini birden beslemenin maliyeti var.
   const [playing, setPlaying] = useState<string | null>(null);
+  const [why, setWhy] = useState("");
+
+  /*
+   * ⚠️ OYNATMADAN ÖNCE KAYDIN DURUMU SORULUYOR.
+   *
+   * Düğme koşulsuz oynatıcıyı açıyordu ve kaydı olmayan bir oturumda
+   * oynatıcı boş açılıp hata veriyordu — denetçi "kayıt tutulmadı" ile
+   * "dosya kayıp"ı ayırt edemiyor, ikisini de bozuk bir oynatıcı
+   * sanıyordu. İkisi çok farklı şeyler: biri politikanın sonucu,
+   * öbürü kaybolmuş kanıt.
+   *
+   * Sunucu bu ayrımı ilk günden veriyordu (dört değerli durum); onu
+   * soran yoktu.
+   */
+  const watch = (id: string) => {
+    setWhy("");
+    return api
+      .sessionDetail(id)
+      .then((d) => {
+        switch (d.recording.state) {
+          case "none":
+            setWhy(
+              "No recording was kept for this session — the bastion was not " +
+                "recording when it ran.",
+            );
+            return;
+          case "missing":
+            setWhy(
+              "This session was recorded, but the file is no longer on disk. " +
+                "It was either removed by the retention policy or deleted " +
+                "outside postern — the admin log says which.",
+            );
+            return;
+          case "partial":
+            // ⚠️ Yarım kayıt YİNE DE OYNATILIYOR: elde olanı
+            // göstermemek, hiç olmamasından iyi değil.
+            setWhy(
+              "This recording is incomplete — the session ended abruptly. " +
+                "What was captured is shown below.",
+            );
+            break;
+        }
+        setPlaying(id);
+      })
+      .catch((e: unknown) => setWhy(toMessage(e)));
+  };
 
   const columns: Column<Session>[] = [
     {
@@ -94,7 +148,8 @@ export function Sessions({ theme }: { theme: Resolved }) {
       header: "Ended",
       // Süren oturum sıralamada EN SONA: 0 verseydik "hâlâ açık" olanlar
       // en eski oturumlarla karışırdı.
-      value: (s) => (s.ended_at ? sortableTime(s.ended_at) : Number.MAX_SAFE_INTEGER),
+      value: (s) =>
+        s.ended_at ? sortableTime(s.ended_at) : Number.MAX_SAFE_INTEGER,
       render: (s) =>
         s.ended_at ? (
           <Timestamp value={s.ended_at} />
@@ -108,12 +163,12 @@ export function Sessions({ theme }: { theme: Resolved }) {
       srHeader: true,
       className: "actions",
       render: (s) => (
-        <button
-          onClick={() => setPlaying(s.id)}
-          aria-label={`watch the recording of ${s.user} on ${s.target}, started ${s.started_at}`}
+        <ActionButton
+          onClick={() => watch(s.id)}
+          label={`watch the recording of ${s.user} on ${s.target}, started ${s.started_at}`}
         >
           Watch
-        </button>
+        </ActionButton>
       ),
     },
   ];
@@ -139,8 +194,14 @@ export function Sessions({ theme }: { theme: Resolved }) {
       </div>
       <ErrorLine msg={error} />
 
+      {why && <WarnLine msg={why} />}
+
       {playing && (
-        <CastPlayer sessionId={playing} theme={theme} onClose={() => setPlaying(null)} />
+        <CastPlayer
+          sessionId={playing}
+          theme={theme}
+          onClose={() => setPlaying(null)}
+        />
       )}
 
       <ListState
@@ -174,7 +235,9 @@ export function Sessions({ theme }: { theme: Resolved }) {
 }
 
 export function AdminLog() {
-  const { items, error, denied, loading, refresh } = useList<LogEntry>(api.adminLog);
+  const { items, error, denied, loading, refresh } = useList<LogEntry>(
+    api.adminLog,
+  );
 
   const columns: Column<LogEntry>[] = [
     {
@@ -236,7 +299,9 @@ export function AdminLog() {
           // komple yeniden çekiliyor ve en yeni başta geliyor: yeni bir
           // kayıt eklendiğinde dizin anahtarları bir kayıyor ve React
           // eski satırın durumunu yeni satıra devrediyordu.
-          rowKey={(e) => `${e.at}|${e.actor}|${e.via}|${e.action}|${e.entity}|${e.details}`}
+          rowKey={(e) =>
+            `${e.at}|${e.actor}|${e.via}|${e.action}|${e.entity}|${e.details}`
+          }
           initialSort={{ key: "at", dir: "desc" }}
           noun="entry"
           searchLabel="search the admin log by actor, action or entity"

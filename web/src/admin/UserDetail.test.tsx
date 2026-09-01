@@ -387,3 +387,71 @@ describe("yöneticilik kaynağı", () => {
     expect(await screen.findByText(/granted on the host/i)).toBeTruthy();
   });
 });
+
+/*
+ * ⚠️ OS KULLANICISI VE E-POSTA DÜZELTİLEBİLİR OLMAK ZORUNDA.
+ *
+ * Uç (PATCH) ve denetim satırı ilk günden vardı, panelde çağıran
+ * yoktu: yanlış yazılmış bir OS kullanıcısını düzeltmek için host'a
+ * girmek gerekiyordu. İkisi de kimlik EŞLEŞTİRME anahtarı — e-posta
+ * OIDC eşleşmesinde, os_user hedefteki hesapta — yani yazım hatası
+ * sessiz bir erişim sorunu demek.
+ */
+describe("hesap bilgilerini düzeltmek", () => {
+  it("düzenleme kapalıyken alanlar yok", async () => {
+    show();
+    await screen.findByText("Account");
+    expect(screen.queryByLabelText(/os user/i)).toBeNull();
+
+    /*
+     * ⚠️ GÖRÜNEN METNİ DE DOĞRULUYORUZ, yalnızca aria-label'ı değil.
+     *
+     * İlk hâli yalnızca etikete bakıyordu ve MUTASYON TESTİNİ GEÇTİ:
+     * düğmenin yazısını "x" yapmak testi düşürmüyordu. Etiket ekran
+     * okuyucunun duyduğu, yazı ise gözün gördüğü şey — ikisi de
+     * doğrulanmalı.
+     */
+    const btn = screen.getByRole("button", { name: /edit these details/i });
+    expect(btn.textContent?.trim()).toBe("Edit");
+  });
+
+  it("düzenleyip kaydedebiliyor", async () => {
+    const patch = vi.spyOn(api, "patchUser").mockResolvedValue(undefined);
+    show({ os_user: "syheda", email: "s@warewave.io" });
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /edit these details/i }),
+    );
+
+    const box = screen.getByLabelText(/os user/i) as HTMLInputElement;
+    // Mevcut değerle doluyor: sıfırdan yazdırmak, düzeltmeyi yeniden
+    // yazmaya çevirir.
+    expect(box.value).toBe("syheda");
+
+    await userEvent.clear(box);
+    await userEvent.type(box, "suheda");
+    await userEvent.click(
+      screen.getByRole("button", { name: /save these details/i }),
+    );
+
+    await waitFor(() =>
+      expect(patch).toHaveBeenCalledWith("suheda", {
+        os_user: "suheda",
+        email: "s@warewave.io",
+      }),
+    );
+  });
+
+  // Boş OS kullanıcısı gönderilemiyor: hedefte açılacak hesap o ve
+  // boşu göndermek sunucudan bir hata almaktan başka bir şey yapmaz.
+  it("OS kullanıcısı boşken kaydedilemiyor", async () => {
+    show({ os_user: "suheda" });
+    await userEvent.click(
+      await screen.findByRole("button", { name: /edit these details/i }),
+    );
+    await userEvent.clear(screen.getByLabelText(/os user/i));
+    expect(
+      screen.getByRole("button", { name: /save these details/i }),
+    ).toHaveProperty("disabled", true);
+  });
+});

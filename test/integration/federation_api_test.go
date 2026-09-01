@@ -325,3 +325,51 @@ func TestVerifyLDAPWontSendStoredPasswordElsewhere(t *testing.T) {
 		t.Error("PAROLA CEVAPTA GERİ DÖNDÜ")
 	}
 }
+
+/*
+ * ⚠️ DOĞRULAMA, KAYDEDİLDİKTEN SONRA ÇALIŞACAK KAPSAMLA KOŞMALI.
+ *
+ * ÖLÇÜLEN ARIZA: adminVerifyLDAP ldap.Config'i kurarken GroupScope'u
+ * hiç göndermiyordu, yani doğrulama HER ZAMAN varsayılan kapsamla
+ * (direct) koşuyordu. `subtree` kayıtlı bir kurulumda ekran "bu
+ * değerler çalışıyor" derken, gerçekten çalışacak olandan BAŞKA bir
+ * kapsam altında kanıt topluyordu — grupları taban DN'in bir OU altında
+ * duran kurum yeşil bir doğrulama görüp kaydediyor ve rolleri sessizce
+ * kaybediyordu.
+ *
+ * ⚠️ Kapsam DOĞRULAMASI üzerinden ölçüyoruz: ldap.New, subtree ile
+ * group_name_from="dn" olmasını ŞART koşuyor. Kapsam taşınıyorsa o
+ * kural tetiklenir; taşınmıyorsa istek varsayılan kapsamla kurulur ve
+ * kural hiç görünmez. Yani hata mesajının kendisi, kapsamın gerçekten
+ * gittiğinin kanıtı.
+ */
+func TestVerifyUsesTheStoredGroupScope(t *testing.T) {
+	_, apiURL, _, db := oobBastionFresh(t)
+	ctx := context.Background()
+
+	seedRole(t, db)
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
+	browserSignIn(t, client, apiURL)
+	if err := db.SetUserAdmin(ctx, kcUser, true); err != nil {
+		t.Fatal(err)
+	}
+
+	// Kayıtlı kapsam: subtree.
+	if err := db.SetSetting(ctx, "ldap.group_scope", "subtree", false, "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	// group_name_from "cn" — subtree ile UYUMSUZ. Kapsam taşınıyorsa
+	// ldap.New bunu reddediyor.
+	body := `{"url":"ldaps://dc.sirket.local","bind_dn":"cn=postern",` +
+		`"bind_password":"x","user_base":"ou=people","user_filter":"(uid=%s)",` +
+		`"group_base":"ou=groups","group_filter":"(member=%s)","group_name_from":"cn"}`
+	status, out := adminReq(t, client, "POST", apiURL+"/api/admin/ldap/verify", body)
+
+	if !strings.Contains(strings.ToLower(out), "subtree") {
+		t.Fatalf("doğrulama kayıtlı kapsamı kullanmadı (%d): %s\n"+
+			"— ekran 'bu değerler çalışıyor' derken başka bir kapsam altında "+
+			"kanıt topluyor demektir", status, out)
+	}
+}

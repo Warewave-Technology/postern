@@ -404,6 +404,30 @@ func (s *Source) findBy(conn *goldap.Conn, filter, what string) (userEntry, erro
 		return userEntry{}, fmt.Errorf("ldap: user search: %w", err)
 	}
 	if len(res.Entries) == 0 {
+		/*
+		 * ⚠️ REFERRAL "YOK" DEĞİLDİR, "BURADA DEĞİL" DEMEKTİR.
+		 *
+		 * Boş sonuç, çağıranda PresenceAbsent'a çevriliyor ve o da
+		 * "kullanıcı dizinden silinmiş" demek — groupsync onu görüp rol
+		 * iptaline gidiyor. Ama Active Directory, aranan şey başka bir
+		 * alan adındaysa SIFIR giriş ve BİR REFERRAL döndürüyor: kişi
+		 * duruyor, yalnızca bu sunucuda değil.
+		 *
+		 * İkisini ayırmamak, alt alan adı kullanan bir ormanda var olan
+		 * herkesi kademe kademe yetkisiz bırakırdı — tavanlar bunu
+		 * yavaşlatır ama engellemez, çünkü tavanların gördüğü şey
+		 * "kaynak böyle söyledi".
+		 *
+		 * Hata dönüyoruz, çünkü presence.go hatayı PresenceUnknown'a
+		 * çeviriyor ve bu üçüncü hâlin var olma sebebi tam olarak bu:
+		 * bilmediğimiz şeye göre karar vermemek.
+		 */
+		if len(res.Referrals) > 0 {
+			return userEntry{}, fmt.Errorf(
+				"ldap: %s: the directory returned a referral instead of an answer "+
+					"(%s) — this base DN does not hold that user; point user_base at "+
+					"the domain that does, or use a global catalog", what, res.Referrals[0])
+		}
 		return userEntry{}, nil
 	}
 	if len(res.Entries) > 1 {

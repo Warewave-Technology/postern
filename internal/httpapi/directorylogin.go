@@ -122,6 +122,27 @@ func (s *Server) directoryLogin(w http.ResponseWriter, r *http.Request,
 		}); aerr != nil {
 			log.Error("audit write failed", "error", aerr)
 		}
+		/*
+		 * ⚠️ SÜRESİ DOLMUŞ PAROLA, TEK İSTİSNA.
+		 *
+		 * Diğer üç hâl (yok / yanlış / kapalı) dışarıya AYNI cevabı
+		 * veriyor ve bu kasıtlı: ayrım, kimliği doğrulanmamış birine
+		 * hesap keşfi imkânı verirdi.
+		 *
+		 * Süresi dolmuş parola farklı, çünkü sızdırdığı şey farklı:
+		 * dizin bunu YALNIZCA doğru parolayla bağlanmaya çalışana
+		 * söylüyor. Yani zaten kimliğini kanıtlamış birine, neden
+		 * giremediğini anlatıyoruz — keşfe açılan bir kapı değil.
+		 * Söylememenin bedeli somut: kullanıcı doğru parolasını
+		 * defalarca deniyor ve sonra yanlış yerde, postern'de, arıza
+		 * arıyor. Yapılacak iş burada değil.
+		 */
+		if res.PasswordExpired {
+			writeErr(w, http.StatusUnauthorized,
+				"your directory password has expired — change it with your "+
+					"organisation's own tool, then sign in here again")
+			return
+		}
 		writeErr(w, http.StatusUnauthorized, "wrong username or password")
 		return
 	}

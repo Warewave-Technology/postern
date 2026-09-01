@@ -39,6 +39,9 @@ export default function UserDetail({
   const [pick, setPick] = useState("");
   const [keyText, setKeyText] = useState("");
   const [issued, setIssued] = useState<IssuedCredential | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [osUser, setOsUser] = useState("");
+  const [email, setEmail] = useState("");
   const issuedRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!issued) return;
@@ -54,6 +57,8 @@ export default function UserDetail({
       .userDetail(name)
       .then((v) => {
         setU(v);
+        setOsUser(v.os_user);
+        setEmail(v.email);
         setError("");
       })
       .catch((e: unknown) => setError(toMessage(e)))
@@ -176,6 +181,26 @@ export default function UserDetail({
                   </dd>
                   <dt>Email</dt>
                   <dd>{u.email || "—"}</dd>
+                  <dt>&nbsp;</dt>
+                  <dd>
+                    {/*
+                      ⚠️ İKİSİ DE DÜZELTİLEBİLİR OLMAK ZORUNDA.
+
+                      Uç (PATCH) ve denetim satırı ilk günden vardı,
+                      panelde çağıran yoktu: yanlış yazılmış bir OS
+                      kullanıcısını ya da e-postayı düzeltmek için
+                      host'a girmek gerekiyordu. İkisi de kimlik
+                      EŞLEŞTİRME anahtarı — e-posta OIDC eşleşmesinde,
+                      os_user hedefteki hesapta — yani yazım hatası
+                      sessiz bir erişim sorunu demek.
+                    */}
+                    <ActionButton
+                      onClick={() => setEditing(!editing)}
+                      label={editing ? "Cancel editing" : "Edit these details"}
+                    >
+                      {editing ? "Cancel" : "Edit"}
+                    </ActionButton>
+                  </dd>
                   <dt>Administrator</dt>
                   <dd>
                     {u.admin ? (
@@ -208,6 +233,58 @@ export default function UserDetail({
                         : "local to this bastion"}
                   </dd>
                 </dl>
+                {editing && (
+                  <div className="wizard-form" style={{ marginTop: "0.9rem" }}>
+                    <div className="wfield">
+                      <label className="wfield-label" htmlFor="u-osuser">
+                        OS user
+                      </label>
+                      <input
+                        id="u-osuser"
+                        value={osUser}
+                        onChange={(e) => setOsUser(e.target.value)}
+                      />
+                      <p className="wfield-hint">
+                        The account postern opens on the target host. Not the
+                        name they sign in with.
+                      </p>
+                    </div>
+                    <div className="wfield">
+                      <label className="wfield-label" htmlFor="u-email">
+                        Email
+                      </label>
+                      <input
+                        id="u-email"
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                      />
+                      <p className="wfield-hint">
+                        Used to match an identity provider account when it sends
+                        no username. Empty clears it.
+                      </p>
+                    </div>
+                    <div className="wizard-check">
+                      <ActionButton
+                        variant="primary"
+                        disabled={osUser.trim() === ""}
+                        onClick={() =>
+                          run(
+                            api.patchUser(name, {
+                              os_user: osUser.trim(),
+                              email: email.trim(),
+                            }),
+                            "details saved",
+                            () => setEditing(false),
+                          )
+                        }
+                        label="Save these details"
+                      >
+                        Save
+                      </ActionButton>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 

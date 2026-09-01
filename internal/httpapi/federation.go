@@ -611,6 +611,22 @@ func (s *Server) adminVerifyLDAP(w http.ResponseWriter, r *http.Request) {
 		GroupFilter    string `json:"group_filter"`
 		GroupNameFrom  string `json:"group_name_from"`
 
+		/*
+		 * ⚠️ GroupScope DOĞRULAMAYA DA GİRİYOR.
+		 *
+		 * Girmiyordu ve sonucu şuydu: doğrulama her zaman varsayılan
+		 * kapsamla (direct) koşuyordu. `subtree` kayıtlı bir kurulumda
+		 * ekran "bu değerler çalışıyor" derken, ÇALIŞACAK olandan
+		 * BAŞKA bir kapsam altında kanıt topluyordu. Grupları taban
+		 * DN'in bir OU altında duran kurum, yeşil bir doğrulama görüp
+		 * kaydediyor ve rolleri sessizce kaybediyordu.
+		 *
+		 * Boş gelirse KAYITLI değer kullanılıyor, varsayılan değil:
+		 * ekran alanı henüz çizmiyor olabilir ve "gönderilmedi"nin
+		 * anlamı "direct" değil, "değiştirmiyorum".
+		 */
+		GroupScope string `json:"group_scope"`
+
 		// User doluysa gruplarını da çözer: "bağlanıyor" ile "bu kişiyi
 		// bulabiliyor" ayrı sorular ve ikincisi asıl merak edilen.
 		User string `json:"user"`
@@ -639,11 +655,23 @@ func (s *Server) adminVerifyLDAP(w http.ResponseWriter, r *http.Request) {
 		in.BindPassword = pwd
 	}
 
+	if strings.TrimSpace(in.GroupScope) == "" {
+		// Gönderilmediyse KAYITLI kapsam: doğrulama, kaydettikten sonra
+		// gerçekten çalışacak olanla aynı koşullarda koşmalı.
+		if stored, serr := s.store.Setting(r.Context(), ldap.KeyGroupScope); serr == nil {
+			in.GroupScope = stored
+		} else if !errors.Is(serr, store.ErrNotFound) {
+			s.storeErr(w, "ldap.verify", serr)
+			return
+		}
+	}
+
 	src, err := ldap.New(ldap.Config{
 		URL: in.URL, BindDN: in.BindDN, BindPassword: in.BindPassword,
 		UserBase: in.UserBase, UserFilter: in.UserFilter,
 		GroupAttribute: in.GroupAttribute, GroupBase: in.GroupBase,
 		GroupFilter: in.GroupFilter, GroupNameFrom: in.GroupNameFrom,
+		GroupScope: in.GroupScope,
 	})
 	if err != nil {
 		// Yapılandırma hatası: istek başarılı, sonuç olumsuz.
