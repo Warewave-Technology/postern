@@ -789,6 +789,13 @@ değiştirecek. Kabaca kapsam:
   Açılması `session.sftp` ile, VARSAYILAN KAPALI. Olaylar
   `session_files` tablosunda ve oturum detayında.
 - `scp` protokol modu — ✅ modern `scp` zaten SFTP kullanıyor, aynı iş
+- AD aralıklı getirme (ranged retrieval) — ✅ ÖLÇÜLDÜ ve düzeltildi:
+  AD ~1500 üyeden büyük grupta `member` yerine `member;range=0-1499`
+  gönderiyor, düz niteliği HİÇ vermiyor. Yönetici grubu ONAY EKRANI bu
+  yüzden en büyük grupları "kimse yok" diye gösteriyordu. Gerçek
+  OpenLDAP bunu üretmediği için entegrasyon testi yakalayamıyordu →
+  `internal/ldap/ldaptest` (sahte LDAP sunucusu) yazıldı; yönlendirme
+  (referral) yolu da ilk kez orada test edilebildi.
 - Port forwarding (`direct-tcpip`) — istenirse. Şu an kanal tipi
   reddediliyor (`internal/sshd/channel.go`)
 - Agent forwarding — ✅ reddediliyor (request süzgeci)

@@ -408,6 +408,25 @@ that cannot be audited does not get to carry data. The raw transfer never
 enters the terminal recording — that shape is what kept the channel shut
 in the first place.
 
+### Large Active Directory groups
+
+AD stops sending `member` once a group passes about 1500 entries, and sends
+`member;range=0-1499` instead. A client that only reads `member` sees such a
+group as *empty*.
+
+That mattered here more than it looks. The member list feeds the admin-group
+confirmation screen — the one that says "these people will become
+administrators" before you agree to it. Unhandled, it showed the largest and
+therefore most dangerous groups as having nobody in them, and an administrator
+would approve a grant that then landed on several thousand people at their next
+sign-in. postern now follows the ranges, stopping once it has enough for the
+preview and saying so rather than trimming quietly.
+
+Real OpenLDAP cannot produce that reply, so no integration test could have
+caught it. `internal/ldap/ldaptest` is a small LDAP server that can — it also
+produces the referral that AD returns for a wrong base DN, which is the other
+answer that reads as "no such user" if you take it at face value.
+
 ### Adding a second key without asking anyone
 
 Adding a *further* SSH key is exactly the move someone makes to keep access
