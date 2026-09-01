@@ -64,11 +64,16 @@ var ErrDirectoryRefused = errors.New("proxy: the directory no longer vouches for
 // Deps, oturum açmak için gereken altyapı. Hem sshd.Server hem
 // httpapi.Server bunu kurar.
 type Deps struct {
-	Store       *store.Store
-	Records     *record.Store
-	Authority   *ca.CA
-	Logger      *slog.Logger
-	RecordInput bool
+	Store   *store.Store
+	Records *record.Store
+	/*
+	 * RecordMinFree, altına inildiğinde YENİ oturumun reddedildiği boş
+	 * alan. 0 kapalı. Gerekçesi Open'daki kullanım yerinde.
+	 */
+	RecordMinFree uint64
+	Authority     *ca.CA
+	Logger        *slog.Logger
+	RecordInput   bool
 
 	// Requests, oturum kanalı request'lerinin süzgeci (requests.go).
 	// Sıfır değeri kullanılabilir: env whitelist'i varsayılana düşer,
@@ -415,6 +420,25 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 	id, err = record.NewSessionID()
 	if err != nil {
 		log.Error("session id generation failed", "error", err)
+		return nil, fmt.Errorf("proxy.Open: %w", ErrUnavailable)
+	}
+
+	/*
+	 * ⚠️ DİSK EŞİĞİ, KAYIT AÇMADAN ÖNCE.
+	 *
+	 * Sıra önemli. Disk gerçekten dolduğunda Create zaten başarısız
+	 * oluyor ve oturum reddediliyor — ama o noktada AÇIK oturumlar da
+	 * ölüyor (aşağıdaki ErrRecordingFailed yolu), yani dolu disk
+	 * yalnızca yeni girişleri değil çalışan işleri de kesiyor.
+	 *
+	 * Eşik aynı reddi daha erken veriyor: yeni oturum girmiyor,
+	 * çalışanlar yaşamaya devam ediyor ve operatörün yer açacak zamanı
+	 * oluyor. Sebep AYRI bir hata: "disk doldu" ile "kayıt dosyası
+	 * açılamadı" farklı sorunlar ve tek mesaja toplamak, operatörü
+	 * yanlış yerde arattırırdı.
+	 */
+	if err := deps.Records.CheckSpace(deps.RecordMinFree); err != nil {
+		log.Error("refusing session: recording space is low", "error", err)
 		return nil, fmt.Errorf("proxy.Open: %w", ErrUnavailable)
 	}
 

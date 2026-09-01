@@ -34,6 +34,96 @@ func newDiscoverCmd() *cobra.Command {
 		Short: "Find machines on a virtualisation platform and turn their tags into roles",
 	}
 	cmd.AddCommand(newDiscoverProxmoxCmd())
+	cmd.AddCommand(newDiscoverVSphereCmd())
+	return cmd
+}
+
+func newDiscoverVSphereCmd() *cobra.Command {
+	var (
+		configPath, url, username, password string
+		caFile, tagKey                      string
+		insecure, apply                     bool
+		port                                int
+		timeout                             time.Duration
+	)
+
+	cmd := &cobra.Command{
+		Use:   "vsphere",
+		Short: "Discover machines from vCenter",
+		Long: "Reads the inventory, turns a tag category into a role, registers each\n" +
+			"machine as a target and grants it to that role.\n\n" +
+			"In vSphere a tag really is key/value: the CATEGORY is the key and the\n" +
+			"TAG is the value, so --tag-key names a tag category.\n\n" +
+			"Nothing is written without --apply. A machine with no tag in that\n" +
+			"category lands in the \"" + discover.UnknownRole + "\" role rather than\n" +
+			"being dropped.\n\n" +
+			"Needs vCenter 7.0 U2 or newer.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if strings.TrimSpace(tagKey) == "" {
+				return errors.New("--tag-key is required: it names the tag category that carries the role")
+			}
+			// ⚠️ Parola ortam değişkeninden de okunuyor: komut satırına
+			// yazılan bir parola `ps` ile görülebilir ve kabuk geçmişine
+			// düşer.
+			if password == "" {
+				password = os.Getenv("POSTERN_VSPHERE_PASSWORD")
+			}
+
+			src, err := discover.NewVSphere(discover.VSphereConfig{
+				BaseURL: url, Username: username, Password: password,
+				CAFile: caFile, Insecure: insecure, Timeout: timeout,
+			})
+			if err != nil {
+				return err
+			}
+
+			db, ctx, err := openStore(configPath)
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+
+			out := cmd.OutOrStdout()
+			if insecure {
+				fmt.Fprintln(out,
+					"WARNING: --insecure skips TLS verification of vCenter. Anyone able "+
+						"to sit between you and it can decide which machine lands in which "+
+						"role, and can read the session id. Use --ca-file instead.")
+			}
+
+			machines, err := src.Machines(ctx)
+			if err != nil {
+				return fmt.Errorf("vsphere: %w", err)
+			}
+			if len(machines) == 0 {
+				fmt.Fprintln(out, "no machines found")
+				return nil
+			}
+
+			res, err := discover.Planner{
+				DB: db, TagKey: tagKey, Port: port, Actor: "cli",
+			}.Run(ctx, machines, apply)
+			if err != nil {
+				return err
+			}
+
+			printDiscovery(cmd, res, apply, tagKey)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
+	cmd.Flags().StringVar(&url, "url", "", "vCenter adresi, https:// (zorunlu)")
+	cmd.Flags().StringVar(&username, "username", "", "vCenter kullanıcısı (zorunlu, YALNIZCA OKUMA yetkili olmalı)")
+	cmd.Flags().StringVar(&password, "password", "",
+		"vCenter parolası; tercihen POSTERN_VSPHERE_PASSWORD ortam değişkeni")
+	cmd.Flags().StringVar(&caFile, "ca-file", "", "vCenter sertifikasını doğrulayacak kök")
+	cmd.Flags().BoolVar(&insecure, "insecure", false, "TLS doğrulamasını kapat (önerilmez)")
+	cmd.Flags().StringVar(&tagKey, "tag-key", "", "rolü taşıyan etiket KATEGORİSİ, ör. role (zorunlu)")
+	cmd.Flags().IntVar(&port, "port", 22, "hedeflerin SSH portu")
+	cmd.Flags().BoolVar(&apply, "apply", false, "gerçekten yaz (varsayılan: yalnızca göster)")
+	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "API isteği zaman aşımı")
 	return cmd
 }
 

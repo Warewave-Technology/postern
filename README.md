@@ -10,8 +10,8 @@ binary.
 **Status: in development.** The proxy, certificate model, persistence, RBAC,
 session recording, the admin panel, OIDC and LDAP sign-in, and directory-backed
 identity are built and exercised against real OpenSSH, Keycloak and OpenLDAP.
-Not production-ready: file transfer (SFTP/SCP) is still refused, recordings have
-no retention policy, and there is no deployment tooling yet. The roadmap lives in
+Not production-ready: file transfer (SFTP/SCP) is still refused and there is no
+deployment tooling yet. The roadmap lives in
 [postern-PLAN.md](postern-PLAN.md) (Turkish).
 
 ## What it does today

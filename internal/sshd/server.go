@@ -36,8 +36,9 @@ type Server struct {
 	signer ssh.Signer // bastion'ın kendi host key'i
 	logger *slog.Logger
 
-	rStore *record.Store
-	db     *store.Store
+	rStore        *record.Store
+	recordMinFree uint64
+	db            *store.Store
 
 	authority *ca.CA
 
@@ -118,7 +119,11 @@ func (s *Server) ProxyDeps() proxy.Deps {
 		Authority:    s.authority,
 		Logger:       s.logger,
 		RecordInput:  s.cfg.Recording.RecordInput,
-		Requests:     proxy.RequestPolicy{AcceptEnv: s.cfg.Session.AcceptEnv},
+		// ⚠️ Eşik AÇILIŞTA çözülüyor, her oturumda değil: çözülemeyen
+		// bir değer yüzünden her bağlantının ayrı ayrı düşmesi yerine
+		// açılışta bir kez hata veriyor (config.MinFreeBytes).
+		RecordMinFree: s.recordMinFree,
+		Requests:      proxy.RequestPolicy{AcceptEnv: s.cfg.Session.AcceptEnv},
 
 		// Oturum sınırları buradan geçiyor, dolayısıyla web terminali de
 		// (EnableTerminal aynı Deps'i alıyor) aynı sınırlara tabi.
@@ -195,9 +200,22 @@ func New(cfg *config.Config, db *store.Store, logger *slog.Logger) (*Server, err
 		return nil, fmt.Errorf("sshd.New: %w", err)
 	}
 
+	/*
+	 * ⚠️ EŞİK AÇILIŞTA ÇÖZÜLÜYOR ve çözülemezse AÇILIŞ DÜŞÜYOR.
+	 *
+	 * Okuma anında çözseydik, yanlış yazılmış bir değer her bağlantıda
+	 * ayrı ayrı hata verir ve operatör sorunu bir ayar hatası olarak
+	 * değil aralıklı bir arıza olarak görürdü. Açılışta düşmek, hatayı
+	 * yazan kişiye geri veriyor.
+	 */
+	minFree, err := cfg.Recording.MinFreeBytes()
+	if err != nil {
+		return nil, fmt.Errorf("sshd.New: %w", err)
+	}
+
 	return &Server{
 		cfg: cfg, signer: signer, logger: logger,
-		rStore: recStore, db: db, authority: caAuthority,
+		rStore: recStore, recordMinFree: minFree, db: db, authority: caAuthority,
 		groups: auth.ClaimGroups{},
 
 		limiter: newConnLimiter(

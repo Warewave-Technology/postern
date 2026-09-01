@@ -25,6 +25,7 @@ import (
 	"github.com/warewave/postern/internal/httpapi"
 	"github.com/warewave/postern/internal/ldap"
 	"github.com/warewave/postern/internal/model"
+	"github.com/warewave/postern/internal/record"
 	"github.com/warewave/postern/internal/secret"
 	"github.com/warewave/postern/internal/sshd"
 	"github.com/warewave/postern/internal/store"
@@ -431,6 +432,21 @@ func newServeCmd() *cobra.Command {
 			 * varken bu ikinci bir ağ; OIDC'de tek ağ.
 			 */
 			go accountlife.New(db, logger).Start(ctx)
+
+			/*
+			 * ⚠️ KAYIT BUDAMA: yalnızca süre VERİLDİYSE.
+			 *
+			 * NewPruner kapalıyken nil dönüyor ve Start onu sessizce
+			 * geçiyor; burada bir if yazmak, aynı kararı iki yerde
+			 * tutmak olurdu. Sildiği şey denetim kanıtı, dolayısıyla
+			 * varsayılanın "hiç silme" olması bilinçli — gerekçesi
+			 * config.RecordingConfig.Retain'de.
+			 */
+			keepFor, rerr := cfg.Recording.RetainDuration()
+			if rerr != nil {
+				return rerr
+			}
+			go record.NewPruner(cfg.Recording.Dir, keepFor, logger).Start(ctx)
 
 			/*
 			 * ⚠️ OOB KAPISI KOŞULSUZ KURULUYOR.

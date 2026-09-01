@@ -7,7 +7,12 @@
 // API) değiştirilir. YAML'a kullanıcı yazmak diye bir şey yoktur.
 package config
 
-import "time"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+)
 
 type Config struct {
 	Listen   ListenConfig   `yaml:"listen"`
@@ -329,7 +334,44 @@ type RecordingConfig struct {
 	// RecordInput defaults to false on purpose: keystrokes include
 	// passwords. See postern-PLAN.md S1.7, design note 4.
 	RecordInput bool `yaml:"record_input"`
+
+	/*
+	 * Retain, kayıtların saklanma süresi ("90d", "2160h").
+	 *
+	 * ⚠️ VARSAYILAN "HİÇ SİLME" ve bu bilinçli. Budama denetim kanıtı
+	 * silmek demek; ayarı yazmayan bir kurulumda postern'in kendi
+	 * başına kanıt silmesi, sakladığı şeyin ne olduğunu anlamamak
+	 * olurdu. Operatör süreyi SÖYLEYENE kadar hiçbir şey silinmiyor.
+	 *
+	 * Sınırsız büyümenin cevabı bu ayar DEĞİL: cevabı MinFree, ve o
+	 * varsayılan olarak açık.
+	 */
+	Retain string `yaml:"retain"`
+
+	/*
+	 * MinFree, yeni oturum açmayı reddetmeye başladığımız boş alan
+	 * ("2GiB"). Boş bırakılırsa varsayılan kullanılıyor; "0" kapatıyor.
+	 *
+	 * ⚠️ VARSAYILAN AÇIK, ve gerekçesi dolu diskin bugün ne yaptığı:
+	 * postern kayıt tutamayınca oturumu reddediyor (denetim öncelikli
+	 * politika, doğru karar) ama proxy AÇIK oturumları da kapatıyor.
+	 * Yani disk dolduğunda yalnızca yeni girişler durmuyor, çalışan
+	 * işler de kesiliyor.
+	 *
+	 * Eşik aynı reddi DAHA ERKEN veriyor: yeni oturum reddediliyor,
+	 * çalışanlar yaşamaya devam ediyor ve operatörün yer açmak için
+	 * zamanı oluyor. "Reddetmeye başlamak" bir kayıp değil; kayıp,
+	 * onu diskin kendisinin haber vermesini beklemek.
+	 */
+	MinFree string `yaml:"min_free"`
 }
+
+// DefaultRecordingMinFree, MinFree boş bırakıldığında geçerli olan.
+//
+// 1 GiB: birkaç uzun oturumu rahat karşılayacak ve operatöre yer açması
+// için zaman bırakacak kadar; boş bir diskte kimseyi rahatsız etmeyecek
+// kadar küçük.
+const DefaultRecordingMinFree = 1 << 30
 
 // SyncConfig, periyodik dizin senkronizasyonu.
 //
@@ -418,4 +460,64 @@ func (c SyncConfig) MaxRevokePerRunOrDefault() int {
 		return 25
 	}
 	return c.MaxRevokePerRun
+}
+
+/*
+ * RetainDuration, kayıt saklama süresini çözer.
+ *
+ * ⚠️ ÇÖZÜLEMEYEN DEĞER HATA, "varsayılana dön" DEĞİL. "90gun" yazan
+ * operatör, sessizce "hiç silme"ye düşerse diskinin neden dolduğunu
+ * anlamaz; tersi daha kötü olurdu — yanlış çözülen bir süre, olması
+ * gerekenden fazlasını siler.
+ */
+func (r RecordingConfig) RetainDuration() (time.Duration, error) {
+	v := strings.TrimSpace(r.Retain)
+	if v == "" || v == "0" {
+		return 0, nil
+	}
+	if rest, ok := strings.CutSuffix(v, "d"); ok {
+		days, err := strconv.Atoi(rest)
+		if err != nil || days < 0 {
+			return 0, fmt.Errorf("recording.retain: %q is not a number of days", v)
+		}
+		return time.Duration(days) * 24 * time.Hour, nil
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d < 0 {
+		return 0, fmt.Errorf("recording.retain: %q is not a duration", v)
+	}
+	return d, nil
+}
+
+/*
+ * MinFreeBytes, eşiği bayta çevirir.
+ *
+ * "2GiB", "500MiB", "1073741824" kabul ediliyor. Boş bırakmak
+ * VARSAYILANI seçiyor; açıkça "0" yazmak KAPATIYOR — ikisi ayrı
+ * niyetler ve aynı değere düşmemeleri gerekiyor.
+ */
+func (r RecordingConfig) MinFreeBytes() (uint64, error) {
+	v := strings.TrimSpace(r.MinFree)
+	if v == "" {
+		return DefaultRecordingMinFree, nil
+	}
+	if v == "0" {
+		return 0, nil
+	}
+
+	mult := uint64(1)
+	for suffix, m := range map[string]uint64{
+		"KiB": 1 << 10, "MiB": 1 << 20, "GiB": 1 << 30, "TiB": 1 << 40,
+	} {
+		if rest, ok := strings.CutSuffix(v, suffix); ok {
+			v, mult = strings.TrimSpace(rest), m
+			break
+		}
+	}
+	n, err := strconv.ParseUint(v, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("recording.min_free: %q is not a size "+
+			"(try 2GiB, 500MiB or a number of bytes)", r.MinFree)
+	}
+	return n * mult, nil
 }
