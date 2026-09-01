@@ -1,0 +1,26 @@
+---
+# Hedefleri postern'in sertifikalarına güvenecek hâle getirir.
+#
+#   ansible-playbook -i inventory.ini targets.yml --check   # kuru koşum
+#   ansible-playbook -i inventory.ini targets.yml           # uygula
+#
+# ⚠️ become: rol /etc/ssh altına yazıyor ve sshd'yi yeniden yüklüyor.
+- name: Trust the postern CA on every target
+  hosts: postern_targets
+  become: true
+  roles:
+    - role: postern_target
+      vars:
+        # `postern ca init`in bastığı açık anahtar. Boş bırakılırsa rol
+        # DURUYOR: hiçbir CA'ya güvenmeyen bir hedef, başarılı bir
+        # koşum gibi görünür ve öyle değildir.
+        postern_ca_pubkey: "CHANGE_ME"
+
+        # Hangi OS hesabı hangi principal'ı kabul etsin.
+        #
+        # ⚠️ postern principal olarak kullanıcının os_user'ını
+        # imzalıyor. Demodaki suleyman.idinak'ın os_user'ı "sidinak",
+        # dolayısıyla hedefte o hesabın var olması ve kendi adını
+        # kabul etmesi gerekiyor.
+        postern_principals:
+          sidinak: [sidinak]

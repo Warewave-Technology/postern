@@ -67,3 +67,25 @@ a target's configuration was updated.
 
 `test/integration/testdata/certtarget/Dockerfile` is the same setup as a
 runnable file, and is what the certificate tests run against.
+
+## A worked example
+
+`example/inventory.ini` and `example/targets.yml` are a two-host run of the
+role, ready to fill in. Two values are deliberately left as `CHANGE_ME`: the
+account Ansible connects as (it needs sudo — it is not the account postern
+opens on the target), and the CA public key from `postern ca init` on the
+bastion.
+
+```bash
+ansible-playbook -i example/inventory.ini example/targets.yml --check
+```
+
+Run it with `--check` first. The role asserts before it touches anything, so a
+forgotten `CHANGE_ME` stops the play at `ok=0` rather than leaving a host that
+trusts no CA — which looks like a successful run and is not.
+
+`postern_principals` maps an OS account to the principals it will accept.
+postern signs the user's `os_user` as the principal, so an account whose
+`os_user` is `sidinak` needs `sidinak: [sidinak]` here _and_ needs that account
+to exist on the target. Leaving the map empty opens no account at all, which is
+the safe side to fail on.
