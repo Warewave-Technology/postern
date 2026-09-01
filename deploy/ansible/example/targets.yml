@@ -14,7 +14,11 @@
         # `postern ca init`in bastığı açık anahtar. Boş bırakılırsa rol
         # DURUYOR: hiçbir CA'ya güvenmeyen bir hedef, başarılı bir
         # koşum gibi görünür ve öyle değildir.
-        postern_ca_pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGhngXvk7+k/Ca0QjjzWMOpqImxwc+20bQmWOZ+aJ4J2"
+        # ⚠️ BURAYA GERÇEK BİR ANAHTAR YAZILI GELMİYOR ve bu bilinçli:
+        # örneği olduğu gibi çalıştıran biri, başkasının CA'sını bütün
+        # filosuna kurmuş olurdu. Boş bırakıldığında rol açık bir
+        # mesajla DURUYOR — sessizce "başarılı" görünmüyor.
+        postern_ca_pubkey: ""
 
         # Hangi OS hesabı hangi principal'ı kabul etsin.
         #
