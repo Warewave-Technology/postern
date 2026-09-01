@@ -131,17 +131,19 @@ export default function Authenticator() {
                 : " — not used yet"}
               .
             </p>
-            <ActionButton
-              variant="danger"
-              onClick={() => {
-                setError("");
-                setCode("");
-                setRemoving(true);
-              }}
-              label="turn off the authenticator on this account"
-            >
-              Turn off
-            </ActionButton>
+            <div className="card-actions">
+              <ActionButton
+                variant="danger"
+                onClick={() => {
+                  setError("");
+                  setCode("");
+                  setRemoving(true);
+                }}
+                label="turn off the authenticator on this account"
+              >
+                Turn off
+              </ActionButton>
+            </div>
           </>
         ) : !status.can_begin ? (
           /*
@@ -162,18 +164,20 @@ export default function Authenticator() {
                 ? "An enrolment was started but never finished. Starting again replaces it."
                 : "Not set up yet."}
             </p>
-            <ActionButton
-              onClick={() => {
-                setError("");
-                setReauth("");
-                setCode("");
-                setSecret(null);
-                setSetting(true);
-              }}
-              label="set up an authenticator app"
-            >
-              Set up
-            </ActionButton>
+            <div className="card-actions">
+              <ActionButton
+                onClick={() => {
+                  setError("");
+                  setReauth("");
+                  setCode("");
+                  setSecret(null);
+                  setSetting(true);
+                }}
+                label="set up an authenticator app"
+              >
+                Set up
+              </ActionButton>
+            </div>
           </>
         )}
       </div>

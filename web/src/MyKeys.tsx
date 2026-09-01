@@ -195,15 +195,17 @@ export default function MyKeys({ canAdd = true }: { canAdd?: boolean }) {
             add keys yourself.
           </p>
         ) : (
-          <ActionButton
-            onClick={() => {
-              setAddError("");
-              setAdding(true);
-            }}
-            label="add another SSH key"
-          >
-            Add key
-          </ActionButton>
+          <div className="card-actions">
+            <ActionButton
+              onClick={() => {
+                setAddError("");
+                setAdding(true);
+              }}
+              label="add another SSH key"
+            >
+              Add key
+            </ActionButton>
+          </div>
         )}
       </div>
 

@@ -572,6 +572,21 @@ section > .page-head:not(:first-child) {
 .card-body {
   padding: 1.15rem;
 }
+/*
+ * Kart gövdesindeki eylem düğmeleri.
+ *
+ * ⚠️ ÜSTTEN PAY ŞART. Düğme, üstündeki içeriğe (boş durum kutusu ya da
+ * anahtar listesi) yapışık duruyordu; okuyan göz "Not set up yet." ile
+ * "Set up"ı tek bir blok sanıyor ve düğmenin ayrı bir eylem olduğunu
+ * ancak üzerine gelince fark ediyordu.
+ */
+.card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+
 .card-foot {
   padding: 0.7rem 1.15rem;
   border-top: 1px solid var(--line-soft);
