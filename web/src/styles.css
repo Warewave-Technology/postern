@@ -2360,11 +2360,18 @@ label > textarea {
   font-size: 10px;
   opacity: 0.8;
 }
+/*
+ * ⚠️ SABİT KONUM VE body'DE ÇİZİLİYOR (ShellMenu.tsx'teki portal).
+ *
+ * ÖLÇÜLEN ARIZA: kart .tcard'da `overflow: hidden` taşıyor — alttaki
+ * şeridin yuvarlak köşeleri ondan geliyor — ve mutlak konumlu bir
+ * menüyü kırpıyordu: "Connect" yazısının solu kesiliyor, "Copy" satırı
+ * hiç görünmüyordu. Konumu JavaScript veriyor (top/right), burada
+ * yalnızca katman ve görünüm var.
+ */
 .shell-menu-list {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 30;
+  position: fixed;
+  z-index: 60;
   min-width: 15rem;
   display: flex;
   flex-direction: column;
