@@ -16,7 +16,16 @@ import { ActionButton, ErrorLine, OkLine } from "./admin/common";
  * geçiren birinin kalıcılık kurma hamlesi — parola değişse bile yaşayan
  * bir giriş bırakır.
  */
-export default function MyKeys() {
+/*
+ * canAdd, YENİ anahtar eklenebilir mi (auth.public_key_login).
+ *
+ * ⚠️ LİSTE VE İPTAL BUNA BAĞLI DEĞİL — bilerek. Sunucu yalnızca EKLEMEYİ
+ * kapatıyor (mykeys.go); okuma ve silme uçları açık kalıyor. Bileşenin
+ * tamamını bu bayrağa bağlamak, ayar kapatıldığında ELİNDE ANAHTAR OLAN
+ * kullanıcıyı onları görmekten de iptal etmekten de mahrum bırakıyordu —
+ * ve iptal, bu ekrandaki acil olan işlem. Kapalı olan yalnızca form.
+ */
+export default function MyKeys({ canAdd = true }: { canAdd?: boolean }) {
   const [data, setData] = useState<MyKeysData | null>(null);
   const [entry, setEntry] = useState("");
   const [reauth, setReauth] = useState("");
@@ -138,7 +147,16 @@ export default function MyKeys() {
           </ul>
         )}
 
-        {blocked ? (
+        {!canAdd ? (
+          /*
+           * ⚠️ KAPALI, BOZUK DEĞİL. Form çizilseydi sunucu isteği 409
+           * ile reddeder ve kullanıcı özelliği bozuk sanırdı.
+           */
+          <p className="msg msg-warn" role="status">
+            Key-based sign-in is switched off on this bastion, so no new key can
+            be added. The keys above still exist and can still be removed.
+          </p>
+        ) : blocked ? (
           /*
            * Uydurma bir onay yerine dürüst bir yol. Bu hesabın kimliği
            * başka bir yerden geliyor ve postern'in yeniden

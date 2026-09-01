@@ -1460,6 +1460,18 @@ label > textarea {
   font-size: 12.5px;
   overflow-wrap: anywhere;
 }
+/*
+ * ⚠️ CÜMLE OLAN DEĞERLER TEK ARALIKLI DEĞİL.
+ *
+ * .kv dd tek aralıklı, çünkü asıl işi parmak izi, DN ve tarih
+ * göstermek. Ama aynı listede "a break-glass secret issued on the host"
+ * gibi düz cümleler de bulunuyor ve onları kod gibi dizmek, okunacak
+ * bir açıklamayı kopyalanacak bir değere benzetiyor.
+ */
+.kv dd.prose {
+  font-family: inherit;
+  font-size: 13px;
+}
 
 .setting-name {
   color: var(--ink);

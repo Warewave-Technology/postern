@@ -3,8 +3,6 @@ import { Me, MyTarget, api } from "./api";
 import { ErrorLine, ListState, useList } from "./admin/common";
 import { ExternalIcon, HostIcon, SearchIcon, ShellIcon } from "./icons";
 import { Fields, describe as explain, matches, parse } from "./query";
-import MyKeys from "./MyKeys";
-import Authenticator from "./Authenticator";
 
 /**
  * Home — herkesin ekranı: erişebildiğin makineler.
@@ -185,32 +183,6 @@ export default function Home({ me }: { me: Me }) {
             </div>
           )}
         </>
-      )}
-
-      {/*
-        ⚠️ ANAHTAR GİRİŞİ KAPALIYKEN KART HİÇ ÇİZİLMİYOR.
-
-        Koşulsuz çiziliyordu ve sunucu ekleme isteğini 409 ile
-        reddediyordu: kullanıcı bir kutu, bir düğme ve bir hata görüyor,
-        özelliğin BOZUK mu yoksa KAPALI mı olduğunu ayırt edemiyordu.
-        Yönetim ekranı aynı kararı zaten doğru veriyor (Users).
-      */}
-      {/*
-        ⚠️ SIRA: kimlik doğrulayıcı ÖNCE. Anahtar kartındaki "ikinci
-        anahtar için yeniden doğrulama gerekiyor" uyarısının çözümü bu
-        kart; altında dursaydı, kullanıcı çözümü görmeden çıkmazı
-        okurdu.
-      */}
-      {me.public_key_login && <Authenticator />}
-      {me.public_key_login && <MyKeys />}
-
-      {!me.public_key_login && (
-        <p className="note">
-          Key-based sign-in is switched off on this bastion, so there are no
-          keys to manage here. Everyone signs in through the identity provider —
-          which is also what makes an account disabled there actually lose
-          access.
-        </p>
       )}
 
       <p className="note">

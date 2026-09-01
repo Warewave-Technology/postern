@@ -423,10 +423,32 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	 * ve bu uç zaten açık.
 	 */
 	mustChange := false
+	hasLocal := false
 	if cred, cerr := s.store.LocalCredential(r.Context(), u.Name); cerr == nil {
 		mustChange = cred.MustChange
+		hasLocal = true
 	}
 	policy := auth.LoadPasswordPolicy(r.Context(), s.store)
+
+	/*
+	 * canChangePassword, profil sayfasının parola kartını çizip
+	 * çizmeyeceği.
+	 *
+	 * ⚠️ İKİ AYRI SEBEPLE HAYIR OLABİLİR ve ikisi de sunucuda ZATEN
+	 * uygulanıyor — bu bayrak yeni bir kural değil, var olan iki
+	 * kuralın ekrana söylenmesi:
+	 *
+	 *   - postern'de değeri olmayan hesap (dizin/kimlik sağlayıcı):
+	 *     parolası ORADA yaşıyor, uç 409 dönüyor (password.go).
+	 *   - yönetici: kimlik bilgisi bir acil çıkış sırrı ve yalnızca
+	 *     host'ta üretiliyor; seçilmiş parolaya çevrilmesini göç
+	 *     026'daki kısıt reddediyor (store.SetChosenPassword).
+	 *
+	 * Bayrak olmasaydı panel iki durumda da bir form çizer, kullanıcı
+	 * doldurur ve hata alırdı — özelliğin BOZUK mu yoksa KENDİSİNE
+	 * KAPALI mı olduğunu ayırt edemeden.
+	 */
+	canChangePassword := hasLocal && !u.Admin
 
 	// Kısıtlıyken hedef listesi GÖNDERİLMİYOR: kişi henüz hiçbir şey
 	// yapamıyor ve envanter, ekranın işine yaramayan bir bilgi.
@@ -445,6 +467,10 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		// güvenerek açık bırakılan bir kapı, kapalı değildir.
 		"must_change_password": mustChange,
 		"password_policy":      policy,
+
+		// Profil sayfası parola kartını buna göre çiziyor (gerekçe
+		// yukarıda). Asıl koruma uçta ve veritabanı kısıtında.
+		"can_change_password": canChangePassword,
 
 		// Terminal rotası yalnızca EnableTerminal çağrıldıysa var.
 		// Panel bunu bilmezse kapanmamış bir kapı sunar: düğmeye basan

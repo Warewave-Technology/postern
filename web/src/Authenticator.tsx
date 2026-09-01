@@ -96,8 +96,20 @@ export default function Authenticator() {
 
         {status.enrolled && !removing && (
           <>
+            {/*
+              ⚠️ "NE ZAMANDAN BERİ" DE YAZIYOR.
+              
+              Sunucu confirmed_at'i ilk günden gönderiyordu ve hiçbir
+              ekran okumuyordu. Kullanıcı için asıl soru "bu benim
+              bağladığım cihaz mı" — ve o soruya yalnızca son kullanım
+              değil, BAĞLANMA tarihi cevap veriyor. Beklemediği bir
+              tarih gören kişi, faktörünü kapatıp yenisini bağlar.
+            */}
             <p className="state">
               Active
+              {status.confirmed_at
+                ? ` since ${new Date(status.confirmed_at).toLocaleDateString()}`
+                : ""}
               {status.last_used_at
                 ? ` — last used ${new Date(status.last_used_at).toLocaleString()}`
                 : " — not used yet"}

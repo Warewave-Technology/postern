@@ -28,6 +28,13 @@ export type Me = {
   /** Kuralın TEK KAYNAĞI sunucu. Ekrana ikinci bir kopyasını yazmak,
    *  bir güvenlik kontrolünü iki yerde tutmak olurdu. */
   password_policy?: PasswordPolicy;
+  /** Bu hesabın parolası panelden DEĞİŞTİRİLEBİLİR mi. Dizinden gelen
+   *  hesapların parolası postern'de yok (uç 409 döner), yöneticininki
+   *  ise acil çıkış sırrı ve seçilmiş parolaya çevrilemez (göç 026).
+   *  Bayrak olmadan panel iki durumda da form çizer ve kullanıcı,
+   *  özelliğin BOZUK mu yoksa kendisine KAPALI mı olduğunu ayırt
+   *  edemeden hata alır. */
+  can_change_password?: boolean;
 };
 
 /** PasswordPolicy, parolanın geçmesi gereken kurallar. */
@@ -751,8 +758,6 @@ export const api = {
    *  izini döndürüyor, dolayısıyla panelin elindeki tek tanımlayıcı bu. */
   removeMyKeyByFingerprint: (fingerprint: string) =>
     req<{ ok: true }>("POST", "/api/me/keys/remove", { fingerprint }),
-  removeMyKey: (authorized_key: string) =>
-    req<{ ok: boolean }>("POST", "/api/me/keys/remove", { authorized_key }),
   localLogin: (username: string, secret: string) =>
     req<{ ok: boolean }>("POST", "/auth/local", { username, secret }),
   syncSettings: () => req<SyncSettings>("GET", "/api/admin/sync/settings"),

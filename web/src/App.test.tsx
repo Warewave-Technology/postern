@@ -705,26 +705,21 @@ describe("kimlik sağlayıcı ekranı", () => {
  * kullanıcı bir kutu, bir düğme ve bir hata görüyor, özelliğin BOZUK mu
  * yoksa KAPALI mı olduğunu ayırt edemiyordu.
  */
-describe("anahtar girişi kapalıyken ana ekran", () => {
-  it("anahtar kartını çizmiyor ve sebebini söylüyor", async () => {
-    vi.spyOn(api, "me").mockResolvedValue({
-      name: "ayse",
-      os_user: "ayse",
-      admin: false,
-      targets: [],
-      terminal_enabled: false,
-      public_key_login: false,
-    });
+describe("profil sekmesi", () => {
+  const goProfile = async () => {
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Profile" }),
+    );
+  };
 
-    render(<App />);
-    await screen.findByText("Your targets");
-    expect(screen.queryByText("Your SSH keys")).toBeNull();
-    expect(
-      screen.getAllByText(/switched off on this bastion/i).length,
-    ).toBeGreaterThan(0);
-  });
-
-  it("açıkken çiziyor", async () => {
+  /*
+   * ⚠️ HESAP AYARLARI ANA SAYFADAN TAŞINDI.
+   *
+   * Kimlik doğrulayıcı ve SSH anahtarları hedef listesinin altında
+   * duruyordu: her gün bakılan envanterle yılda bir dokunulan güvenlik
+   * ayarları aynı ekranda karışıyordu.
+   */
+  it("hesap kartlarını ana sayfada DEĞİL profilde çiziyor", async () => {
     vi.spyOn(api, "me").mockResolvedValue({
       name: "ayse",
       os_user: "ayse",
@@ -738,8 +733,163 @@ describe("anahtar girişi kapalıyken ana ekran", () => {
       reauth_required: false,
       reauth_possible: false,
     });
+    vi.spyOn(api, "totpStatus").mockResolvedValue({
+      enrolled: false,
+      pending: false,
+      can_begin: true,
+      needs_fresh_login: false,
+    });
 
     render(<App />);
+    await screen.findByText("Your targets");
+    expect(screen.queryByText("Your SSH keys")).toBeNull();
+    expect(screen.queryByText("Authenticator")).toBeNull();
+
+    await goProfile();
     expect(await screen.findByText("Your SSH keys")).toBeTruthy();
+    expect(screen.getByText("Authenticator")).toBeTruthy();
+  });
+
+  // Sekme yönetici olmayanda da var: kimlik doğrulayıcıyı yönetici
+  // ekranına koymak, herkesi kendi hesabının dışında bırakırdı.
+  it("yönetici olmayan kullanıcıda da var", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({
+      name: "ayse",
+      os_user: "ayse",
+      admin: false,
+      targets: [],
+      terminal_enabled: false,
+      public_key_login: false,
+    });
+    render(<App />);
+    expect(await screen.findByRole("button", { name: "Profile" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Settings" })).toBeNull();
+  });
+
+  /*
+   * ⚠️ ANAHTAR GİRİŞİ KAPALIYKEN LİSTE YİNE ÇİZİLİYOR.
+   *
+   * ÖLÇÜLEN BOŞLUK: sunucu yalnızca EKLEMEYİ kapatıyor (mykeys.go);
+   * okuma ve silme uçları açık kalıyor. Kartın tamamı bu bayrağa
+   * bağlıyken, ayar kapatıldığında elinde anahtar olan kullanıcı
+   * onları ne görebiliyor ne iptal edebiliyordu — ve iptal, bu
+   * ekrandaki acil olan işlem.
+   *
+   * Testin metni de ayırt edici olmak zorunda: ana sayfadaki "tarayıcı
+   * terminali kapalı" notu da "switched off on this bastion" diyor ve
+   * gevşek bir eşleşme, kart hiç çizilmese bile geçerdi.
+   */
+  it("anahtar girişi kapalıyken anahtarları yine gösteriyor, formu göstermiyor", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({
+      name: "ayse",
+      os_user: "ayse",
+      admin: false,
+      targets: [],
+      terminal_enabled: false,
+      public_key_login: false,
+    });
+    vi.spyOn(api, "myKeys").mockResolvedValue({
+      keys: [
+        {
+          fingerprint: "SHA256:eski",
+          comment: "dizustu",
+          added_at: "2026-08-01T10:00:00Z",
+        },
+      ],
+      reauth_required: true,
+      reauth_possible: false,
+    });
+
+    render(<App />);
+    await goProfile();
+
+    // Anahtar GÖRÜNÜYOR ve iptal edilebiliyor.
+    expect(await screen.findByText(/SHA256:eski/)).toBeTruthy();
+    expect(screen.getByText(/no new key can be added/i)).toBeTruthy();
+    // Ama ekleme kutusu YOK: 409 alacak bir form, özelliği bozuk
+    // gösterir.
+    expect(screen.queryByLabelText(/Public key/i)).toBeNull();
+  });
+
+  /*
+   * ⚠️ PAROLA KARTI HERKESE ÇİZİLMEZ.
+   *
+   * Dizinden gelen hesabın parolası postern'de yok (uç 409 döner),
+   * yöneticininki ise acil çıkış sırrı ve seçilmiş parolaya
+   * çevrilemiyor (göç 026). İki durumda da form çizmek, kullanıcıya
+   * dolduracağı ve hata alacağı bir kutu vermek olurdu.
+   */
+  it("parola kartını yalnızca değiştirilebiliyorsa çiziyor", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({
+      name: "ayse",
+      os_user: "ayse",
+      admin: false,
+      targets: [],
+      terminal_enabled: false,
+      public_key_login: false,
+      can_change_password: false,
+    });
+    vi.spyOn(api, "myKeys").mockResolvedValue({
+      keys: [],
+      reauth_required: false,
+      reauth_possible: false,
+    });
+    render(<App />);
+    await goProfile();
+    await screen.findByText("Your SSH keys");
+    expect(screen.queryByText("Password")).toBeNull();
+  });
+
+  it("parola değiştirilebiliyorsa kartı çiziyor", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({
+      name: "ayse",
+      os_user: "ayse",
+      admin: false,
+      targets: [],
+      terminal_enabled: false,
+      public_key_login: false,
+      can_change_password: true,
+      password_policy: { min_length: 14, max_length: 200, min_distinct: 5 },
+    });
+    vi.spyOn(api, "myKeys").mockResolvedValue({
+      keys: [],
+      reauth_required: false,
+      reauth_possible: false,
+    });
+    render(<App />);
+    await goProfile();
+    expect(await screen.findByText("Password")).toBeTruthy();
+    // Kuralın tek kaynağı sunucu: ekrana sabit sayı yazılmamalı.
+    expect(screen.getByText(/At least 14 characters/i)).toBeTruthy();
+  });
+
+  /*
+   * ⚠️ SAYFA HİÇBİR ZAMAN BOŞ KALMAMALI.
+   *
+   * Üç kartın üçü de kapalı olabiliyor (anahtar girişi kapalı, parola
+   * dizinde, kimlik doğrulayıcı kurulmamış). Kimlik kartı koşulsuz
+   * duruyor; olmasaydı kullanıcı boş bir sekme görüp onu bozuk sanardı.
+   */
+  it("her şey kapalıyken bile hesabı anlatıyor", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({
+      name: "ayse",
+      os_user: "deploy",
+      admin: false,
+      targets: [],
+      terminal_enabled: false,
+      public_key_login: false,
+      can_change_password: false,
+    });
+    vi.spyOn(api, "myKeys").mockResolvedValue({
+      keys: [],
+      reauth_required: false,
+      reauth_possible: false,
+    });
+    render(<App />);
+    await goProfile();
+    expect(await screen.findByText("Account")).toBeTruthy();
+    // Hedeflerde AÇILAN hesap kullanıcı adından farklı olabiliyor ve
+    // kullanıcı bunu bir yerden görebilmeli.
+    expect(screen.getByText("deploy")).toBeTruthy();
   });
 });

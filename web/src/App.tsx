@@ -19,6 +19,7 @@ import Settings from "./admin/Settings";
 import OIDCSettingsScreen from "./admin/OIDCSettings";
 import Setup from "./admin/Setup";
 import ChangePassword from "./ChangePassword";
+import Profile from "./Profile";
 import Overview from "./admin/Overview";
 import Home from "./Home";
 import ShellPage, { shellTargetFromPath } from "./ShellPage";
@@ -40,7 +41,7 @@ import {
 
 // Rota kütüphanesi yok: iki üst sekme ve bir kenar listesi için useState
 // yeter. URL'de yer tutmamanın bedeli, paylaşılabilir bağlantı olmaması.
-type Top = "home" | "settings";
+type Top = "home" | "profile" | "settings";
 type Section =
   | "setup"
   | "overview"
@@ -421,12 +422,24 @@ export default function App() {
   // Home HERKESİN ekranı; geri kalan her şey yönetim ve Settings'in
   // altında. Admin olmayan için Settings sekmesi HİÇ çizilmiyor —
   // görünüp 403 vermek, olmayan bir yetkiyi vaat etmektir.
+  /*
+   * ⚠️ "Profile" HERKESTE VAR, "Settings" yalnızca yöneticide.
+   *
+   * İkisi farklı sorular: profil "hesabım nasıl korunuyor", ayarlar
+   * "bu bastion nasıl çalışıyor". Kimlik doğrulayıcıyı ve SSH
+   * anahtarlarını yönetici ekranına koymak, yönetici olmayan herkesi
+   * kendi hesabının dışında bırakırdı.
+   */
   const tops: [Top, string][] = me.admin
     ? [
         ["home", "Home"],
+        ["profile", "Profile"],
         ["settings", "Settings"],
       ]
-    : [["home", "Home"]];
+    : [
+        ["home", "Home"],
+        ["profile", "Profile"],
+      ];
 
   return (
     <div className="shell">
@@ -521,6 +534,8 @@ export default function App() {
 
           <main className="app">
             {top === "home" && <Home me={me} />}
+
+            {top === "profile" && <Profile me={me} source={methods?.source} />}
 
             {top === "settings" && me.admin && (
               <div className="settings">
