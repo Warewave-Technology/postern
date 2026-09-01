@@ -154,6 +154,21 @@ type HTTPConfig struct {
 	// proxy arkasında olabilir, ":8088" dış dünyada bir anlam taşımaz.
 	ExternalURL string `yaml:"external_url"`
 
+	// TrustedProxies, X-Forwarded-For'una güvenilecek kaynak adresler
+	// ("10.0.0.0/8", "127.0.0.1"). BOŞ = başlık hiç okunmuyor.
+	//
+	// ⚠️ TLS için ters vekil ŞART koştuğumuz hâlde bu alan yoktu ve
+	// sonucu ölçüldü: vekil arkasında bütün istemciler tek adrese
+	// çöküyor, parola tahmini gecikmesi hesap bazına iniyor ve
+	// kimliği doğrulanmamış biri "admin" hesabını beş dakikada bir
+	// istekle panelden süresiz kilitleyebiliyordu. Ayrıntı ve ölçüm
+	// httpapi/trustedproxy.go'da.
+	//
+	// ⚠️ YALNIZCA GERÇEKTEN ÖNÜNDEKİ VEKİLİ YAZ. Buraya geniş bir
+	// aralık yazmak, o aralıktaki herkese kendi hız sınırı anahtarını
+	// seçtirmek olur.
+	TrustedProxies []string `yaml:"trusted_proxies"`
+
 	// TerminalEnabled, tarayıcıdaki web terminalini açar. VARSAYILAN
 	// KAPALI ve bu bilinçli bir güvenlik kararı: web terminali, SPA'daki
 	// herhangi bir XSS'i hedef makinede komut çalıştırma yetkisine

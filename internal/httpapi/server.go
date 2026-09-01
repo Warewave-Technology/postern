@@ -79,6 +79,10 @@ type Server struct {
 	// rotalar HİÇ kurulmaz — kapalı özellik, kapalı yüzey.
 	records *record.Store
 
+	// trustedProxies, X-Forwarded-For'una güvenilen kaynaklar.
+	// Boşken başlık HİÇ okunmuyor (bkz. trustedproxy.go).
+	trustedProxies *trustedProxies
+
 	// secureCookies, oturum çerezine Secure bayrağının konup
 	// konmayacağı. SetExternalURL kuruyor.
 	secureCookies bool
@@ -166,6 +170,23 @@ func (s *Server) SetSSHEndpoint(host string, port int) {
 
 // SetSyncDefaults, YAML'dan gelen senkronizasyon varsayılanlarını bildirir.
 func (s *Server) SetSyncDefaults(d groupsync.Settings) { s.syncDefaults = d }
+
+/*
+ * SetTrustedProxies, X-Forwarded-For'una güvenilecek kaynakları bildirir.
+ * Dinlemeye başlamadan ÖNCE çağrılmalı: alan kilitsiz.
+ *
+ * Hata döndürüyor ve çağıran BAŞLAMAYI KESMELİ: bozuk bir CIDR'ı
+ * yok saymak, operatörün "vekilimi tanıttım" sandığı ama tanıtmadığı
+ * bir kurulum üretirdi — kilidin geri geldiği hâl (bkz. trustedproxy.go).
+ */
+func (s *Server) SetTrustedProxies(cidrs []string) error {
+	tp, err := parseTrustedProxies(cidrs)
+	if err != nil {
+		return err
+	}
+	s.trustedProxies = tp
+	return nil
+}
 
 func (s *Server) SetExternalURL(raw string) {
 	s.externalURL = raw

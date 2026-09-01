@@ -65,14 +65,14 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	 * Aynı gerekçe bir dosya ötede yazılı: ikinci anahtarı eklemek de
 	 * yeniden doğrulama istiyor (mykeys.go).
 	 */
-	if !s.localLimit.allow(clientKey(r)) {
+	if !s.localLimit.allow(s.clientKey(r)) {
 		w.Header().Set("Retry-After", "60")
 		writeErr(w, http.StatusTooManyRequests, "too many attempts; try again in a minute")
 		return
 	}
 	// Gecikme kovası giriş kapısıyla ORTAK: aynı değeri doğruluyoruz,
 	// ayrı kova tutmak tahmin edene ikinci bir pencere açardı.
-	bkey := backoffKey(name, clientKey(r))
+	bkey := backoffKey(name, s.clientKey(r))
 	if wait := s.guessBackoff.retryAfter(bkey); wait > 0 {
 		secs := int(wait.Seconds()) + 1
 		w.Header().Set("Retry-After", strconv.Itoa(secs))

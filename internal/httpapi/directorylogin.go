@@ -41,7 +41,7 @@ const directoryBindSlots = 8
 func (s *Server) directoryLogin(w http.ResponseWriter, r *http.Request,
 	log logger, username, password string) {
 
-	if !s.localLimit.allow(clientKey(r)) {
+	if !s.localLimit.allow(s.clientKey(r)) {
 		w.Header().Set("Retry-After", "60")
 		writeErr(w, http.StatusTooManyRequests, "too many sign-in attempts; try again in a minute")
 		return

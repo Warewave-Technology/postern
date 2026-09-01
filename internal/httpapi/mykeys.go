@@ -296,7 +296,7 @@ func (s *Server) checkLocalSecret(w http.ResponseWriter, r *http.Request, name, 
 		return false
 	}
 
-	if !s.localLimit.allow(clientKey(r)) {
+	if !s.localLimit.allow(s.clientKey(r)) {
 		w.Header().Set("Retry-After", "60")
 		writeErr(w, http.StatusTooManyRequests, "too many attempts; try again in a minute")
 		return false
@@ -311,7 +311,7 @@ func (s *Server) checkLocalSecret(w http.ResponseWriter, r *http.Request, name, 
 	 * denemeler oturumlu olduğu için daha az göze batarak. Sayaç
 	 * ORTAK: aynı hesap, aynı adres, aynı kova.
 	 */
-	bkey := backoffKey(name, clientKey(r))
+	bkey := backoffKey(name, s.clientKey(r))
 	if wait := s.guessBackoff.retryAfter(bkey); wait > 0 {
 		secs := int(wait.Seconds()) + 1
 		w.Header().Set("Retry-After", strconv.Itoa(secs))

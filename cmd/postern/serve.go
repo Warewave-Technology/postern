@@ -495,6 +495,14 @@ func newServeCmd() *cobra.Command {
 				// Secure bayrağı bu adresin şemasından türüyor.
 				webAPI.SetExternalURL(cfg.HTTP.ExternalURL)
 
+				// ⚠️ BOZUK CIDR BAŞLAMAYI KESİYOR. Yok saymak,
+				// operatörün vekilini tanıttığını sandığı ama
+				// tanıtmadığı bir kurulum üretirdi ve panel kilidi
+				// sessizce geri gelirdi.
+				if err := webAPI.SetTrustedProxies(cfg.HTTP.TrustedProxies); err != nil {
+					return fmt.Errorf("http.trusted_proxies: %w", err)
+				}
+
 				// Kayıt izleme: panelden oturum oynatma. sshd ile AYNI
 				// depo — kayıtların yazıldığı yer ile okunduğu yer
 				// ayrışamaz.

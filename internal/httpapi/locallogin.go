@@ -3,7 +3,6 @@ package httpapi
 import (
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"strconv"
 	"sync"
@@ -143,7 +142,7 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !s.localLimit.allow(clientKey(r)) {
+	if !s.localLimit.allow(s.clientKey(r)) {
 		// 429: "yanlış sır" ile karıştırılmamalı, yoksa operatör
 		// elindeki sırrın bozuk olduğunu sanır.
 		w.Header().Set("Retry-After", "60")
@@ -162,7 +161,7 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 	 * backoff.go'da yazılı ve bu dosyanın "kilitleme YOK" kuralının
 	 * ayakta kalmasının tek sebebi.
 	 */
-	bkey := backoffKey(in.Username, clientKey(r))
+	bkey := backoffKey(in.Username, s.clientKey(r))
 	if wait := s.guessBackoff.retryAfter(bkey); wait > 0 {
 		secs := int(wait.Seconds()) + 1
 		w.Header().Set("Retry-After", strconv.Itoa(secs))
@@ -374,21 +373,3 @@ var decoyVerifier = sync.OnceValue(func() string {
 	}
 	return v
 })
-
-/*
- * clientKey, hız sınırının anahtarı.
- *
- * ⚠️ YALNIZCA r.RemoteAddr. X-Forwarded-For OKUNMUYOR: onu okumak,
- * istemcinin kendi hız sınırı anahtarını seçmesine izin vermek olurdu
- * — her istekte farklı bir başlık yollayan saldırgan sınırı tamamen
- * atlar. Ters vekil arkasında bu değer vekilin adresine çöküyor ve
- * sınır küreselleşiyor; kabul edilen bir bedel, çünkü asıl koruma
- * localLoginSlots ve sırrın 128 bit olması.
- */
-func clientKey(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
-}

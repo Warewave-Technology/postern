@@ -338,12 +338,12 @@ func (s *Server) spendTOTP(w http.ResponseWriter, r *http.Request, name, code st
 
 	// Tahmin hızını sınırlayan kova, parola kapısıyla ORTAK: iki uç
 	// arasında dönüşümlü deneyerek sınırı atlatmak mümkün olmasın.
-	if !s.localLimit.allow(clientKey(r)) {
+	if !s.localLimit.allow(s.clientKey(r)) {
 		w.Header().Set("Retry-After", "60")
 		writeErr(w, http.StatusTooManyRequests, "too many attempts; try again in a minute")
 		return false
 	}
-	bkey := backoffKey(name, clientKey(r))
+	bkey := backoffKey(name, s.clientKey(r))
 	if wait := s.guessBackoff.retryAfter(bkey); wait > 0 {
 		w.Header().Set("Retry-After", "60")
 		writeErr(w, http.StatusTooManyRequests, "too many failed attempts from here")
