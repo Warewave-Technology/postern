@@ -30,6 +30,7 @@ const (
 	fxpRmdir    = 15
 	fxpRename   = 18
 	fxpSymlink  = 20
+	fxpExtended = 200
 
 	fxpStatus = 101
 	fxpHandle = 102

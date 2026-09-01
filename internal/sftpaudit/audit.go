@@ -33,6 +33,8 @@ const (
 	OpSetstat  Op = "setstat"
 	OpSymlink  Op = "symlink"
 	OpOpendir  Op = "opendir"
+	OpLink     Op = "hardlink"
+	OpExtended Op = "extended"
 )
 
 // Event, denetim kaydına düşen tek satır.
@@ -78,6 +80,8 @@ type pendingOp struct {
 	handle  string
 	// n, WRITE'ta yazılmak istenen bayt sayısı.
 	n uint32
+	// ext, EXTENDED isteğinin adı ("posix-rename@openssh.com").
+	ext string
 }
 
 // openFile, açık bir tanıtıcının durumu.
@@ -220,6 +224,9 @@ func (s *Session) onRequest(typ byte, r *reader) error {
 		}
 		return s.addPending(id, pendingOp{typ: typ, handle: handle})
 
+	case fxpExtended:
+		return s.onExtended(r)
+
 	case fxpFsetstat:
 		// Açık tanıtıcı üzerinde izin/zaman değişikliği. Tanıtıcıyı
 		// yola çevirebiliyoruz; çeviremiyorsak yine de yazıyoruz ki
@@ -239,6 +246,84 @@ func (s *Session) onRequest(typ byte, r *reader) error {
 	// üstverisi; dosya içeriğine dokunmuyorlar ve denetim satırı
 	// üretmiyorlar. Yine de akış çözümlenmeye devam ediyor.
 	return nil
+}
+
+/*
+ * onExtended, SSH_FXP_EXTENDED (200) isteklerini çözer.
+ *
+ * ⚠️ ÖLÇÜLEN ARIZA: BU DAL HİÇ YOKTU ve yeniden adlandırmalar denetim
+ * defterine HİÇ DÜŞMÜYORDU. OpenSSH'in kendi sftp istemcisi, sunucu
+ * eklentiyi ilan ettiğinde SSH_FXP_RENAME değil
+ * "posix-rename@openssh.com" gönderiyor — yani gerçek dünyadaki
+ * neredeyse her yeniden adlandırma. Demoda ölçüldü: `rename a b`
+ * hedefte başarıyla çalıştı, session_files'ta karşılığı yoktu.
+ *
+ * ⚠️ TANIMADIĞIMIZ EKLENTİ SESSİZCE GEÇMİYOR. Bilinen ve zararsız
+ * olanlar (fsync, statvfs...) stat/readdir gibi satır üretmiyor; geri
+ * kalan HER ŞEY adıyla birlikte yazılıyor. Aksi hâli, bu arızanın
+ * kendisiydi: adını bilmediğimiz bir eklenti dosyayı taşısın ve defter
+ * boş kalsın. Yarın eklenen bir eklenti önceden onaylanmış olmamalı.
+ */
+func (s *Session) onExtended(r *reader) error {
+	id, name, err := idAndPath(r) // id + string: eklenti adı
+	if err != nil {
+		return err
+	}
+
+	switch name {
+	case extPosixRename, extHardlink:
+		path, perr := r.str()
+		if perr != nil {
+			return perr
+		}
+		newPath, nerr := r.str()
+		if nerr != nil {
+			return nerr
+		}
+		return s.addPending(id, pendingOp{typ: fxpExtended, ext: name,
+			path: path, newPath: newPath})
+
+	case extLsetstat:
+		path, perr := r.str()
+		if perr != nil {
+			return perr
+		}
+		return s.addPending(id, pendingOp{typ: fxpExtended, ext: name, path: path})
+	}
+
+	if quietExtensions[name] {
+		return nil
+	}
+
+	// Tanımadığımız eklenti: yolunu çözemeyebiliriz ama OLDUĞUNU
+	// yazarız. Adı detail'e gidiyor ki operatör neye baktığını bilsin.
+	return s.addPending(id, pendingOp{typ: fxpExtended, ext: name})
+}
+
+// OpenSSH eklenti adları. Ayrıntı: PROTOCOL dosyası, openssh-portable.
+const (
+	extPosixRename = "posix-rename@openssh.com"
+	extHardlink    = "hardlink@openssh.com"
+	extLsetstat    = "lsetstat@openssh.com"
+)
+
+// quietExtensions, satır ÜRETMEYEN eklentiler: hiçbiri dosya içeriğini
+// ya da ad uzayını değiştirmiyor. stat/readdir ile aynı muamele.
+var quietExtensions = map[string]bool{
+	"fsync@openssh.com":              true,
+	"statvfs@openssh.com":            true,
+	"fstatvfs@openssh.com":           true,
+	"limits@openssh.com":             true,
+	"expand-path@openssh.com":        true,
+	"home-directory":                 true,
+	"users-groups-by-id@openssh.com": true,
+}
+
+// extendedOps, EXTENDED isteğini olay adına çevirir.
+var extendedOps = map[string]Op{
+	extPosixRename: OpRename,
+	extHardlink:    OpLink,
+	extLsetstat:    OpSetstat,
 }
 
 // onReply, hedeften gelen bir paketi işler ve olayı YAZAR.
@@ -350,6 +435,21 @@ func (s *Session) onStatus(p pendingOp, code uint32, msg string) {
 
 	case fxpOpendir:
 		s.write(Event{Op: OpOpendir, Path: p.path, OK: false, Status: code, Detail: msg})
+		return
+
+	case fxpExtended:
+		op, known := extendedOps[p.ext]
+		if !known {
+			// Tanımadığımız eklenti: adı olayın kendisi.
+			op = OpExtended
+			if msg == "" {
+				msg = p.ext
+			} else {
+				msg = p.ext + ": " + msg
+			}
+		}
+		s.write(Event{Op: op, Path: p.path, NewPath: p.newPath,
+			OK: ok, Status: code, Detail: msg})
 		return
 	}
 
