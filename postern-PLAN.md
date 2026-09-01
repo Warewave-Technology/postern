@@ -789,6 +789,14 @@ değiştirecek. Kabaca kapsam:
   Açılması `session.sftp` ile, VARSAYILAN KAPALI. Olaylar
   `session_files` tablosunda ve oturum detayında.
 - `scp` protokol modu — ✅ modern `scp` zaten SFTP kullanıyor, aynı iş
+- Proxmox etiket biçimi — ✅ ÖLÇÜLDÜ ve düzeltildi: etiket ayrıştırıcısı
+  yalnızca `anahtar=değer` ve `anahtar:değer` tanıyordu, ama Proxmox
+  etiket karakter kümesi `[a-z0-9_.+-]` (pve-common `pve-tag`) ve `=`
+  ile `:` bir etikete HİÇ yazılamıyor. Yani özellik gerçek Proxmox'ta
+  hiç çalışmıyordu: her makine sessizce `unknown` rolüne düşüyordu.
+  Ayırıcıya `_` eklendi ve eşleşme ÖN EK üzerinden yapılıyor (alt çizgi
+  anahtarın da değerin de içinde geçebiliyor). Ayrıca hiçbir etiket
+  eşleşmediğinde rapor artık bağırıyor ve görülen etiketleri basıyor.
 - AD aralıklı getirme (ranged retrieval) — ✅ ÖLÇÜLDÜ ve düzeltildi:
   AD ~1500 üyeden büyük grupta `member` yerine `member;range=0-1499`
   gönderiyor, düz niteliği HİÇ vermiyor. Yönetici grubu ONAY EKRANI bu

@@ -141,6 +141,11 @@ func newDiscoverProxmoxCmd() *cobra.Command {
 		Short: "Discover machines from Proxmox VE",
 		Long: "Reads the cluster inventory, turns a tag into a role, registers each\n" +
 			"machine as a target and grants it to that role.\n\n" +
+			"TAGS: Proxmox tags are plain strings and its character set is narrow —\n" +
+			"[a-z0-9_.+-], so a tag cannot contain = or :. Write the role as\n" +
+			"  <key>_<role>      e.g. role-name_os-admins  with --tag-key role-name\n" +
+			"Everything after the first \"<key>_\" is the role, so underscores inside\n" +
+			"either half are fine.\n\n" +
 			"Nothing is written without --apply. A machine whose tag does not name a\n" +
 			"role lands in the \"" + discover.UnknownRole + "\" role rather than being dropped.",
 		Args: cobra.NoArgs,
@@ -218,7 +223,8 @@ func newDiscoverProxmoxCmd() *cobra.Command {
 	cmd.Flags().StringVar(&caFile, "ca-file", "", "hipervizörün sertifikasını doğrulayacak kök")
 	cmd.Flags().BoolVar(&insecure, "insecure", false, "TLS doğrulamasını kapat (önerilmez)")
 	cmd.Flags().StringVar(&node, "node", "", "yalnızca bu düğüm")
-	cmd.Flags().StringVar(&tagKey, "tag-key", "", "rolü taşıyan etiket anahtarı, ör. role (zorunlu)")
+	cmd.Flags().StringVar(&tagKey, "tag-key", "",
+		"rolü taşıyan etiket anahtarı; etiket <anahtar>_<rol> biçiminde, ör. role-name (zorunlu)")
 	cmd.Flags().IntVar(&port, "port", 22, "hedeflerin SSH portu")
 	cmd.Flags().BoolVar(&apply, "apply", false, "gerçekten yaz (varsayılan: yalnızca göster)")
 	cmd.Flags().DurationVar(&timeout, "timeout", 20*time.Second, "API isteği zaman aşımı")
@@ -231,13 +237,16 @@ func printDiscovery(cmd *cobra.Command, res []discover.Outcome, apply bool, tagK
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "MACHINE\tADDRESS\tROLE\tFROM\tRESULT")
 
-	var created, granted, skipped, roles int
+	var created, granted, skipped, roles, tagged int
 	for _, o := range res {
 		addr := o.Machine.Host
 		if addr == "" {
 			addr = o.Machine.Name
 		}
 		from := "tag"
+		if o.Tagged {
+			tagged++
+		}
 		if !o.Tagged {
 			// ⚠️ "Etiketsiz" ayrı yazılıyor: unknown rolündeki bir
 			// makinenin oraya neden düştüğü, operatörün soracağı ilk şey.
@@ -268,6 +277,32 @@ func printDiscovery(cmd *cobra.Command, res []discover.Outcome, apply bool, tagK
 	_ = w.Flush()
 
 	fmt.Fprintf(out, "\n%d machine(s); %d skipped.\n", len(res), skipped)
+
+	/*
+	 * ⚠️ HİÇBİRİ EŞLEŞMEDİYSE BUNU BAĞIRARAK SÖYLE.
+	 *
+	 * ÖLÇÜLEN ARIZA: etiket ayrıştırıcısı bir süre yalnızca "anahtar=değer"
+	 * ve "anahtar:değer" tanıyordu. Proxmox etiketlerinde `=` ve `:`
+	 * YAZILAMIYOR (karakter kümesi [a-z0-9_.+-]), dolayısıyla gerçek bir
+	 * Proxmox kurulumunda HER makine sessizce unknown'a düşüyordu — çıktı
+	 * satır satır "untagged" diyordu ama hiçbir yerde "anahtarın hiçbir
+	 * şeyle eşleşmedi" yazmıyordu. Operatör bunu ancak envanteri
+	 * inceleyip şaşırarak fark etti.
+	 *
+	 * Gerçekten görülen etiketleri basmak da bunun parçası: yanlış
+	 * anahtarı yazan kişi doğrusunu ekranda görüyor.
+	 */
+	if len(res) > 0 && tagged == 0 {
+		fmt.Fprintf(out, "\nWARNING: not one machine carried a %q tag.\n", tagKey)
+		if seen := sampleTags(res); len(seen) > 0 {
+			fmt.Fprintf(out, "The tags actually seen were: %s\n", strings.Join(seen, ", "))
+			fmt.Fprintf(out, "A tag is read as \"<key><separator><role>\", where the "+
+				"separator is _ = or : — so %q would need --tag-key %q.\n",
+				seen[0], tagKeyOf(seen[0]))
+		} else {
+			fmt.Fprintf(out, "These machines carry no tags at all.\n")
+		}
+	}
 	if !apply {
 		/*
 		 * ⚠️ ÖNİZLEMENİN ÖNİZLEME OLDUĞU SÖYLENİYOR. Tabloyu görüp
@@ -285,4 +320,42 @@ func printDiscovery(cmd *cobra.Command, res []discover.Outcome, apply bool, tagK
 		"assigning a role to a user, which discovery deliberately does not do.\n")
 	fmt.Fprintf(out, "Machines with no \"%s\" tag are in the %q role.\n",
 		tagKey, discover.UnknownRole)
+}
+
+/*
+ * sampleTags, raporda gösterilecek birkaç GERÇEK etiket.
+ *
+ * Anahtarı yanlış yazan operatöre doğrusunu göstermenin en kısa yolu,
+ * makinelerin üzerinde ne yazdığını basmak. Sınırlı: 200 makinelik bir
+ * envanterin bütün etiketlerini dökmek, uyarıyı okunmaz yapardı.
+ */
+func sampleTags(res []discover.Outcome) []string {
+	const max = 6
+	seen := map[string]bool{}
+	out := make([]string, 0, max)
+	for _, o := range res {
+		for _, t := range o.Machine.Tags {
+			if t == "" || seen[t] {
+				continue
+			}
+			seen[t] = true
+			out = append(out, t)
+			if len(out) == max {
+				return out
+			}
+		}
+	}
+	return out
+}
+
+// tagKeyOf, örnek bir etiketten anahtarın ne olması gerektiğini tahmin
+// eder — yalnızca uyarı metninde öneri olarak kullanılıyor.
+func tagKeyOf(tag string) string {
+	best := tag
+	for _, sep := range []string{"=", ":", "_"} {
+		if k, _, ok := strings.Cut(tag, sep); ok && len(k) < len(best) {
+			best = k
+		}
+	}
+	return best
 }

@@ -73,6 +73,19 @@ type Source interface {
  * Sebebi aynı: "bilmiyorum" ile "hiçbiri" ayrı şeyler ve bilmediğimiz
  * makineyi sessizce dışarıda bırakmak, onu envanterden düşürürdü.
  */
+/*
+ * ⚠️ EŞLEŞME ÖN EKLE, "İLK AYIRICIDA BÖL" DEĞİL.
+ *
+ * Alt çizgi hem anahtarın hem değerin İÇİNDE geçebiliyor:
+ * "role_name_os-admins" etiketi, anahtar "role_name" iken değer
+ * "os-admins" demek. İlk ayırıcıda bölen bir uygulama burada anahtarı
+ * "role" sanır, eşleşmez, ve makine sessizce unknown'a düşer — yani
+ * alt çizgiyi desteklemek TEK BAŞINA yetmiyor.
+ *
+ * Anahtar bilindiği için doğru olan onu ön ek olarak aramak; geriye
+ * kalan her şey değerdir ("role_web_prod" + anahtar "role" =
+ * "web_prod").
+ */
 func RoleFromTags(tags []string, key string) (role string, tagged bool) {
 	key = strings.TrimSpace(key)
 	if key == "" {
@@ -80,19 +93,45 @@ func RoleFromTags(tags []string, key string) (role string, tagged bool) {
 	}
 	for _, t := range tags {
 		t = strings.TrimSpace(t)
-		for _, sep := range []string{"=", ":"} {
-			k, v, ok := strings.Cut(t, sep)
-			if !ok || !strings.EqualFold(strings.TrimSpace(k), key) {
-				continue
-			}
-			v = strings.TrimSpace(v)
-			if v == "" {
-				continue
-			}
-			return v, true
+		if len(t) <= len(key) || !strings.EqualFold(t[:len(key)], key) {
+			continue
 		}
+		// Anahtardan sonra: (boşluk) ayırıcı (boşluk) değer.
+		rest := strings.TrimLeft(t[len(key):], " \t")
+		if rest == "" || !isTagSeparator(rest[0]) {
+			// Ayırıcı yoksa bu etiket bizim anahtarımız DEĞİL, yalnızca
+			// onunla başlıyor: "role" anahtarı "roles_web" etiketini
+			// yakalamamalı, yoksa makine yanlış role girer.
+			continue
+		}
+		v := strings.TrimSpace(rest[1:])
+		if v == "" {
+			continue
+		}
+		return v, true
 	}
 	return UnknownRole, false
+}
+
+/*
+ * isTagSeparator, "anahtar<ayırıcı>değer" etiketlerinde kabul edilen
+ * ayırıcılar.
+ *
+ * ⚠️ ALT ÇİZGİ ŞART — ve eksikliği bu özelliği PROXMOX'TA TAMAMEN
+ * ÇALIŞMAZ KILIYORDU.
+ *
+ * ÖLÇÜLDÜ: Proxmox etiketleri düz dizgi ve karakter kümesi dar —
+ * [a-z0-9_.+-] (pve-common'daki `pve-tag` biçimi). Yani `=` de `:` de
+ * bir Proxmox etiketine HİÇ yazılamıyor. Yalnızca o ikisini tanıyan
+ * eski kod, gerçek bir Proxmox kurulumunda her makineyi sessizce
+ * `unknown` rolüne düşürüyordu: hata yok, uyarı yok, sadece hiçbir
+ * makinenin rolü yok.
+ *
+ * `=` ve `:` duruyor çünkü vSphere onları yazabiliyor ve keşif orada
+ * "kategori=etiket" üretiyor (vsphere.go).
+ */
+func isTagSeparator(c byte) bool {
+	return c == '=' || c == ':' || c == '_'
 }
 
 /*
