@@ -407,8 +407,21 @@ func explainLoginSource(cmd *cobra.Command, db *store.Store, ctx context.Context
 		if err != nil {
 			return
 		}
+		/*
+		 * ⚠️ SAYMAK YETMEZ: HESAP GERÇEKTEN GİREBİLİYOR OLMALI.
+		 *
+		 * Panelde aynı kontrol bu yüzden düzeltildi (canSwitchTo) ve
+		 * burada bayat kalmıştı: silinmiş bir yönetici de "yerel
+		 * kimlik bilgisi olan bir yönetici" sayılıyordu, ama
+		 * locallogin.go silinmiş hesabı reddediyor. Yani uyarı tam da
+		 * uyarması gereken durumda susuyordu.
+		 *
+		 * must_change de saymıyor: o hesap giriyor ama parolasını
+		 * koyana kadar hiçbir şey yapamıyor — yapamadığı şeylerden
+		 * biri de kaynağı geri çevirmek.
+		 */
 		for _, h := range holders {
-			if h.IsAdmin {
+			if h.IsAdmin && h.State == store.StateActive && !h.MustChange {
 				return
 			}
 		}
