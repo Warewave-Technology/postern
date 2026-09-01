@@ -2,6 +2,17 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import MyKeys from "./MyKeys";
+
+/*
+ * ⚠️ EKLEME FORMU ARTIK MODALDA. Testler önce onu açıyor: kalıcı
+ * duran bir form listeyi aşağı itiyor ve "bu kart ne için" sorusunu
+ * bulanıklaştırıyordu (admin/Modal.tsx'teki gerekçenin aynısı).
+ */
+const openAddDialog = async () => {
+  await userEvent.click(
+    await screen.findByRole("button", { name: /add another SSH key/i }),
+  );
+};
 import { ApiError, api } from "./api";
 
 const key = {
@@ -20,9 +31,8 @@ describe("kendi anahtarlarim", () => {
     const add = vi.spyOn(api, "addMyKey").mockResolvedValue({ ok: true });
 
     render(<MyKeys />);
-    await waitFor(() =>
-      expect(screen.getByLabelText(/Public key/i)).toBeInTheDocument(),
-    );
+    await openAddDialog();
+    expect(screen.getByLabelText(/Public key/i)).toBeInTheDocument();
 
     expect(screen.queryByLabelText(/sign-in secret/i)).not.toBeInTheDocument();
 
@@ -51,9 +61,8 @@ describe("kendi anahtarlarim", () => {
     const add = vi.spyOn(api, "addMyKey").mockResolvedValue({ ok: true });
 
     render(<MyKeys />);
-    await waitFor(() =>
-      expect(screen.getByLabelText(/sign-in secret/i)).toBeInTheDocument(),
-    );
+    await openAddDialog();
+    expect(screen.getByLabelText(/sign-in secret/i)).toBeInTheDocument();
     expect(
       screen.getByText(/stolen session would keep access/i),
     ).toBeInTheDocument();
@@ -102,9 +111,7 @@ describe("kendi anahtarlarim", () => {
     );
 
     render(<MyKeys />);
-    await waitFor(() =>
-      expect(screen.getByLabelText(/Public key/i)).toBeInTheDocument(),
-    );
+    await openAddDialog();
 
     await userEvent.type(
       screen.getByLabelText(/Public key/i),
@@ -205,9 +212,10 @@ describe("yeniden doğrulama biçimi", () => {
       reauth_totp: true,
     });
     render(<MyKeys />);
+    await openAddDialog();
 
     expect(
-      await screen.findByLabelText(/code from your authenticator/i),
+      screen.getByLabelText(/code from your authenticator/i),
     ).toBeInTheDocument();
     expect(screen.queryByLabelText(/sign-in secret/i)).toBeNull();
   });
@@ -226,8 +234,9 @@ describe("yeniden doğrulama biçimi", () => {
       reauth_totp: false,
     });
     render(<MyKeys />);
+    await openAddDialog();
 
-    expect(await screen.findByLabelText(/sign-in secret/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/sign-in secret/i)).toBeInTheDocument();
   });
 
   /*
@@ -251,5 +260,69 @@ describe("yeniden doğrulama biçimi", () => {
     expect(
       await screen.findByText(/set up an authenticator above/i),
     ).toBeInTheDocument();
+  });
+});
+
+/*
+ * ⚠️ EKLEME FORMU AÇILANA KADAR KAPALI.
+ *
+ * Form kalıcı olarak listenin altında duruyordu: kartın işi
+ * "anahtarlarım" listesini göstermek, ekleme ise yılda birkaç kez
+ * yapılan bir eylem. Sürekli açık bir form hem listeyi aşağı itiyor
+ * hem "bu kart ne için" sorusunu bulanıklaştırıyordu.
+ *
+ * ⚠️ VARLIK DEĞİL AÇIKLIK sınanıyor: kapalı bir <dialog> çocuklarını
+ * DOM'da tutuyor ve jsdom onu gizlemiyor. Gerçek tarayıcıda kapalı
+ * dialog erişilemez; testin ölçebileceği doğru şey `open`.
+ */
+describe("ekleme modali", () => {
+  const withKeys = () =>
+    vi.spyOn(api, "myKeys").mockResolvedValue({
+      keys: [],
+      reauth_required: false,
+      reauth_possible: true,
+    });
+
+  it("düğmeye basılana kadar kapalı", async () => {
+    withKeys();
+    const { container } = render(<MyKeys />);
+    await screen.findByRole("button", { name: /add another SSH key/i });
+
+    const dialog = container.querySelector("dialog")!;
+    expect(dialog.open).toBe(false);
+
+    await openAddDialog();
+    expect(dialog.open).toBe(true);
+  });
+
+  it("kapatınca geri kapanıyor", async () => {
+    withKeys();
+    const { container } = render(<MyKeys />);
+    await openAddDialog();
+    const dialog = container.querySelector("dialog")!;
+    expect(dialog.open).toBe(true);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /close this dialog/i }),
+    );
+    expect(dialog.open).toBe(false);
+  });
+
+  /*
+   * ⚠️ EKLEME MÜMKÜN DEĞİLSE MODAL HİÇ ÇİZİLMİYOR.
+   *
+   * Kapalı bir <dialog> çocuklarını DOM'da tutuyor; koşulsuz çizmek,
+   * anahtar ekleyemeyecek bir hesapta bile ekleme formunu belgede
+   * bırakırdı.
+   */
+  it("anahtar girişi kapalıyken modal yok", async () => {
+    vi.spyOn(api, "myKeys").mockResolvedValue({
+      keys: [],
+      reauth_required: false,
+      reauth_possible: true,
+    });
+    const { container } = render(<MyKeys canAdd={false} />);
+    await screen.findByText(/no new key can be added/i);
+    expect(container.querySelector("dialog")).toBeNull();
   });
 });

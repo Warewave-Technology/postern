@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 
 /**
  * Modal — ekleme formlarının kabı.
@@ -31,6 +31,16 @@ export default function Modal({
   children: React.ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  /*
+   * ⚠️ BAŞLIK KİMLİĞİ ÜRETİLİYOR, SABİT DEĞİL.
+   *
+   * Sabit "modal-title" iken tek sayfada iki modal bulunduğunda —
+   * ikisi kapalı olsa bile <dialog> çocuklarını DOM'da tutuyor —
+   * aynı id iki kez var oluyordu. Ekran okuyucu aria-labelledby'ı
+   * ilk eşleşmeye bağlar, yani ikinci modal yanlış başlıkla
+   * duyurulurdu.
+   */
+  const titleID = useId();
 
   /*
    * ⚠️ BAĞIMLILIK LİSTESİ YOK — her render'da eşitleniyor, ve bu kasıtlı.
@@ -76,7 +86,7 @@ export default function Modal({
     <dialog
       ref={ref}
       className="modal"
-      aria-labelledby="modal-title"
+      aria-labelledby={titleID}
       // Boşluğa tıklayınca kapansın: <dialog> bunu kendiliğinden
       // yapmıyor. Hedef kontrolü ŞART — form içindeki bir tıklama da
       // dialog'a kadar kabarıyor ve kontrolsüz bırakılırsa kullanıcı
@@ -93,8 +103,12 @@ export default function Modal({
       }}
     >
       <div className="modal-head">
-        <h3 id="modal-title">{title}</h3>
-        <button className="btn-quiet" onClick={onClose} aria-label="close this dialog">
+        <h3 id={titleID}>{title}</h3>
+        <button
+          className="btn-quiet"
+          onClick={onClose}
+          aria-label="close this dialog"
+        >
           ×
         </button>
       </div>

@@ -21,19 +21,7 @@ beforeEach(() => {
     vi.fn((_m?: string) => true),
   );
   vi.spyOn(api, "roles").mockResolvedValue([]);
-  /*
-   * jsdom <dialog>'un showModal/close'unu uygulamıyor. Ekleme formu
-   * modalda olduğu için onsuz o formu açan hiçbir test yazılamıyor —
-   * ve yazılamayan test, yazılmayan testtir.
-   */
-  if (!HTMLDialogElement.prototype.showModal) {
-    HTMLDialogElement.prototype.showModal = function () {
-      this.open = true;
-    };
-    HTMLDialogElement.prototype.close = function () {
-      this.open = false;
-    };
-  }
+  // <dialog> yaması ortak kurulumda (src/test/setup.ts).
 });
 
 describe("hesap durumu", () => {

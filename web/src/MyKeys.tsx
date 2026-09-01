@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { MyKeys as MyKeysData, api, toMessage } from "./api";
-import { ActionButton, ErrorLine, OkLine } from "./admin/common";
+import { ActionButton, ErrorLine } from "./admin/common";
+import Modal from "./admin/Modal";
+import { toast } from "./toast";
 
 /*
  * MyKeys — kullanıcının kendi SSH anahtarları.
@@ -32,8 +34,28 @@ export default function MyKeys({ canAdd = true }: { canAdd?: boolean }) {
   // TOTP kodu: yerel sırrı olmayan hesapların yeniden doğrulama yolu.
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
-  const [ok, setOk] = useState("");
+  /*
+   * ⚠️ EKLEME HATASI AYRI DURUMDA.
+   *
+   * Tek bir hata durumu paylaşılınca aynı metin İKİ YERDE birden
+   * çiziliyordu: kartta ve modalın içinde. Ayrılması yalnızca kozmetik
+   * değil — silme hatası kartta, ekleme hatası formun yanında
+   * görünmeli, yoksa modal kapandığında silme hatası da onunla
+   * kaybolurdu.
+   */
+  const [addError, setAddError] = useState("");
   const [busy, setBusy] = useState(false);
+  /*
+   * ⚠️ EKLEME FORMU MODALDA.
+   *
+   * Kalıcı olarak listenin altında duruyordu ve sayfanın işi
+   * "anahtarlarım" listesini göstermek; ekleme yılda birkaç kez
+   * yapılan bir eylem. Sürekli açık bir form hem listeyi aşağı
+   * itiyor hem "bu kart ne için" sorusunu bulanıklaştırıyordu —
+   * yönetim ekranlarındaki formların modala alınma gerekçesinin
+   * aynısı (admin/Modal.tsx).
+   */
+  const [adding, setAdding] = useState(false);
 
   const load = useCallback(
     () =>
@@ -55,11 +77,10 @@ export default function MyKeys({ canAdd = true }: { canAdd?: boolean }) {
    */
   const remove = (fingerprint: string) => {
     setError("");
-    setOk("");
     return api
       .removeMyKeyByFingerprint(fingerprint)
       .then(() => {
-        setOk("key removed");
+        toast("Key removed");
         return load();
       })
       .catch((e: unknown) => setError(toMessage(e)));
@@ -68,17 +89,20 @@ export default function MyKeys({ canAdd = true }: { canAdd?: boolean }) {
   const add = (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    setError("");
-    setOk("");
+    setAddError("");
     api
       .addMyKey(entry.trim(), reauth, code)
       .then(() => {
         setEntry("");
         setReauth("");
-        setOk("key added");
+        setCode("");
+        setAdding(false);
+        // Modal kapandığı için onay satır içinde kalamaz: kapanan
+        // kutuyla birlikte kaybolurdu.
+        toast("Key added");
         return load();
       })
-      .catch((err: unknown) => setError(toMessage(err)))
+      .catch((err: unknown) => setAddError(toMessage(err)))
       .finally(() => setBusy(false));
   };
 
@@ -102,12 +126,9 @@ export default function MyKeys({ canAdd = true }: { canAdd?: boolean }) {
 
       <div className="card-body">
         <ErrorLine msg={error} />
-        <OkLine msg={ok} />
 
         {data.keys.length === 0 ? (
-          <p className="state">
-            No key yet — add one below to connect over SSH.
-          </p>
+          <p className="state">No key yet — add one to connect over SSH.</p>
         ) : (
           <ul className="key-list-admin">
             {data.keys.map((k) => (
@@ -174,6 +195,38 @@ export default function MyKeys({ canAdd = true }: { canAdd?: boolean }) {
             add keys yourself.
           </p>
         ) : (
+          <ActionButton
+            onClick={() => {
+              setAddError("");
+              setAdding(true);
+            }}
+            label="add another SSH key"
+          >
+            Add key
+          </ActionButton>
+        )}
+      </div>
+
+      {/*
+        ⚠️ MODAL YALNIZCA EKLEME MÜMKÜNKEN VAR.
+        
+        Kapalı bir <dialog> çocuklarını DOM'da tutuyor; koşulsuz
+        çizmek, anahtar ekleyemeyecek bir hesapta bile ekleme formunu
+        belgede bırakırdı. Gerçek tarayıcıda erişilemez ama var
+        olmaması gereken bir şeyin var olmaması daha iyi.
+      */}
+      {canAdd && !blocked && (
+        <Modal
+          open={adding}
+          title="Add an SSH key"
+          description="The public key of a pair you hold. postern never sees the private half."
+          onClose={() => setAdding(false)}
+        >
+          {/*
+          ⚠️ HATA MODALIN İÇİNDE. Dışarıda bıraksaydık modal kapanmadan
+          görünmez, kapandığında ise sebebi kaybolurdu.
+        */}
+          <ErrorLine msg={addError} />
           <form className="key-form" onSubmit={add}>
             <label>
               Public key
@@ -213,8 +266,8 @@ export default function MyKeys({ canAdd = true }: { canAdd?: boolean }) {
               {busy ? "Adding…" : "Add key"}
             </button>
           </form>
-        )}
-      </div>
+        </Modal>
+      )}
     </div>
   );
 }

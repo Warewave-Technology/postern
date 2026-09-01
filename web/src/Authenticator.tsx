@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, TOTPStatus, toMessage } from "./api";
 import QRCode from "./QRCode";
-import { ActionButton, ErrorLine, OkLine } from "./admin/common";
+import { ActionButton, ErrorLine } from "./admin/common";
+import Modal from "./admin/Modal";
+import { toast } from "./toast";
 
 /*
  * Authenticator — kullanıcının kendi ikinci faktörü.
@@ -30,9 +32,17 @@ export default function Authenticator() {
   const [reauth, setReauth] = useState("");
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
-  const [ok, setOk] = useState("");
   const [busy, setBusy] = useState(false);
   const [removing, setRemoving] = useState(false);
+  /*
+   * ⚠️ KURULUM MODALDA.
+   *
+   * QR, kurulum anahtarı ve kod alanı karta gömülüyken kart üç katına
+   * çıkıyor ve "ikinci faktörüm var mı" sorusunun cevabı o yığının
+   * altında kayboluyordu. Kurulum bir kez yapılan bir eylem; kalıcı
+   * ekranda durmasının gerekçesi yok (admin/Modal.tsx).
+   */
+  const [setting, setSetting] = useState(false);
 
   const load = useCallback(
     () =>
@@ -52,10 +62,11 @@ export default function Authenticator() {
   const run = (p: Promise<unknown>, done: string) => {
     setBusy(true);
     setError("");
-    setOk("");
     return p
       .then(() => {
-        setOk(done);
+        // Modal kapanıyor: onay satır içinde kalamaz, kutuyla
+        // birlikte kaybolurdu.
+        toast(done);
         setCode("");
         setReauth("");
         return load();
@@ -68,7 +79,6 @@ export default function Authenticator() {
     e.preventDefault();
     setBusy(true);
     setError("");
-    setOk("");
     api
       .totpBegin(reauth)
       .then((s) => {
@@ -91,19 +101,25 @@ export default function Authenticator() {
       </div>
 
       <div className="card-body">
+        {/*
+          ⚠️ KART YALNIZCA DURUMU VE İKİ DÜĞMEYİ TAŞIYOR.
+          
+          Kurulum akışı (QR, kurulum anahtarı, kod) ve kapatma formu
+          buradaydı ve kartı üç katına çıkarıyordu — "ikinci faktörüm
+          var mı" sorusunun cevabı o yığının altında kayboluyordu.
+          İkisi de ara sıra yapılan eylemler, modalın işi tam olarak bu.
+        */}
         <ErrorLine msg={error} />
-        <OkLine msg={ok} />
 
-        {status.enrolled && !removing && (
+        {status.enrolled ? (
           <>
             {/*
               ⚠️ "NE ZAMANDAN BERİ" DE YAZIYOR.
-              
-              Sunucu confirmed_at'i ilk günden gönderiyordu ve hiçbir
-              ekran okumuyordu. Kullanıcı için asıl soru "bu benim
-              bağladığım cihaz mı" — ve o soruya yalnızca son kullanım
-              değil, BAĞLANMA tarihi cevap veriyor. Beklemediği bir
-              tarih gören kişi, faktörünü kapatıp yenisini bağlar.
+
+              Kullanıcı için asıl soru "bu benim bağladığım cihaz mı" —
+              ve o soruya yalnızca son kullanım değil, BAĞLANMA tarihi
+              cevap veriyor. Beklemediği bir tarih gören kişi,
+              faktörünü kapatıp yenisini bağlar.
             */}
             <p className="state">
               Active
@@ -118,18 +134,154 @@ export default function Authenticator() {
             <ActionButton
               variant="danger"
               onClick={() => {
-                setRemoving(true);
-                setOk("");
                 setError("");
+                setCode("");
+                setRemoving(true);
               }}
               label="turn off the authenticator on this account"
             >
               Turn off
             </ActionButton>
           </>
+        ) : !status.can_begin ? (
+          /*
+           * ⚠️ TAZE GİRİŞ İSTENİYOR ve sebebi yazıyor. Sebebi
+           * söylemeyen bir ret, kullanıcıya "bozuk" gibi görünür ve
+           * yöneticiye gider — bu ekranın kaldırmak için var olduğu
+           * şeyin ta kendisi.
+           */
+          <p className="msg msg-warn" role="status">
+            {status.needs_fresh_login
+              ? "Sign in again and come back: linking an authenticator needs a recent sign-in, so that a stolen session cannot add one."
+              : "This account cannot enrol an authenticator right now."}
+          </p>
+        ) : (
+          <>
+            <p className="state">
+              {status.pending
+                ? "An enrolment was started but never finished. Starting again replaces it."
+                : "Not set up yet."}
+            </p>
+            <ActionButton
+              onClick={() => {
+                setError("");
+                setReauth("");
+                setCode("");
+                setSecret(null);
+                setSetting(true);
+              }}
+              label="set up an authenticator app"
+            >
+              Set up
+            </ActionButton>
+          </>
         )}
+      </div>
 
-        {status.enrolled && removing && (
+      {/* Kurulum: önce kanıt, sonra QR ve kod — tek modalın iki adımı. */}
+      {!status.enrolled && status.can_begin && (
+        <Modal
+          open={setting}
+          title="Set up an authenticator"
+          description="A one-time code app, so that you can add a further SSH key without asking an administrator."
+          onClose={() => {
+            setSetting(false);
+            setSecret(null);
+          }}
+        >
+          <ErrorLine msg={error} />
+
+          {!secret ? (
+            <form className="key-form" onSubmit={begin}>
+              {!status.needs_fresh_login && (
+                <label>
+                  Confirm with your sign-in secret
+                  <input
+                    type="password"
+                    autoComplete="current-password"
+                    value={reauth}
+                    onChange={(e) => setReauth(e.target.value)}
+                  />
+                </label>
+              )}
+              <button
+                className="btn btn-primary"
+                disabled={busy || (!status.needs_fresh_login && !reauth)}
+              >
+                {busy ? "Starting…" : "Continue"}
+              </button>
+            </form>
+          ) : (
+            <form
+              className="key-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void run(
+                  api.totpConfirm(code),
+                  "Authenticator is now active.",
+                ).then(() => {
+                  setSecret(null);
+                  setSetting(false);
+                });
+              }}
+            >
+              <p className="state">
+                Scan this with your authenticator app, then enter the code it
+                shows.
+              </p>
+              {/*
+                ⚠️ QR VE ELLE GİRİŞ BİRLİKTE DURUYOR.
+
+                QR normal yol. Ama elle giriş kaldırılamaz: kamerası
+                olmayan bir masaüstünden kurulum yapan ya da kodu başka
+                bir cihaza geçiren kullanıcı, tek yol QR olsaydı burada
+                kalırdı.
+              */}
+              {secret.qr.length > 0 && (
+                <div className="qr-wrap">
+                  <QRCode
+                    rows={secret.qr}
+                    label="Enrolment QR code — scan it with your authenticator app"
+                  />
+                </div>
+              )}
+              <label>
+                Setup key
+                <code className="totp-secret">{group(secret.secret)}</code>
+                <span className="wfield-hint">
+                  Can't scan? Type this into your app instead, or open{" "}
+                  <a href={secret.uri}>the enrolment link</a> on the phone
+                  itself. It is shown once.
+                </span>
+              </label>
+              <label>
+                Code from the app
+                <input
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                />
+              </label>
+              <button className="btn btn-primary" disabled={busy || !code}>
+                {busy ? "Checking…" : "Activate"}
+              </button>
+            </form>
+          )}
+        </Modal>
+      )}
+
+      {/* Kapatma: kod istiyor (gerekçe aşağıda). */}
+      {status.enrolled && (
+        <Modal
+          open={removing}
+          title="Turn off the authenticator"
+          onClose={() => {
+            setRemoving(false);
+            setCode("");
+          }}
+        >
+          <ErrorLine msg={error} />
           <form
             className="key-form"
             onSubmit={(e) => {
@@ -157,124 +309,12 @@ export default function Authenticator() {
                 session cannot simply remove it.
               </span>
             </label>
-            <div className="row-actions">
-              <button className="btn btn-danger" disabled={busy || !code}>
-                {busy ? "Turning off…" : "Confirm"}
-              </button>
-              <button
-                type="button"
-                className="btn"
-                onClick={() => {
-                  setRemoving(false);
-                  setCode("");
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        )}
-
-        {/* Kayıt başladı, kod bekleniyor. */}
-        {!status.enrolled && secret && (
-          <form
-            className="key-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void run(
-                api.totpConfirm(code),
-                "Authenticator is now active.",
-              ).then(() => setSecret(null));
-            }}
-          >
-            <p className="state">
-              Scan this with your authenticator app, then enter the code it
-              shows.
-            </p>
-            {/*
-              ⚠️ QR VE ELLE GİRİŞ BİRLİKTE DURUYOR.
-
-              QR normal yol. Ama elle giriş kaldırılamaz: kamerası
-              olmayan bir masaüstünden kurulum yapan ya da kodu başka
-              bir cihaza geçiren kullanıcı, tek yol QR olsaydı burada
-              kalırdı.
-            */}
-            {secret.qr.length > 0 && (
-              <div className="qr-wrap">
-                <QRCode
-                  rows={secret.qr}
-                  label="Enrolment QR code — scan it with your authenticator app"
-                />
-              </div>
-            )}
-            <label>
-              Setup key
-              <code className="totp-secret">{group(secret.secret)}</code>
-              <span className="wfield-hint">
-                Can't scan? Type this into your app instead, or open{" "}
-                <a href={secret.uri}>the enrolment link</a> on the phone itself.
-                It is shown once.
-              </span>
-            </label>
-            <label>
-              Code from the app
-              <input
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-              />
-            </label>
-            <button className="btn btn-primary" disabled={busy || !code}>
-              {busy ? "Checking…" : "Activate"}
+            <button className="btn btn-danger" disabled={busy || !code}>
+              {busy ? "Turning off…" : "Confirm"}
             </button>
           </form>
-        )}
-
-        {/* Henüz kayıt yok. */}
-        {!status.enrolled && !secret && (
-          <>
-            {!status.can_begin ? (
-              /*
-               * ⚠️ TAZE GİRİŞ İSTENİYOR ve sebebi yazıyor. Sebebi
-               * söylemeyen bir ret, kullanıcıya "bozuk" gibi görünür ve
-               * yöneticiye gider — bu ekranın kaldırmak için var olduğu
-               * şeyin ta kendisi.
-               */
-              <p className="msg msg-warn" role="status">
-                {status.needs_fresh_login
-                  ? "Sign in again and come back: linking an authenticator needs a recent sign-in, so that a stolen session cannot add one."
-                  : "This account cannot enrol an authenticator right now."}
-              </p>
-            ) : (
-              <form className="key-form" onSubmit={begin}>
-                <p className="state">
-                  {status.pending
-                    ? "An enrolment was started but never finished. Starting again replaces it."
-                    : "Not set up yet."}
-                </p>
-                {!status.needs_fresh_login && (
-                  <label>
-                    Confirm with your sign-in secret
-                    <input
-                      type="password"
-                      autoComplete="current-password"
-                      value={reauth}
-                      onChange={(e) => setReauth(e.target.value)}
-                    />
-                  </label>
-                )}
-                <button
-                  className="btn btn-primary"
-                  disabled={busy || (!status.needs_fresh_login && !reauth)}
-                >
-                  {busy ? "Starting…" : "Set up"}
-                </button>
-              </form>
-            )}
-          </>
-        )}
-      </div>
+        </Modal>
+      )}
     </div>
   );
 }
