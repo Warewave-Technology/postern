@@ -521,6 +521,55 @@ const ctxUser ctxKey = 0
 // requireSession, oturum isteyen uçları saran middleware: cookie →
 // kullanıcı adı → context. 401 gövdesi JSON — SPA yakalayıp login'e
 // yönlendirecek, HTML hata sayfası API'de gürültü.
+/*
+ * accountStillOpen, HER İSTEKTE hesabın hâlâ var olduğunu doğrular.
+ *
+ * ⚠️ ÖLÇÜLEN ARIZA: 'deleted' yapılan hesap panelde ÇALIŞMAYA DEVAM
+ * EDİYORDU. Kanıt bir entegrasyon koşumuydu: hesap silindikten sonra
+ * /api/me hâlâ 200 ve hedef listesiyle dönüyor, /api/terminal/web01
+ * gerçekten açılıyor ve hedefin karşılama afişi geliyordu. Yani
+ * yönetici "sil"e basıyor, SSH kapısının gürültüyle kapandığını
+ * görüyor ve erişimin bittiğini sanıyor — oysa açık sekmesi olan kişi
+ * kabuk açmaya devam ediyor.
+ *
+ * Sebep: sshd/auth.go:70 durumu okuyor, oturum ara katmanı okumuyordu.
+ * Panel oturumu BELLEKTE çözülüyor (webSessions) ve o harita hesabın
+ * silindiğini bilmiyor. Yaşam döngüsü koşucusu ve CLI zaten AYRI
+ * SÜREÇLER; bellekteki haritayı oradan düşürmek de mümkün değil.
+ * Dolayısıyla kontrol İSTEK ANINDA, veritabanına bakarak olmak zorunda.
+ *
+ * ⚠️ KURAL GİRİŞTEKİYLE AYNI: RefuseIfDeleted. 'inactive' burada da
+ * reddedilmiyor, çünkü reddetseydik kişi çıkıp yeniden girerek aynı
+ * yere gelirdi — iki kapıya iki farklı kural koymak, sıkılaştırma değil
+ * tutarsızlık olurdu (gerekçe accountstate.go:160'ta).
+ *
+ * ⚠️ VERİTABANI SUSUYORSA 401 DEĞİL 503. "Kimliğini doğrulayamadım"
+ * demek, geçerli kullanıcıyı parolasını sıfırlamaya gönderirdi; arıza
+ * ise bambaşka bir yerde. "Çözemedim" ile "yetkin yok" ayrı şeyler.
+ */
+func (s *Server) accountStillOpen(w http.ResponseWriter, r *http.Request, username string) bool {
+	err := s.store.RefuseIfDeleted(r.Context(), username)
+	switch {
+	case err == nil:
+		return true
+
+	case errors.Is(err, store.ErrAccessDenied), errors.Is(err, store.ErrNotFound):
+		// Hesap gitti: bellekteki oturumları da düşür ki bir sonraki
+		// istek veritabanına hiç gitmesin ve ret KALICI olsun.
+		s.webSessions.DestroyUser(username)
+		s.clearSessionCookie(w)
+		s.logger.Warn("session refused: account is gone", "user", username, "error", err)
+		writeErr(w, http.StatusUnauthorized, "unauthenticated")
+		return false
+
+	default:
+		s.logger.Error("account state unreadable", "user", username, "error", err)
+		writeErr(w, http.StatusServiceUnavailable,
+			"could not verify the account right now; try again shortly")
+		return false
+	}
+}
+
 func (s *Server) requireSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := r.Cookie(sessionCookie)
@@ -538,6 +587,10 @@ func (s *Server) requireSession(next http.Handler) http.Handler {
 		}
 
 		if viaLocal && !s.passwordChangeDone(w, r, username, c.Value) {
+			return
+		}
+
+		if !s.accountStillOpen(w, r, username) {
 			return
 		}
 
