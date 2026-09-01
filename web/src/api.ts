@@ -187,6 +187,25 @@ export type MyTarget = {
   last_seen_at?: string;
 };
 
+/*
+ * MyTargetDetail, kullanıcının KENDİ hedef sayfası.
+ *
+ * ⚠️ host/port YOK ve olmayacak: kullanıcı hedefe postern üzerinden
+ * bağlanıyor, adresini bilmesi gerekmiyor. Adresi vermek, bastion'ın
+ * varlık sebebi olan "ağ topolojisini gizleme"yi panelden sızdırırdı.
+ *
+ * ⚠️ sessions yalnızca KENDİ oturumları. Aynı hedefe başkalarının ne
+ * zaman bağlandığı bir denetim sorusu ve yönetici ekranında duruyor.
+ */
+export type MyTargetDetail = MyTarget & {
+  sessions: {
+    id: string;
+    started: string;
+    ended?: string;
+    os_user: string;
+  }[];
+};
+
 /** ScannedKey, bir adresteki makinenin O ANDA sunduğu host key.
  *  ⚠️ Doğrulanmış değil: operatörün makineyle karşılaştırması gerekiyor. */
 export type ScannedKey = {
@@ -646,6 +665,8 @@ export const api = {
 
   targets: () => req<Target[]>("GET", "/api/admin/targets"),
   myTargets: () => req<MyTarget[]>("GET", "/api/targets"),
+  myTarget: (name: string) =>
+    req<MyTargetDetail>("GET", `/api/targets/${encodeURIComponent(name)}`),
   scanHostKey: (host: string, port: number) =>
     req<ScannedKey>("POST", "/api/admin/targets/scan", { host, port }),
   targetDetail: (name: string) =>

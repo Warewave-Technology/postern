@@ -3,6 +3,7 @@ import { Me, MyTarget, api } from "./api";
 import { ErrorLine, ListState, useList } from "./admin/common";
 import { HostIcon, SearchIcon } from "./icons";
 import ShellMenu from "./ShellMenu";
+import { targetURL } from "./TargetPage";
 import { Fields, describe as explain, matches, parse } from "./query";
 
 /**
@@ -139,10 +140,20 @@ export default function Home({ me }: { me: Me }) {
               {shown.map((t) => (
                 <article key={t.name} className="tcard">
                   <header className="tcard-head">
-                    <span className="tcard-name">
+                    {/*
+                      ⚠️ TIKLANABİLİR OLAN AD, KARTIN TAMAMI DEĞİL.
+                      
+                      Kartın içinde bir menü düğmesi var; kartı komple
+                      bağlantıya çevirmek, menüye her basışta sayfayı da
+                      değiştirirdi. Ayrıca bağlantı olarak <a> kullanmak
+                      orta tık ve "yeni sekmede aç" davranışını
+                      koruyor — bir onClick sarmalayıcısı ikisini de
+                      kaybettirirdi.
+                    */}
+                    <a className="tcard-name" href={targetURL(t.name)}>
                       <HostIcon />
                       {t.name}
-                    </span>
+                    </a>
                     {/*
                       ⚠️ MENÜ, web terminali KAPALI olsa da çiziliyor.
                       Eskiden düğme tamamen terminale bağlıydı ve

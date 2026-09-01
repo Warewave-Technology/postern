@@ -29,6 +29,15 @@ func (s *Server) registerTargetRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/admin/targets/scan",
 		noStore(s.requireSession(s.requireAdmin(s.sameOrigin(http.HandlerFunc(s.adminScanTarget))))))
 
+	/*
+	 * ⚠️ ADMIN DEĞİL: oturum sahibinin ERİŞEBİLDİĞİ tek hedefin
+	 * detayı. Yetki gövdede; erişimi olmayan için 404 dönüyor, 403
+	 * değil — "böyle bir hedef var ama sana kapalı" demek, envanteri
+	 * tek tek deneyerek çıkarmaya izin vermek olurdu.
+	 */
+	mux.Handle("GET /api/targets/{name}",
+		noStore(s.requireSession(http.HandlerFunc(s.handleMyTargetDetail))))
+
 	mux.Handle("GET /api/admin/targets/{name}",
 		noStore(s.requireSession(s.requireAdmin(s.sameOrigin(http.HandlerFunc(s.adminTargetDetail))))))
 }
@@ -352,5 +361,114 @@ func (s *Server) adminScanTarget(w http.ResponseWriter, r *http.Request) {
 		KeyFile:       sshalg.HostKeyFile(key.Type()),
 		ConflictsWith: conflict,
 		ConflictKind:  conflictKind,
+	})
+}
+
+/*
+ * handleMyTargetDetail: GET /api/targets/{name}
+ *
+ * ⚠️ HOST/PORT YOK — kart ucundaki gerekçenin aynısı: sıradan kullanıcı
+ * hedefe postern üzerinden bağlanıyor ve adresini bilmesi gerekmiyor.
+ * Adresi vermek, bir bastion'ın varlık sebebi olan "ağ topolojisini
+ * kullanıcıya açmama" özelliğini panelden sızdırırdı.
+ *
+ * ⚠️ OTURUMLAR YALNIZCA KENDİSİNİN. Aynı hedefe başkalarının ne zaman
+ * bağlandığı bir denetim sorusu ve yönetici ekranında duruyor; burada
+ * göstermek, sıradan bir kullanıcıya meslektaşlarının çalışma saatlerini
+ * verirdi.
+ */
+func (s *Server) handleMyTargetDetail(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	me := sessionUser(r)
+
+	u, err := s.store.User(r.Context(), me)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			s.clearSessionCookie(w)
+			writeErr(w, http.StatusUnauthorized, "unauthenticated")
+			return
+		}
+		s.storeErr(w, "targets.mine.detail", err)
+		return
+	}
+
+	var allowed bool
+	for _, role := range u.Roles {
+		for _, t := range role.Targets {
+			if strings.EqualFold(t, name) {
+				allowed = true
+			}
+		}
+	}
+	/*
+	 * ⚠️ 404, 403 DEĞİL — ve var olmayan hedefle aynı cevap.
+	 *
+	 * "Bu hedef var ama sana kapalı" demek, adları tek tek deneyen
+	 * birine envanteri çıkarma imkânı verir. Erişimi olmayan için
+	 * hedefin varlığı da bir bilgi.
+	 */
+	if !allowed {
+		writeErr(w, http.StatusNotFound, "no such target")
+		return
+	}
+
+	tgt, terr := s.store.Target(r.Context(), name)
+	if terr != nil {
+		if errors.Is(terr, store.ErrNotFound) {
+			writeErr(w, http.StatusNotFound, "no such target")
+			return
+		}
+		s.storeErr(w, "targets.mine.detail", terr)
+		return
+	}
+
+	facts, _ := s.store.TargetFacts(r.Context(), tgt.Name)
+
+	/*
+	 * Kullanıcının BU hedefteki oturumları.
+	 *
+	 * Sessions kullanıcıya göre süzülüyor, hedef burada eleniyor:
+	 * depoda hedefe göre süzen bir sorgu yok ve tek kullanıcının
+	 * geçmişi için ikinci bir indeks açmaya değmez.
+	 */
+	type sessionRow struct {
+		ID      string `json:"id"`
+		Started string `json:"started"`
+		Ended   string `json:"ended,omitempty"`
+		OSUser  string `json:"os_user"`
+	}
+	rows := make([]sessionRow, 0, 8)
+	if all, serr := s.store.Sessions(r.Context(), me, sessionScanLimit); serr == nil {
+		for _, sn := range all {
+			if !strings.EqualFold(sn.Target, tgt.Name) {
+				continue
+			}
+			row := sessionRow{
+				ID:      sn.ID,
+				Started: sn.StartedAt.UTC().Format(time.RFC3339),
+				OSUser:  sn.OSUser,
+			}
+			if !sn.EndedAt.IsZero() {
+				row.Ended = sn.EndedAt.UTC().Format(time.RFC3339)
+			}
+			rows = append(rows, row)
+			if len(rows) == 10 {
+				break
+			}
+		}
+	} else {
+		// Geçmiş okunamadı: detayı düşürmüyoruz ama sessiz de
+		// geçmiyoruz — boş liste "hiç bağlanmadın" demek, "bakamadık"
+		// demek değil.
+		s.logger.Error("own session history unavailable",
+			"user", me, "target", tgt.Name, "error", serr)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"name":           tgt.Name,
+		"labels":         tgt.Labels,
+		"server_version": facts.ServerVersion,
+		"last_seen_at":   stampOrEmpty(facts.LastSeenAt),
+		"sessions":       rows,
 	})
 }

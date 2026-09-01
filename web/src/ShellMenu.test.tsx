@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ShellMenu, { menuPlacement, sshCommand } from "./ShellMenu";
+import { ToastHost, dismissAllToasts } from "./toast";
 
 const writeText = vi.fn(() => Promise.resolve());
 
@@ -62,7 +63,15 @@ describe("shell menüsü", () => {
     ).toBeTruthy();
   });
 
-  it("komutu panoya yazıyor", async () => {
+  /*
+   * ⚠️ ONAY EKRANIN KÖŞESİNDE, MENÜNÜN YANINDA DEĞİL.
+   *
+   * Satır içinde olduğunda hem menünün yanındaki yerleşimi itiyordu
+   * hem de başka yere bakan kullanıcı hiç görmüyordu.
+   */
+  it("komutu panoya yazıyor ve onayı bildirimle veriyor", async () => {
+    dismissAllToasts();
+    render(<ToastHost />);
     render(
       <ShellMenu
         target="web-01"

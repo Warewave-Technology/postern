@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ExternalIcon, ShellIcon } from "./icons";
+import { toast } from "./toast";
 
 /*
  * ShellMenu — hedef kartındaki "Shell" düğmesi, iki seçenekli.
@@ -158,10 +159,10 @@ export default function ShellMenu({
       return;
     }
     navigator.clipboard.writeText(cmd).then(
-      () => {
-        setCopied("copied");
-        window.setTimeout(() => setCopied(""), 2000);
-      },
+      // ⚠️ Onay artık ekranın köşesinde (toast.tsx): satır içinde
+      // olduğunda hem menünün yanındaki yerleşimi itiyordu hem de
+      // başka yere bakan kullanıcı hiç görmüyordu.
+      () => toast("Copied"),
       () => setCopied(cmd),
     );
   };
@@ -224,12 +225,7 @@ export default function ShellMenu({
           document.body,
         )}
 
-      {copied === "copied" && (
-        <span className="shell-copied" role="status">
-          Copied
-        </span>
-      )}
-      {copied && copied !== "copied" && (
+      {copied && (
         /*
          * Pano kullanılamadı: komut elle alınabilsin diye ekranda.
          * "Kopyalandı" demek yalan olurdu.

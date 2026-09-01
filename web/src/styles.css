@@ -2343,6 +2343,73 @@ label > textarea {
 }
 
 /*
+ * Hedef adı artık bir bağlantı.
+ *
+ * ⚠️ Bağlantı gibi GÖRÜNMÜYOR (altı çizili, mavi değil) ama davranıyor:
+ * kart başlığındaki ad zaten okunması gereken şey; onu maviye çevirmek
+ * ızgarayı bağlantı çorbasına döndürürdü. Tıklanabilirliği imleç ve
+ * üzerine gelince renk söylüyor.
+ */
+a.tcard-name {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+a.tcard-name:hover,
+a.tcard-name:focus-visible {
+  color: var(--accent, var(--ink));
+  text-decoration: underline;
+}
+.target-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/*
+ * Geçici bildirimler (toast.tsx).
+ *
+ * ⚠️ SOL ÜSTTE ve pointer-events:none. Ekranın üstünde duran bir kutu,
+ * altındaki düğmelere tıklamayı engellememeli — kaybolmasını bekleyen
+ * kullanıcı, arayüzün donduğunu sanır.
+ */
+.toasts {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+}
+.toast {
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--raised);
+  color: var(--ink);
+  font-size: 13px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 30%);
+  animation: toast-in 140ms ease-out;
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+/*
+ * ⚠️ Hareketi azalt tercihine saygı: belirme animasyonu kapanıyor.
+ * Kutu yine görünüyor, yalnızca kayarak gelmiyor.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
+}
+
+/*
  * Hedef kartındaki Shell menüsü.
  *
  * ⚠️ KART İÇİNDE AÇILAN BİR KATMAN. position:relative kapsayıcı şart:

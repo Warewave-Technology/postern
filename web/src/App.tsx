@@ -20,9 +20,11 @@ import OIDCSettingsScreen from "./admin/OIDCSettings";
 import Setup from "./admin/Setup";
 import ChangePassword from "./ChangePassword";
 import Profile from "./Profile";
+import { ToastHost } from "./toast";
 import Overview from "./admin/Overview";
 import Home from "./Home";
 import ShellPage, { shellTargetFromPath } from "./ShellPage";
+import TargetPage, { targetFromPath } from "./TargetPage";
 import ThemeSwitch from "./theme/ThemeSwitch";
 import { useThemeMode } from "./theme/mode";
 import {
@@ -271,6 +273,10 @@ export default function App() {
   // sekme değiştirmek çalışan oturumu gizliyordu. Kendi sekmesinde
   // açılan bir kabuk, kullanıcının zaten alışkın olduğu şey.
   const shellTarget = shellTargetFromPath(window.location.pathname);
+  // /target/<ad>: hedefin kendi sayfası. Kabukla aynı yol kalıbı —
+  // sunucu bilinmeyen yollara index.html döndüğü için ikisi de adres
+  // çubuğundan açılabiliyor ve bağlantıları paylaşılabiliyor.
+  const detailTarget = targetFromPath(window.location.pathname);
 
   /*
    * Oturum HERHANGİ BİR uçta düşerse giriş ekranına dön.
@@ -443,6 +449,12 @@ export default function App() {
 
   return (
     <div className="shell">
+      {/*
+        Geçici bildirimler kabuğun EN ÜSTÜNDE bir kez çiziliyor: her
+        çağıran kendi kutusunu kurmasın, ve bildirim sayfa değişse de
+        aynı yerde belirsin.
+      */}
+      <ToastHost />
       <header className="topbar">
         <div className="topbar-inner">
           <Brand />
@@ -533,7 +545,19 @@ export default function App() {
           </nav>
 
           <main className="app">
-            {top === "home" && <Home me={me} />}
+            {/*
+              ⚠️ /target/<ad> Home'un YERİNE çiziliyor, ayrı bir tam
+              ekran olarak değil: üst sekmeler ve tema düğmesi yerinde
+              kalsın, kullanıcı bir hedefe bakarken paneli terk etmiş
+              hissetmesin. Kabuk farklı — o kendi sekmesinde açılıyor
+              çünkü ekranın tamamını istiyor.
+            */}
+            {top === "home" &&
+              (detailTarget ? (
+                <TargetPage me={me} name={detailTarget} />
+              ) : (
+                <Home me={me} />
+              ))}
 
             {top === "profile" && <Profile me={me} source={methods?.source} />}
 

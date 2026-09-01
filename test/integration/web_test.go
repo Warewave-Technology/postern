@@ -8,6 +8,7 @@ package integration
 //	go test -tags integration -run TestWebLogin -v ./test/integration/
 
 import (
+	"context"
 	"encoding/json"
 	"html"
 	"io"
@@ -18,6 +19,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/warewave/postern/internal/store"
 )
 
 // browserSignIn, login yolculuğunun tamamını yürütür: /auth/login →
@@ -212,5 +215,151 @@ func browserSignInExpectingDenial(t *testing.T, client *http.Client, apiURL stri
 
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("callback zinciri %d ile bitti, beklenen 403; sayfa: %.300s", resp.StatusCode, body)
+	}
+}
+
+/*
+ * ⚠️ ERİŞİMİ OLMAYAN HEDEF, OLMAYAN HEDEFLE AYNI CEVABI VERMELİ.
+ *
+ * Yeni hedef sayfası (/api/targets/{name}) kullanıcının kendi hedefini
+ * gösteriyor. "Bu hedef var ama sana kapalı" demek, adları tek tek
+ * deneyen birine ENVANTERİ ÇIKARMA imkânı verirdi — bir bastion'ın
+ * gizlemek için var olduğu şeyin ta kendisi. İkisi de 404.
+ */
+func TestOwnTargetDetailHidesTargetsYouCannotReach(t *testing.T) {
+	_, apiURL, _, db := oobBastionFresh(t)
+	ctx := context.Background()
+
+	if _, err := db.CreateRole(ctx, "ops"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.GrantTarget(ctx, "ops", "web01"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AddGroupMapping(ctx, "sysadmins", "ops", "test"); err != nil {
+		t.Fatal(err)
+	}
+	// Kullanıcının ERİŞEMEDİĞİ bir hedef.
+	if _, err := db.CreateTarget(ctx, yasakTarget()); err != nil {
+		t.Fatal(err)
+	}
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
+	browserSignIn(t, client, apiURL)
+
+	// Erişilebilen hedef: 200 ve adres YOK.
+	code, body := meReq(t, client, "GET", apiURL+"/api/targets/web01", "")
+	if code != http.StatusOK {
+		t.Fatalf("kendi hedefi = %d %s", code, body)
+	}
+	/*
+	 * ⚠️ ADRES SIZMIYOR. Kullanıcı hedefe postern üzerinden bağlanıyor
+	 * ve ağ topolojisini bilmesi gerekmiyor; adresi vermek bastion'ın
+	 * varlık sebebini panelden delerdi.
+	 */
+	for _, leak := range []string{"host", "port", "127.0.0.1"} {
+		if strings.Contains(body, leak) {
+			t.Errorf("hedef detayı %q sızdırıyor: %s", leak, body)
+		}
+	}
+
+	// Erişilemeyen hedef ve HİÇ OLMAYAN hedef: aynı cevap.
+	forbidden, fbody := meReq(t, client, "GET", apiURL+"/api/targets/yasak01", "")
+	missing, mbody := meReq(t, client, "GET", apiURL+"/api/targets/hicyok", "")
+
+	if forbidden != http.StatusNotFound {
+		t.Errorf("erişilemeyen hedef = %d, 404 bekleniyordu: %s", forbidden, fbody)
+	}
+	if missing != http.StatusNotFound {
+		t.Errorf("olmayan hedef = %d, 404 bekleniyordu: %s", missing, mbody)
+	}
+	if fbody != mbody {
+		t.Errorf("iki cevap AYRIŞIYOR — varlık ele veriliyor:\n var ama kapalı: %s\n hiç yok      : %s",
+			fbody, mbody)
+	}
+}
+
+// Oturum geçmişi YALNIZCA kendisinin: aynı hedefe başkasının ne zaman
+// bağlandığı bir denetim sorusu ve yönetici ekranında duruyor.
+func TestOwnTargetDetailShowsOnlyYourOwnSessions(t *testing.T) {
+	_, apiURL, _, db := oobBastionFresh(t)
+	ctx := context.Background()
+
+	if _, err := db.CreateRole(ctx, "ops"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.GrantTarget(ctx, "ops", "web01"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AddGroupMapping(ctx, "sysadmins", "ops", "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
+	browserSignIn(t, client, apiURL)
+
+	// BAŞKA bir kullanıcının aynı hedefteki oturumu.
+	if _, err := db.CreateUser(ctx, "baskasi", "", "baskasi"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.StartSession(ctx, store.SessionStart{
+		ID: "digerinin-oturumu", Username: "baskasi", TargetName: "web01",
+		OSUser: "baskasi", SrcIP: "10.0.0.9", StartedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, body := meReq(t, client, "GET", apiURL+"/api/targets/web01", "")
+	if strings.Contains(body, "digerinin-oturumu") || strings.Contains(body, "baskasi") {
+		t.Fatalf("başkasının oturumu sızdı: %s", body)
+	}
+}
+
+/*
+ * ⚠️ SAYFA YALNIZCA BU HEDEFTEKİ OTURUMLARI GÖSTERMELİ.
+ *
+ * Kullanıcının kendi geçmişi tek sorguda geliyor ve hedefe göre
+ * eleniyor. Eleme düşerse sayfa "senin bu hedefteki oturumların"
+ * başlığı altında BAŞKA hedeflerdekileri de listeler — okuyan kişi
+ * bu makineye hiç bağlanmadığı hâlde bağlanmış sanır.
+ */
+func TestOwnTargetDetailShowsOnlyThisTargetsSessions(t *testing.T) {
+	_, apiURL, _, db := oobBastionFresh(t)
+	ctx := context.Background()
+
+	if _, err := db.CreateRole(ctx, "ops"); err != nil {
+		t.Fatal(err)
+	}
+	for _, tn := range []string{"web01"} {
+		if err := db.GrantTarget(ctx, "ops", tn); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.AddGroupMapping(ctx, "sysadmins", "ops", "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
+	browserSignIn(t, client, apiURL)
+
+	// İkinci bir hedef ve KULLANICININ orada bir oturumu.
+	other := yasakTarget()
+	other.Name = "baska01"
+	if _, err := db.CreateTarget(ctx, other); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.StartSession(ctx, store.SessionStart{
+		ID: "baska-hedefteki-oturum", Username: kcUser, TargetName: "baska01",
+		OSUser: kcUser, SrcIP: "10.0.0.5", StartedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, body := meReq(t, client, "GET", apiURL+"/api/targets/web01", "")
+	if strings.Contains(body, "baska-hedefteki-oturum") {
+		t.Fatalf("başka hedefteki oturum bu sayfada göründü: %s", body)
 	}
 }
