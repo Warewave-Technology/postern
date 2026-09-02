@@ -92,6 +92,35 @@ func newServeCmd() *cobra.Command {
 				return fmt.Errorf("schema is %d migration(s) behind; run `postern db migrate` first", pending)
 			}
 
+			/*
+			 * ⚠️ SAHİPSİZ OTURUM SATIRLARINI KAPAT.
+			 *
+			 * ÖLÇÜLEN ARIZA: postern SIGKILL alırsa (çökme, güç
+			 * kesintisi, `kill -9`) açık oturumların ended_at'i sonsuza
+			 * dek NULL kalıyordu. Ölçüm: bir oturum açıkken süreç
+			 * öldürülüp yeniden başlatıldı, satır hâlâ açıktı. Panel
+			 * onu süresiz "çalışıyor" gösteriyor ve yöneticiye var
+			 * olmayan bir oturumu kesmeyi teklif ediyordu.
+			 *
+			 * Dayandığı tek önerme: YENİ BAŞLAYAN SÜREÇ HİÇBİR OTURUMA
+			 * SAHİP DEĞİLDİR. Tek düğümde doğru; ikinci bir postern
+			 * aynı veritabanına bağlıysa bu, ONUN canlı oturumlarını
+			 * kapatır. 1.0 tek düğüm ve bu sınır belgelerde yazılı.
+			 *
+			 * Sessiz DEĞİL: kaç satır kapandığı loglanıyor, çünkü
+			 * ended_at gerçek bitişten sonrasını gösteriyor ve o
+			 * satırların süresi olduğundan uzun görünecek.
+			 */
+			if n, cerr := db.CloseOrphanSessions(ctx, time.Now()); cerr != nil {
+				// Kapatamamak başlamayı engellemez: eldeki iş, hayalet
+				// satırları temizlemekten daha önemli.
+				logger.Error("could not close orphaned session rows", "error", cerr)
+			} else if n > 0 {
+				logger.Warn("closed session rows left open by an earlier run; "+
+					"their recorded duration is longer than the real one",
+					"rows", n)
+			}
+
 			// ÇÖZÜLMÜŞ değerler loglanıyor, ham config değil: "0 =
 			// varsayılan" sözleşmesinde bloğu hiç yazmamış bir operatörün
 			// yürürlükteki sınırı öğrenmesinin başka yolu yok.
@@ -529,6 +558,14 @@ func newServeCmd() *cobra.Command {
 				 */
 				// Panel de ETKİN değeri gösterebilsin.
 				webAPI.SetSyncDefaults(syncFallback)
+
+				// ⚠️ KESME DEFTERİ TERMİNALDEN BAĞIMSIZ VERİLİYOR.
+				//
+				// Aşağıdaki EnableTerminal koşullu; defteri onunla
+				// birlikte vermek, terminal kapalı olan varsayılan
+				// kurulumda yöneticinin SSH oturumlarını kesememesi
+				// demek olurdu — üstelik sessizce.
+				webAPI.UseLiveSessions(s.LiveSessions())
 
 				// Web terminali yalnızca açıkça istendiğinde: rota bile
 				// kurulmaz. Bağımlılıklar sshd'ninkilerle AYNI — iki kapı
