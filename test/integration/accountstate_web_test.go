@@ -76,8 +76,12 @@ func TestWebSessionStopsWhenAccountIsDeleted(t *testing.T) {
  * kendisi o doğrulama (accountstate.go:160). Oturum ara katmanına
  * girişten DAHA SIKI bir kural koymak sıkılaştırma olmazdı: kişi çıkıp
  * yeniden girerek aynı yere gelirdi. Bu test, birinin ileride
- * RefuseIfDeleted'ı ActiveUser'la değiştirip tatilden dönen herkesi
- * yöneticinin kuyruğuna sokmasını engelliyor.
+ * RefuseIfDeleted'ı "yalnızca active geçsin" diye sıkılaştırıp tatilden
+ * dönen herkesi yöneticinin kuyruğuna sokmasını engelliyor.
+ *
+ * (Tam da o sıkılaştırmayı yapan bir store.ActiveUser YAZILMIŞTI ve
+ * hiçbir yerden çağrılmıyordu. Silindi: yanlış seçeneği kodda hazır
+ * bırakmak, bir gün seçilmesini davet ediyordu.)
  */
 func TestWebSessionSurvivesInactive(t *testing.T) {
 	_, apiURL, _, db := oobBastionFresh(t)

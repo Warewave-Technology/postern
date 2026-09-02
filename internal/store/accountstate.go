@@ -8,8 +8,6 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
-
-	"github.com/warewave/postern/internal/model"
 )
 
 // Hesap durumları.
@@ -178,19 +176,6 @@ func (s *Store) RefuseIfDeleted(ctx context.Context, username string) error {
 		return fmt.Errorf("store.RefuseIfDeleted[%s]: %w", username, ErrAccessDenied)
 	}
 	return nil
-}
-
-// ActiveUser, hesabın giriş yapabilir durumda olduğunu doğrular.
-func (s *Store) ActiveUser(ctx context.Context, username string) (model.User, error) {
-	state, _, err := s.AccountState(ctx, username)
-	if err != nil {
-		return model.User{}, err
-	}
-	if state != StateActive {
-		return model.User{}, fmt.Errorf("store.ActiveUser[%s]: state %s: %w",
-			username, state, ErrAccessDenied)
-	}
-	return s.User(ctx, username)
 }
 
 // PurgeResult, purge'ün neyi serbest bıraktığı.
