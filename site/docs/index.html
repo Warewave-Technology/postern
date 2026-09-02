@@ -709,7 +709,36 @@ session:
         <tr><td><code>session.idle_timeout</code></td><td>close a session that has gone quiet</td></tr>
         <tr><td><code>session.max_lifetime</code></td><td>close a session no matter how busy</td></tr>
       </table>
-      <div class="warn"><b>Recordings live on the bastion, and only there</b><p>There is no upload to object storage in this release, so retention is bounded by the disk and by <code>retain</code>. Two consequences worth deciding deliberately: the audit trail sits on the machine being audited, so whoever takes the bastion takes the recordings; and a legal retention period longer than your disk allows has no answer here yet. Copy the recordings directory off the host on a schedule if either matters to you. Offload is planned.</p></div>
+      <h3>Sending recordings off the bastion</h3>
+      <p>
+        Until this release the audit trail lived only on the machine being
+        audited. Point postern at an S3-compatible bucket and finished
+        recordings are copied there.
+      </p>
+<pre>recording:
+  archive:
+    endpoint: https://minio.internal:9000   <span class="c"># empty = off</span>
+    bucket: postern-recordings
+    region: us-east-1
+    prefix: postern/production
+    access_key_id: AKIA...
+    secret_key_file: /etc/postern/archive.key   <span class="c"># 0600</span>
+</pre>
+      <ul>
+        <li><b>The network is never on the session path.</b> Recordings are written locally as before and uploaded afterwards, so an object-store outage cannot refuse a session.</li>
+        <li><b>Upload, verify, mark, then permit deletion.</b> A 200 from PUT is not proof — postern asks the store with a HEAD before recording success, and only that lets the pruner delete the local copy.</li>
+        <li><b>Nothing unarchived is ever pruned.</b> The cost is honest: a long outage fills the disk and <code>min_free</code> starts refusing sessions. The pruner logs the backlog well before that.</li>
+        <li><b>Write-only.</b> The panel shows the bucket and key; it does not fetch. A read credential on the bastion would turn one compromise into exfiltration of the whole archive.</li>
+      </ul>
+      <div class="stop"><b>PutObject without DeleteObject is not append-only</b><p>A PUT to an existing key overwrites it. If the archive must survive someone who owns the bastion, that protection comes from the bucket — versioning, Object Lock in compliance mode with a default retention, and an identity with neither delete nor lock-configuration rights. postern sends no Object Lock headers on purpose: an attacker holding the credential could otherwise set the retention to zero. postern cannot verify your bucket's configuration and does not claim to.</p></div>
+      <p>
+        No AWS SDK. The signing is standard-library code pinned to AWS's own
+        SigV4 test vectors, so any S3-compatible store works and no vendor
+        dependency is carried. Single PUT only: a recording is about the size
+        of the output it captured, so realistic sessions stay far below the
+        5&nbsp;GB limit — and one that does not is kept locally and reported,
+        never silently dropped.
+      </p>
 
       <div class="warn"><b>record_input is a privacy decision</b><p>Keystroke capture records a password typed into a prompt on the target. Decide it deliberately, tell the people it applies to, and protect the recordings accordingly.</p></div>
     </section>

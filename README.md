@@ -354,6 +354,60 @@ so it is always clear which answers cost a command and which did not.
 
 `postern serve` logs a warning at every startup while this is on.
 
+### Sending recordings off the bastion
+
+Until now the audit trail lived only on the machine being audited:
+whoever took the bastion took the recordings, a retention obligation
+longer than the disk had no answer, and backup was left to the operator.
+
+```yaml
+recording:
+  dir: /var/lib/postern/recordings
+  retain: 90d
+  archive:
+    endpoint: https://minio.internal:9000   # empty = archiving is off
+    bucket: postern-recordings
+    region: us-east-1
+    prefix: postern/production
+    ca_file: /etc/postern/minio-ca.pem      # for a private root
+    access_key_id: AKIA...
+    secret_key_file: /etc/postern/archive.key   # 0600, or POSTERN_ARCHIVE_SECRET_KEY
+```
+
+**The network is never on the session path.** Recordings are written
+locally exactly as before; a separate loop uploads them afterwards. An
+object-store outage therefore cannot refuse a session — postern is not
+chained to a provider's uptime. What an outage *does* cost is pruning:
+a recording that is not safely elsewhere is never deleted, so a long
+outage fills the disk and `min_free` starts refusing sessions. That is
+the correct trade and the pruner logs the backlog long before it bites.
+
+**The order is upload, verify, mark, then permit deletion.** A 200 from
+PUT is not proof; postern asks the store itself with a HEAD before
+writing `archived_at`, and only that timestamp lets the pruner delete
+the local copy. Anything else keeps the file.
+
+**Write-only, deliberately.** The panel shows the bucket and key for an
+archived recording and does not fetch it. Holding a read credential on
+the bastion would turn one compromise into exfiltration of the entire
+archive; an auditor fetches the object with their own credentials.
+
+⚠️ **`PutObject` without `DeleteObject` is not append-only** — a PUT to
+an existing key overwrites it. If the archive has to survive someone who
+owns the bastion, that comes from the bucket: versioning enabled, Object
+Lock in compliance mode with a default retention period, and an identity
+with neither delete nor lock-configuration rights. postern deliberately
+sends no Object Lock headers, because an attacker holding the credential
+could set the retention to zero. postern cannot verify any of this and
+does not claim to.
+
+No AWS SDK: the signing is ~250 lines of standard library pinned to
+AWS's own SigV4 test vectors, so postern works with any S3-compatible
+store and carries no vendor dependency. Single PUT only — measured, a
+recording is about the size of the terminal output it captured, so the
+5 GB limit is not reachable by realistic sessions; one that exceeds it
+is kept locally and reported rather than silently dropped.
+
 ### Limits
 
 Nothing bounded the listener until recently: it accepted in an unbounded

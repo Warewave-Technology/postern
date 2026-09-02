@@ -39,7 +39,7 @@ neye baktığımı bilmen lazım.
 
 ---
 
-## Bulunan ve DÜZELTİLEN altı şey
+## Bulunan ve DÜZELTİLEN yedi şey
 
 İlk üçü aynı sınıftan: **kural yazılmıştı, bağlanmamıştı.** Dördüncüsü
 bir adım daha ince: iki ayrı doğru karar, birleşince yanlış davranıyordu.
@@ -312,6 +312,99 @@ siliyor**. Yazması olup okuması olmayan bir alan, erişimin kimsenin
 bakamayacağı bir saatte kaybolması demek. Eklenecekse okuma yoluyla
 birlikte eklenmeli.
 
+### B7 — Kayıtlar yalnızca bastion'ın diskindeydi ✅ 2 Eylül'de kapatıldı
+
+Denetim izi, denetlenen makinede duruyordu. Bastion'ı ele geçiren
+kayıtları da ele geçiriyordu; diskten uzun bir saklama yükümlülüğünün
+cevabı yoktu; yedek tamamen operatördeydi.
+
+**Aktarım kararı: elle yazılmış SigV4 + `net/http`.** Gerekçeyi ölçerek
+verdim:
+
+- AWS'nin kendi `aws4_testsuite` vektörleri (`get-vanilla`,
+  `get-vanilla-query-order-key-case`) standart kütüphaneyle geçiyor —
+  yani "doğru sanıyorum" değil, **bağımsız olarak doğrulanabilir**.
+  Depo TOTP'yi RFC vektörlerine, QR'ı referans kodlayıcıya, SFTP
+  çözücüsünü protokol belgesine karşı zaten böyle yazıyor.
+- Tek PUT yetiyor: **ölçüldü**, 140 KB ham terminal çıktısı 155 KB
+  `.cast` üretiyor. 5 GB sınırına ulaşmak için bir oturumun 5 GB
+  basması gerek. Multipart yazmak, kullanılmayan bir kod yolunu bakım
+  yüküne çevirmek olurdu — ama sınır aşıldığında dosya yerel kalıyor ve
+  sebebi yazılıyor.
+- SDK ~18 modül getiriyordu; depoda 12 doğrudan bağımlılık var.
+- Yan fayda: MinIO, Ceph, R2, Backblaze — hepsi çalışıyor, satıcı
+  bağımlılığı yok.
+
+**Yapısal güvence: ağ, oturum yoluna hiç dokunmuyor.** Yükleyici
+`proxy.Deps`'in üyesi DEĞİL — `proxy.Open` ona ulaşamıyor, dolayısıyla
+ondan zarar da göremiyor. Oturum yolunun yükleme ile tek teması,
+kapanışta yazılan bir veritabanı satırı.
+
+**Sıra: yükle → deponun kendisine sor → damgala → silmeye izin ver.**
+PUT'un 200 dönmesi kanıt değil; `archived_at` ancak HEAD ile
+doğrulandıktan sonra yazılıyor ve budayıcıya silme iznini yalnızca o
+damga veriyor.
+
+**Budayıcının kapısı varsayılan reddetme.** Sorgu hata verirse koşu
+hiçbir şey silmeden iptal ediliyor — bu dosyadaki diğer hata
+davranışlarının tersi ve fark bilinçli: orada bedel bir oturumun
+reddedilmemesi, burada bedel kanıtın yok olması.
+
+**Dürüst bedel:** arşivlenmemiş kayıt asla budanmıyor, yani uzun bir
+kesinti diski dolduruyor ve `min_free` oturumları reddetmeye başlıyor.
+Doğru davranış bu; budayıcı her koşuda kaç dosyanın tutulduğunu ve kaç
+bayt biriktiğini yazıyor, arşivleyici de bekleyenin **yaşını** —
+ölmüş bir yükleyicinin belirtisi sayının artması değil, en eskisinin
+yaşlanması.
+
+**1.0'da yazma-yalnız.** Panel arşivlenmiş kaydın kova ve anahtarını
+gösteriyor, indirmiyor: bastion'a bir okuma kimliği koymak, tek bir ele
+geçirmeyi bütün arşivin dışarı çıkarılmasına çevirirdi.
+
+⚠️ **`PutObject`, `DeleteObject` olmadan "append-only" DEĞİL** — var
+olan bir anahtara PUT üzerine yazıyor. Gerçek koruma kovadan geliyor:
+sürümleme, compliance kipinde Object Lock ve varsayılan saklama süresi.
+postern **Object Lock başlığı göndermiyor**, çünkü kimliği ele geçiren
+saklama süresini sıfır da yapabilirdi. Ve bunların hiçbirini
+doğrulayamıyor — doğrulayamadığı bir korumayı da iddia etmiyor.
+
+**Çalıştırarak bulunan iki şey:**
+
+1. **Koşulsuz SSE, KMS'siz MinIO'da 501 veriyor.** İlk hâli
+   `x-amz-server-side-encryption: AES256`'yı her istekte gönderiyordu;
+   şirket içi kurulumların çoğunda hiçbir kayıt yüklenemezdi. Üstelik
+   bastion'ı ele geçiren yükleme kimliğini de aldığı için o başlığın o
+   saldırgana karşı faydası yok. Artık ayarlanabilir, varsayılan kapalı.
+2. **S3 hata gövdesi sır taşıyabiliyor.** İlk hâli gövdeden 512 bayt
+   alıp hataya koyuyordu ve yorumu "sır taşımıyor" diyordu — yanlış:
+   AWS'nin `SignatureDoesNotMatch` cevabı `<AWSAccessKeyId>`,
+   `<StringToSign>` ve `<CanonicalRequest>` içeriyor ve o metin log'a
+   gidiyordu. Artık yalnızca `<Code>` alınıyor; çözülemezse "kod
+   okunamadı" deniyor, "kod yok" değil.
+
+**Yan çıkan iki eski sorun** (aynı sette kapandı, çünkü kapıyı güvensiz
+kılıyorlardı):
+
+- **`proxy.Open` yetim `.cast` bırakıyordu.** `NewWriter` ya da
+  `StartSession` başarısız olduğunda diskte yalnızca başlık içeren ve
+  hiçbir oturuma ait olmayan bir dosya kalıyordu. Budayıcının yeni
+  kapısı varsayılan reddettiği için bunlar sonsuza dek tutulup diski
+  doldururdu.
+- **Budama denetim defterine hiç yazmıyordu**, oysa panel kayıp bir
+  kayıt için "admin log hangisi olduğunu söyler" diyordu. Artık
+  `recording.prune` satırı yazılıyor.
+
+**Kanıt:** `TestArchivedRecordingSurvivesLocalDeletion` gerçek bir
+MinIO'ya yüklüyor, **yerel kayıt dizinini tamamen siliyor** ve aynı
+baytların depodan geri geldiğini gösteriyor. Bir veritabanı bayrağını
+kontrol eden test, hiçbir şey yüklemeyen bir uygulamayı da geçirirdi.
+
+Mutasyonlar: budayıcı kapısını kaldırınca "arşivlenmemiş kayıt silindi"
+diye düşüyor; kapı cevap veremezken hiçbir şey silinmiyor. Ve bir
+mutasyon **test yazdırdı**: HEAD doğrulamasını kaldırdım, hiçbir test
+düşmedi — çünkü hepsinde PUT gerçekten başarılıydı. Doğrulama adımı
+korumasızdı; PUT'a 200, HEAD'e 404 diyen bir depoyla o boşluk kapatıldı.
+
 ---
 
 ## Kapatılmayan eksikler
@@ -342,71 +435,7 @@ gün yapılan değişikliklerin izi, yine panelden okunabiliyor.
 **En küçük düzeltme:** `postern log [--limit N]`. ~30 satır ve yazma
 tarafı zaten duruyor.
 
-### S6 — Kayıtlar nesne depolamaya gönderilemiyor
 
-**Ciddiyet: orta. 1.0 kapsamına ALINDI (2 Eylül kararı).**
-
-⚠️ **Bu maddede fikrimi değiştirdim ve sebebi kendi analizim değil.**
-Raporun ilk hâlinde bunu "1.0'da yapılmamalı" listesine koymuştum;
-gerekçem *"disk + `retain` yetiyor, bulut bağımlılığı kapsam değil"*di.
-O gerekçe eksikti ve nedenini yazıyorum ki karar sonradan okunabilsin.
-
-Bugün kayıtlar yalnızca bastion'ın diskinde. Bunun üç sonucu var ve
-üçü de projenin kendi duruşuyla çelişiyor:
-
-1. **Denetim izi, denetlenen makineyle aynı yerde duruyor.** Bastion'ı
-   ele geçiren biri kayıtları da ele geçiriyor. "Kayıt açılamazsa oturum
-   reddedilir" diyen bir tasarımın, o kaydı saldırganın erişebildiği tek
-   diskte bırakması tutarsız.
-2. **Saklama süresi diske bağlı.** `retain: 90d` ile `min_free: 5GB`
-   çarpışınca kaybeden saklama süresi oluyor: disk dolduğunda oturumlar
-   reddedilmeye başlıyor (doğru davranış) ama operatörün seçeneği
-   kaydı kısaltmak. Yasal saklama yükümlülüğü olan bir kurulumda bu
-   yeterli değil.
-3. **Yedek alma operatörün elle çözdüğü bir problem.** Belgelerde
-   "kayıtları da yedekle" yazıyoruz ve orada bırakıyoruz.
-
-Kullanıcının kararı: **1.0 özelliği.**
-
-**Yapılırken dikkat edilecekler** (analiz değil, şimdiden görünen
-tuzaklar):
-
-- **Kayıt yazma yolu ASLA ağa bağlanmamalı.** Bugün "kayıt açılamazsa
-  oturum reddedilir" kuralı yerel bir dosya açmaya bakıyor. Aynı kuralı
-  bir S3 PUT'una bağlamak, ağ arızasını oturum reddine çevirirdi —
-  yani bastion'ı bulut sağlayıcısının uptime'ına zincirlemek. Doğru
-  şekil: yerele yaz, **sonra** yükle.
-- **Yükleme başarısızlığı sessiz kalmamalı.** Yüklenemeyen kayıt,
-  silinmemiş ama korunmamış bir kayıttır; ikisi ayrı durum ve
-  operatörün ayırt edebilmesi gerekir.
-- **Budayıcı, yüklenmemiş kaydı silmemeli.** `retain` süresi dolan ama
-  henüz yüklenememiş bir dosyayı silmek, denetim izini sessizce yok
-  etmek olur.
-- **Sırlar `secret_key_file` ile mühürlenmeli**, config'de düz metin
-  anahtar durmamalı — LDAP/OIDC kimlik bilgileri için kurulan düzenin
-  aynısı.
-- **Sunucu tarafı şifreleme yetmez.** Bastion'ı ele geçiren, yükleme
-  kimlik bilgisini de ele geçirir; silme yetkisi olmayan bir kimlik
-  (append-only / object lock) bunun tek gerçek cevabı.
-
-Kapsam kararı verirken tekrar bakılacak: yalnızca S3 uyumlu API mi,
-yoksa `rclone`/`aws s3 cp` çağıran genel bir "arşiv komutu" mu — ikincisi
-kod olarak neredeyse yok ve her sağlayıcıyı destekler.
-
-**Koda bakıp çıkardığım iki somut nokta** (tasarımı doğrudan etkiler):
-
-- **Budayıcı bugün yalnızca yaşa bakıyor.** `record.Prune(dir, keepFor,
-  now)` dosyaları tarihe göre siliyor ve "bu yüklendi mi" diye
-  soramıyor — sorabileceği bir yer de yok. Yükleme eklenirse budayıcının
-  yüklenme durumunu okuyabilmesi gerekir, yoksa `retain` süresi dolan ama
-  henüz yüklenememiş bir kayıt sessizce yok olur. En küçük hâli: yüklenen
-  dosyanın yanına bir işaret dosyası ya da `sessions` tablosunda bir
-  sütun.
-- **`min_free` yükü kaydırmaz, oturumu reddeder.** `record.CheckSpace`
-  eşiğin altında `ErrDiskLow` dönüyor ve `proxy.Open` oturumu reddediyor.
-  Yükleme, diski boşaltmanın yolu olacaksa budama ile yükleme arasındaki
-  sıra bir tasarım kararı: "yüklendi, artık silinebilir" ile "silindi,
-  yüklenememişti" arasındaki fark bu sıradan çıkıyor.
 
 ### S5 — Kayıtların bütünlük mührü yok
 
@@ -455,15 +484,13 @@ değil.
 
 ## Önerim
 
-**B1–B6** kapandı; altısı da testli ve mutasyon testinden geçti.
+**B1–B7** kapandı; yedisi de testli ve mutasyon testinden geçti.
 Kalanlar için önerdiğim sıra:
 
-1. **S6** — kayıtların nesne depolamaya gönderilmesi. 1.0 kapsamına
-   alındı; en büyüğü ve tasarım kararı gerektiren tek madde.
-2. **S7** — `postern log`; ~30 satır, denetimin okuma yarısı.
-3. **S3** — on satır. Ama kimliksiz bir uç yeni bir yüzey ve DB'ye
+1. **S7** — `postern log`; ~30 satır, denetimin okuma yarısı.
+2. **S3** — on satır. Ama kimliksiz bir uç yeni bir yüzey ve DB'ye
    dokunuyor; bunu bilerek senin kararına bıraktım.
-4. **S5** — kod değil, bir cümle: "bilinen sınırlar"a yazılır.
+3. **S5** — kod değil, bir cümle: "bilinen sınırlar"a yazılır.
 
 ---
 
