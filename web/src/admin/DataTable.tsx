@@ -72,6 +72,7 @@ export default function DataTable<T>({
   toolbarExtra,
   noun,
   match,
+  onRowClick,
 }: {
   rows: T[];
   columns: Column<T>[];
@@ -91,8 +92,19 @@ export default function DataTable<T>({
   toolbarExtra?: ReactNode;
   /** "user" / "target" — sayaç ve boş sonuç metni için. */
   noun: string;
+  /**
+   * Satıra tıklanınca çalışır — özet tablodan detaya geçiş.
+   *
+   * ⚠️ TEK ERİŞİM YOLU DEĞİL. Tıklanabilir bir <tr> klavyeyle
+   * ulaşılamaz ve `role="button"` vermek tablo semantiğini bozar.
+   * Bu yüzden çağıran, gerçek bir <button> taşıyan bir sütun da
+   * ekliyor; buradaki tıklama yalnızca fare için kısayol.
+   */
+  onRowClick?: (row: T) => void;
 }) {
-  const [sort, setSort] = useState<{ key: string; dir: Dir } | null>(initialSort ?? null);
+  const [sort, setSort] = useState<{ key: string; dir: Dir } | null>(
+    initialSort ?? null,
+  );
   const [query, setQuery] = useState("");
 
   const filtered = useMemo(() => {
@@ -126,7 +138,9 @@ export default function DataTable<T>({
 
   const toggle = (key: string) => {
     setSort((cur) =>
-      cur?.key === key ? { key, dir: cur.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" },
+      cur?.key === key
+        ? { key, dir: cur.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: "asc" },
     );
   };
 
@@ -180,7 +194,13 @@ export default function DataTable<T>({
                     // aria-sort YALNIZCA sıralı sütunda: her sütuna
                     // "none" koymak ekran okuyucuya her başlıkta
                     // sıralama durumu okutuyor ve gürültü yapıyor.
-                    aria-sort={active ? (sort!.dir === "asc" ? "ascending" : "descending") : undefined}
+                    aria-sort={
+                      active
+                        ? sort!.dir === "asc"
+                          ? "ascending"
+                          : "descending"
+                        : undefined
+                    }
                   >
                     {c.srHeader ? (
                       <span className="th-pad">
@@ -206,10 +226,35 @@ export default function DataTable<T>({
           </thead>
           <tbody>
             {sorted.map((r) => (
-              <tr key={rowKey(r)}>
+              <tr
+                key={rowKey(r)}
+                className={onRowClick ? "row-click" : undefined}
+                onClick={
+                  onRowClick
+                    ? (e) => {
+                        /*
+                         * ⚠️ METİN SEÇİLDİYSE AÇMIYORUZ. Denetçi bir
+                         * yolu ya da oturum kimliğini raporuna
+                         * kopyalamak için sürükleyerek seçiyor; her
+                         * seçim bir modal açsaydı kopyalamak imkânsız
+                         * hâle gelirdi.
+                         */
+                        if (window.getSelection()?.toString()) return;
+                        // Hücre içindeki gerçek bir düğme kendi işini
+                        // yapsın; iki kez tetiklenmesin.
+                        if ((e.target as HTMLElement).closest("button")) return;
+                        onRowClick(r);
+                      }
+                    : undefined
+                }
+              >
                 {columns.map((c) => (
                   <td key={c.key} className={c.className}>
-                    {c.render ? c.render(r) : c.value ? String(c.value(r)) : null}
+                    {c.render
+                      ? c.render(r)
+                      : c.value
+                        ? String(c.value(r))
+                        : null}
                   </td>
                 ))}
               </tr>

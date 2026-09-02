@@ -15,6 +15,7 @@ import {
   sortableTime,
 } from "./common";
 import DataTable, { Column } from "./DataTable";
+import Modal from "./Modal";
 
 /**
  * "Bu dosyaya kim dokundu" — soruşturmanın ekranı.
@@ -239,6 +240,12 @@ export default function FileHistory() {
  */
 function Result({ result }: { result: History }) {
   const q = result.path;
+  /*
+   * ⚠️ AÇIK OLAN SATIRIN KENDİSİ TUTULUYOR, İNDİSİ DEĞİL. Tablo
+   * sıralanabilir ve süzülebilir: bir indis, kullanıcı sütun başlığına
+   * bastığı anda başka bir olayı gösterirdi.
+   */
+  const [open, setOpen] = useState<FileTouch | null>(null);
 
   if (result.events.length === 0) {
     return (
@@ -261,19 +268,21 @@ function Result({ result }: { result: History }) {
   }
 
   /*
-   * ⚠️ SÜTUN SIRASI SORUŞTURMANIN OKUMA SIRASI.
+   * ⚠️ TABLO ÖZET, DETAY MODALDA — VE BU BİR ÖLÇÜMÜN SONUCU.
    *
-   * Ölçüldü: 11 sütun 1500px'lik bir pencerede 1438px yer istiyor,
-   * kapsayıcı 1022px veriyor — 416px yatay taşma. Yani ilk bakışta
-   * hangi sütunların görüneceği bir tercih değil, bir karar.
+   * On bir sütun 1500px'lik bir pencerede 1438px yer istiyordu,
+   * kapsayıcı 1022px veriyordu: 416px yatay taşma. Taşıp kaybolan ilk
+   * sütun RESULT'tı, yani bir denetim ekranında "işlem tuttu mu"
+   * sorusunun cevabı — /etc/shadow satırları görünüyor ve ekran
+   * erişimin REDDEDİLDİĞİNİ söylemiyordu. Sıralamayı düzeltmek onu
+   * 10.'dan 6.'ya taşıdı ama dar bir panede yine kaydırmanın ardında
+   * kalıyordu.
    *
-   * İlk hâlinde taşıp kaybolan sütun RESULT'tı: bir denetim ekranında
-   * "işlem tuttu mu" sorusunun cevabı. /etc/shadow satırlarında görünen
-   * her şey doğruydu ve ekran, erişimin REDDEDİLDİĞİNİ söylemiyordu.
-   *
-   * Sıra artık: ne zaman → kim → nerede → ne yaptı → hangi dosya →
-   * tuttu mu → ne kadar taşındı. Bağlam sütunları (os user, src,
-   * session) sona; kaybolurlarsa cevap yine elde kalıyor.
+   * Altı sütun kaldı ve seçim ilk bakışta sorulan soruya göre:
+   * ne zaman → kim → nerede → ne yaptı → hangi dosya → tuttu mu.
+   * Geri kalan her şey (bayt sayıları, os user, kaynak adres, oturum
+   * ve olay kimliği, bayraklar, ret sebebi) satıra tıklanınca açılan
+   * modalda, tam değerleriyle.
    */
   const columns: Column<FileTouch>[] = [
     {
@@ -338,55 +347,58 @@ function Result({ result }: { result: History }) {
       key: "ok",
       header: "Result",
       value: (f) => (f.ok ? "ok" : "denied"),
-      // Reddedilen bir işlem, engelin çalıştığının kanıtı: silinmiyor,
-      // işaretleniyor.
-      render: (f) =>
-        f.ok ? (
-          "ok"
-        ) : (
-          <span className="bad" title={f.detail}>
-            denied{f.detail ? ` — ${f.detail}` : ""}
-          </span>
-        ),
+      /*
+       * Reddedilen bir işlem, engelin çalıştığının kanıtı: silinmiyor,
+       * işaretleniyor.
+       *
+       * ⚠️ SEBEP ARTIK BURADA KISALTILMIYOR, MODALDA TAM DURUYOR.
+       * Özet sütunda uzun bir sebep satırı sarıyor ve tabloyu
+       * genişletiyordu — kaybolan da yine bu sütunun kendisi oluyordu.
+       */
+      render: (f) => (f.ok ? "ok" : <span className="bad">denied</span>),
     },
     {
-      key: "read",
-      header: "Read",
-      value: (f) => f.read,
-      render: (f) => bytes(f.read),
-    },
-    {
-      key: "wrote",
-      header: "Wrote",
-      value: (f) => f.wrote,
-      render: (f) => bytes(f.wrote),
-    },
-    { key: "os_user", header: "OS user", value: (f) => f.os_user },
-    { key: "src", header: "Src", value: (f) => f.src_ip },
-    {
-      key: "session",
-      header: "Session",
-      value: (f) => f.session_id,
+      key: "detail",
+      header: "Details",
+      srHeader: true,
+      className: "actions",
+      /*
+       * ⚠️ GERÇEK BİR DÜĞME — satır tıklaması TEK yol değil.
+       *
+       * Tıklanabilir bir <tr> klavyeyle ulaşılamaz ve ona
+       * `role="button"` vermek tablo semantiğini bozar. Modalın
+       * yalnızca fareyle açılabilmesi, onu klavye kullanan denetçi
+       * için yazılmamış saymak olurdu.
+       */
       render: (f) => (
-        <code title={f.session_id}>{f.session_id.slice(0, 12)}…</code>
+        <ActionButton
+          label={`details of the ${f.op} on ${f.path} at ${f.at}`}
+          onClick={() => setOpen(f)}
+        >
+          Details
+        </ActionButton>
       ),
     },
   ];
 
   return (
-    <DataTable
-      rows={result.events}
-      columns={columns}
-      rowKey={(f) => f.id}
-      initialSort={{ key: "at", dir: "desc" }}
-      noun="event"
-      searchLabel="filter these events by user, target or operation"
-      searchPlaceholder="Filter events…"
-      foot={
-        <p data-testid="file-history-foot">
-          Events <Criteria result={result} />. Copy a session id into the
-          Sessions screen to see everything else that session did.
-          {/*
+    <>
+      <EventDetail event={open} onClose={() => setOpen(null)} />
+      <DataTable
+        rows={result.events}
+        columns={columns}
+        rowKey={(f) => f.id}
+        initialSort={{ key: "at", dir: "desc" }}
+        noun="event"
+        // Fare için kısayol; klavye yolu satırdaki Details düğmesi.
+        onRowClick={setOpen}
+        searchLabel="filter these events by user, target or operation"
+        searchPlaceholder="Filter events…"
+        foot={
+          <p data-testid="file-history-foot">
+            Events <Criteria result={result} />. Copy a session id into the
+            Sessions screen to see everything else that session did.
+            {/*
             ⚠️ KESİLDİYSE SÖYLE. Sessizce ilk N'i göstermek, denetçinin
             "olan biten bu" sanması demek.
 
@@ -396,11 +408,12 @@ function Result({ result }: { result: History }) {
             o kadar da olabilir. Var olmayan kayıtları var diye bildirmek,
             yok olanları yok saymak kadar yanlış.
           */}
-          {result.truncated &&
-            ` postern stopped at the ${result.limit} most recent events, so this may not be the whole history.`}
-        </p>
-      }
-    />
+            {result.truncated &&
+              ` postern stopped at the ${result.limit} most recent events, so this may not be the whole history.`}
+          </p>
+        }
+      />
+    </>
   );
 }
 
@@ -471,5 +484,135 @@ function Criteria({ result }: { result: History }) {
         </span>
       ))}
     </>
+  );
+}
+
+/*
+ * EventDetail, tek bir dosya olayının TAMAMI.
+ *
+ * ⚠️ ÖZET TABLONUN BEDELİ BURADA ÖDENİYOR. Tabloyu altı sütuna
+ * indirmek, geri kalanı atmak değil taşımak demek: bayt sayıları,
+ * kaynak adres, oturumun açıldığı hesap, ret sebebi, bayraklar,
+ * oturum ve olay kimliği — hepsi burada. Gösterilmeyen bir alan,
+ * kaydedilmemiş bir alanla aynı kapıya çıkar.
+ *
+ * ⚠️ BOŞ ALANLAR GİZLENMİYOR, "—" ile GÖSTERİLİYOR. Satırı hiç
+ * çizmemek, denetçiye "bu bilgi tutulmuyor" dedirtirdi; oysa çoğu
+ * durumda tutuluyor ve bu olayda boş. Denetimde "yok" ile
+ * "bakılmadı"yı ayırmanın arayüzdeki karşılığı bu.
+ */
+function EventDetail({
+  event,
+  onClose,
+}: {
+  event: FileTouch | null;
+  onClose: () => void;
+}) {
+  return (
+    <Modal
+      open={event !== null}
+      title="File event"
+      description={
+        event
+          ? `${event.op} recorded during a session on ${event.target || "an unknown target"}`
+          : undefined
+      }
+      onClose={onClose}
+    >
+      {event && (
+        <dl className="kv">
+          {/*
+            ⚠️ DAMGA TAM HÂLİYLE. Tablodaki kısa biçim ("Sep 02,
+            19:14:50") yılı taşımıyor; bir rapora ya da bir sunucu
+            günlüğü sorgusuna girecek olan değer bu.
+          */}
+          <dt>When</dt>
+          <dd>
+            <Timestamp value={event.at} /> <span className="muted">·</span>{" "}
+            {event.at}
+          </dd>
+
+          <dt>Person</dt>
+          <dd>
+            {event.user || (
+              <span className="muted">
+                — the session row could not be read, so this event is not
+                attributed
+              </span>
+            )}
+          </dd>
+
+          <dt>Target</dt>
+          <dd>{event.target || <span className="muted">—</span>}</dd>
+
+          {/* Policy'nin o gün verdiği hesap; users.os_user'ın bugünkü
+              değeri değil. */}
+          <dt>OS user</dt>
+          <dd>{event.os_user || <span className="muted">—</span>}</dd>
+
+          <dt>Source address</dt>
+          <dd>{event.src_ip || <span className="muted">—</span>}</dd>
+
+          <dt>Operation</dt>
+          <dd>{event.op}</dd>
+
+          <dt>Path</dt>
+          <dd>{event.path}</dd>
+
+          <dt>New path</dt>
+          <dd>
+            {event.new_path || (
+              <span className="muted">— only a rename or a link sets this</span>
+            )}
+          </dd>
+
+          <dt>Flags</dt>
+          <dd>{event.flags || <span className="muted">—</span>}</dd>
+
+          {/*
+            ⚠️ HAM SAYI DA VAR. Okunur biçim ("4.1 KB") iki transferi
+            gözle karşılaştırmak için; rapora giren ve bir başka kayıtla
+            karşılaştırılan değer ham bayt sayısı. Yalnızca yuvarlanmışı
+            göstermek, kanıtı yuvarlamak olurdu.
+
+            ⚠️ GERÇEKTEN GEÇEN BAYT. İstenen değil, karşı tarafın
+            verdiği/kabul ettiği — göç 027'deki not.
+          */}
+          <dt>Bytes read</dt>
+          <dd>
+            {bytes(event.read)}{" "}
+            <span className="muted">({event.read} bytes)</span>
+          </dd>
+
+          <dt>Bytes written</dt>
+          <dd>
+            {bytes(event.wrote)}{" "}
+            <span className="muted">({event.wrote} bytes)</span>
+          </dd>
+
+          <dt>Result</dt>
+          <dd className="prose">
+            {event.ok ? (
+              "ok"
+            ) : (
+              <span className="bad">
+                denied{event.detail ? ` — ${event.detail}` : ""}
+              </span>
+            )}
+          </dd>
+
+          {/*
+            ⚠️ OTURUM KİMLİĞİ TAM. Tabloda ilk 12 hane görünüyordu;
+            sunucu günlüğünde aratacak ya da Sessions ekranına
+            yapıştıracak olan kişiye o yetmiyor.
+          */}
+          <dt>Session</dt>
+          <dd>{event.session_id}</dd>
+
+          <dt>Event id</dt>
+          <dd>{event.id}</dd>
+        </dl>
+      )}
+    </Modal>
   );
 }

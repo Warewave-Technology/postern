@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import FileHistory from "./FileHistory";
@@ -87,24 +87,106 @@ it("açılışta bir şey bulunamadığını söylemiyor", () => {
 });
 
 describe("sonuçlar", () => {
-  it("dosyaya kimin dokunduğunu isimle gösteriyor", async () => {
-    vi.spyOn(api, "fileHistory").mockResolvedValue({
-      under: false,
-      user: "",
-      target: "",
-      path: "/etc/shadow",
-      events: [touch()],
-      limit: 200,
-      truncated: false,
-    });
+  it("tabloda ilk bakışta gerekenler var", async () => {
+    vi.spyOn(api, "fileHistory").mockResolvedValue(result());
     await search();
 
-    await waitFor(() => expect(screen.getByText("ayse")).toBeTruthy());
-    expect(screen.getByText("web-01")).toBeTruthy();
-    expect(screen.getByText("10.0.0.9")).toBeTruthy();
-    // Kişi ile oturumun açıldığı hesap AYRI sütunlar: denetçinin
-    // sorduğu "kim", policy'nin verdiği hesap değil.
-    expect(screen.getByText("deploy")).toBeTruthy();
+    // ne zaman → kim → nerede → ne yaptı → hangi dosya → tuttu mu
+    const table = await screen.findByRole("table");
+    const t = within(table);
+    expect(t.getByText("ayse")).toBeTruthy();
+    expect(t.getByText("web-01")).toBeTruthy();
+    expect(t.getByText("transfer")).toBeTruthy();
+    expect(t.getByText("/etc/shadow")).toBeTruthy();
+    expect(t.getByText("ok")).toBeTruthy();
+
+    /*
+     * ⚠️ GERİ KALANI TABLODA DEĞİL. On bir sütun dar bir panede
+     * yatay kaydırmanın ardına düşüyordu ve kaybolan ilk şey
+     * cevabın kendisiydi. Bayt sayıları, kaynak adres ve oturumun
+     * açıldığı hesap artık modalda — ölçüldüğü için taşındılar.
+     */
+    expect(screen.queryByText("10.0.0.9")).toBeNull();
+    expect(screen.queryByText("deploy")).toBeNull();
+  });
+
+  /*
+   * ⚠️ MODAL ULAŞILABİLİR OLMALI.
+   *
+   * Bu deponun tekrar eden arızası "yazılmış ve çağrılmamış" kod.
+   * Detay modalı, açan bir yol olmadan yalnızca ölü bir bileşen olur —
+   * ve tablodan çıkardığımız her alan onunla birlikte kaybolurdu.
+   */
+  it("satıra tıklayınca detay modalı açılıyor", async () => {
+    vi.spyOn(api, "fileHistory").mockResolvedValue(result());
+    await search();
+
+    const table = await screen.findByRole("table");
+    await userEvent.click(within(table).getByText("/etc/shadow"));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toMatch(/File event/i);
+  });
+
+  /*
+   * ⚠️ METİN SEÇMEK MODAL AÇMAMALI.
+   *
+   * Denetçi bir yolu ya da oturum kimliğini raporuna kopyalamak için
+   * sürükleyerek seçiyor. Her seçim bir modal açsaydı kopyalamak
+   * imkânsız hâle gelirdi — ve tam da kopyalanacak değerlerin durduğu
+   * bir ekranda.
+   */
+  it("metin seçilmişken satır tıklaması modalı açmıyor", async () => {
+    vi.spyOn(api, "fileHistory").mockResolvedValue(result());
+    await search();
+
+    const table = await screen.findByRole("table");
+    vi.spyOn(window, "getSelection").mockReturnValue({
+      toString: () => "/etc/shadow",
+    } as unknown as Selection);
+
+    await userEvent.click(within(table).getByText("/etc/shadow"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  /*
+   * ⚠️ KLAVYEYLE DE AÇILMALI.
+   *
+   * Tıklanabilir bir <tr> klavyeyle ulaşılamaz. Satırdaki gerçek
+   * düğme olmasaydı modal, klavye kullanan denetçi için yazılmamış
+   * sayılırdı.
+   */
+  it("satırdaki düğmeyle de açılıyor", async () => {
+    vi.spyOn(api, "fileHistory").mockResolvedValue(result());
+    await search();
+
+    const btn = await screen.findByRole("button", { name: /details of the/i });
+    await userEvent.click(btn);
+    expect((await screen.findByRole("dialog")).textContent).toMatch(
+      /File event/i,
+    );
+  });
+
+  /*
+   * ⚠️ TABLODAN ÇIKAN HER ALAN MODALDA DURUYOR.
+   *
+   * Özet tabloya geçmenin bedeli budur: gösterilmeyen bir alan,
+   * kaydedilmemiş bir alanla aynı kapıya çıkar. Ham bayt sayısı da
+   * burada — okunur biçim karşılaştırmak için, ham sayı rapora
+   * girmek için.
+   */
+  it("modal, tablodan çıkarılan alanları taşıyor", async () => {
+    vi.spyOn(api, "fileHistory").mockResolvedValue(result());
+    await search();
+
+    const table = await screen.findByRole("table");
+    await userEvent.click(within(table).getByText("/etc/shadow"));
+    const d = await screen.findByRole("dialog");
+
+    expect(d.textContent).toMatch(/10\.0\.0\.9/); // kaynak adres
+    expect(d.textContent).toMatch(/deploy/); // oturumun açıldığı hesap
+    expect(d.textContent).toMatch(/4196 bytes/); // ham bayt
+    expect(d.textContent).toMatch(/0193aa11-2b3c-4d5e-8f90-abcdef012345/); // tam oturum kimliği
   });
 
   /*

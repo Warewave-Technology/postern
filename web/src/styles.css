@@ -2839,3 +2839,22 @@ a.tcard-name:focus-visible {
   padding-top: 0.6rem;
   border-top: 1px solid var(--line, #3c3836);
 }
+
+/*
+ * Özet tablodan detaya geçiş.
+ *
+ * ⚠️ İMLEÇ VE VURGU ŞART. Tıklanabilir olduğu görünmeyen bir satır,
+ * tıklanmayan bir satırdır: detay modalı yazılmış ama ulaşılmamış
+ * olurdu — bu depoda "yazılmış ve çağrılmamış"ın arayüz hâli.
+ */
+.row-click {
+  cursor: pointer;
+}
+.row-click:hover {
+  background: var(--sunken);
+}
+/* Klavye erişimi satırda DEĞİL, satırdaki düğmede: odak halkası
+   oradan geliyor ve tablo semantiği bozulmuyor. */
+.row-click:focus-within {
+  background: var(--sunken);
+}
