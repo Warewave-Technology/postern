@@ -63,12 +63,30 @@ func (s *Store) QueueArchive(ctx context.Context, sessionID string) error {
  * ⚠️ GERİ ÇEKİLME last_attempt_at ÜZERİNDEN: az önce denenmiş ve
  * başarısız olmuş bir satırı hemen yeniden almak, kesinti sırasında
  * depoyu ve log'u boğardı.
+ *
+ * ⚠️ GERİ ÇEKİLME ÜSTEL — VE SABİTTİ. Her başarısız satır her turda
+ * yeniden alınıyordu; arşivleyici hatanın kalıcı mı geçici mi olduğunu
+ * HESAPLIYOR (objstore.ErrTransient) ama sonucu yalnızca log cümlesini
+ * seçmek için kullanıyordu. Yanlış yazılmış bir kova adı ya da
+ * reddedilen bir imza, düzeltilene kadar her turda yeniden denenip
+ * log'u dolduruyordu — ve içindeki gerçek, geçici arızayı görünmez
+ * yapıyordu.
+ *
+ * attempts ile katlanıyor, altıncıda duruyor: retryAfter=1dk ile
+ * 1, 2, 4, 8, 16, 32, 64 dakika. Kalıcı olarak "vazgeçildi" diye
+ * işaretlemiyoruz ve bu bilinçli — operatör kovayı düzelttiğinde
+ * yeni bir komut çalıştırmak zorunda kalmasın; sıra kendiliğinden
+ * ilerlesin.
  */
 func (s *Store) ClaimArchives(ctx context.Context, limit int, now time.Time,
 	claimTimeout, retryAfter time.Duration) ([]ArchivePending, error) {
 
 	staleClaim := now.Add(-claimTimeout).Unix()
-	retryBefore := now.Add(-retryAfter).Unix()
+	nowUnix := now.Unix()
+	retrySecs := int64(retryAfter.Seconds())
+	if retrySecs < 1 {
+		retrySecs = 1
+	}
 
 	rows, err := s.db.QueryContext(ctx, `
 		UPDATE session_archives SET claimed_at = $1
@@ -78,7 +96,8 @@ func (s *Store) ClaimArchives(ctx context.Context, limit int, now time.Time,
 			JOIN sessions s ON s.id = a.session_id
 			WHERE a.archived_at IS NULL
 			  AND (a.claimed_at IS NULL OR a.claimed_at < $2)
-			  AND (a.last_attempt_at IS NULL OR a.last_attempt_at < $3)
+			  AND (a.last_attempt_at IS NULL
+			       OR a.last_attempt_at + $3 * POWER(2, LEAST(a.attempts, 6)) < $5)
 			ORDER BY s.started_at
 			LIMIT $4
 		)
@@ -86,7 +105,7 @@ func (s *Store) ClaimArchives(ctx context.Context, limit int, now time.Time,
 		          (SELECT recording_path FROM sessions WHERE id = session_id),
 		          (SELECT started_at     FROM sessions WHERE id = session_id),
 		          attempts;`,
-		now.Unix(), staleClaim, retryBefore, limit)
+		nowUnix, staleClaim, retrySecs, limit, nowUnix)
 	if err != nil {
 		return nil, translateErr("store.ClaimArchives", err)
 	}
@@ -235,20 +254,41 @@ func (s *Store) ArchiveStateOf(ctx context.Context, sessionID string) (ArchiveSt
 // ⚠️ YAŞ, SAYIDAN DAHA ÖNEMLİ. Ölmüş bir yükleyicinin belirtisi
 // "sayı artıyor" değil, "en eskisi yaşlanıyor": sabit bir sayı da
 // hiçbir şeyin ilerlemediği anlamına gelebilir.
-func (s *Store) ArchiveBacklog(ctx context.Context) (pending int, oldest time.Time, err error) {
+func (s *Store) ArchiveBacklog(ctx context.Context) (b ArchiveBacklogReport, err error) {
 	var oldestUnix sql.NullInt64
 	qerr := s.db.QueryRowContext(ctx, `
-		SELECT COUNT(*), MIN(s.started_at)
+		SELECT COUNT(*),
+		       MIN(s.started_at),
+		       COUNT(*) FILTER (WHERE a.attempts >= 3)
 		FROM session_archives a
 		JOIN sessions s ON s.id = a.session_id
-		WHERE a.archived_at IS NULL;`).Scan(&pending, &oldestUnix)
+		WHERE a.archived_at IS NULL;`).Scan(&b.Pending, &oldestUnix, &b.Failing)
 	if qerr != nil {
-		return 0, time.Time{}, translateErr("store.ArchiveBacklog", qerr)
+		return ArchiveBacklogReport{}, translateErr("store.ArchiveBacklog", qerr)
 	}
 	if oldestUnix.Valid {
-		oldest = time.Unix(oldestUnix.Int64, 0)
+		b.Oldest = time.Unix(oldestUnix.Int64, 0)
 	}
-	return pending, oldest, nil
+	return b, nil
+}
+
+/*
+ * ArchiveBacklogReport, yükleme kuyruğunun durumu.
+ *
+ * ⚠️ Failing AYRI SAYILIYOR. "Bekleyen 40" ile "bekleyen 40, 40'ı da
+ * üst üste başarısız" farklı iki durum: birincisi yükleyicinin geride
+ * kalması, ikincisi hiç ilerlemediği. Arşivleyici hatanın kalıcı mı
+ * geçici mi olduğunu zaten hesaplıyordu ama sonucu yalnızca log
+ * cümlesini seçmek için kullanıyordu — operatörün baktığı ekranda bu
+ * ayrım hiç görünmüyordu.
+ *
+ * Eşik ÜÇ: bir geçici kesinti bir iki denemeyi düşürür; üç üst üste
+ * başarısızlık artık "bir şeyi düzeltmen gerekiyor" demektir.
+ */
+type ArchiveBacklogReport struct {
+	Pending int
+	Oldest  time.Time
+	Failing int
 }
 
 /*

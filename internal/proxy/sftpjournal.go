@@ -30,9 +30,23 @@ const journalCap = 10000
 // veritabanı turu, denetimi transferin hız sınırı hâline getirirdi.
 const flushEvery = 2 * time.Second
 
+/*
+ * fileWriter, denetim satırlarını yazan şey.
+ *
+ * ⚠️ ARAYÜZ TÜKETİCİ TARAFINDA ve sebebi ölçüldü: `*store.Store` somut
+ * tipiyle, "yazma çöktüğünde grup geri konuyor mu" sorusu ancak gerçek
+ * bir veritabanı ayağa kaldırılarak sınanabilirdi — ve pratikte hiç
+ * sınanmadı. Mutasyon bunu gösterdi: putBack'in kendi testi geçiyordu,
+ * flush'ın onu ÇAĞIRDIĞINI ölçen bir şey yoktu. Bu depoda tekrar eden
+ * arıza tam olarak bu.
+ */
+type fileWriter interface {
+	AddSessionFiles(ctx context.Context, sessionID string, files []store.SessionFile) error
+}
+
 // sftpJournal, olayları biriktirip toplu yazan SFTPSink.
 type sftpJournal struct {
-	store     *store.Store
+	store     fileWriter
 	sessionID string
 	log       *slog.Logger
 
@@ -97,6 +111,37 @@ func (j *sftpJournal) take() []store.SessionFile {
 	return b
 }
 
+/*
+ * flush, biriken olayları yazar.
+ *
+ * ⚠️ YAZILAMAYAN GRUP GERİ KONUYOR — VE KONMUYORDU. take() tamponu
+ * boşaltıyor; AddSessionFiles sonra çökerse elde tutulan grup öylece
+ * kayboluyordu. Oturum ölüyor (doğrusu bu: denetlenemeyen kanal
+ * geçmez) ama SessionFiles daha sonra yazılabilmiş olanları EKSİKSİZ
+ * bir liste gibi döndürüyordu — yarım bir denetim kaydı, tam bir
+ * denetim kaydı gibi okunuyordu.
+ *
+ * Geri koymak anlık arızayı kurtarıyor: bir sonraki tik ya da
+ * Close'daki son flush aynı grubu yeniden deniyor. Veritabanı kalıcı
+ * olarak erişilemezse olaylar yine kayboluyor ve bunu bu katmanda
+ * çözmenin yolu yok — ama o hâlde oturum da zaten bitiyor ve sebebi
+ * log'da duruyor.
+ *
+ * ⚠️ GRUP BAŞA KONUYOR. Sona eklemek olayları zaman sırasından
+ * çıkarırdı; denetim satırlarının sırası, "önce açtı sonra okudu"
+ * cümlesinin kendisi.
+ */
+// putBack, yazılamayan grubu tamponun BAŞINA geri koyar.
+//
+// ⚠️ Tavan yine geçerli: geri konan grup tamponu journalCap'in üstüne
+// çıkarabilir ve o hâlde Emit oturumu bitiriyor — yani kayıp yerine
+// oturumun bitmesi. Bu, dosyanın en başındaki kararın aynısı.
+func (j *sftpJournal) putBack(batch []store.SessionFile) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.buf = append(batch, j.buf...)
+}
+
 func (j *sftpJournal) flush() {
 	batch := j.take()
 	if len(batch) == 0 {
@@ -112,6 +157,7 @@ func (j *sftpJournal) flush() {
 	if err := j.store.AddSessionFiles(ctx, j.sessionID, batch); err != nil {
 		j.log.Error("sftp audit rows could not be written", "error", err,
 			"events", len(batch))
+		j.putBack(batch)
 		if j.fail != nil {
 			j.fail(err)
 		}

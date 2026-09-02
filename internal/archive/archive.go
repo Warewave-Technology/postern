@@ -395,12 +395,23 @@ func (a *Archiver) safePath(stored string) (string, error) {
  * dolmadan günler önce gösteren tek işaret.
  */
 func (a *Archiver) reportBacklog(ctx context.Context) {
-	pending, oldest, err := a.db.ArchiveBacklog(ctx)
-	if err != nil || pending == 0 {
+	b, err := a.db.ArchiveBacklog(ctx)
+	if err != nil || b.Pending == 0 {
 		return
 	}
-	age := time.Since(oldest).Round(time.Minute)
-	fields := []any{"pending", pending, "oldest_age", age}
+	age := time.Since(b.Oldest).Round(time.Minute)
+	fields := []any{"pending", b.Pending, "oldest_age", age}
+
+	/*
+	 * ⚠️ ÜST ÜSTE BAŞARISIZ OLANLAR AYRI SÖYLENİYOR. "Bekleyen 40" ile
+	 * "bekleyen 40, hepsi üst üste başarısız" farklı iki durum:
+	 * birincisi yükleyicinin geride kalması, ikincisi hiç
+	 * ilerlemediği. Sınıflandırma zaten yapılıyordu ama yalnızca log
+	 * cümlesini seçiyordu; sayısı hiçbir yerde görünmüyordu.
+	 */
+	if b.Failing > 0 {
+		fields = append(fields, "failing", b.Failing)
+	}
 
 	// Bir günü aşan bekleme, disk baskısına dönüşmeden önce
 	// görülmesi gereken bir arıza.

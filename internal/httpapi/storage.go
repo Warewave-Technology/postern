@@ -65,7 +65,7 @@ func (s *Server) adminStorage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	pending, oldest, err := s.store.ArchiveBacklog(r.Context())
+	b, err := s.store.ArchiveBacklog(r.Context())
 	if err != nil {
 		s.logger.Error("archive backlog unavailable", "error", err)
 		out["archive_error"] = true
@@ -73,10 +73,20 @@ func (s *Server) adminStorage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	archive := map[string]any{"pending": pending}
-	if pending > 0 && !oldest.IsZero() {
-		archive["oldest_at"] = oldest.Format(time.RFC3339)
-		archive["oldest_age_seconds"] = int64(time.Since(oldest).Seconds())
+	archive := map[string]any{"pending": b.Pending}
+	if b.Pending > 0 && !b.Oldest.IsZero() {
+		archive["oldest_at"] = b.Oldest.Format(time.RFC3339)
+		archive["oldest_age_seconds"] = int64(time.Since(b.Oldest).Seconds())
+	}
+	/*
+	 * ⚠️ "BEKLİYOR" İLE "İLERLEMİYOR" AYRI. Üst üste başarısız olan
+	 * satırlar, yükleyicinin geride kalmasından farklı bir şey
+	 * söylüyor: bir şeyin düzeltilmesi gerekiyor. Sayı sıfırsa alan
+	 * hiç gitmiyor — her cevaba sıfır koymak, ekranı okumayı
+	 * zorlaştırır.
+	 */
+	if b.Failing > 0 {
+		archive["failing"] = b.Failing
 	}
 	out["archive"] = archive
 

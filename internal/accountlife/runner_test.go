@@ -390,3 +390,65 @@ func TestPurgedRowsAreNotUsers(t *testing.T) {
 		t.Fatalf("purge izi kaybolmuş: %+v (%v)", purged, err)
 	}
 }
+
+/*
+ * ⚠️ SİLME GEÇİŞİNİN DE TAVANI OLMALI.
+ *
+ * Pasifleştirme guard'dan geçiyordu, "silindi" damgası hiç sormuyordu.
+ * Oysa ikisi aynı arızanın iki adımı: yanlış bir saat ya da yanlış bir
+ * TTL önce herkesi pasifleştirir, bir sonraki koşuda hepsini silinmiş
+ * işaretler. Korumayı yalnızca ilk adıma koymak, ikinciyi serbest
+ * bırakıyordu — ve ikincisi hesabın adını da kullanılamaz hâle getiren
+ * adım.
+ */
+func TestBlastRadiusGuardStopsMassDeletion(t *testing.T) {
+	ctx := context.Background()
+	db := newStore(t)
+
+	// Hepsi ZATEN pasif ve silme eşiğini aşmış: pasifleştirme geçişi
+	// bu koşuda hiçbir şey yapmayacak, sıra doğrudan silmede.
+	for i := range 10 {
+		name := "kisi" + string(rune('a'+i))
+		seed(t, db, name, 400*24*time.Hour, true)
+		if err := db.SetAccountState(ctx, name, store.StateInactive); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rep := newRunner(t, db).RunOnce(ctx)
+	if rep.Skipped == "" {
+		t.Fatalf("koruma devreye girmedi: %d hesap silinmiş işaretlendi", len(rep.Deleted))
+	}
+	if len(rep.Deleted) != 0 {
+		t.Fatalf("koruma devredeyken %d hesap silinmiş işaretlendi", len(rep.Deleted))
+	}
+	for i := range 10 {
+		name := "kisi" + string(rune('a'+i))
+		if st, _, _ := db.AccountState(ctx, name); st != store.StateInactive {
+			t.Fatalf("%s = %q — silme geçişi tavanı aşarak çalıştı", name, st)
+		}
+	}
+}
+
+/*
+ * ⚠️ SAYAMAYAN GUARD "SINIR İÇİNDE" DEMEMELİ.
+ *
+ * Koşul `if err != nil || total == 0 { return true, "" }` idi: sayım
+ * başarısız olduğunda koruma kendini kapatıyordu — tam da bir şeylerin
+ * ters gittiği anda, yani var olma sebebi olan durumda.
+ */
+func TestBlastRadiusGuardRefusesWhenItCannotCount(t *testing.T) {
+	db := newStore(t)
+	r := newRunner(t, db)
+
+	// Kapalı bir bağlantı üzerinden sayım yapılamaz.
+	db.Close()
+
+	ok, why := r.withinBlastRadius(context.Background(), 5)
+	if ok {
+		t.Fatal("SAYIM ÇÖKTÜ AMA GUARD 'SINIR İÇİNDE' DEDİ")
+	}
+	if why == "" {
+		t.Error("sebep söylenmiyor")
+	}
+}

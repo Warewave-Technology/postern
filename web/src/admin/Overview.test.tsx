@@ -268,3 +268,23 @@ it("disk ölçümü eksikse rakamın alt sınır olduğunu söylüyor", async ()
   );
   expect(screen.getByText(/at least 3 files/i)).toBeTruthy();
 });
+
+/*
+ * ⚠️ "BEKLİYOR" İLE "İLERLEMİYOR" AYRI ŞEYLER.
+ *
+ * Arşivleyici hatanın kalıcı mı geçici mi olduğunu zaten
+ * hesaplıyordu ama sonucu yalnızca log cümlesini seçmek için
+ * kullanıyordu — operatörün baktığı ekranda ayrım hiç yoktu. Yalnızca
+ * yaş yazmak, üst üste başarısız olan bir kuyruğu "biraz geride" gibi
+ * gösteriyor; oysa o kuyruk kendiliğinden ilerlemeyecek.
+ */
+it("üst üste başarısız yüklemeleri 'bekliyor' diye göstermiyor", async () => {
+  vi.spyOn(api, "sessions").mockResolvedValue([]);
+  vi.spyOn(api, "storage").mockResolvedValue({
+    archive: { pending: 40, failing: 40, oldest_age_seconds: 7200 },
+  } as never);
+  render(<Overview />);
+
+  await waitFor(() => expect(screen.getByText(/keep failing/i)).toBeTruthy());
+  expect(screen.queryByText(/cannot be pruned while they wait/i)).toBeNull();
+});

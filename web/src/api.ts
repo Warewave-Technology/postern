@@ -592,6 +592,10 @@ export type Storage = {
     pending: number;
     oldest_at?: string;
     oldest_age_seconds?: number;
+    /** Üst üste başarısız olan (attempts ≥ 3) satır sayısı. "Bekliyor"
+     *  ile "ilerlemiyor" farklı şeyler: ilki yükleyicinin geride
+     *  kalması, ikincisi bir şeyin düzeltilmesi gerektiği. */
+    failing?: number;
   };
   archive_error?: boolean;
 };

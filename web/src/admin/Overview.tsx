@@ -382,9 +382,18 @@ export default function Overview() {
                 ? "not measured"
                 : storage.archive.pending === 0
                   ? "nothing waiting"
-                  : storage.archive.oldest_age_seconds !== undefined
-                    ? `oldest ${formatAge(storage.archive.oldest_age_seconds)} — these cannot be pruned while they wait`
-                    : "waiting"}
+                  : /*
+                       ⚠️ "BEKLİYOR" İLE "İLERLEMİYOR" AYRI CÜMLELER.
+                       Yalnızca yaşı yazmak, üst üste başarısız olan bir
+                       kuyruğu "biraz geride" gibi gösteriyordu; oysa
+                       ikincisi bir şeyin düzeltilmesini bekliyor ve
+                       kendiliğinden ilerlemeyecek.
+                     */
+                    storage.archive.failing
+                    ? `${storage.archive.failing} keep failing — something needs fixing before these can upload`
+                    : storage.archive.oldest_age_seconds !== undefined
+                      ? `oldest ${formatAge(storage.archive.oldest_age_seconds)} — these cannot be pruned while they wait`
+                      : "waiting"}
           </span>
         </div>
       </div>

@@ -136,6 +136,20 @@ func (r *Runner) RunOnce(ctx context.Context) Report {
 			r.logger.Error("account lifecycle: inactive lookup failed", "error", err)
 			return rep
 		}
+		/*
+		 * ⚠️ SİLME GEÇİŞİNİN DE TAVANI VAR — VE YOKTU.
+		 *
+		 * Pasifleştirme guard'dan geçiyordu, "silindi" damgası hiç
+		 * sormuyordu. Oysa ikisi aynı arızanın iki adımı: yanlış bir
+		 * saat ya da yanlış bir TTL önce herkesi pasifleştirir, bir
+		 * sonraki koşuda da hepsini silinmiş işaretler. Korumayı
+		 * yalnızca ilk adıma koymak, ikinciyi serbest bırakıyordu.
+		 */
+		if ok, why := r.withinBlastRadius(ctx, len(gone)); !ok {
+			r.logger.Warn("account deletion aborted by blast-radius guard", "reason", why)
+			rep.Skipped = why
+			return rep
+		}
 		for _, a := range gone {
 			if err := r.db.SetAccountState(ctx, a.Username, store.StateDeleted); err != nil {
 				r.logger.Error("mark deleted failed", "user", a.Username, "error", err)
@@ -158,13 +172,29 @@ func (r *Runner) RunOnce(ctx context.Context) Report {
 	return rep
 }
 
-// withinBlastRadius, bu koşunun fazla hesabı kapatıp kapatmadığına bakar.
+/*
+ * withinBlastRadius, bu koşunun fazla hesabı kapatıp kapatmadığına bakar.
+ *
+ * ⚠️ SAYAMIYORSAK GEÇİRMİYORUZ — VE GEÇİRİYORDU. Koşul
+ * `if err != nil || total == 0 { return true, "" }` idi: sayım
+ * BAŞARISIZ olduğunda "sınır içinde" deniyordu. Yani bir saat ya da
+ * yapılandırma arızasıyla toplu pasifleştirme arasındaki tek tavan, tam
+ * da bir şeylerin ters gittiği anda devre dışı kalıyordu — korumanın
+ * var olma sebebi olan durumda.
+ *
+ * total == 0 AYRI bir durum ve o geçiyor: hiç kaynak hesabı yoksa
+ * kapatılacak bir şey de yok, oran hesaplanamaz ve bu bir arıza değil.
+ */
 func (r *Runner) withinBlastRadius(ctx context.Context, count int) (bool, string) {
 	if count == 0 {
 		return true, ""
 	}
 	total, err := r.db.SourceAccountCount(ctx)
-	if err != nil || total == 0 {
+	if err != nil {
+		return false, "the number of source accounts could not be read, " +
+			"so the blast-radius ceiling cannot be checked"
+	}
+	if total == 0 {
 		return true, ""
 	}
 	frac := float64(count) / float64(total)

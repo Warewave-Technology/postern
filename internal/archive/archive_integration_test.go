@@ -432,13 +432,22 @@ func TestPendingWorkSurvivesARestart(t *testing.T) {
 	 * şey dayanıklılık, gecikme değil.
 	 */
 	/*
-	 * ⚠️ BİR SANİYE BEKLİYORUZ ve sebebi gerçek: zaman damgaları Unix
-	 * SANİYE. Geri çekilme "last_attempt_at < now - RetryAfter" diye
-	 * soruluyor; aynı saniye içinde hiçbir RetryAfter değeri satırı
-	 * uygun yapmıyor. Üretimde önemsiz (varsayılan 2 dakika), testte
-	 * bilinmesi gereken bir ayrıntı.
+	 * ⚠️ BEKLEME SÜRESİ GERİ ÇEKİLMEYE GÖRE — ve bu bir düzeltme.
+	 *
+	 * Zaman damgaları Unix SANİYE, yani aynı saniye içinde hiçbir
+	 * RetryAfter değeri satırı uygun yapmıyor. Buraya 2,5 saniye
+	 * yazılmıştı ve geri çekilme SABİTKEN (RetryAfter=1s) yeterliydi.
+	 *
+	 * Geri çekilme üstel olunca (retryAfter * 2^attempts) ilk
+	 * başarısızlıktan sonra pencere 2 saniyeye çıktı ve 2,5 saniye
+	 * marjinal kaldı: saniye çözünürlüğünde 2,5 saniyelik uyku 2
+	 * saniyelik fark üretebiliyor ve `T + 2 < T + 2` yanlış. Test CI'da
+	 * bir kez düştü, yerelde geçti — klasik zamanlama kırılganlığı.
+	 *
+	 * Beş saniye, iki saniyelik pencerenin epey üstünde. Ölçtüğümüz şey
+	 * dayanıklılık, gecikme değil.
 	 */
-	time.Sleep(2500 * time.Millisecond)
+	time.Sleep(5 * time.Second)
 
 	alive := newArchiverAt(t, db, dir, endpoint, bucket)
 	alive.RunOnce(context.Background())

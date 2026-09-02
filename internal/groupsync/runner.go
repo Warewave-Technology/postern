@@ -111,6 +111,18 @@ type Report struct {
 	// kullanıcılar. Ayrı raporlanıyor çünkü "iptal edildi" okuyup
 	// erişimin tamamen bittiğini sanmak kolay.
 	KeptManual []string
+
+	/*
+	 * StampErrors, yazılamayan varlık damgası sayısı.
+	 *
+	 * ⚠️ "ok" ÇIKTISI TAM OLMAYABİLİR ve bunu söylemek gerekiyor.
+	 * Yazılamayan bir damga, bir sonraki koşunun zamanı yanlış
+	 * okuması demek: grace penceresi baştan başlar (iptal hiç
+	 * gelmez) ya da dizinde duran biri doğrulanmamış sayılır.
+	 * Sıfırdan büyükse koşu "bir şey yapmadım" değil, "bir kısmını
+	 * kaydedemedim" demektir.
+	 */
+	StampErrors int
 }
 
 // RunOnce, tek bir senkronizasyon koşusu yapar.
@@ -300,17 +312,49 @@ func (r *Runner) run(ctx context.Context, runID int64, dryRun bool, limits Limit
 		}
 	}
 
-	// 7) Varlık durumunu güncelle.
+	/*
+	 * 7) Varlık durumunu güncelle.
+	 *
+	 * ⚠️ HATALAR ARTIK YUTULMUYOR — ve yutuluyordu. İki çağrı da
+	 * çıplaktı, ikisi de hata döndürüyor ve ikisi de atılıyordu.
+	 * Yazılamayan bir damganın bedeli sessiz ve gecikmeli:
+	 *
+	 *   MarkDirectoryMissing düşerse `missing_since` boş kalıyor ve
+	 *   bir sonraki koşu kişiyi "az önce kayboldu" sanıyor — grace
+	 *   penceresi her koşuda baştan başlıyor, yani iptal hiç
+	 *   gelmiyor.
+	 *
+	 *   MarkDirectorySeen düşerse dizinde DURAN biri "en son şu
+	 *   tarihte görüldü" değerini güncelleyemiyor; hesap yaşam
+	 *   döngüsü onu doğrulanmamış sayıp pasifleştirebiliyor.
+	 *
+	 * İkisi de zamanı yanlış okutuyor, ikisi de yetki kararına
+	 * dönüşüyor. Sayılıp raporlanıyorlar: koşu "ok" derken kaç
+	 * damganın yazılamadığını da söylüyor.
+	 */
+	stampErrs := 0
 	for _, o := range obs {
+		var err error
 		switch o.Presence {
 		case ldap.PresencePresent:
-			r.db.MarkDirectorySeen(ctx, o.Username, now)
+			err = r.db.MarkDirectorySeen(ctx, o.Username, now)
 		case ldap.PresenceAbsent:
-			r.db.MarkDirectoryMissing(ctx, o.Username, now)
+			err = r.db.MarkDirectoryMissing(ctx, o.Username, now)
 			// PresenceUnknown: DOKUNMA. Bilmediğimiz bir şeyi
 			// "kayıp" diye işaretlemek, kesintiyi grace saatinin
 			// başlangıcına çevirirdi.
 		}
+		if err != nil {
+			stampErrs++
+			r.logger.Error("directory presence stamp failed",
+				"user", o.Username, "presence", o.Presence, "error", err)
+		}
+	}
+	if stampErrs > 0 {
+		r.logger.Warn("some presence stamps were not written; "+
+			"the grace window may restart for those users",
+			"failed", stampErrs, "considered", len(obs))
+		rep.StampErrors = stampErrs
 	}
 
 	rep.Outcome = "ok"
