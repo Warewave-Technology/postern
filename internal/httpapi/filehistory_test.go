@@ -57,21 +57,22 @@ func TestFileHistoryRefusesWithoutASession(t *testing.T) {
 }
 
 /*
- * ⚠️ BOŞ ARAMA "SONUÇ YOK" DEĞİL.
+ * ⚠️ ÖLÇÜTSÜZ ARAMA "SONUÇ YOK" DEĞİL.
  *
- * Boş bir yolu boş bir listeyle cevaplamak, denetçiye aradığı dosyaya
- * dokunulmadığını söylemek olurdu — oysa henüz hiçbir şey aranmadı.
- * İkisi aynı ekrana çıkarsa, sorulmamış bir soru cevaplanmış görünür.
+ * Boş bir isteği boş bir listeyle cevaplamak, denetçiye aradığı
+ * dosyaya dokunulmadığını söylemek olurdu — oysa henüz hiçbir şey
+ * aranmadı. İkisi aynı ekrana çıkarsa, sorulmamış bir soru
+ * cevaplanmış görünür.
  *
  * ⚠️ MESAJ DA ÖLÇÜLÜYOR, YALNIZCA DURUM KODU DEĞİL. store'un kendi
  * koruması da 400 üretiyor (savunma katmanı olarak orada duruyor), ama
- * metni "store.FileHistory: empty path: store: invalid value" oluyor:
+ * metni "store.FileHistory: no criteria: store: invalid value" oluyor:
  * iç fonksiyon adını istemciye gösteren ve ne yapılacağını söylemeyen
  * bir cevap. Handler'ın koruması tam da bunun için var; testi yalnızca
  * koda bakarsa o koruma silindiğinde geçmeye devam eder.
  */
-func TestFileHistoryRefusesAnEmptyPath(t *testing.T) {
-	for _, q := range []string{"", "?path=", "?path=%20%20"} {
+func TestFileHistoryRefusesAQueryWithNoCriteria(t *testing.T) {
+	for _, q := range []string{"", "?path=", "?path=%20%20", "?user=&target="} {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/api/admin/files"+q, nil)
 		quietServer().adminFileHistory(rec, req)
@@ -81,12 +82,34 @@ func TestFileHistoryRefusesAnEmptyPath(t *testing.T) {
 			continue
 		}
 		body := rec.Body.String()
-		if !strings.Contains(body, "path is required") {
+		if !strings.Contains(body, "at least one of path, user or target") {
 			t.Errorf("%q → cevap ne istendiğini söylemiyor: %s", q, body)
 		}
 		if strings.Contains(body, "store.") {
 			t.Errorf("%q → iç fonksiyon adı gövdeye sızdı: %s", q, body)
 		}
+	}
+}
+
+/*
+ * ⚠️ AĞAÇ ARAMASI BİR YOL İSTİYOR.
+ *
+ * under=1'i sessizce yok sayıp kullanıcı süzgeciyle devam etmek,
+ * operatöre sormadığı soruyu cevaplamak olurdu — ve cevap dolu
+ * geleceği için yanlış olduğu anlaşılmazdı.
+ */
+func TestFileHistoryRefusesUnderWithoutAPath(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/admin/files?under=1&user=ayse", nil)
+	quietServer().adminFileHistory(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("yolsuz ağaç araması %d aldı, 400 bekleniyordu: %s",
+			rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "needs a path") {
+		t.Errorf("sebep söylenmiyor: %s", rec.Body.String())
 	}
 }
 

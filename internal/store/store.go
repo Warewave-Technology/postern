@@ -99,6 +99,11 @@ type Store struct {
 
 	// box, şifreli ayarları açan anahtar. nil olabilir — bkz. UseSecretBox.
 	box *secret.Box
+
+	// searchTimeout, denetim aramalarının sunucu tarafı sınırı.
+	// Sıfır = searchtimeout.go'daki varsayılan; yalnızca testler
+	// değiştiriyor (SetSearchTimeoutForTest).
+	searchTimeout time.Duration
 }
 
 func Open(ctx context.Context, conn string) (*Store, error) {

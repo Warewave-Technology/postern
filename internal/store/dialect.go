@@ -55,6 +55,11 @@ const (
 	sqlstateUniqueViolation     = "23505"
 	sqlstateForeignKeyViolation = "23503"
 	sqlstateCheckViolation      = "23514"
+
+	// 57014 query_canceled: statement_timeout doldu ya da sorgu iptal
+	// edildi. searchtimeout.go bunu ErrTooSlow'a çeviriyor — "iç hata"
+	// demek, operatöre aramasının fazla geniş olduğunu söylemezdi.
+	sqlstateQueryCanceled = "57014"
 )
 
 // pgCode, hatanın SQLSTATE'ini döner; PostgreSQL hatası değilse "".
@@ -292,4 +297,16 @@ func hasKeywordSSLMode(conn string) bool {
 		}
 	}
 	return false
+}
+
+// isQueryCanceled, sorgu SUNUCU TARAFI sınırına takıldı mı?
+//
+// ⚠️ YALNIZCA SUNUCU TARAFI — ve bu ölçüldü. Buraya önce "istemci
+// tarafı iptal de aynı kodu üretir" diye yazmıştım; denedik ve
+// çürüdü: context süresi dolduğunda dönen hata bir *pgconn.PgError
+// değil, düz "timeout: context deadline exceeded" oluyor ve pgCode
+// boş kalıyor. İkisini de ErrTooSlow'a çeviren yer searchtimeout.go;
+// ayrım orada AÇIKÇA yapılıyor, burada varsayılmıyor.
+func isQueryCanceled(err error) bool {
+	return pgCode(err) == sqlstateQueryCanceled
 }

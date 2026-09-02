@@ -180,6 +180,22 @@ func (s *Server) storeErr(w http.ResponseWriter, op string, err error) {
 		// GİTMEZ; ayrıntı log'a, çağırana olayın adı.
 		s.logger.Warn("admin api conflict", "op", op, "error", err)
 		writeErr(w, http.StatusConflict, "already exists")
+	case errors.Is(err, store.ErrTooSlow):
+		/*
+		 * ⚠️ 503 DEĞİL 504. 503 "servis şu an yok" demek ve /readyz'in
+		 * söylediği şey o; aynı kodu burada kullanmak, tek bir geniş
+		 * aramayı bastion'ın düştüğü sanılacak bir olaya çevirirdi.
+		 * Burada olan şey farklı: bastion ayakta, veritabanı ayakta,
+		 * yalnızca BU sorgu sınırı aştı ve durduruldu.
+		 *
+		 * ⚠️ "Tekrar dene" DEMİYORUZ. Aynı arama aynı şekilde
+		 * duracak; söylenmesi gereken şey aramanın daraltılması.
+		 */
+		s.logger.Warn("search stopped at the server-side timeout", "op", op, "error", err)
+		writeErr(w, http.StatusGatewayTimeout,
+			"the search was stopped because it was taking too long; "+
+				"narrow it — an exact path, or a user or target to go with it")
+
 	case errors.Is(err, store.ErrInvalid):
 		// ⚠️ BU HATANIN METNİ GÖVDEYE GİDİYOR ve bu bilinçli. İçerik,
 		// operatörün AZ ÖNCE YAZDIĞI değere dair — sır taşımıyor — ve

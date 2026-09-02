@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { api, FileHistory as History, FileTouch, toMessage } from "../api";
+import {
+  api,
+  FileCriteria,
+  FileHistory as History,
+  FileTouch,
+  toMessage,
+} from "../api";
 import {
   ActionButton,
   ErrorLine,
@@ -45,14 +51,40 @@ type State =
 
 export default function FileHistory() {
   const [path, setPath] = useState("");
+  const [under, setUnder] = useState(false);
+  const [user, setUser] = useState("");
+  const [target, setTarget] = useState("");
   const [state, setState] = useState<State>({ kind: "idle" });
 
+  const criteria: FileCriteria = {
+    path: path.trim(),
+    /*
+     * ⚠️ YOL YOKSA AĞAÇ KİPİ DE YOK.
+     *
+     * Onay kutusu yol boşken devre dışı ama DURUMU KALICI: yol yazıp
+     * kutuyu işaretleyip sonra yolu silen ve kişi yazan biri,
+     * "under=1&user=ayse" gönderiyordu. Sunucu bunu doğru biçimde
+     * reddediyor (400) ama panel, gönderdiği anda geçersiz olduğunu
+     * bildiği bir isteği yollamamalı — operatöre çıkışsız bir hata
+     * gösterirdi.
+     */
+    under: under && path.trim() !== "",
+    user: user.trim(),
+    target: target.trim(),
+  };
+  /*
+   * ⚠️ EN AZ BİR ÖLÇÜT. Üçü de boşken arama "her şeyi göster"e
+   * dönerdi ve bu ekranın kaçındığı şey tam olarak o: sorulmamış bir
+   * soruya dolu bir ekranla cevap vermek.
+   */
+  const askable =
+    criteria.path !== "" || criteria.user !== "" || criteria.target !== "";
+
   const search = async () => {
-    const q = path.trim();
-    if (q === "") return;
+    if (!askable) return;
     setState({ kind: "busy" });
     try {
-      setState({ kind: "done", result: await api.fileHistory(q) });
+      setState({ kind: "done", result: await api.fileHistory(criteria) });
     } catch (err: unknown) {
       setState({ kind: "error", msg: toMessage(err) });
     }
@@ -63,8 +95,9 @@ export default function FileHistory() {
       <div className="page-head">
         <h2>File history</h2>
         <p className="page-sub">
-          Every SFTP event that touched one path, newest first — who did it,
-          from where, and whether it succeeded.
+          Every SFTP event that matches, newest first — who did it, from where,
+          and whether it succeeded. Search by path, by person, by machine, or
+          any combination.
         </p>
       </div>
 
@@ -78,8 +111,8 @@ export default function FileHistory() {
           "This searches SFTP file events only. A file read or written " +
           "inside an interactive shell — cat, scp over exec, an editor — " +
           "leaves no row here; that trace is in the session recording. " +
-          "An empty result means no SFTP event touched this path, not that " +
-          "nobody read the file."
+          "An empty result means no SFTP event matched, not that nobody " +
+          "read the file."
         }
       />
 
@@ -106,7 +139,7 @@ export default function FileHistory() {
         <div className="card-body">
           <div className="wfield">
             <label className="wfield-label" htmlFor="file-history-path">
-              Full path
+              Path
             </label>
             <input
               id="file-history-path"
@@ -117,20 +150,73 @@ export default function FileHistory() {
               spellCheck={false}
             />
             {/*
-              ⚠️ TAM EŞLEŞME OLDUĞU YAZILI. "/etc" yazıp altındaki her
-              şeyi bekleyen biri boş sonuç alır ve onu "dokunulmamış"
-              diye okur.
+              ⚠️ EŞLEŞMENİN NASIL YAPILDIĞI YAZILI VE KİPE GÖRE
+              DEĞİŞİYOR. "/etc" yazıp altındaki her şeyi bekleyen biri
+              tam eşleşmede boş sonuç alır ve onu "dokunulmamış" diye
+              okur — bu ekranın en pahalı yanlış anlaması.
             */}
             <p className="small muted">
-              Matched exactly, not as a prefix — and the path is the one the
-              client asked for, as the server recorded it.
+              {under
+                ? "Treated as a directory: everything at or below it. A neighbour that merely starts with the same letters (/etcetera) is not included."
+                : "Matched exactly, not as a prefix — and the path is the one the client asked for, as the server recorded it."}
+            </p>
+            {/* .toggle: SyncPanel'in kullandığı sınıf. Yeni bir stil
+                uydurmak, aynı işi yapan iki onay kutusu görünümü
+                demek olurdu. */}
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={under}
+                onChange={(e) => setUnder(e.target.checked)}
+                disabled={path.trim() === ""}
+              />
+              <span>Everything under this directory</span>
+            </label>
+          </div>
+
+          {/*
+            ⚠️ KİŞİ VE MAKİNE SUNUCUDA SÜZÜLÜYOR, TABLODA DEĞİL.
+            Aşağıdaki tablonun kendi filtre kutusu yalnızca GELEN
+            satırları süzüyor ve sunucu en fazla 200 satır dönüyor:
+            oraya "ayse" yazan denetçi, ayse'nin 500 olayı varken boş
+            sonuç görebilir — ve onu "ayse dokunmamış" diye okur.
+          */}
+          <div className="wfield">
+            <label className="wfield-label" htmlFor="file-history-user">
+              Person
+            </label>
+            <input
+              id="file-history-user"
+              value={user}
+              onChange={(e) => setUser(e.target.value)}
+              placeholder="ayse"
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </div>
+          <div className="wfield">
+            <label className="wfield-label" htmlFor="file-history-target">
+              Target
+            </label>
+            <input
+              id="file-history-target"
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+              placeholder="web01"
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <p className="small muted">
+              Any one of these three is enough. Leave the path empty to ask what
+              one person did, or what happened on one machine.
             </p>
           </div>
+
           <div className="card-actions">
             <ActionButton
               variant="primary"
               label="search the file history"
-              disabled={path.trim() === "" || state.kind === "busy"}
+              disabled={!askable || state.kind === "busy"}
               onClick={search}
             >
               {state.kind === "busy" ? "Searching…" : "Search"}
@@ -158,13 +244,16 @@ function Result({ result }: { result: History }) {
     return (
       <div className="card">
         <div className="card-body">
-          <h3>
-            Nothing found for <code>{q}</code>
-          </h3>
+          <h3>Nothing found</h3>
+          {/*
+            ⚠️ NE ARANDIĞI TEKRARLANIYOR. Üç kutulu bir formda, hangi
+            ölçütlerle arandığını göstermeyen bir "bulunamadı", yanlış
+            kutuya yazmış birine "dokunulmamış" diye okunur.
+          */}
           <p className="page-sub">
-            No SFTP event recorded against this exact path. That is not the same
-            as saying the file was never read — see the note above — and it is
-            also not the same as saying the path never existed.
+            No SFTP event matched <Criteria result={result} />. That is not the
+            same as saying the file was never read — see the note above — and it
+            is also not the same as saying the path never existed.
           </p>
         </div>
       </div>
@@ -229,7 +318,14 @@ function Result({ result }: { result: History }) {
               <code title={f.new_path}>{f.new_path}</code>
             </>
           )}
-          {f.new_path === q && (
+          {/*
+            ⚠️ AĞAÇ KİPİNDE DE İŞARETLENİYOR. Aranan "/tmp" ise ve
+            dosya "/tmp/exfil"e rename ile geldiyse, eşleşme yine
+            new_path'te — rozeti yalnızca tam eşleşmeye bağlamak,
+            sızdırmanın en ucuz biçimini tam da onu arayan kipte
+            işaretsiz bırakırdı.
+          */}
+          {f.new_path && matchesQuery(f.new_path, result) && (
             <span className="badge" title="the file arrived at this path here">
               {" "}
               moved here
@@ -288,8 +384,8 @@ function Result({ result }: { result: History }) {
       searchPlaceholder="Filter events…"
       foot={
         <p>
-          Events for <code>{q}</code>. Copy a session id into the Sessions
-          screen to see everything else that session did.
+          Events matching <Criteria result={result} />. Copy a session id into
+          the Sessions screen to see everything else that session did.
           {/*
             ⚠️ KESİLDİYSE SÖYLE. Sessizce ilk N'i göstermek, denetçinin
             "olan biten bu" sanması demek.
@@ -305,5 +401,67 @@ function Result({ result }: { result: History }) {
         </p>
       }
     />
+  );
+}
+
+/*
+ * matchesQuery, bir yolun aramanın ölçütüne uyup uymadığı.
+ *
+ * Sunucudaki koşulun panel tarafındaki karşılığı — yalnızca "moved
+ * here" rozetini çizmek için. Satırın sonuca GİRİP girmediğine sunucu
+ * karar veriyor; burası yalnızca eşleşmenin hangi yarıda olduğunu
+ * söylüyor.
+ */
+function matchesQuery(p: string, result: History): boolean {
+  if (result.path === "") return false;
+  if (!result.under) return p === result.path;
+  // ⚠️ KÖK DİZİN AYRI: "/" + "/" iki eğik çizgi eder ve hiçbir yol
+  // öyle başlamaz. Sunucu "/" altında her şeyi döndürürken panel
+  // hiçbirini işaretlemezdi.
+  if (result.path === "/") return p.startsWith("/");
+  return p === result.path || p.startsWith(result.path + "/");
+}
+
+/*
+ * Criteria, aramanın NE olduğunu tek satırda yazar.
+ *
+ * ⚠️ KUTUYA BAŞKA BİR ŞEY YAZIP ARAMAYI UNUTAN BİRİ, önceki aramanın
+ * sonucunu yenisi sanabilirdi. Ölçütler sunucunun cevabından geliyor,
+ * formun o anki hâlinden değil — yani gösterilen şey, gerçekten
+ * çalıştırılan arama.
+ */
+function Criteria({ result }: { result: History }) {
+  const parts: React.ReactNode[] = [];
+  if (result.path) {
+    parts.push(
+      <span key="p">
+        {result.under ? "under " : ""}
+        <code>{result.path}</code>
+      </span>,
+    );
+  }
+  if (result.user) {
+    parts.push(
+      <span key="u">
+        by <code>{result.user}</code>
+      </span>,
+    );
+  }
+  if (result.target) {
+    parts.push(
+      <span key="t">
+        on <code>{result.target}</code>
+      </span>,
+    );
+  }
+  return (
+    <>
+      {parts.map((p, i) => (
+        <span key={i}>
+          {i > 0 ? ", " : ""}
+          {p}
+        </span>
+      ))}
+    </>
   );
 }

@@ -6,8 +6,11 @@ package store
 // dosya seviyesinde denetlenemediği sürece reddediliyordu.
 
 import (
+	"cmp"
 	"context"
+	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -123,7 +126,37 @@ type FileTouch struct {
 }
 
 /*
- * FileHistory, bir yola dokunan TÜM oturumları döner.
+ * FileQuery, dosya geçmişi aramasının ölçütleri.
+ *
+ * ⚠️ EN AZ BİRİ DOLU OLMALI. Üçü birden boşken "her şeyi göster"
+ * demek, sorulmamış bir soruya dolu bir ekranla cevap vermek olurdu —
+ * bu ekranın kaçındığı şeyin ta kendisi.
+ */
+type FileQuery struct {
+	// Path, aranan yol. Under false ise TAM eşleşme.
+	Path string
+
+	/*
+	 * Under: Path bir DİZİN, altındaki her şey aransın.
+	 *
+	 * ⚠️ SORUŞTURMANIN EN SIK SORDUĞU BU. "/etc altında ne oldu"
+	 * sorusunu tam eşleşmeyle sormak imkânsız; her dosyayı tek tek
+	 * bilmek gerekirdi.
+	 */
+	Under bool
+
+	// User / Target, olayın oturumundan süzme.
+	//
+	// ⚠️ Path'siz de anlamlılar: "ayse ne aldı" ve "web01'de ne oldu"
+	// soruşturmanın ikinci ve üçüncü sorusu.
+	User   string
+	Target string
+
+	Limit int
+}
+
+/*
+ * FileHistory, ölçütlere uyan dosya olaylarını en yeniden eskiye döner.
  *
  * Soruşturmanın sorusu bu: "/etc/shadow'u kim aldı". Oturumdan dosyaya
  * bakan bir arayüz bu soruyu cevaplayamaz — soruşturma dosyayı bilir,
@@ -135,29 +168,108 @@ type FileTouch struct {
  * sorusuna "hiç dokunulmamış" cevabını verirdi — dosyayı oraya taşıyan
  * satır elimizdeyken.
  *
- * ⚠️ BOŞ YOL REDDEDİLİYOR — VE SEBEBİ ÖLÇÜLDÜ. Korumayı kaldırıp
- * denedik: sorgu boş bir yol için BOŞ LİSTE dönüyor (aşağıdaki
- * `new_path <> ''` koşulu, satırların çoğundaki boş new_path'in
- * eşleşmesini engelliyor). Yani tehlike rastgele bir liste değil, boş
- * bir liste: hiç sorulmamış bir soru "bu dosyaya dokunulmamış" diye
- * cevaplanmış görünürdü. Bu ekranda verilebilecek en pahalı yanlış
- * cevap o.
+ * ⚠️ BOŞ ÖLÇÜT REDDEDİLİYOR — VE SEBEBİ ÖLÇÜLDÜ. Yalnızca yol
+ * korumasını kaldırıp denedik: sorgu boş bir yol için BOŞ LİSTE
+ * dönüyor (`new_path <> ''` koşulu, satırların çoğundaki boş
+ * new_path'in eşleşmesini engelliyor). Yani tehlike rastgele bir liste
+ * değil, boş bir liste: hiç sorulmamış bir soru "bu dosyaya
+ * dokunulmamış" diye cevaplanmış görünürdü.
+ *
+ * ⚠️ ZAMAN SINIRLI ÇALIŞIYOR (searchtimeout.go). Ölçütler dışarıdan
+ * geliyor ve havuzu SSH girişleri paylaşıyor.
  */
-func (s *Store) FileHistory(ctx context.Context, path string, limit int) ([]FileTouch, error) {
-	if path == "" {
-		return nil, fmt.Errorf("store.FileHistory: empty path: %w", ErrInvalid)
+func (s *Store) FileHistory(ctx context.Context, q FileQuery) ([]FileTouch, error) {
+	const op = "store.FileHistory"
+
+	if q.Path == "" && q.User == "" && q.Target == "" {
+		return nil, fmt.Errorf("%s: no criteria: %w", op, ErrInvalid)
 	}
-	if limit <= 0 || limit > FileHistoryMaxLimit {
-		limit = FileHistoryDefaultLimit
+	// Under, Path olmadan anlamsız: çağıran karışmış demektir ve
+	// sessizce "her şey"e düşmek en kötü yorum olurdu.
+	if q.Under && q.Path == "" {
+		return nil, fmt.Errorf("%s: under without a path: %w", op, ErrInvalid)
+	}
+	if q.Limit <= 0 || q.Limit > FileHistoryMaxLimit {
+		q.Limit = FileHistoryDefaultLimit
 	}
 
+	var (
+		conds []string
+		args  []any
+	)
+	// ph, bir argümanı ekleyip yer tutucusunu döner ($1, $2, ...).
+	ph := func(v any) string {
+		args = append(args, v)
+		return fmt.Sprintf("$%d", len(args))
+	}
+
+	if q.Path != "" {
+		if q.Under {
+			/*
+			 * ⚠️ SONDAKİ EĞİK ÇİZGİ TEMİZLENİYOR — VE SEBEBİ ÖLÇÜLDÜ.
+			 *
+			 * Önek düz birleştirmeyle kuruluyordu ve "/etc/" yazan biri
+			 * "/etc//%" desenini alıyordu; PostgreSQL'de o desen
+			 * "/etc/shadow" ile EŞLEŞMİYOR. Demo veritabanında ölçtük:
+			 *
+			 *   /home/sidinak   → 29 satır
+			 *   /home/sidinak/  →  0 satır
+			 *
+			 * Sıfır satır sessizce dönüyordu: sorgu "başarıyla" bitiyor,
+			 * ekran "Nothing found" yazıyor ve denetçi bunu "bu ağaca
+			 * dokunulmamış" diye okuyordu. Kabuk tamamlaması dizin
+			 * adlarının sonuna eğik çizgi ekliyor — yani bu, egzotik
+			 * değil OLAĞAN girdi.
+			 *
+			 * Kök dizin de aynı kusurdaydı: "/" için desen "//%" oluyor
+			 * ve hiçbir şeyle eşleşmiyordu.
+			 */
+			/*
+			 * ⚠️ DİZİNİN KENDİSİ DE DAHİL. `opendir /etc` satırının
+			 * path'i tam olarak "/etc"; yalnızca "/etc/%" arayan bir
+			 * sorgu, dizinin açıldığını gösteren satırı atlardı.
+			 *
+			 * ⚠️ ÖNEK "/etc/" — "/etc" DEĞİL. İkincisi "/etcetera"yı
+			 * da yakalardı: soruşturmaya ilgisiz bir ağacı aradığı
+			 * ağaç diye gösteren sessiz bir yanlış.
+			 */
+			base := strings.TrimRight(q.Path, "/")
+			exact := ph(cmp.Or(base, "/"))
+			prefix := ph(likePrefix(base) + `/%`)
+			conds = append(conds, fmt.Sprintf(
+				`(f.path = %[1]s OR f.path LIKE %[2]s ESCAPE '\'
+				  OR (f.new_path <> '' AND (f.new_path = %[1]s
+				      OR f.new_path LIKE %[2]s ESCAPE '\')))`, exact, prefix))
+		} else {
+			/*
+			 * ⚠️ `new_path <> ''` KOŞULU SORGUDA GÖRÜNÜYOR. Yalnızca
+			 * doğruluk için değil: 030'daki indeks kısmi ve planlayıcı
+			 * onu ancak aynı koşulu sorguda görürse kullanabiliyor.
+			 */
+			p := ph(q.Path)
+			conds = append(conds, fmt.Sprintf(
+				`(f.path = %[1]s OR (f.new_path <> '' AND f.new_path = %[1]s))`, p))
+		}
+	}
 	/*
-	 * ⚠️ `new_path <> ''` KOŞULU SORGUDA GÖRÜNÜYOR. Yalnızca doğruluk
-	 * için değil: 030'daki indeks kısmi ve planlayıcı onu ancak aynı
-	 * koşulu sorguda görürse kullanabiliyor. Koşulu sadeleştirmek,
-	 * aramayı sessizce tam tarama hâline getirir.
+	 * ⚠️ ciEq: users.username ve targets.name harf duyarsız eşleşiyor
+	 * (dialect.go'daki ciColumns ve 009'daki lower() indeksleri).
+	 * Düz "=" kullanmak, "Ayse" yazan denetçiye "ayse"nin satırlarını
+	 * göstermezdi.
+	 *
+	 * ⚠️ BU SÜZGEÇLER LEFT JOIN'İ FİİLEN INNER YAPIYOR ve doğrusu bu:
+	 * oturum üstverisi okunamayan bir satır "ayse yaptı" diye
+	 * gösterilemez. Süzgeç YOKKEN satır yine geliyor (kullanıcı boş),
+	 * çünkü o hâlde iddia da yok.
 	 */
-	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
+	if q.User != "" {
+		conds = append(conds, ciEq("u.username", ph(q.User)))
+	}
+	if q.Target != "" {
+		conds = append(conds, ciEq("t.name", ph(q.Target)))
+	}
+
+	query := fmt.Sprintf(`
 		SELECT f.id, f.session_id, f.at, f.op, f.path, f.new_path, f.flags,
 		       f.bytes_read, f.bytes_wrote, f.ok, f.detail,
 		       COALESCE(u.username, ''), COALESCE(t.name, ''),
@@ -166,30 +278,43 @@ func (s *Store) FileHistory(ctx context.Context, path string, limit int) ([]File
 		LEFT JOIN sessions s ON s.id = f.session_id
 		LEFT JOIN users    u ON u.id = s.user_id
 		LEFT JOIN targets  t ON t.id = s.target_id
-		WHERE f.path = $1 OR (f.new_path <> '' AND f.new_path = $1)
+		WHERE %s
 		ORDER BY f.at DESC, f.id
-		LIMIT %d;`, limit), path)
-	if err != nil {
-		return nil, translateErr("store.FileHistory", err)
-	}
-	defer rows.Close()
+		LIMIT %d;`, strings.Join(conds, "\n\t\t  AND "), q.Limit)
 
 	out := make([]FileTouch, 0)
-	for rows.Next() {
+	err := s.searchRows(ctx, op, query, args, func(rows *sql.Rows) error {
 		var t FileTouch
 		var at int64
 		if err := rows.Scan(&t.ID, &t.SessionID, &at, &t.Op, &t.Path,
 			&t.NewPath, &t.Flags, &t.Read, &t.Wrote, &t.OK, &t.Detail,
 			&t.User, &t.Target, &t.OSUser, &t.SrcIP); err != nil {
-			return nil, translateErr("store.FileHistory", err)
+			return err
 		}
 		t.At = time.Unix(at, 0).UTC()
 		out = append(out, t)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, translateErr("store.FileHistory", err)
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return out, nil
+}
+
+/*
+ * likePrefix, bir yolu LIKE deseninde GÜVENLE kullanılacak hâle getirir.
+ *
+ * ⚠️ KAÇIŞ ŞART. LIKE'ta `%` ve `_` joker; kaçırılmazsa "/var/log_1"
+ * arayan biri "/var/logX1" ağacını da alırdı — ve `%` içeren bir yol
+ * (nadir ama geçerli) aramayı bambaşka bir şeye çevirirdi. Sorgu
+ * parametreli olduğu için bu bir enjeksiyon değil; sessizce YANLIŞ
+ * SONUÇ üretme meselesi, ki denetimde farkı yok.
+ *
+ * Ters bölü ÖNCE kaçırılıyor: sonra yapılsaydı kendi eklediğimiz
+ * kaçışları bir kez daha kaçırırdık.
+ */
+func likePrefix(p string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(p)
 }
 
 func (s *Store) queryFiles(ctx context.Context, what, query string, args ...any) ([]SessionFile, error) {
@@ -214,4 +339,25 @@ func (s *Store) queryFiles(ctx context.Context, what, query string, args ...any)
 		return nil, translateErr(what, err)
 	}
 	return out, nil
+}
+
+/*
+ * CleanSearchPath, ağaç aramasında kullanılacak yolu normalleştirir.
+ *
+ * ⚠️ DIŞARI AÇIK ÇÜNKÜ UÇ, ARANANI YANKILIYOR. Panel sonuçta
+ * "under /etc/" yazıp sorgunun "/etc" ile çalıştığını gizleseydi,
+ * denetçi neyin arandığını yanlış bilirdi — ve "moved here" rozetini
+ * çizen istemci karşılaştırması da normalleştirilmemiş yola bakıp
+ * kayardı.
+ *
+ * Sondaki eğik çizgiler atılıyor; hepsi eğik çizgiyse kök dizin.
+ */
+func CleanSearchPath(p string) string {
+	if t := strings.TrimRight(p, "/"); t != "" {
+		return t
+	}
+	if strings.HasPrefix(p, "/") {
+		return "/"
+	}
+	return p
 }

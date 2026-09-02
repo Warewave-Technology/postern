@@ -529,11 +529,22 @@ export type FileTouch = SessionFile & {
   src_ip: string;
 };
 
-/** Bir yolun geçmişi. `truncated`, listenin sunucuda kesildiğini
+/** Bir aramanın ölçütleri. Üçü de isteğe bağlı ama EN AZ BİRİ dolu
+ *  olmalı: üçü birden boşken "her şeyi göster" demek, sorulmamış bir
+ *  soruya dolu bir ekranla cevap vermek olurdu. */
+export type FileCriteria = {
+  path?: string;
+  /** path bir DİZİN: altındaki her şey. */
+  under?: boolean;
+  user?: string;
+  target?: string;
+};
+
+/** Bir aramanın sonucu. `truncated`, listenin sunucuda kesildiğini
  *  söylüyor — sessizce ilk N'i göstermek, denetçiye "olan biten bu"
- *  dedirtirdi. */
-export type FileHistory = {
-  path: string;
+ *  dedirtirdi. Ölçütler CEVAPTA da dönüyor: kutuya başka bir şey yazıp
+ *  aramayı unutan biri, önceki aramanın sonucunu yenisi sanabilirdi. */
+export type FileHistory = Required<FileCriteria> & {
   events: FileTouch[];
   limit: number;
   truncated: boolean;
@@ -977,10 +988,14 @@ export const api = {
     ),
   adminLog: () => req<LogEntry[]>("GET", "/api/admin/log"),
   /** "Bu dosyaya kim dokundu" — oturumdan dosyaya değil, dosyadan
-   *  oturuma bakan sorgu. */
-  fileHistory: (path: string) =>
-    req<FileHistory>(
-      "GET",
-      `/api/admin/files?path=${encodeURIComponent(path)}`,
-    ),
+   *  oturuma bakan sorgu. Yol tek başına zorunlu değil: "ayse ne aldı"
+   *  ve "web01'de ne oldu" kendi başına sorular. */
+  fileHistory: (c: FileCriteria) => {
+    const q = new URLSearchParams();
+    if (c.path) q.set("path", c.path);
+    if (c.under) q.set("under", "1");
+    if (c.user) q.set("user", c.user);
+    if (c.target) q.set("target", c.target);
+    return req<FileHistory>("GET", `/api/admin/files?${q}`);
+  },
 };

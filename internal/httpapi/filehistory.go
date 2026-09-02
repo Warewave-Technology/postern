@@ -36,32 +36,65 @@ func (s *Server) registerFileRoutes(mux *http.ServeMux, admin func(http.HandlerF
 /*
  * adminFileHistory: GET /api/admin/files?path=…&limit=…
  *
- * ⚠️ BOŞ YOL 400 — BOŞ LİSTE DEĞİL. Boş bir aramayı "sonuç yok" diye
- * cevaplamak, denetçiye aradığı dosyaya dokunulmadığını söylemek olurdu;
- * oysa henüz hiçbir şey aranmadı. İkisi aynı ekrana çıkamaz.
+ * ⚠️ ÖLÇÜTSÜZ İSTEK 400 — BOŞ LİSTE DEĞİL. Boş bir aramayı "sonuç yok"
+ * diye cevaplamak, denetçiye aradığı dosyaya dokunulmadığını söylemek
+ * olurdu; oysa henüz hiçbir şey aranmadı. İkisi aynı ekrana çıkamaz.
+ *
+ * ⚠️ YOL TEK BAŞINA ZORUNLU DEĞİL. "ayse ne aldı" ve "web01'de ne oldu"
+ * kendi başına sorular; bir yol aramasının süzgeci olarak sorulamazlar,
+ * çünkü hangi dosyaya bakacağını bilmiyorsun — zaten onu arıyorsun.
  */
 func (s *Server) adminFileHistory(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimSpace(r.URL.Query().Get("path"))
-	if path == "" {
+	q := r.URL.Query()
+	query := store.FileQuery{
+		Path:   strings.TrimSpace(q.Get("path")),
+		User:   strings.TrimSpace(q.Get("user")),
+		Target: strings.TrimSpace(q.Get("target")),
+		Under:  q.Get("under") == "1",
+	}
+	if query.Path == "" && query.User == "" && query.Target == "" {
 		writeErr(w, http.StatusBadRequest,
-			"a path is required: ?path=/etc/shadow")
+			"give at least one of path, user or target "+
+				"(for example ?path=/etc/shadow)")
 		return
 	}
+	// ⚠️ Ağaç araması bir YOL gerektiriyor. Sessizce tam eşleşmeye
+	// düşmek, operatöre sormadığı soruyu cevaplamak olurdu.
+	if query.Under && query.Path == "" {
+		writeErr(w, http.StatusBadRequest,
+			"under=1 needs a path to be under")
+		return
+	}
+	/*
+	 * ⚠️ YOL BURADA NORMALLEŞTİRİLİYOR, YALNIZCA store'da DEĞİL — çünkü
+	 * cevap onu YANKILIYOR ve panel yankılananı ekrana yazıyor.
+	 * Normalleştirmeyi store'un içinde bıraksaydık ekran "under /etc/"
+	 * derken sorgu "/etc" ile çalışırdı: denetçiye, yaptığı aramadan
+	 * başka bir arama gösterilirdi. Rozet karşılaştırması da (panelde
+	 * matchesQuery) bu yankılanan değere bakıyor.
+	 */
+	if query.Under {
+		query.Path = store.CleanSearchPath(query.Path)
+	}
 
-	limit, valid := historyLimit(r.URL.Query().Get("limit"))
+	limit, valid := historyLimit(q.Get("limit"))
 	if !valid {
 		writeErr(w, http.StatusBadRequest, "limit must be a positive number")
 		return
 	}
+	query.Limit = limit
 
-	events, err := s.store.FileHistory(r.Context(), path, limit)
+	events, err := s.store.FileHistory(r.Context(), query)
 	if err != nil {
 		s.storeErr(w, "files.history", err)
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"path":   path,
+		"path":   query.Path,
+		"under":  query.Under,
+		"user":   query.User,
+		"target": query.Target,
 		"events": events,
 		"limit":  limit,
 		/*

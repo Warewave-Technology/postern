@@ -2,9 +2,12 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/warewave/postern/internal/model"
 )
 
 // startFileSession, dosya olayları bağlanacak bir oturum açar.
@@ -98,7 +101,7 @@ func TestFileHistoryFindsEverySessionThatTouchedAPath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hist, err := s.FileHistory(ctx, "/etc/shadow", 0)
+	hist, err := s.FileHistory(ctx, FileQuery{Path: "/etc/shadow"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +192,7 @@ func TestFileHistoryNamesThePerson(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hist, err := s.FileHistory(ctx, "/etc/shadow", 0)
+	hist, err := s.FileHistory(ctx, FileQuery{Path: "/etc/shadow"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +231,7 @@ func TestFileHistoryFindsTheDestinationOfARename(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hist, err := s.FileHistory(ctx, "/tmp/exfil", 0)
+	hist, err := s.FileHistory(ctx, FileQuery{Path: "/tmp/exfil"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +251,7 @@ func TestFileHistoryFindsTheDestinationOfARename(t *testing.T) {
  * dosyanın geçmişi diye rastgele bir liste gösterirdi — yanlış cevabın
  * en pahalı biçimi, çünkü dolu bir ekran "bulundu" gibi okunur.
  */
-func TestFileHistoryRefusesAnEmptyPath(t *testing.T) {
+func TestFileHistoryRefusesAnEmptyQuery(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 	startFileSession(t, s, "sess-empty")
@@ -260,8 +263,317 @@ func TestFileHistoryRefusesAnEmptyPath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hist, err := s.FileHistory(ctx, "", 0)
+	hist, err := s.FileHistory(ctx, FileQuery{})
 	if !errors.Is(err, ErrInvalid) {
-		t.Fatalf("boş yol kabul edildi: err=%v, %d satır döndü", err, len(hist))
+		t.Fatalf("ölçütsüz arama kabul edildi: err=%v, %d satır döndü", err, len(hist))
 	}
+}
+
+// seedTouch, verilen oturuma tek bir dosya olayı yazar.
+func seedTouch(t *testing.T, s *Store, session string, f SessionFile) {
+	t.Helper()
+	if f.At.IsZero() {
+		f.At = time.Now().Truncate(time.Second)
+	}
+	if f.Op == "" {
+		f.Op = "transfer"
+	}
+	if err := s.AddSessionFiles(context.Background(), session, []SessionFile{f}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// twoUserStore, iki farklı kişinin iki farklı hedefte oturumu.
+func twoUserStore(t *testing.T) *Store {
+	t.Helper()
+	ctx := context.Background()
+	s := newTestStore(t)
+	startFileSession(t, s, "sess-yigit") // yigit @ web01
+
+	if _, err := s.CreateUser(ctx, "ayse", "", "ayse"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateTarget(ctx, model.Target{
+		Name: "db01", Host: "10.0.0.9", Port: 22, HostKey: testHostKey,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.StartSession(ctx, SessionStart{
+		ID: "sess-ayse", Username: "ayse", TargetName: "db01",
+		OSUser: "ayse", SrcIP: "10.0.0.2", StartedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+/*
+ * ⚠️ SÜZGEÇ SUNUCUDA OLMALI, TABLODA DEĞİL.
+ *
+ * Panel gelen satırları istemcide süzüyor ve sunucu en fazla 200 satır
+ * dönüyor. "ayse" yazan denetçi, ayse'nin 500 olayı varken BOŞ sonuç
+ * görebilirdi — ve boş sonucu "ayse dokunmamış" diye okurdu. Süzgecin
+ * sorguya inmesinin sebebi kolaylık değil, bu.
+ */
+func TestFileHistoryFiltersByUser(t *testing.T) {
+	ctx := context.Background()
+	s := twoUserStore(t)
+
+	seedTouch(t, s, "sess-yigit", SessionFile{Path: "/srv/ortak.txt", OK: true})
+	seedTouch(t, s, "sess-ayse", SessionFile{Path: "/srv/ortak.txt", OK: true})
+
+	hist, err := s.FileHistory(ctx, FileQuery{Path: "/srv/ortak.txt", User: "ayse"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hist) != 1 || hist[0].User != "ayse" {
+		t.Fatalf("kullanıcı süzgeci tutmadı: %+v", hist)
+	}
+}
+
+/*
+ * ⚠️ KULLANICI ADLARI HARF DUYARSIZ EŞLEŞİYOR.
+ *
+ * users.username dialect.go'daki ciColumns'ta ve 009'da lower() indeksi
+ * var: dizin "Ayse" ile "ayse"yi aynı kişi sayıyor. Düz "=" kullanan
+ * bir süzgeç, "Ayse" yazan denetçiye boş sonuç gösterirdi — yani
+ * yazımı yüzünden "hiç dokunmamış" derdi.
+ */
+func TestFileHistoryUserFilterIgnoresCase(t *testing.T) {
+	ctx := context.Background()
+	s := twoUserStore(t)
+	seedTouch(t, s, "sess-ayse", SessionFile{Path: "/srv/ortak.txt", OK: true})
+
+	hist, err := s.FileHistory(ctx, FileQuery{Path: "/srv/ortak.txt", User: "AySe"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hist) != 1 {
+		t.Fatalf("harf duyarsız eşleşme tutmadı: %d satır", len(hist))
+	}
+}
+
+// Hedef süzgeci de aynı sözleşmede.
+func TestFileHistoryFiltersByTarget(t *testing.T) {
+	ctx := context.Background()
+	s := twoUserStore(t)
+	seedTouch(t, s, "sess-yigit", SessionFile{Path: "/srv/ortak.txt", OK: true})
+	seedTouch(t, s, "sess-ayse", SessionFile{Path: "/srv/ortak.txt", OK: true})
+
+	hist, err := s.FileHistory(ctx, FileQuery{Path: "/srv/ortak.txt", Target: "DB01"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hist) != 1 || hist[0].Target != "db01" {
+		t.Fatalf("hedef süzgeci tutmadı: %+v", hist)
+	}
+}
+
+/*
+ * ⚠️ YOL ZORUNLU DEĞİL: "ayse ne aldı" kendi başına bir soru.
+ *
+ * Soruşturmanın ikinci sorusu bu ve bir yol aramasının süzgeci olarak
+ * sorulamaz — hangi dosyaya baktığını bilmiyorsun, zaten onu arıyorsun.
+ */
+func TestFileHistoryFindsEverythingOnePersonTouched(t *testing.T) {
+	ctx := context.Background()
+	s := twoUserStore(t)
+	seedTouch(t, s, "sess-ayse", SessionFile{Path: "/srv/bir.txt", OK: true})
+	seedTouch(t, s, "sess-ayse", SessionFile{Path: "/srv/iki.txt", OK: true})
+	seedTouch(t, s, "sess-yigit", SessionFile{Path: "/srv/uc.txt", OK: true})
+
+	hist, err := s.FileHistory(ctx, FileQuery{User: "ayse"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hist) != 2 {
+		t.Fatalf("kişinin tüm olayları = %d satır, 2 bekleniyordu: %+v", len(hist), hist)
+	}
+}
+
+/*
+ * ⚠️ "BU DİZİNİN ALTINDA NE OLDU" — soruşturmanın en sık sorduğu.
+ *
+ * Tam eşleşmeyle sorulamaz: ağacın altındaki her dosyanın adını
+ * önceden bilmek gerekirdi.
+ *
+ * ⚠️ DİZİNİN KENDİSİ DE GELİYOR. `opendir /etc` satırının path'i tam
+ * olarak "/etc"; yalnızca "/etc/%" arayan bir sorgu, dizinin
+ * açıldığını gösteren satırı atlardı.
+ */
+func TestFileHistoryUnderFindsTheWholeTree(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	startFileSession(t, s, "sess-tree")
+
+	seedTouch(t, s, "sess-tree", SessionFile{Op: "opendir", Path: "/etc", OK: true})
+	seedTouch(t, s, "sess-tree", SessionFile{Path: "/etc/shadow", OK: true})
+	seedTouch(t, s, "sess-tree", SessionFile{Path: "/etc/ssh/sshd_config", OK: true})
+	// ⚠️ KOMŞU AĞAÇ: "/etc" öneki "/etcetera"yı da yakalasaydı,
+	// soruşturmaya ilgisiz bir ağacı aradığı ağaç diye gösterirdik.
+	seedTouch(t, s, "sess-tree", SessionFile{Path: "/etcetera/baska.txt", OK: true})
+
+	hist, err := s.FileHistory(ctx, FileQuery{Path: "/etc", Under: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hist) != 3 {
+		t.Fatalf("ağaç = %d satır, 3 bekleniyordu: %+v", len(hist), paths(hist))
+	}
+	for _, h := range hist {
+		if h.Path == "/etcetera/baska.txt" {
+			t.Error("komşu ağaç sonuca karıştı: /etcetera")
+		}
+	}
+}
+
+/*
+ * ⚠️ LIKE JOKERLERİ KAÇIRILIYOR.
+ *
+ * "_" LIKE'ta "herhangi bir karakter" demek. Kaçırılmasaydı
+ * "/var/log_1" ağacını arayan biri "/var/logX1"i de alırdı — sorgu
+ * parametreli olduğu için bu bir enjeksiyon değil, sessizce YANLIŞ
+ * SONUÇ; denetimde farkı yok.
+ */
+func TestFileHistoryUnderEscapesLikeWildcards(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	startFileSession(t, s, "sess-glob")
+
+	seedTouch(t, s, "sess-glob", SessionFile{Path: "/var/log_1/a.txt", OK: true})
+	seedTouch(t, s, "sess-glob", SessionFile{Path: "/var/logX1/a.txt", OK: true})
+
+	hist, err := s.FileHistory(ctx, FileQuery{Path: "/var/log_1", Under: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hist) != 1 || hist[0].Path != "/var/log_1/a.txt" {
+		t.Fatalf("joker kaçırılmadı: %+v", paths(hist))
+	}
+}
+
+// Under, yol olmadan anlamsız: sessizce "her şey"e düşmek en kötü yorum.
+func TestFileHistoryRefusesUnderWithoutAPath(t *testing.T) {
+	s := newTestStore(t)
+	_, err := s.FileHistory(context.Background(), FileQuery{Under: true, User: "ayse"})
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("yolsuz 'under' kabul edildi: %v", err)
+	}
+}
+
+/*
+ * ⚠️ SUNUCU TARAFI ZAMAN SINIRI GERÇEKTEN UYGULANIYOR.
+ *
+ * Havuz 25 bağlantı ve onu SSH kimlik doğrulaması paylaşıyor
+ * (auth.go: UserByPublicKey, AccountState). Sınırsız bir arama, bir
+ * bağlantıyı bitene kadar tutup insanların bastion'a girmesini
+ * geciktirirdi. Bu testi yazmasaydık koruma yalnızca yorumda kalırdı.
+ */
+func TestSearchStopsAtTheServerSideTimeout(t *testing.T) {
+	s := newTestStore(t)
+	s.SetSearchTimeoutForTest(150 * time.Millisecond)
+
+	start := time.Now()
+	err := s.searchRows(context.Background(), "test.sleep",
+		"SELECT pg_sleep(5);", nil, func(*sql.Rows) error { return nil })
+	elapsed := time.Since(start)
+
+	if !errors.Is(err, ErrTooSlow) {
+		t.Fatalf("sorgu durdurulmadı: %v", err)
+	}
+
+	/*
+	 * ⚠️ SÜRE DE ÖLÇÜLÜYOR — VE BU DÜZELTME BİR İNCELEMEDEN GELDİ.
+	 *
+	 * Test önce yalnızca ErrTooSlow'a bakıyordu. translateSearchErr
+	 * hem sunucu tarafı 57014'ü hem istemci tarafı süreyi aynı
+	 * sentinel'e çevirdiği için, SET LOCAL tamamen silinse bile
+	 * istemci sayacı (limit+clientGrace) devreye girip AYNI hatayı
+	 * üretiyordu: test geçmeye devam ediyordu. Mutasyonla doğrulandı.
+	 *
+	 * Sunucu tarafı sınır 150 ms; istemci payı 3 saniye. Bir saniyelik
+	 * tavan ikisini kesin ayırıyor — hangi sayacın durdurduğunu
+	 * ölçülebilir hâle getiren tek şey bu.
+	 */
+	if elapsed > time.Second {
+		t.Fatalf("sorgu %s sonra durdu: sunucu tarafı sınır değil, "+
+			"istemci payı devreye girmiş olmalı", elapsed.Round(time.Millisecond))
+	}
+}
+
+/*
+ * ⚠️ SONDAKİ EĞİK ÇİZGİ, "DOKUNULMAMIŞ" DEMEK DEĞİL.
+ *
+ * "/etc/" düz birleştirmeyle "/etc//%" desenine dönüyordu ve o desen
+ * hiçbir şeyle eşleşmiyor. Sorgu başarıyla bitip sıfır satır dönüyordu:
+ * ekran "Nothing found" yazıyor, denetçi bunu "bu ağaca dokunulmamış"
+ * diye okuyordu. Kabuk tamamlaması dizin adlarının sonuna eğik çizgi
+ * ekliyor — olağan girdi.
+ */
+func TestFileHistoryUnderToleratesATrailingSlash(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	startFileSession(t, s, "sess-slash")
+
+	seedTouch(t, s, "sess-slash", SessionFile{Op: "opendir", Path: "/etc", OK: true})
+	seedTouch(t, s, "sess-slash", SessionFile{Path: "/etc/shadow", OK: true})
+
+	for _, in := range []string{"/etc", "/etc/", "/etc//"} {
+		hist, err := s.FileHistory(ctx, FileQuery{Path: in, Under: true})
+		if err != nil {
+			t.Fatalf("%q: %v", in, err)
+		}
+		if len(hist) != 2 {
+			t.Errorf("%q → %d satır, 2 bekleniyordu: %+v", in, len(hist), paths(hist))
+		}
+	}
+}
+
+/*
+ * ⚠️ KÖK DİZİN DE ARANABİLMELİ.
+ *
+ * "/" için desen "//%" oluyordu ve hiçbir şeyle eşleşmiyordu — yani
+ * "bu bastion'da SFTP ile ne oldu" sorusu boş cevap alıyordu.
+ */
+func TestFileHistoryUnderRootFindsEverything(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	startFileSession(t, s, "sess-root")
+
+	seedTouch(t, s, "sess-root", SessionFile{Path: "/etc/shadow", OK: true})
+	seedTouch(t, s, "sess-root", SessionFile{Path: "/srv/a.txt", OK: true})
+
+	hist, err := s.FileHistory(ctx, FileQuery{Path: "/", Under: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hist) != 2 {
+		t.Fatalf("kök ağacı = %d satır, 2 bekleniyordu: %+v", len(hist), paths(hist))
+	}
+}
+
+// CleanSearchPath, ucun yankıladığı değeri de üretiyor: normalleştirme
+// yalnızca sorguda kalırsa panel neyin arandığını yanlış gösterir.
+func TestCleanSearchPath(t *testing.T) {
+	for in, want := range map[string]string{
+		"/etc/":  "/etc",
+		"/etc//": "/etc",
+		"/etc":   "/etc",
+		"/":      "/",
+		"//":     "/",
+		"etc/":   "etc",
+		"":       "",
+	} {
+		if got := CleanSearchPath(in); got != want {
+			t.Errorf("CleanSearchPath(%q) = %q, %q bekleniyordu", in, got, want)
+		}
+	}
+}
+
+func paths(hist []FileTouch) []string {
+	out := make([]string, 0, len(hist))
+	for _, h := range hist {
+		out = append(out, h.Path)
+	}
+	return out
 }

@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import FileHistory from "./FileHistory";
-import { api, type FileTouch } from "../api";
+import { api, type FileHistory as FileHistoryT, type FileTouch } from "../api";
 
 const touch = (over: Partial<FileTouch> = {}): FileTouch => ({
   id: "f1",
@@ -23,9 +23,20 @@ const touch = (over: Partial<FileTouch> = {}): FileTouch => ({
   ...over,
 });
 
+const result = (over: Partial<FileHistoryT> = {}): FileHistoryT => ({
+  path: "/etc/shadow",
+  under: false,
+  user: "",
+  target: "",
+  events: [touch()],
+  limit: 200,
+  truncated: false,
+  ...over,
+});
+
 const search = async (path = "/etc/shadow") => {
   render(<FileHistory />);
-  await userEvent.type(screen.getByLabelText(/full path/i), path);
+  await userEvent.type(screen.getByLabelText(/^path$/i), path);
   await userEvent.click(screen.getByRole("button", { name: /search/i }));
 };
 
@@ -78,6 +89,9 @@ it("açılışta bir şey bulunamadığını söylemiyor", () => {
 describe("sonuçlar", () => {
   it("dosyaya kimin dokunduğunu isimle gösteriyor", async () => {
     vi.spyOn(api, "fileHistory").mockResolvedValue({
+      under: false,
+      user: "",
+      target: "",
       path: "/etc/shadow",
       events: [touch()],
       limit: 200,
@@ -101,6 +115,9 @@ describe("sonuçlar", () => {
    */
   it("boş sonucu 'dokunulmadı' diye sunmuyor", async () => {
     vi.spyOn(api, "fileHistory").mockResolvedValue({
+      under: false,
+      user: "",
+      target: "",
       path: "/etc/shadow",
       events: [],
       limit: 200,
@@ -130,6 +147,9 @@ describe("sonuçlar", () => {
    */
   it("dosyanın oraya rename ile geldiğini işaretliyor", async () => {
     vi.spyOn(api, "fileHistory").mockResolvedValue({
+      under: false,
+      user: "",
+      target: "",
       path: "/tmp/exfil",
       events: [
         touch({ op: "rename", path: "/etc/shadow", new_path: "/tmp/exfil" }),
@@ -150,6 +170,9 @@ describe("sonuçlar", () => {
    */
   it("liste sunucuda kesildiyse bunu yazıyor", async () => {
     vi.spyOn(api, "fileHistory").mockResolvedValue({
+      under: false,
+      user: "",
+      target: "",
       path: "/etc/shadow",
       events: [touch()],
       limit: 200,
@@ -177,4 +200,149 @@ describe("sonuçlar", () => {
     );
     expect(screen.queryByText(/nothing found/i)).toBeNull();
   });
+});
+
+describe("ölçütler", () => {
+  /*
+   * ⚠️ YOL ZORUNLU DEĞİL: "ayse ne aldı" kendi başına bir soru.
+   *
+   * Soruşturmanın ikinci sorusu bu ve bir yol aramasının süzgeci
+   * olarak sorulamaz — hangi dosyaya bakacağını bilmiyorsun, zaten onu
+   * arıyorsun. Yolu zorunlu tutan bir form o soruyu sordurmaz.
+   */
+  it("yol boşken kişiyle arama yapılabiliyor", async () => {
+    const spy = vi
+      .spyOn(api, "fileHistory")
+      .mockResolvedValue(result({ path: "", user: "ayse" }));
+
+    render(<FileHistory />);
+    await userEvent.type(screen.getByLabelText(/person/i), "ayse");
+    await userEvent.click(screen.getByRole("button", { name: /search/i }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(spy.mock.calls[0][0]).toMatchObject({ path: "", user: "ayse" });
+  });
+
+  /*
+   * ⚠️ ÜÇÜ DE BOŞKEN ARAMA YOK.
+   *
+   * "Her şeyi göster", sorulmamış bir soruya dolu bir ekranla cevap
+   * vermek olurdu — bu ekranın kaçındığı şeyin ta kendisi.
+   */
+  it("hiçbir ölçüt yokken arama düğmesi kapalı", () => {
+    render(<FileHistory />);
+    const btn = screen.getByRole("button", { name: /search/i });
+    expect(btn.hasAttribute("disabled")).toBe(true);
+  });
+
+  // Ağaç kipi sunucuya gerçekten gidiyor: kutuyu işaretleyip aynı
+  // sonucu almak, kipin hiç uygulanmadığını gizlerdi.
+  it("ağaç kipi sunucuya iletiliyor", async () => {
+    const spy = vi
+      .spyOn(api, "fileHistory")
+      .mockResolvedValue(result({ path: "/etc", under: true }));
+
+    render(<FileHistory />);
+    await userEvent.type(screen.getByLabelText(/^path$/i), "/etc");
+    await userEvent.click(screen.getByLabelText(/everything under/i));
+    await userEvent.click(screen.getByRole("button", { name: /search/i }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(spy.mock.calls[0][0]).toMatchObject({ path: "/etc", under: true });
+  });
+
+  /*
+   * ⚠️ NE ARANDIĞI EKRANDA YAZIYOR.
+   *
+   * Üç kutulu bir formda, kutuya yazıp aramayı unutan biri önceki
+   * aramanın sonucunu yenisi sanabilir. Gösterilen ölçütler sunucunun
+   * CEVABINDAN geliyor, formun o anki hâlinden değil.
+   */
+  it("çalıştırılan aramanın ölçütlerini yazıyor", async () => {
+    vi.spyOn(api, "fileHistory").mockResolvedValue(
+      result({ path: "/etc", under: true, user: "ayse", target: "web01" }),
+    );
+    render(<FileHistory />);
+    await userEvent.type(screen.getByLabelText(/^path$/i), "/etc");
+    await userEvent.click(screen.getByRole("button", { name: /search/i }));
+
+    const foot = await screen.findByText(/Events matching/i);
+    expect(foot.textContent).toMatch(/under\s*\/etc/);
+    expect(foot.textContent).toMatch(/by\s*ayse/);
+    expect(foot.textContent).toMatch(/on\s*web01/);
+  });
+
+  /*
+   * ⚠️ AĞAÇ KİPİNDE DE "moved here".
+   *
+   * Aranan "/tmp" iken dosya "/tmp/exfil"e rename ile geldiyse eşleşme
+   * yine new_path'te. Rozeti yalnızca tam eşleşmeye bağlamak,
+   * sızdırmanın en ucuz biçimini tam da onu arayan kipte işaretsiz
+   * bırakırdı.
+   */
+  it("ağaç kipinde de rename hedefini işaretliyor", async () => {
+    vi.spyOn(api, "fileHistory").mockResolvedValue(
+      result({
+        path: "/tmp",
+        under: true,
+        events: [
+          touch({ op: "rename", path: "/etc/shadow", new_path: "/tmp/exfil" }),
+        ],
+      }),
+    );
+    render(<FileHistory />);
+    await userEvent.type(screen.getByLabelText(/^path$/i), "/tmp");
+    await userEvent.click(screen.getByRole("button", { name: /search/i }));
+
+    await waitFor(() => expect(screen.getByText(/moved here/i)).toBeTruthy());
+  });
+});
+
+/*
+ * ⚠️ YOL SİLİNDİĞİNDE AĞAÇ KİPİ DE GİTMELİ.
+ *
+ * Onay kutusu yol boşken devre dışı ama DURUMU KALICI. Yol yazıp
+ * kutuyu işaretleyen, sonra yolu silip kişi yazan biri
+ * "under=1&user=ayse" gönderiyordu; sunucu bunu doğru biçimde 400'le
+ * reddediyor, ama panel gönderdiği anda geçersiz olduğunu bildiği bir
+ * isteği yollamamalı — operatöre çıkışsız bir hata gösterirdi.
+ */
+it("yol silinince ağaç kipi de gönderilmiyor", async () => {
+  const spy = vi
+    .spyOn(api, "fileHistory")
+    .mockResolvedValue(result({ path: "", user: "ayse" }));
+
+  render(<FileHistory />);
+  const pathBox = screen.getByLabelText(/^path$/i);
+  await userEvent.type(pathBox, "/etc");
+  await userEvent.click(screen.getByLabelText(/everything under/i));
+  await userEvent.clear(pathBox);
+  await userEvent.type(screen.getByLabelText(/person/i), "ayse");
+  await userEvent.click(screen.getByRole("button", { name: /search/i }));
+
+  await waitFor(() => expect(spy).toHaveBeenCalled());
+  expect(spy.mock.calls[0][0]).toMatchObject({ path: "", under: false });
+});
+
+/*
+ * ⚠️ KÖK ALTINDA DA "moved here" ÇİZİLİYOR.
+ *
+ * "/" + "/" iki eğik çizgi eder ve hiçbir yol öyle başlamaz: sunucu
+ * kökün altındaki her şeyi döndürürken panel hiçbirini işaretlemezdi.
+ */
+it("kök ağacında da rename hedefini işaretliyor", async () => {
+  vi.spyOn(api, "fileHistory").mockResolvedValue(
+    result({
+      path: "/",
+      under: true,
+      events: [
+        touch({ op: "rename", path: "/etc/shadow", new_path: "/tmp/exfil" }),
+      ],
+    }),
+  );
+  render(<FileHistory />);
+  await userEvent.type(screen.getByLabelText(/^path$/i), "/");
+  await userEvent.click(screen.getByRole("button", { name: /search/i }));
+
+  await waitFor(() => expect(screen.getByText(/moved here/i)).toBeTruthy());
 });
