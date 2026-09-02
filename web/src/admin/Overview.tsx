@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Session, api, toMessage } from "../api";
+import { Session, Storage, api, toMessage } from "../api";
 import { ActionButton, ErrorLine, OkLine } from "./common";
 
 /**
@@ -57,6 +57,30 @@ function kindBadge(kind: string) {
   }
 }
 
+
+/** formatBytes, insan okuyacak biçim. */
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  const units = ["KiB", "MiB", "GiB", "TiB"];
+  let v = n / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${units[i]}`;
+}
+
+/** formatAge, "3d 4h" gibi kaba ama okunur bir yaş. */
+function formatAge(seconds: number): string {
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
 export default function Overview() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [feed, setFeed] = useState<LiveEvent[]>([]);
@@ -66,6 +90,7 @@ export default function Overview() {
   // sessiz kalırdı ve gören kullanıcı için de satırın kaybolması
   // dışında bir işaret olmazdı.
   const [okMsg, setOkMsg] = useState("");
+  const [storage, setStorage] = useState<Storage | null>(null);
 
   // Oturum listesi olay geldikçe tazeleniyor ama arka arkaya gelen beş
   // olay beş istek açmasın diye kısa bir gecikmeyle toplanıyor.
@@ -73,6 +98,25 @@ export default function Overview() {
 
   // Söz DÖNÜYOR: çağıranın tazelemenin bitmesini bekleyebilmesi gerekiyor
   // (bkz. closeSession — bu fonksiyon başarıda hata satırını temizliyor).
+  /*
+   * ⚠️ DEPOLAMA, OTURUMLARLA AYNI TAZELEMEDE ÇEKİLİYOR.
+   *
+   * Ayrı bir zamanlayıcı, arşiv sıkışmasını oturum listesinden farklı
+   * bir anda gösterirdi; operatör iki rakamı yan yana okuyup "bu
+   * oturumlar neden birikiyor" diye soramazdı.
+   *
+   * Hatası oturum listesini DÜŞÜRMÜYOR: depolama okunamıyorsa kart
+   * sebebini yazıyor, ekranın geri kalanı çalışmaya devam ediyor.
+   */
+  const loadStorage = useCallback(
+    () =>
+      api
+        .storage()
+        .then(setStorage)
+        .catch(() => setStorage(null)),
+    [],
+  );
+
   const loadSessions = useCallback(
     () =>
       api
@@ -130,7 +174,8 @@ export default function Overview() {
 
   useEffect(() => {
     loadSessions();
-  }, [loadSessions]);
+    loadStorage();
+  }, [loadSessions, loadStorage]);
 
   useEffect(() => {
     let es: EventSource | null = null;
@@ -270,6 +315,43 @@ export default function Overview() {
           <span className="n">{sessions.length}</span>
           <span className="sub">
             most recent {sessions.length}, newest first
+          </span>
+        </div>
+        <div className="stat">
+          <span className="k">Recordings on disk</span>
+          <span className="n">
+            {storage?.recordings ? formatBytes(storage.recordings.bytes) : "—"}
+          </span>
+          <span className="sub">
+            {storage?.recordings_error
+              ? "could not be measured"
+              : storage?.recordings
+                ? `${storage.recordings.files} file${storage.recordings.files === 1 ? "" : "s"}`
+                : "not measured"}
+          </span>
+        </div>
+        {/*
+          ⚠️ BEKLEYEN SAYISI DEĞİL, EN ESKİSİNİN YAŞI ÖNE ÇIKIYOR.
+          Ölmüş bir yükleyicinin belirtisi sayının artması değil: sabit
+          bir sayı da hiçbir şeyin ilerlemediği anlamına gelebilir.
+          Yüklenemeyen kayıt budanmadığı için bu, diskin dolacağını
+          haftalar öncesinden söyleyen tek işaret.
+        */}
+        <div className="stat">
+          <span className="k">Waiting to archive</span>
+          <span className="n">
+            {storage?.archive_error ? "?" : (storage?.archive?.pending ?? "—")}
+          </span>
+          <span className="sub">
+            {storage?.archive_error
+              ? "could not be read"
+              : !storage?.archive
+                ? "not measured"
+                : storage.archive.pending === 0
+                  ? "nothing waiting"
+                  : storage.archive.oldest_age_seconds !== undefined
+                    ? `oldest ${formatAge(storage.archive.oldest_age_seconds)} — these cannot be pruned while they wait`
+                    : "waiting"}
           </span>
         </div>
       </div>

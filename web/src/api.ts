@@ -530,6 +530,39 @@ export type SessionDetail = Session & {
   files_error?: boolean;
 };
 
+/** Kayıt diski ve arşiv kuyruğunun durumu.
+ *
+ *  ⚠️ Hata bayrakları AYRI: "0 dosya" ile "bakamadık" farklı şeyler ve
+ *  ikincisini sıfır göstermek, dizini okuyamayan bir kurulumu "her şey
+ *  yolunda" diye göstermek olurdu. */
+export type Storage = {
+  recordings?: { files: number; bytes: number };
+  recordings_error?: boolean;
+  archive?: {
+    pending: number;
+    oldest_at?: string;
+    oldest_age_seconds?: number;
+  };
+  archive_error?: boolean;
+};
+
+/** Kayıt arşivinin durumu ve kimliğin nereden geldiği.
+ *
+ *  ⚠️ SIR HİÇ DÖNMÜYOR — maskeli hâli bile. Panelin ihtiyacı alanı
+ *  doğru çizmek; değeri göstermek değil. */
+export type ArchiveStatus = {
+  configured: boolean;
+  endpoint: string;
+  bucket: string;
+  prefix: string;
+  /** Hedef panelden DEĞİŞTİRİLEMİYOR: ele geçirilmiş bir panel oturumu
+   *  denetim izini başka bir kovaya yönlendirebilmemeli. */
+  destination_managed_in: string;
+  credential_source: "host" | "panel" | "none";
+  access_key_id: string;
+  can_set_from_panel: boolean;
+};
+
 export type LogEntry = {
   at: string;
   actor: string;
@@ -884,6 +917,15 @@ export const api = {
     }>("POST", `/api/admin/users/${encodeURIComponent(name)}/purge`, {}),
 
   sessions: () => req<Session[]>("GET", "/api/admin/sessions"),
+  storage: () => req<Storage>("GET", "/api/admin/storage"),
+  archiveStatus: () => req<ArchiveStatus>("GET", "/api/admin/archive"),
+  setArchiveCredential: (access_key_id: string, secret_access_key: string) =>
+    req<{ ok: boolean }>("PUT", "/api/admin/archive/credential", {
+      access_key_id,
+      secret_access_key,
+    }),
+  clearArchiveCredential: () =>
+    req<{ ok: boolean }>("DELETE", "/api/admin/archive/credential"),
   sessionDetail: (id: string) =>
     req<SessionDetail>("GET", `/api/admin/sessions/${encodeURIComponent(id)}`),
   /** Canlı oturumu kapatır. DELETE DEĞİL: oturum satırı silinmiyor,

@@ -149,3 +149,62 @@ it("sayac yalnizca akan oturumlari sayar", async () => {
     expect(stat.querySelector("span.n")!.textContent).toBe("1");
   });
 });
+
+/*
+ * ⚠️ "ÖLÇEMEDİM" SIFIR DİYE GÖSTERİLEMEZ.
+ *
+ * Dizini okuyamayan bir kurulumu "0 dosya" diye göstermek, her şeyin
+ * yolunda olduğunu söylemek olurdu. Arşivleme geldiğinden beri bu
+ * daha da keskin: yüklenemeyen kayıt budanmıyor, yani sessizce dolan
+ * bir diskin tek erken işareti bu kartlar.
+ */
+it("olculemeyen degeri sifir gostermez", async () => {
+  vi.spyOn(api, "sessions").mockResolvedValue([]);
+  vi.spyOn(api, "storage").mockResolvedValue({
+    recordings_error: true,
+    archive_error: true,
+  });
+  render(<Overview />);
+  await waitFor(() =>
+    expect(screen.getByText(/could not be measured/i)).toBeInTheDocument(),
+  );
+  expect(screen.getByText(/could not be read/i)).toBeInTheDocument();
+  // Ve hiçbir yerde sahte bir sıfır olmamalı.
+  expect(screen.queryByText("0 files")).toBeNull();
+});
+
+/*
+ * ⚠️ BEKLEYEN İŞİN YAŞI GÖRÜNMELİ — ve budanamadığı söylenmeli.
+ *
+ * Sayı tek başına yeterli değil: sabit bir sayı da hiçbir şeyin
+ * ilerlemediği anlamına gelebilir. Yaşlanan "en eski", diskin
+ * dolacağını haftalar öncesinden söyleyen tek işaret.
+ */
+it("bekleyen arsiv isinin yasini ve sonucunu yazar", async () => {
+  vi.spyOn(api, "sessions").mockResolvedValue([]);
+  vi.spyOn(api, "storage").mockResolvedValue({
+    recordings: { files: 42, bytes: 1024 * 1024 * 3 },
+    archive: {
+      pending: 7,
+      oldest_at: "2026-08-30T00:00:00Z",
+      oldest_age_seconds: 3 * 86400 + 4 * 3600,
+    },
+  });
+  render(<Overview />);
+  await waitFor(() => expect(screen.getByText("7")).toBeInTheDocument());
+  expect(screen.getByText(/oldest 3d 4h/i)).toBeInTheDocument();
+  expect(screen.getByText(/cannot be pruned while they wait/i)).toBeInTheDocument();
+  expect(screen.getByText("42 files")).toBeInTheDocument();
+});
+
+// Depolama okunamazsa oturum listesi ÇALIŞMAYA DEVAM etmeli.
+it("depolama hatasi oturum listesini dusurmez", async () => {
+  vi.spyOn(api, "sessions").mockResolvedValue([session()]);
+  vi.spyOn(api, "storage").mockRejectedValue(new Error("kapali"));
+  render(<Overview />);
+  await waitFor(() =>
+    expect(
+      screen.getByRole("button", { name: /close suheda's session/i }),
+    ).toBeInTheDocument(),
+  );
+});

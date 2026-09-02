@@ -54,6 +54,10 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 
 	mux.Handle("GET /api/admin/sessions", admin(s.adminListSessions))
 
+	// Kayıt diski ve arşiv kuyruğu. Yükleyici kapalıyken de anlamlı:
+	// diskin ne kadar dolduğu her kurulumda okunabilir olmalı.
+	mux.Handle("GET /api/admin/storage", admin(s.adminStorage))
+
 	// ⚠️ BURADA, recording.go'da DEĞİL. registerRecordingRoutes,
 	// s.records nil ise hiçbir rota kurmadan dönüyor; kesmeyi oraya
 	// koymak, kayıt deposu bağlanmamış her kurulumda düğmeyi 404'e
