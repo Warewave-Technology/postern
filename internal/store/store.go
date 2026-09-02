@@ -2284,3 +2284,14 @@ func (s *Store) RoleGrantSource(ctx context.Context, username, roleName string) 
 	}
 	return source, true, nil
 }
+
+// Ping, veritabanına ulaşılabildiğini doğrular.
+//
+// ⚠️ Sağlık ucu için var ve BAŞKA HİÇBİR ŞEY YAPMIYOR: bir sorgu
+// çalıştırmak, kimlik istemeyen bir uçtan tetiklenebilen iş demekti.
+func (s *Store) Ping(ctx context.Context) error {
+	if err := s.db.PingContext(ctx); err != nil {
+		return translateErr("store.Ping", err)
+	}
+	return nil
+}

@@ -3,6 +3,7 @@
 package httpapi
 
 import (
+	"context"
 	"fmt"
 	"html"
 	"log/slog"
@@ -90,6 +91,16 @@ type Server struct {
 	// archiveHostSecret, host'tan gelen yükleme sırrı (dosya ya da
 	// ortam). Doluysa panel kimliği DEĞİŞTİREMİYOR ve bunu söylüyor.
 	archiveHostSecret string
+
+	// ready, hazırlık yoklamasının kısa ömürlü önbelleği. Kimliksiz
+	// bir ucun veritabanına gidebileceği hızı bağlıyor (health.go).
+	ready readyCache
+
+	// ping, hazırlık yoklaması. Testlerin veritabanını taklit
+	// edebilmesi için alan (record.Pruner.now ile aynı gerekçe):
+	// ölçmek istediğimiz şey yoklamanın SONUCU değil, KAÇ KEZ
+	// yapıldığı — ve bunu gerçek bir veritabanıyla ölçmek mümkün değil.
+	ping func(context.Context) error
 
 	// live, akan oturumların defteri (proxy.Live).
 	//
@@ -260,6 +271,7 @@ func New(o *auth.OIDCHolder, logins *auth.Logins, db *store.Store, logger *slog.
 		logins:       logins,
 		logger:       logger,
 		store:        db,
+		ping:         db.Ping,
 		webSessions:  auth.NewWebSessions(),
 		webLogins:    &webPending{},
 		groups:       auth.ClaimGroups{},
@@ -377,6 +389,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/auth/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "not found")
 	})
+
+	/*
+	 * Sağlık uçları: kimlik İSTEMİYORLAR ve bu bilinçli — bir sağlık
+	 * kontrolünün amacı kimlik bilgisi olmadan sorulabilmesi.
+	 * /healthz hiçbir şeye dokunmuyor; /readyz veritabanına bakıyor
+	 * ama önbellekli (gerekçe health.go'da).
+	 */
+	s.registerHealthRoutes(mux)
 
 	// Kalan her şey SPA: web/dist'ten statik dosyalar (S4.1 frontend).
 	mux.Handle("/", spaHandler())
