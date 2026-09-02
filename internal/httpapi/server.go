@@ -79,6 +79,14 @@ type Server struct {
 	// rotalar HİÇ kurulmaz — kapalı özellik, kapalı yüzey.
 	records *record.Store
 
+	// live, akan oturumların defteri (proxy.Live).
+	//
+	// ⚠️ proxyDeps'ten AYRI TUTULUYOR. proxyDeps yalnızca
+	// http.terminal_enabled açıkken doluyor; kesme yeteneğini oraya
+	// bağlamak, varsayılan kurulumda — terminal kapalı, yalnızca SSH —
+	// düğmeyi sessizce yok ederdi.
+	live *proxy.Live
+
 	// trustedProxies, X-Forwarded-For'una güvenilen kaynaklar.
 	// Boşken başlık HİÇ okunmuyor (bkz. trustedproxy.go).
 	trustedProxies *trustedProxies
@@ -170,6 +178,10 @@ func (s *Server) SetSSHEndpoint(host string, port int) {
 
 // SetSyncDefaults, YAML'dan gelen senkronizasyon varsayılanlarını bildirir.
 func (s *Server) SetSyncDefaults(d groupsync.Settings) { s.syncDefaults = d }
+
+// UseLiveSessions, akan oturum defterini bildirir; kesme uçları buradan
+// çalışıyor. Dinlemeye başlamadan ÖNCE çağrılmalı: alan kilitsiz.
+func (s *Server) UseLiveSessions(l *proxy.Live) { s.live = l }
 
 /*
  * SetTrustedProxies, X-Forwarded-For'una güvenilecek kaynakları bildirir.

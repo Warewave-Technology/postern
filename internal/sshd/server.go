@@ -62,6 +62,12 @@ type Server struct {
 	// limiter, eşzamanlı bağlantı sınırları (limits.go).
 	limiter *connLimiter
 
+	// live, akan oturumların defteri. Yöneticinin kesme düğmesi buradan
+	// çalışıyor ve WEB TERMİNALİNDEN BAĞIMSIZ: iki kapı da proxy.Open'a
+	// giriyor, dolayısıyla defter Deps'te taşınıyor ve terminal kapalı
+	// olsa bile SSH oturumları kesilebiliyor.
+	live *proxy.Live
+
 	// Çözülmüş sınır değerleri. Config'te 0 "varsayılan" demek olduğu
 	// için ham değeri değil çözüleni saklıyoruz.
 	handshakeTimeout time.Duration
@@ -111,9 +117,22 @@ func (s *Server) UseRoleRefresher(fn func(context.Context, string) error) {
 	s.freshenRoles = fn
 }
 
+/*
+ * LiveSessions, akan oturum defterini döner.
+ *
+ * ⚠️ PANELE AYRI VERİLİYOR, ProxyDeps üzerinden DEĞİL. httpapi'nin
+ * proxyDeps alanı yalnızca http.terminal_enabled açıkken doluyor
+ * (serve.go). Defteri oraya asmak, kesme düğmesini varsayılan
+ * kurulumda — terminal kapalı, yalnızca SSH — sessizce yok ederdi:
+ * bu depodaki tekrar eden arıza sınıfının ("yazıldı, bağlanmadı") tam
+ * olarak kendisi. O yüzden ayrı bir kapı.
+ */
+func (s *Server) LiveSessions() *proxy.Live { return s.live }
+
 func (s *Server) ProxyDeps() proxy.Deps {
 	return proxy.Deps{
 		Store:        s.db,
+		Live:         s.live,
 		FreshenRoles: s.freshenRoles,
 		Records:      s.rStore,
 		Authority:    s.authority,
@@ -217,7 +236,8 @@ func New(cfg *config.Config, db *store.Store, logger *slog.Logger) (*Server, err
 	}
 
 	return &Server{
-		cfg: cfg, signer: signer, logger: logger,
+		live: proxy.NewLive(),
+		cfg:  cfg, signer: signer, logger: logger,
 		rStore: recStore, recordMinFree: minFree, db: db, authority: caAuthority,
 		groups: auth.ClaimGroups{},
 

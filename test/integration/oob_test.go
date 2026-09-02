@@ -127,6 +127,10 @@ func oobBastionOpts(t *testing.T, oobTimeout time.Duration, terminal bool, fresh
 	// Kayıt izleme uçları: sshd ile AYNI depo (serve.go'daki bağlamanın
 	// aynısı) — kayıtların yazıldığı yer ile okunduğu yer ayrışamaz.
 	webAPI.UseRecordings(srv.Records())
+	// Canlı oturum defteri: serve.go'daki bağlamanın aynısı ve
+	// TERMİNALDEN BAĞIMSIZ — kesme, web terminali kapalıyken de
+	// çalışmak zorunda.
+	webAPI.UseLiveSessions(srv.LiveSessions())
 	if terminal {
 		// Terminal, sshd ile AYNI bağımlılıkları paylaşır — iki kapı,
 		// tek oturum akışı.

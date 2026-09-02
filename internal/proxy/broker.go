@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"sync"
@@ -136,6 +137,50 @@ func (b *Broker) tap(dst io.Writer, rec io.Writer, feed func(*sftpaudit.Session,
 	return &sftpTap{dst: dst, rec: rec, feed: feed, b: b}
 }
 
+/*
+ * sayGoodbye, oturumu BİZİM kapattığımız durumlarda kullanıcıya tek
+ * satırlık sebebi yazar.
+ *
+ * ⚠️ AYNI CÜMLE KAYDA DA GİRİYOR. Yalnızca kanala yazsaydık, oynatılan
+ * .cast'te oturum ortasından kesilmiş görünürdü ve olayı sonradan
+ * inceleyen kişi "burada ne oldu" sorusunu kayıttan cevaplayamazdı.
+ * outputSink zaten hedeften gelen baytları kayda tee'liyor; bu satır da
+ * oradan geçiyor ki sıra bozulmasın.
+ *
+ * ⚠️ SEBEP YOKSA SESSİZ. Kullanıcı `exit` yazdığında veda etmek gürültü
+ * olurdu; yazdığımız yalnızca BİZİM aldığımız kararlar.
+ */
+func (b *Broker) sayGoodbye(ctx context.Context) {
+	var line string
+	switch cause := context.Cause(ctx); {
+	case cause == nil:
+		return
+	case errors.Is(cause, ErrTerminated):
+		line = "session closed by an administrator"
+		if who, ok := TerminatedBy(cause); ok && who != "" {
+			line += " (" + who + ")"
+		}
+	case errors.Is(cause, ErrIdleTimeout):
+		line = "session closed: idle too long"
+	case errors.Is(cause, ErrMaxLifetime):
+		line = "session closed: maximum session lifetime reached"
+	case errors.Is(cause, ErrRecordingFailed):
+		// ⚠️ ARIZANIN AYRINTISI KULLANICIYA GİTMİYOR: disk yolu ve
+		// hata metni bastion'ın içine dair. Kullanıcının bilmesi
+		// gereken, kendi hatası olmadığı.
+		line = "session closed: this bastion could not keep recording it"
+	default:
+		return
+	}
+
+	// \r\n: ham kipteki bir terminalde tek \n satırı kaydırmaz.
+	msg := []byte("\r\npostern: " + line + "\r\n")
+
+	// Yazma hatası yutuluyor: karşı taraf çoktan gitmiş olabilir ve
+	// bu, kapanışı geciktirecek bir sebep değil.
+	_, _ = b.outputSink().Write(msg)
+}
+
 // Run shuttles data and requests until the session ends, then returns.
 func (b *Broker) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
@@ -200,8 +245,31 @@ func (b *Broker) Run(ctx context.Context) error {
 	// kaçmanın yolu olurdu.
 	b.finishSFTP()
 
-	b.down.Close()
+	// ⚠️ KULLANICI NEDEN KESİLDİĞİNİ ÖĞRENMELİ. Sessizce kopan bir
+	// oturum, ağ arızasından ayırt edilemez: kullanıcı yeniden bağlanıp
+	// aynı işi tekrar dener, yönetici ise "haber verdim" sanır.
+	b.sayGoodbye(ctx)
+
+	/*
+	 * ⚠️ ÖNCE HEDEF, SONRA İSTEMCİ.
+	 *
+	 * Sıra tersineydi ve iki sebeple yanlıştı:
+	 *
+	 *  1. down.Close(), KOVULAN tarafa yazıyor. Ölü ya da tıkalı bir
+	 *     istemci bu çağrıyı geciktirdiğinde, hedefteki kabuk o süre
+	 *     boyunca yaşamaya devam ediyordu. Yöneticinin kesme düğmesinden
+	 *     beklediği tek garanti tam olarak buydu ve sıranın sonundaydı.
+	 *
+	 *  2. up.Close() hedefteki oturumu bitiren şey (sshd kanal
+	 *     kapanınca süreç grubuna HUP gönderiyor). Serbest bırakılması
+	 *     asıl önemli olan kaynak UZAKTAKİ; yerel soket ikinci sırada
+	 *     beklemeye tahammül edebilir.
+	 *
+	 * Normal çıkışta da doğru: kullanıcı `exit` yazdığında hedef kanalı
+	 * bir an önce kapatmanın zararı yok.
+	 */
 	b.up.Close()
+	b.down.Close()
 
 	return nil
 }

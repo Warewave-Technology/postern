@@ -53,6 +53,30 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/admin/targets/{name}/labels/{key}", admin(s.adminDeleteTargetLabel))
 
 	mux.Handle("GET /api/admin/sessions", admin(s.adminListSessions))
+
+	// ⚠️ BURADA, recording.go'da DEĞİL. registerRecordingRoutes,
+	// s.records nil ise hiçbir rota kurmadan dönüyor; kesmeyi oraya
+	// koymak, kayıt deposu bağlanmamış her kurulumda düğmeyi 404'e
+	// düşürürdü. Oturumu kesmenin kaydı okumakla ilgisi yok.
+	//
+	// ⚠️ DELETE DEĞİL POST. Bu API'de DELETE her yerde SATIR SİLİYOR
+	// (users, roles, targets, labels) ve oturum satırı asla silinmez —
+	// denetim izi o. Kesme, kaydı değil AKIŞI durduruyor; fiili adıyla
+	// anmak, birinin ileride "silme" beklentisiyle okumasını engelliyor.
+	//
+	// ⚠️ recording.go:57'deki "kapalı özellik, kapalı yüzey" deseni
+	// BURADA UYGULANMIYOR ve bu bilinçli: kesmenin bir config anahtarı
+	// yok. Defterin nil olması "özellik kapalı" değil, KABLOLAMA HATASI
+	// demek. Rotayı gizlemek o hatayı 404'e çevirip sessizleştirirdi;
+	// handler bunun yerine sebebini söyleyen bir 503 dönüyor.
+	mux.Handle("POST /api/admin/sessions/{id}/terminate", admin(s.adminTerminateSession))
+	if s.live == nil {
+		// Bir kez, açılışta. İsteği bekleyip 503 dönmek de gerekli ama
+		// yetmez: kimse denemezse kimse bilmez ve panel bütün oturumları
+		// "akmıyor" diye çizer.
+		s.logger.Error("live-session registry is not wired: sessions will all " +
+			"show as not running and closing one will refuse")
+	}
 	mux.Handle("GET /api/admin/log", admin(s.adminListLog))
 
 	// Kayıt izleme yalnızca UseRecordings çağrıldıysa.
@@ -735,12 +759,47 @@ func (s *Server) adminDeleteTarget(w http.ResponseWriter, r *http.Request) {
 
 // --- denetim (salt okunur) ---
 
+/*
+ * adminListSessions, geçmişi ve AÇIK oturumları birlikte döner.
+ *
+ * ⚠️ AÇIK OTURUMLAR AYRI SORGUDAN GELİYOR. Panel "Active sessions"
+ * kartını en yeni 200 satırı çekip istemcide süzerek kuruyordu; sabahtan
+ * beri açık bir oturumun üstüne 200 yeni oturum bindiğinde o oturum
+ * karttan düşüyordu. Görünmeyen oturum kesilemez de.
+ *
+ * ⚠️ running, ended_at'ten TÜRETİLMİYOR. ended_at NULL olması "bitişini
+ * kaydetmedik" demek; postern SIGKILL yerse o satır sonsuza dek NULL
+ * kalıyor (ölçüldü). Akıp akmadığını yalnızca süreçteki defter bilir.
+ * İkisini birbirine karıştırmak, panelin var olmayan bir oturumu
+ * "çalışıyor" göstermesi ve yöneticiye onu kesmeyi teklif etmesi
+ * demekti.
+ */
 func (s *Server) adminListSessions(w http.ResponseWriter, r *http.Request) {
 	sessions, err := s.store.Sessions(r.Context(), "", 200)
 	if err != nil {
 		s.storeErr(w, "sessions.list", err)
 		return
 	}
+
+	open, err := s.store.OpenSessions(r.Context())
+	if err != nil {
+		s.storeErr(w, "sessions.list", err)
+		return
+	}
+
+	// En yeni 200'de zaten görünen açık oturumu iki kez yazmayalım.
+	seen := make(map[string]bool, len(sessions))
+	for _, sess := range sessions {
+		seen[sess.ID] = true
+	}
+	for _, sess := range open {
+		if !seen[sess.ID] {
+			sessions = append(sessions, sess)
+		}
+	}
+
+	running := s.live.RunningIDs()
+
 	type row struct {
 		ID      string  `json:"id"`
 		User    string  `json:"user"`
@@ -749,6 +808,7 @@ func (s *Server) adminListSessions(w http.ResponseWriter, r *http.Request) {
 		SrcIP   string  `json:"src_ip"`
 		Started string  `json:"started_at"`
 		Ended   *string `json:"ended_at"`
+		Running bool    `json:"running"`
 	}
 	out := make([]row, 0, len(sessions))
 	for _, sess := range sessions {
@@ -760,6 +820,7 @@ func (s *Server) adminListSessions(w http.ResponseWriter, r *http.Request) {
 		out = append(out, row{
 			ID: sess.ID, User: sess.User, Target: sess.Target, OSUser: sess.OSUser,
 			SrcIP: sess.SrcIP, Started: sess.StartedAt.Format(time.RFC3339), Ended: ended,
+			Running: running[sess.ID],
 		})
 	}
 	writeJSON(w, http.StatusOK, out)

@@ -115,6 +115,11 @@ type Deps struct {
 	// ve kapanış yolu ve izleyen bir panel, izlediği oturumu
 	// bekletemez.
 	Events events.Publisher
+
+	// Live, akan oturumların defteri: yöneticinin kesme düğmesi buradan
+	// çalışıyor. nil olabilir — o zaman kayıt tutulmuyor ve hiçbir
+	// oturum kesilemiyor (Live'ın bütün metotları nil-güvenli).
+	Live *Live
 }
 
 /*
@@ -249,6 +254,10 @@ type Session struct {
 
 	start  time.Time
 	closed bool
+
+	// endDetail, Run'ın hesapladığı kapanış cümlesi. Yayını
+	// Close yapıyor: olay, ended_at yazıldıktan SONRA gitmeli.
+	endDetail string
 
 	// user/target/src, olay yayını için: Log'un alanlarından geri
 	// okunamıyor ve Run'ın elinde başka türlü yok.
@@ -504,6 +513,36 @@ func (s *Session) Run(ctx context.Context, down ssh.Channel, downR <-chan *ssh.R
 	ctx, guard, stop := bound(ctx, s.deps.IdleTimeout, s.deps.MaxLifetime)
 	defer stop()
 
+	/*
+	 * ⚠️ KESİLEBİLİRLİK, SINIRLARLA AYNI MEKANİZMA.
+	 *
+	 * Yönetici kesmesi burada üçüncü bir kapanış sebebi olarak
+	 * ekleniyor; boşta kalma ve ömür sınırı zaten aynı yoldan
+	 * çalışıyor ve o yol TestIdleSessionIsClosedAndRecorded ile uçtan
+	 * uca kanıtlı: Broker.Run ctx.Done()'da uyanıyor, yarım SFTP
+	 * transferlerini yazıyor, iki kanalı da kapatıyor; Close ise kaydı
+	 * kapatıp denetim satırına ended_at yazıyor. Yani kesme, yeni bir
+	 * yıkım yolu icat etmiyor — kanıtlanmış olanı kullanıyor.
+	 *
+	 * ⚠️ DEFTERE YAZMA bound()'dan SONRA: iptal zinciri yukarıdan
+	 * aşağı kuruluyor ve deftere en içteki cancel verilmeli, yoksa
+	 * kesme sınırların kurduğu katmanları atlar ve Cause() sebebi
+	 * kaybolurdu.
+	 *
+	 * ⚠️ VE Open'A TAŞINAMAZ. Open ile Run arasında oturumun listede
+	 * görünüp kesilemediği kısa bir pencere var; onu kapatmak için
+	 * kaydı Open'a almak CAZİP ama YANLIŞ: web kapısı Run'a
+	 * context.WithoutCancel'lı ayrı bir ağaç veriyor
+	 * (httpapi/terminal.go). Open'ın ctx'inden türeyen bir cancel
+	 * deftere girer, Terminate true döner ve kimsenin izlemediği bir
+	 * bağlamı iptal ederdi — yani düğme SSH'ta çalışıp web
+	 * terminalinde sessizce yalan söylerdi.
+	 */
+	ctx, terminate := context.WithCancelCause(ctx)
+	defer terminate(nil)
+	s.deps.Live.add(s.ID, terminate)
+	defer s.deps.Live.remove(s.ID)
+
 	// ⚠️ KAYIT BOZULURSA OTURUM BİTER.
 	//
 	// Açılışta politika zaten buydu (kayıt açılamazsa proxy.Open
@@ -572,7 +611,7 @@ func (s *Session) Run(ctx context.Context, down ssh.Channel, downR <-chan *ssh.R
 	// "ömrü doldu" denetim kaydında ayrı olaylar; hepsini "session ended"
 	// diye yazmak, sınırların çalışıp çalışmadığını sonradan
 	// anlaşılamaz kılardı.
-	var closedBy string
+	var closedBy, terminatedBy string
 	if cause := context.Cause(ctx); cause != nil {
 		switch {
 		case errors.Is(cause, ErrIdleTimeout):
@@ -581,12 +620,24 @@ func (s *Session) Run(ctx context.Context, down ssh.Channel, downR <-chan *ssh.R
 			closedBy = "max_lifetime"
 		case errors.Is(cause, ErrRecordingFailed):
 			closedBy = "recording_failed"
+		case errors.Is(cause, ErrTerminated):
+			// ⚠️ JETON SABİT, AKTÖR AYRI ALANDA. cause.Error() burada
+			// ham iç metni ("proxy: session terminated by an
+			// administrator: admin") hem log alanına hem panelin canlı
+			// akışına basardı. closed_by makine tarafından okunan bir
+			// jeton; "kim" ayrı bir alan olarak duruyor ki ikisi de
+			// kendi işini yapsın.
+			closedBy = "terminated"
+			terminatedBy, _ = TerminatedBy(cause)
 		}
 	}
 
 	fields := []any{"os_user", s.OSUser, "duration", time.Since(s.start)}
 	if closedBy != "" {
 		fields = append(fields, "closed_by", closedBy)
+	}
+	if terminatedBy != "" {
+		fields = append(fields, "terminated_by", terminatedBy)
 	}
 	s.Log.Info("session ended", fields...)
 
@@ -596,7 +647,28 @@ func (s *Session) Run(ctx context.Context, down ssh.Channel, downR <-chan *ssh.R
 	if closedBy != "" {
 		detail += ", closed by " + closedBy
 	}
-	s.publish(events.SessionEnded, detail)
+	if terminatedBy != "" {
+		// ⚠️ Olay akışında "kim" ŞART. events.Event'in oturum kimliği
+		// alanı yok (bus.go); ikinci bir yönetici akışa bakarken
+		// "birinin oturumu kesildi" ile "yönetici X kesti" arasındaki
+		// farkı başka hiçbir yerden okuyamaz.
+		detail += " (" + terminatedBy + ")"
+	}
+
+	/*
+	 * ⚠️ OLAY BURADAN DEĞİL, Close'DAN YAYINLANIYOR.
+	 *
+	 * ÖLÇÜLEN SIRA HATASI: publish burada yapılıyordu ama ended_at'i
+	 * çağıranın `defer sess.Close(ctx)`i yazıyor — yani olay HER ZAMAN
+	 * satır kapanmadan önce gidiyordu. Paneli olayla tazeleyen yönetici,
+	 * bir veritabanı gidiş-dönüşü boyunca oturumu hâlâ "running"
+	 * görüyordu. Kesme düğmesinde bu, "bastım ve hiçbir şey olmadı"
+	 * diye okunurdu.
+	 *
+	 * Detay burada hesaplanıyor (süre ve sebep yalnızca burada belli),
+	 * yayın Close'da yapılıyor.
+	 */
+	s.endDetail = detail
 
 	return err
 }
@@ -628,6 +700,16 @@ func (s *Session) Close(ctx context.Context) {
 
 	if s.conn != nil {
 		_ = s.conn.Close()
+	}
+
+	// ⚠️ YAYIN EN SONDA: yukarıdaki EndSession satırı kapattı. Olayla
+	// tetiklenen her tazeleme artık kapanmış bir satır okuyor.
+	//
+	// Run hiç çalışmadıysa (ör. web terminalinde upgrade başarısız)
+	// endDetail boş: SessionStarted da yayınlanmamıştı, dolayısıyla
+	// karşılığı olmayan bir "ended" olayı üretmiyoruz.
+	if s.endDetail != "" {
+		s.publish(events.SessionEnded, s.endDetail)
 	}
 }
 
