@@ -1,5 +1,7 @@
 # Derleme çıktıları
 /bin/
+# goreleaser çıktısı: `make release-snapshot` buraya yazıyor.
+/dist/
 # `go build` çıktıyı modül adıyla çalışma dizinine bırakır; Makefile
 # bin/ altına yazıyor ama elle koşulan bir go build bunu üretir.
 /postern

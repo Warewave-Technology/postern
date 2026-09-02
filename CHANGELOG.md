@@ -164,6 +164,16 @@ recordings.
   green local run did not cover 320 tests or the check that catches a
   commit editing `web/src` without rebuilding the embedded bundle.
 
+### Release engineering
+
+- **Releases are built, checksummed and signed by CI** on a `v*` tag.
+  Four static binaries (`linux`/`darwin`, `amd64`/`arm64`) with the panel
+  compiled in, the version stamped from the tag, and `checksums.txt`
+  signed with a cosign keyless signature bound to this repository and
+  workflow — there is no signing key to store or rotate. The release is
+  left as a draft for a human to publish. Verification steps are in the
+  release notes and in the install documentation.
+
 ### Legal
 
 - **The `LICENSE` file was a truncated copy of Apache-2.0** and is now

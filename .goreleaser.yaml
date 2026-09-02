@@ -1,0 +1,148 @@
+# postern sürüm yapılandırması.
+#
+# Yerelde doğrulanabilir: `make release-snapshot` etiketsiz bir sürüm
+# üretip dist/ altına bırakıyor. Yayınlamıyor — bu dosyanın kendisindeki
+# bir hatayı, gerçek bir etiket atmadan önce görmenin tek yolu.
+version: 2
+
+project_name: postern
+
+before:
+  hooks:
+    # ⚠️ ÖNCE PANEL. web/dist Go ikilisine go:embed ile gömülü; bu satır
+    # olmadan sürüm, derleme makinesinde ne varsa onu paketler — boş bir
+    # dizin ya da haftalar önce kalmış bir paket. Aynı arıza bu depoda
+    # bir kez yaşandı: kaynaktan kaldırılmış bir metni hâlâ gösteren bir
+    # paket commit'lendi.
+    - make web
+    # Sürüm çıkarken bağımlılık ağacında bilinen bir açık olmamalı.
+    # `make ci`nin tamamı burada koşmuyor: onu iş akışı ayrı bir adımda
+    # ve testlerle birlikte koşuyor.
+    - make vuln
+
+builds:
+  - id: postern
+    main: ./cmd/postern
+    binary: postern
+
+    # ⚠️ CGO KAPALI. Bir bastion, derlendiği makinenin libc sürümüne
+    # bağlı olmamalı: statik ikili her dağıtımda aynı şekilde çalışıyor
+    # ve konteyner tabanı değiştirmek onu bozmuyor.
+    env:
+      - CGO_ENABLED=0
+
+    # ⚠️ -trimpath: ikili, derleyen makinenin dizin yollarını taşımasın.
+    # Hem gereksiz bilgi sızdırıyor hem de aynı kaynaktan iki farklı
+    # makinede farklı ikili üretiyordu.
+    flags:
+      - -trimpath
+
+    ldflags:
+      # -s -w: sembol tablosu ve DWARF atılıyor.
+      #
+      # ⚠️ Sürüm bilgisi BUNDAN ETKİLENMİYOR: version paketi ldflags ile
+      # basılıyor ve VCS bilgisi Go'nun kendi buildinfo bloğunda
+      # duruyor — ikisi de strip edilmiyor. `go version -m` çalışmaya
+      # devam ediyor, ki bir açık duyurulduğunda ikilinin bağımlılık
+      # sürümlerini okumanın yolu o.
+      - -s -w
+      - -X github.com/warewave/postern/internal/version.version={{ .Tag }}
+
+    # ⚠️ HEDEFLER: bastion Linux'ta çalışıyor. macOS ikilileri CLI için
+    # var — `postern log`, `postern user ...` gibi komutlar bastion
+    # host'unda koşuyor, ama geliştirme ve acil durum kullanımı için
+    # yerelde de derlenebilmesi işe yarıyor.
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: postern
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    # ⚠️ LİSANS VE DEĞİŞİKLİK GÜNLÜĞÜ ARŞİVİN İÇİNDE. İndirdiği
+    # ikilinin lisansını görmek için depoyu açmak zorunda kalan bir
+    # operatör, çoğu zaman hiç bakmıyor.
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+      - deploy/systemd/postern.service
+      - deploy/README.md
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+# ⚠️ İMZA, İKİLİLERİN KENDİSİNE DEĞİL CHECKSUM DOSYASINA.
+#
+# checksums.txt bütün arşivlerin özetini taşıyor; onu imzalamak hepsini
+# imzalamaya eşdeğer ve doğrulaması tek adım. Her arşivi ayrı imzalamak
+# indiren kişiye dört imza doğrulaması yaptırırdı ve pratikte hiçbirini
+# yaptırmazdı.
+#
+# ⚠️ ANAHTARSIZ (keyless) İMZA. Saklanacak bir özel anahtar yok; imza
+# GitHub'ın OIDC kimliğine bağlanıyor ve sertifika, imzayı HANGİ
+# DEPONUN HANGİ İŞ AKIŞININ attığını taşıyor. Uzun ömürlü bir imza
+# anahtarını bir CI sırrında tutmak, bu projenin arşiv kimliği ve CA
+# anahtarı için verdiği kararlarla çelişirdi.
+#
+# ⚠️ SNAPSHOT'TA ATLANIYOR: `make release-snapshot` --skip=sign ile
+# koşuyor, yoksa yerelde cosign ve bir OIDC kimliği gerekirdi.
+signs:
+  - cmd: cosign
+    certificate: "${artifact}.pem"
+    args:
+      - sign-blob
+      - "--output-certificate=${certificate}"
+      - "--output-signature=${signature}"
+      - "${artifact}"
+      - --yes
+    artifacts: checksum
+    output: true
+
+# ⚠️ OTOMATİK DEĞİŞİKLİK GÜNLÜĞÜ KAPALI.
+#
+# goreleaser'ın ürettiği commit listesi, CHANGELOG.md'nin başında yazılı
+# politikayla doğrudan çelişirdi: orada girdiler operatörün tarafından
+# yazılıyor ve "diff açık olmadan anlaşılmayan bir girdi buraya ait
+# değil" deniyor. İki değişiklik günlüğünden biri mutlaka yalan söyler.
+changelog:
+  disable: true
+
+release:
+  # Taslak olarak açılıyor: sürüm notlarını insan okuyup yayınlıyor.
+  draft: true
+  prerelease: auto
+  header: |
+    Release notes are in [CHANGELOG.md](CHANGELOG.md) — read the
+    **Needs action** section before upgrading.
+  footer: |
+    ## Verifying what you downloaded
+
+    Checksums:
+
+    ```
+    sha256sum -c checksums.txt --ignore-missing
+    ```
+
+    The checksums file is signed with [cosign](https://github.com/sigstore/cosign)
+    keyless signing, so there is no public key to trust — the signature is
+    tied to this repository and this workflow:
+
+    ```
+    cosign verify-blob checksums.txt \
+      --signature checksums.txt.sig \
+      --certificate checksums.txt.pem \
+      --certificate-identity-regexp '^https://github\.com/warewave/postern/\.github/workflows/release\.yml@' \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com
+    ```
+
+    To see which dependency versions a binary was built with — the
+    question that matters when an advisory lands:
+
+    ```
+    go version -m ./postern
+    ```

@@ -16,6 +16,8 @@ The roadmap lives in
 Release notes and upgrade steps live in [CHANGELOG.md](CHANGELOG.md).
 Read the *Needs action* section before upgrading — a setting that
 silently stops being honoured is worse than one that refuses to start.
+Cutting a release is [RELEASING.md](RELEASING.md); verifying a
+downloaded one is in the release notes and the install docs.
 
 ## What it does today
 

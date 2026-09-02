@@ -27,7 +27,7 @@ LDFLAGS := -X github.com/warewave/postern/internal/version.version=$(VERSION)
 GOSEC_VERSION        ?= v2.29.0
 GOVULNCHECK_VERSION  ?= v1.7.0
 
-.PHONY: build test test-race test-short test-integration vet fmt lint sec vuln fuzz audit ci web web-test web-check clean
+.PHONY: build test test-race test-short test-integration vet fmt lint sec vuln fuzz audit ci web web-test web-check release-snapshot release-check clean
 
 build:
 	$(GO) build -ldflags "$(LDFLAGS)" -o bin/postern ./cmd/postern
@@ -156,5 +156,32 @@ audit: sec vuln
 # gelsin — lint'te düşecek bir değişiklik için npm ci beklemek gerekmez.
 ci: lint vet test-race audit test-integration web-test web-check
 
+GORELEASER_VERSION ?= v2.18.0
+
+# release-snapshot, sürümü YAYINLAMADAN üretir.
+#
+# ⚠️ NEDEN VAR: .goreleaser.yaml'daki bir hatayı görmenin tek yolu onu
+# çalıştırmak, ve gerçek bir sürümde çalıştırmak "etiket atıldıktan
+# sonra" demek. Snapshot, etiket atmadan aynı yolu yürüyor: paneli
+# gömüyor, dört hedefi derliyor, arşivleri ve checksum'ı üretiyor.
+#
+# Çıktı dist/ altında ve .gitignore'da.
+# ⚠️ İMZALAMA ATLANIYOR: cosign anahtarsız imza için bir OIDC kimliği
+# istiyor ve o yalnızca CI'da var. İmzayı yerelde denemek, her
+# geliştiricinin makinesine bir imzalama kimliği koymak demekti.
+#
+# ⚠️ VE BURADAN ÇIKAN İKİLİ YAYINLANMAZ. `go run` goreleaser'ı çalıştırmak
+# için Go araç zincirini yükseltiyor (v2.18.0 en az 1.27 istiyor), yani
+# snapshot ikilisi go.mod'daki sürümden BAŞKA bir Go ile derleniyor.
+# Gerçek sürüm CI'da, setup-go'nun go.mod'dan okuduğu sürümle çıkıyor.
+# Buranın işi yapılandırmayı doğrulamak, dağıtılacak ikili üretmek değil.
+release-snapshot:
+	$(GO) run github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION) \
+		release --snapshot --clean --skip=sign
+
+# release-check, yapılandırmayı derlemeden doğrular.
+release-check:
+	$(GO) run github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION) check
+
 clean:
-	rm -rf bin
+	rm -rf bin dist

@@ -1,0 +1,80 @@
+# postern sürümü.
+#
+# Bir etiket atıldığında koşuyor ve TASLAK bir sürüm bırakıyor: notları
+# insan okuyup yayınlıyor. Otomatik yayınlamak, yanlış etiketten dönmeyi
+# "sildim, kimse indirmedi umarım"a çevirirdi.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+# ⚠️ VARSAYILAN OKUMA. Yazma izni yalnızca ihtiyacı olan işte ve orada
+# da sayılı: sürüm oluşturmak için contents, anahtarsız imza için
+# id-token. Bir iş akışının varsayılan olarak yazabilmesi, ele
+# geçirilmiş bir eylemin depoyu değiştirebilmesi demek.
+permissions:
+  contents: read
+
+jobs:
+  # ⚠️ ÖNCE TESTLER, SONRA SÜRÜM — ve ayrı bir iş olmasının sebebi
+  # sıralamayı garanti etmek. Etiket, CI'ı geçmiş bir commit'e
+  # atılıyor OLMALI ama bunu hiçbir şey zorlamıyor: yanlış commit'e
+  # atılan bir etiket, kırmızı bir ağacı sürüm diye yayınlardı.
+  #
+  # Tam `make ci` koşuyor, alt kümesi değil. Bir sürüm nadir; on dakika
+  # bekleyip emin olmak, yayınlanmış bir ikiliyi geri çekmekten ucuz.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: make ci
+
+  release:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # sürümü oluşturmak için
+      id-token: write # cosign anahtarsız imza için
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # ⚠️ TÜM GEÇMİŞ ŞART. goreleaser sürümü etiketlerden okuyor;
+          # sığ bir kopyada etiket görünmüyor ve ikili kendini yanlış
+          # sürümle tanıtırdı.
+          fetch-depth: 0
+
+      # ⚠️ GO SÜRÜMÜ go.mod'DAN. Testlerin koştuğu sürümle yayınlanan
+      # ikilinin derlendiği sürüm aynı olmalı: standart kütüphane
+      # açıkları Go sürümüyle kapanıyor ve "test ettiğimiz şey bu değil"
+      # demek istemiyoruz.
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Panel go:embed ile gömülü; goreleaser'ın before hook'u `make web`
+      # çalıştırıyor ve onun için node gerekiyor.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: sigstore/cosign-installer@v4
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: v2.18.0
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
