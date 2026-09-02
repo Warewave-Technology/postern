@@ -421,6 +421,27 @@ many are waiting, and **how old the oldest one is**. Age is the signal
 that matters — a stalled uploader shows as a backlog that stops getting
 younger, not one that grows, and nothing waiting can be pruned.
 
+**Check the bucket before you rely on it:**
+
+```bash
+postern archive check --config postern.yaml
+```
+
+It reports in three parts: what the bucket said, what could not be
+determined, and what postern can never determine. The third part is the
+one that matters — it exists so the report cannot be read as "checked,
+therefore safe". Delete permission is in it: testing that would need a
+delete capability this build deliberately does not have, and with
+Object Lock in compliance mode it does not matter anyway.
+
+The command exits non-zero only when the bucket is unusable right now
+(unreachable, wrong credential, missing bucket). Weak hardening is a
+warning, because it may be a decision you made.
+
+⚠️ It runs on the bastion with the bastion's credential, so an attacker
+who owns the machine gets the same answers. It detects misconfiguration;
+it is not a security control, and it says so in its own output.
+
 No AWS SDK: the signing is ~250 lines of standard library pinned to
 AWS's own SigV4 test vectors, so postern works with any S3-compatible
 store and carries no vendor dependency. Single PUT only — measured, a

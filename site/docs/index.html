@@ -731,6 +731,18 @@ session:
         <li><b>Write-only.</b> The panel shows the bucket and key; it does not fetch. A read credential on the bastion would turn one compromise into exfiltration of the whole archive.</li>
       </ul>
       <div class="stop"><b>PutObject without DeleteObject is not append-only</b><p>A PUT to an existing key overwrites it. If the archive must survive someone who owns the bastion, that protection comes from the bucket — versioning, Object Lock in compliance mode with a default retention, and an identity with neither delete nor lock-configuration rights. postern sends no Object Lock headers on purpose: an attacker holding the credential could otherwise set the retention to zero. postern cannot verify your bucket's configuration and does not claim to.</p></div>
+      <h3>Checking the bucket</h3>
+<pre>$ postern archive check --config postern.yaml
+</pre>
+      <p>
+        Three parts: what the bucket reported, what could not be determined,
+        and what postern can never determine. The third is the point — it stops
+        the report being read as "checked, therefore safe". It exits non-zero
+        only when the bucket is unusable right now; weak hardening is a warning,
+        since it may be a decision you made.
+      </p>
+      <div class="warn"><b>A misconfiguration detector, not a control</b><p>It runs on the bastion with the bastion's credential, so an attacker who owns the machine gets the same answers. Delete permission sits in the "can never determine" column: testing it would need a delete capability postern deliberately does not have, and under a compliance-mode lock it does not matter.</p></div>
+
       <h3>Setting the key from the panel</h3>
       <p>
         <b>Settings → Recording archive</b> takes the access key and rotates it

@@ -39,7 +39,7 @@ neye baktığımı bilmen lazım.
 
 ---
 
-## Bulunan ve DÜZELTİLEN sekiz şey
+## Bulunan ve DÜZELTİLEN dokuz şey
 
 İlk üçü aynı sınıftan: **kural yazılmıştı, bağlanmamıştı.** Dördüncüsü
 bir adım daha ince: iki ayrı doğru karar, birleşince yanlış davranıyordu.
@@ -452,6 +452,48 @@ gölgelenemez" reddini kaldırdım ve panel testleri geçmeye devam etti —
 koruma yalnızca arayüzdeydi. Bu deponun kendi kuralı ("koruma burada,
 arayüzde değil") ihlal ediliyordu; sunucu tarafına üç test eklendi.
 
+### B9 — `postern archive check` ✅ 2 Eylül'de kapatıldı
+
+Kovanın sertleştirilip sertleştirilmediğini operatör hiçbir yerden
+göremiyordu — ve postern'in kendisi de bunu doğrulayamadığını
+söylemiyordu.
+
+**Üç sütun**, ve üçüncüsü raporun asıl yarısı:
+
+1. **Kova ne söyledi** — sürümleme, Object Lock (kip + varsayılan
+   saklama), varsayılan şifreleme.
+2. **Öğrenilemedi** — okuma yetkisi olmayan alanlar, kodu ve sebebiyle.
+   "Yetkim yok" ile "kapalı" AYRI: ikincisini birincisi diye göstermek,
+   var olan bir korumayı yok sandırırdı.
+3. **postern asla öğrenemez** — silme yetkisi, kovaya erişen başka
+   kimlikler, yarın değişecek bir politika, saklama süresinin yeterli
+   olup olmadığı, ve en önemlisi: *bu cevapların hepsi bu makinedeki bir
+   kimlikten geldi; makineyi ele geçiren aynı cevapları alır.*
+
+**Silme yetkisi bilerek test EDİLMİYOR.** Kesin öğrenmenin tek yolu bir
+nesne yazıp silmeyi denemek olurdu; bu, `objstore`'a silme yeteneği
+eklemeyi gerektirirdi ve paketin kendi gerekçesini bozardı ("yeteneğin
+olmaması, kimliğe o yetkinin verilmemesi gerektiğini kodda da
+söylüyor"). Zaten gerekmiyor: **compliance kipinde Object Lock varsa
+nesne IAM'den bağımsız olarak silinemiyor**, yani asıl bilinmesi gereken
+kilidin durumu ve rapor onu veriyor.
+
+**Çıkış kodu ayrımı:** yalnızca kova ŞU AN kullanılamıyorsa sıfır
+olmayan (ulaşılamıyor, kimlik reddedildi, kova yok). Zayıf sertleştirme
+uyarı — operatörün bilerek yaptığı bir tercih olabilir.
+
+**Ölçerek bulunan bir hata:** `isNotConfigured` "NoSuch" alt dizesine
+bakıyordu, dolayısıyla **olmayan bir kova** (`NoSuchBucket`) "sürümleme
+yapılandırılmamış" diye raporlanıyor, rapor yeşil çıkıyor ve sıfırla
+bitiyordu — oysa hiçbir kayıt yüklenemez. Raporun en tehlikeli hâli tam
+olarak buydu.
+
+**Ve bir mutasyon yine test yazdırdı:** "asla öğrenemez" bölümünü
+*çağıran* satırı sildim, hiçbir test düşmedi — fonksiyonu ölçüyordum,
+kablolamayı değil. Bölüm sessizce düşseydi rapor "kontrol ettim,
+güvendeyim" diye okunur hâle gelirdi. Komutun gerçek çıktısını ölçen iki
+test eklendi.
+
 ---
 
 ## Kapatılmayan eksikler
@@ -531,17 +573,14 @@ değil.
 
 ## Önerim
 
-**B1–B8** kapandı; sekizi de testli ve mutasyon testinden geçti.
+**B1–B9** kapandı; dokuzu da testli ve mutasyon testinden geçti.
 Kalanlar için önerdiğim sıra:
 
 Onayladığın sıra (2 Eylül):
 
 1. ~~Arşiv/disk görünürlüğü~~ ✅ B8
 2. ~~Panelden S3 kimliği~~ ✅ B8
-3. **S8** — `postern archive check`: kovanın sürümleme/Object Lock/silme
-   yetkisi durumunu operatörün elinde çalıştırıp raporlayan komut.
-   Doğrulanabileni, doğrulanamayanı ve asla doğrulanamayacak olanı ayrı
-   sütunlarda söylemeli.
+3. ~~`postern archive check`~~ ✅ B9
 4. **S3** — `/healthz`; on satır. Kimliksiz bir uç yeni bir yüzey ve
    DB'ye dokunuyor.
 5. **S7** — `postern log`; ~30 satır, denetimin okuma yarısı.
