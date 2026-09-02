@@ -154,7 +154,7 @@ func newUserPurgeCmd() *cobra.Command {
 				name, res.Keys, res.Roles)
 			fmt.Fprintln(cmd.OutOrStdout(),
 				"the account row is kept: audit entries naming it stay readable, "+
-					"and the panel's Admin log records when the name was released")
+					"and `postern log --entity <name>` records when it was released")
 			return nil
 		},
 	}
@@ -223,7 +223,7 @@ func newUserAllowBindCmd() *cobra.Command {
 				"the next sign-in as %q may claim this account\n", name)
 			fmt.Fprintln(cmd.OutOrStdout(),
 				"this is single use: have them sign in now, and check "+
-					"the panel's Admin log afterwards to see which identity took it")
+					"`postern log --entity <name>` afterwards to see which identity took it")
 			return nil
 		},
 	}
