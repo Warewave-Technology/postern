@@ -401,6 +401,26 @@ sends no Object Lock headers, because an attacker holding the credential
 could set the retention to zero. postern cannot verify any of this and
 does not claim to.
 
+**The key can be set from the panel; the destination cannot.** Settings
+→ Recording archive takes the access key and rotates it without a
+restart. The endpoint, bucket, prefix and CA stay in the config file,
+and that split is the point: a panel session that could move the
+destination could redirect every future recording to a bucket it
+controls, and dropping the stored secret on change — the mitigation used
+for LDAP and OIDC — does not help, because the attacker can simply enter
+a fresh key. It is the same reasoning that keeps `is_admin` out of the
+panel.
+
+If the key comes from the host (`secret_key_file` or
+`POSTERN_ARCHIVE_SECRET_KEY`) the panel says so and refuses to write
+one — silently shadowing it would be worse than not offering the field.
+The secret is never read back, not even masked.
+
+The Overview shows what the archive is doing: recordings on disk, how
+many are waiting, and **how old the oldest one is**. Age is the signal
+that matters — a stalled uploader shows as a backlog that stops getting
+younger, not one that grows, and nothing waiting can be pruned.
+
 No AWS SDK: the signing is ~250 lines of standard library pinned to
 AWS's own SigV4 test vectors, so postern works with any S3-compatible
 store and carries no vendor dependency. Single PUT only — measured, a

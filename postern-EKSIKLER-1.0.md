@@ -39,7 +39,7 @@ neye baktığımı bilmen lazım.
 
 ---
 
-## Bulunan ve DÜZELTİLEN yedi şey
+## Bulunan ve DÜZELTİLEN sekiz şey
 
 İlk üçü aynı sınıftan: **kural yazılmıştı, bağlanmamıştı.** Dördüncüsü
 bir adım daha ince: iki ayrı doğru karar, birleşince yanlış davranıyordu.
@@ -405,6 +405,53 @@ mutasyon **test yazdırdı**: HEAD doğrulamasını kaldırdım, hiçbir test
 düşmedi — çünkü hepsinde PUT gerçekten başarılıydı. Doğrulama adımı
 korumasızdı; PUT'a 200, HEAD'e 404 diyen bir depoyla o boşluk kapatıldı.
 
+### B8 — Arşiv görünürlüğü ve panelden kimlik ✅ 2 Eylül'de kapatıldı
+
+İki iş, sırayla.
+
+**1. Görünürlük.** `record.Usage` yazılmıştı, testi vardı ve hiçbir
+yerden çağrılmıyordu. Arşivleme onu taşıyıcı hâle getirdi: yüklenemeyen
+kayıt budanmıyor, yani sıkışma yalnızca log'da görünüyorsa disk sessizce
+doluyor ve operatör bir gün "oturumlar reddediliyor" diye uyanıyor.
+
+`GET /api/admin/storage` ve Overview'da iki kart: diskteki kayıtların
+boyutu ve **bekleyen arşiv işinin en eskisinin yaşı**. Yaş, sayıdan
+önemli — ölmüş bir yükleyicinin belirtisi sayının artması değil; sabit
+bir sayı da hiçbir şeyin ilerlemediği anlamına gelebilir.
+
+⚠️ **Ölçülemeyen değer sıfır diye gösterilmiyor.** Dizini okuyamayan bir
+kurulumu "0 dosya" diye göstermek, her şeyin yolunda olduğunu söylemek
+olurdu; kart sebebi yazıyor.
+
+**2. Panelden kimlik — ama hedef değil.**
+
+Kapsamı bilerek dar tuttuk. `federation.go`'daki yorum kapatılan
+saldırıyı zaten adıyla anıyor: panel admini `ldap.url`'i kendi
+sunucusuna çevirip saklanan parolayı alıyordu. S3'te aynı yol var, üstüne
+bir fazlası daha: saldırgan kendi kovasını gösterip **taze** bir kimlik
+girdiğinde postern bundan sonraki her oturum kaydını ona yükler. Bu,
+"hedef değişirse sırrı düşür" ile kapanmıyor — hedefi seçebilmenin
+kendisinden geliyor. Panelden `is_admin` verilmemesiyle aynı raf.
+
+Yani: **anahtar panelden, hedef config'ten.** Anahtar döndürmek rutin
+bir iş; hedefi taşımak bir kurulum kararı.
+
+- **Kendi ucu var, genel ayarlar yolu değil.** Oradaki sınıflandırma
+  fail-open: haritada olmayan anahtar sessizce "sır değil" sayılıp düz
+  metin saklanıyor. Bir test artık arşiv anahtarlarının o yola
+  eklenmesini engelliyor.
+- **Host'tan geliyorsa panel reddediyor**, sessizce yok saymıyor.
+  Kaydedilip yürürlüğe girmeyen bir ayar, bu depodaki en tanıdık arıza.
+- **Sır hiç geri okunmuyor**, maskeli hâli bile.
+- **Yeniden başlatma gerekmiyor:** arşivleyici kimliği her turda
+  çözüyor. Açılışta bir kez okusaydı, panel "kaydedildi" der ve hiçbir
+  şey olmazdı.
+
+**Bir mutasyon yine test yazdırdı:** sunucudaki "host anahtarı
+gölgelenemez" reddini kaldırdım ve panel testleri geçmeye devam etti —
+koruma yalnızca arayüzdeydi. Bu deponun kendi kuralı ("koruma burada,
+arayüzde değil") ihlal ediliyordu; sunucu tarafına üç test eklendi.
+
 ---
 
 ## Kapatılmayan eksikler
@@ -484,13 +531,28 @@ değil.
 
 ## Önerim
 
-**B1–B7** kapandı; yedisi de testli ve mutasyon testinden geçti.
+**B1–B8** kapandı; sekizi de testli ve mutasyon testinden geçti.
 Kalanlar için önerdiğim sıra:
 
-1. **S7** — `postern log`; ~30 satır, denetimin okuma yarısı.
-2. **S3** — on satır. Ama kimliksiz bir uç yeni bir yüzey ve DB'ye
-   dokunuyor; bunu bilerek senin kararına bıraktım.
-3. **S5** — kod değil, bir cümle: "bilinen sınırlar"a yazılır.
+Onayladığın sıra (2 Eylül):
+
+1. ~~Arşiv/disk görünürlüğü~~ ✅ B8
+2. ~~Panelden S3 kimliği~~ ✅ B8
+3. **S8** — `postern archive check`: kovanın sürümleme/Object Lock/silme
+   yetkisi durumunu operatörün elinde çalıştırıp raporlayan komut.
+   Doğrulanabileni, doğrulanamayanı ve asla doğrulanamayacak olanı ayrı
+   sütunlarda söylemeli.
+4. **S3** — `/healthz`; on satır. Kimliksiz bir uç yeni bir yüzey ve
+   DB'ye dokunuyor.
+5. **S7** — `postern log`; ~30 satır, denetimin okuma yarısı.
+6. **S9** — `Broker.Run` her zaman `nil` dönüyor, yani iki çağrı
+   yerindeki hata dalları ölü kod. Ya gerçek hata döndürsün ya dallar
+   silinsin.
+7. **S10** — `Broker.Run`'ın beş goroutine'inden ikisi WaitGroup
+   dışında; cevap vermeyen bir istemciyle oturum başına iki sızıntı.
+   Boşta kalma ve ömür sınırı da aynı yoldan geçiyor, yani bu kesmeden
+   eski.
+8. **S5** — kod değil, bir cümle: "bilinen sınırlar"a yazılır.
 
 ---
 

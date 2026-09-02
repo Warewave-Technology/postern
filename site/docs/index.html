@@ -731,6 +731,23 @@ session:
         <li><b>Write-only.</b> The panel shows the bucket and key; it does not fetch. A read credential on the bastion would turn one compromise into exfiltration of the whole archive.</li>
       </ul>
       <div class="stop"><b>PutObject without DeleteObject is not append-only</b><p>A PUT to an existing key overwrites it. If the archive must survive someone who owns the bastion, that protection comes from the bucket — versioning, Object Lock in compliance mode with a default retention, and an identity with neither delete nor lock-configuration rights. postern sends no Object Lock headers on purpose: an attacker holding the credential could otherwise set the retention to zero. postern cannot verify your bucket's configuration and does not claim to.</p></div>
+      <h3>Setting the key from the panel</h3>
+      <p>
+        <b>Settings → Recording archive</b> takes the access key and rotates it
+        without a restart. The endpoint, bucket and prefix stay in the config
+        file.
+      </p>
+      <div class="stop"><b>The destination is deliberately not editable from the panel</b><p>A panel session that could move it would redirect every future recording to a bucket it controls — and dropping the stored secret when the destination changes, the mitigation used for LDAP and OIDC, does not help here, because the attacker can enter a fresh key. Same reasoning that keeps <code>is_admin</code> out of the panel: a compromised session must not be able to redirect the audit trail.</p></div>
+      <p>
+        If the key comes from the host, the panel says so and refuses to write
+        one — silently shadowing it would be worse than not offering the field.
+        The secret is never read back, not even masked. The Overview shows
+        recordings on disk, how many are waiting to archive, and how old the
+        oldest one is: age is the signal that matters, because a stalled
+        uploader shows as a backlog that stops getting younger rather than one
+        that grows.
+      </p>
+
       <p>
         No AWS SDK. The signing is standard-library code pinned to AWS's own
         SigV4 test vectors, so any S3-compatible store works and no vendor
