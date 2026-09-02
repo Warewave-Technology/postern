@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -83,6 +84,25 @@ type PruneResult struct {
 	Bytes int64
 	// Dirs, tamamen boşalıp kaldırılan gün dizinleri.
 	Dirs int
+
+	/*
+	 * ⚠️ TUTULANLAR DA SAYILIYOR, ve gerekçesi silinenler kadar önemli.
+	 *
+	 * Arşivlenmemiş bir kayıt saklama süresi dolsa bile silinmiyor.
+	 * Doğru davranış bu — ama görünmezse, disk yavaşça doluyor ve
+	 * operatör bir gün "oturumlar reddediliyor" diye uyanıyor. Sayılar
+	 * her koşuda loglanıyor ki sıkışma günler önce görünsün.
+	 */
+	KeptUnarchived int
+	KeptBytes      int64
+
+	// Unknown, adından oturum kimliği çıkmayan dosyalar: yetim
+	// kayıtlar ya da dizine düşmüş yabancılar. Silinmiyor, sayılıyor.
+	Unknown int
+
+	// Deleted, silinen oturumların kimlikleri. Çağıran bunları denetim
+	// defterine yazıyor: kanıtın kaybolması da bir olay.
+	Deleted []string
 }
 
 /*
@@ -98,7 +118,40 @@ type PruneResult struct {
  * "hepsini sil" olarak okunması, olabilecek en pahalı sıfır değeri
  * olurdu.
  */
-func Prune(ctx context.Context, dir string, keepFor time.Duration, now time.Time) (PruneResult, error) {
+/*
+ * Archived, "bu kayıtlar başka bir yerde güvende mi" sorusunu soran
+ * taraf. Uygulaması internal/archive'da; burada yalnızca ARAYÜZ var.
+ *
+ * ⚠️ ARAYÜZ TÜKETİCİ TARAFINDA TANIMLI, ÇÜNKÜ record PAKETİ HİÇBİR
+ * PROJE PAKETİNİ IMPORT ETMİYOR — yalnızca standart kütüphane. Buraya
+ * store'u sokmak, kayıt yazma yolunu veritabanına bağımlı hâle
+ * getirirdi; oysa o yolun tek işi diske yazmak ve hiçbir dış sisteme
+ * bağlı olmaması, "kayıt tutulamıyorsa oturum reddedilir" kuralının
+ * anlamlı kalmasının şartı.
+ */
+type Archived interface {
+	// ArchivedIDs, verilenlerden hangilerinin DOĞRULANMIŞ şekilde
+	// arşivlendiğini döner. Kümede olmayan her kimlik "silinemez".
+	ArchivedIDs(ctx context.Context, ids []string) (map[string]bool, error)
+}
+
+/*
+ * Prune, saklama süresi dolan kayıtları siler.
+ *
+ * archived nil ise arşivleme kapalıdır ve davranış eskisiyle aynı:
+ * yaşı geçen dosya silinir.
+ *
+ * ⚠️ archived DOLUYSA KAPI VARSAYILAN OLARAK KAPALI. Yalnızca
+ * "evet, doğrulanmış şekilde arşivlendi" cevabı silmeye izin veriyor.
+ * Sorgu hata verirse KOŞU İPTAL EDİLİYOR — hiçbir şey silinmeden.
+ * Bu, bu dosyadaki diğer hata davranışlarının TERSİ (CheckSpace
+ * ölçemediğinde nil dönüyor, dizin okunamadığında continue ediliyor)
+ * ve fark bilinçli: orada bedel bir oturumun reddedilmemesi, burada
+ * bedel denetim kanıtının yok olması.
+ */
+func Prune(ctx context.Context, dir string, keepFor time.Duration, now time.Time,
+	archived Archived) (PruneResult, error) {
+
 	var res PruneResult
 	if keepFor <= 0 {
 		return res, nil
@@ -126,6 +179,33 @@ func Prune(ctx context.Context, dir string, keepFor time.Duration, now time.Time
 		if rerr != nil {
 			continue
 		}
+		/*
+		 * ⚠️ İZİN SORGUSU, SİLMELERDEN ÖNCE VE GÜN BAŞINA TEK SEFERDE.
+		 *
+		 * Dosya başına sormak, bir gün dizini için yüzlerce sorgu
+		 * demekti. Koşunun başında bir kez sormak ise uzun süren bir
+		 * budamada bayat cevap kullanmak olurdu — bu dizinin
+		 * silmelerinin hemen öncesi doğru yer.
+		 */
+		allowed := map[string]bool{}
+		if archived != nil {
+			ids := make([]string, 0, len(entries))
+			for _, e := range entries {
+				if id, ok := sessionIDOf(e.Name()); ok {
+					ids = append(ids, id)
+				}
+			}
+			var qerr error
+			allowed, qerr = archived.ArchivedIDs(ctx, ids)
+			if qerr != nil {
+				// ⚠️ HİÇBİR ŞEY SİLMEDEN ÇIK. "Soramadım" ile
+				// "güvende" aynı şey değil; karıştırmanın bedeli
+				// kanıtın yok olması.
+				return res, fmt.Errorf("record.Prune: cannot tell what is archived, "+
+					"deleting nothing: %w", qerr)
+			}
+		}
+
 		remaining := 0
 		for _, e := range entries {
 			info, ierr := e.Info()
@@ -137,6 +217,25 @@ func Prune(ctx context.Context, dir string, keepFor time.Duration, now time.Time
 				remaining++
 				continue
 			}
+
+			if archived != nil {
+				id, ok := sessionIDOf(e.Name())
+				if !ok {
+					// Adından oturum kimliği çıkmayan dosya: yetim ya
+					// da yabancı. Silmiyoruz ve SAYIYORUZ — sessizce
+					// atlamak, birikeni görünmez kılardı.
+					res.Unknown++
+					remaining++
+					continue
+				}
+				if !allowed[id] {
+					res.KeptUnarchived++
+					res.KeptBytes += info.Size()
+					remaining++
+					continue
+				}
+			}
+
 			size := info.Size()
 			if rmErr := os.Remove(filepath.Join(dayPath, e.Name())); rmErr != nil {
 				remaining++
@@ -144,6 +243,7 @@ func Prune(ctx context.Context, dir string, keepFor time.Duration, now time.Time
 			}
 			res.Files++
 			res.Bytes += size
+			res.Deleted = append(res.Deleted, strings.TrimSuffix(e.Name(), ".cast"))
 		}
 		/*
 		 * Boşalan gün dizini kaldırılıyor — ama YALNIZCA boşsa.
@@ -157,6 +257,26 @@ func Prune(ctx context.Context, dir string, keepFor time.Duration, now time.Time
 		}
 	}
 	return res, nil
+}
+
+// sessionIDOf, "<id>.cast" adından oturum kimliğini çıkarır.
+//
+// Kimlik üreteci ^[a-zA-Z0-9_-]+$ garantisi veriyor (store.Create);
+// desene uymayan bir ad bu dizine ait değil.
+func sessionIDOf(name string) (string, bool) {
+	id, ok := strings.CutSuffix(name, ".cast")
+	if !ok || id == "" {
+		return "", false
+	}
+	for i := range len(id) {
+		c := id[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '_' || c == '-' {
+			continue
+		}
+		return "", false
+	}
+	return id, true
 }
 
 /*

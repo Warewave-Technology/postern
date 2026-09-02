@@ -29,6 +29,14 @@ type Pruner struct {
 	interval time.Duration
 	// now, testlerin zamanı oynatabilmesi için.
 	now func() time.Time
+
+	// archived, "bu kayıt başka bir yerde güvende mi" sorusunu soran
+	// taraf. nil ise arşivleme kapalı ve davranış eskisiyle aynı.
+	archived Archived
+
+	// deleted, silinen her oturum için çağrılıyor: kanıtın kaybolması
+	// da denetim defterine düşmesi gereken bir olay.
+	deleted func(ctx context.Context, sessionIDs []string)
 }
 
 // NewPruner, kapalıysa nil döner — çağıranın ayrıca kontrol etmesi
@@ -41,6 +49,22 @@ func NewPruner(dir string, keepFor time.Duration, logger *slog.Logger) *Pruner {
 		dir: dir, keepFor: keepFor, logger: logger,
 		interval: time.Hour, now: time.Now,
 	}
+}
+
+/*
+ * WithArchive, budayıcıya arşiv kapısını takar.
+ *
+ * ⚠️ Bunu takmadan arşivleme açmak, henüz yüklenmemiş kayıtların
+ * silinmesi demek. serve.go ikisini BİRLİKTE kuruyor; ayrı ayrı
+ * yapılandırılabilir olsalardı biri unutulabilirdi.
+ */
+func (p *Pruner) WithArchive(a Archived, onDeleted func(context.Context, []string)) *Pruner {
+	if p == nil {
+		return nil
+	}
+	p.archived = a
+	p.deleted = onDeleted
+	return p
 }
 
 /*
@@ -73,11 +97,27 @@ func (p *Pruner) Start(ctx context.Context) {
 
 // RunOnce, tek bir budama koşusu.
 func (p *Pruner) RunOnce(ctx context.Context) PruneResult {
-	res, err := Prune(ctx, p.dir, p.keepFor, p.now())
+	res, err := Prune(ctx, p.dir, p.keepFor, p.now(), p.archived)
 	if err != nil {
 		p.logger.Error("recording prune failed", "error", err)
 		return res
 	}
+	/*
+	 * ⚠️ TUTULANLAR HER KOŞUDA LOGLANIYOR, silinen olmasa bile.
+	 *
+	 * Arşivlenmemiş kayıt silinmiyor — doğru davranış. Ama görünmezse
+	 * disk sessizce doluyor ve operatör bir gün "oturumlar
+	 * reddediliyor" diye uyanıyor. Sıkışmanın günler önce görünmesi
+	 * bu satıra bağlı.
+	 */
+	if res.KeptUnarchived > 0 || res.Unknown > 0 {
+		p.logger.Warn("recordings kept back at retention",
+			"kept_unarchived", res.KeptUnarchived, "kept_bytes", res.KeptBytes,
+			"unknown_files", res.Unknown, "keep_for", p.keepFor,
+			"note", "these are past their retention but not yet safe elsewhere; "+
+				"they will fill the disk if uploading stays broken")
+	}
+
 	if res.Files == 0 {
 		return res
 	}
@@ -85,5 +125,10 @@ func (p *Pruner) RunOnce(ctx context.Context) PruneResult {
 	p.logger.Warn("recordings deleted by retention",
 		"files", res.Files, "bytes", res.Bytes, "days_removed", res.Dirs,
 		"keep_for", p.keepFor)
+
+	// Ve log'da kalmıyor: denetim defterine de yazılıyor.
+	if p.deleted != nil && len(res.Deleted) > 0 {
+		p.deleted(ctx, res.Deleted)
+	}
 	return res
 }

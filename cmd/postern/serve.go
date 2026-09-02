@@ -19,12 +19,14 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/warewave/postern/internal/accountlife"
+	"github.com/warewave/postern/internal/archive"
 	"github.com/warewave/postern/internal/auth"
 	"github.com/warewave/postern/internal/config"
 	"github.com/warewave/postern/internal/events"
 	"github.com/warewave/postern/internal/httpapi"
 	"github.com/warewave/postern/internal/ldap"
 	"github.com/warewave/postern/internal/model"
+	"github.com/warewave/postern/internal/objstore"
 	"github.com/warewave/postern/internal/record"
 	"github.com/warewave/postern/internal/secret"
 	"github.com/warewave/postern/internal/sshd"
@@ -475,7 +477,42 @@ func newServeCmd() *cobra.Command {
 			if rerr != nil {
 				return rerr
 			}
-			go record.NewPruner(cfg.Recording.Dir, keepFor, logger).Start(ctx)
+
+			/*
+			 * ⚠️ ARŞİVLEYİCİ VE BUDAYICI BİRLİKTE KURULUYOR.
+			 *
+			 * Ayrı ayrı yapılandırılabilir olsalardı biri unutulabilir
+			 * ve budayıcı, henüz yüklenmemiş kayıtları silmeye devam
+			 * ederdi — yani arşivleme açık sanılırken kanıt sessizce
+			 * yok olurdu. Kapı, arşivleyicinin varlığından türüyor.
+			 */
+			archiver, aerr := buildArchiver(cfg, db, logger)
+			if aerr != nil {
+				return aerr
+			}
+
+			pruner := record.NewPruner(cfg.Recording.Dir, keepFor, logger)
+			if archiver != nil {
+				pruner = pruner.WithArchive(archiver, func(c context.Context, ids []string) {
+					// ⚠️ SİLİNEN KANIT DENETİM DEFTERİNE DE YAZILIYOR.
+					// Panel, kayıp bir kaydın sebebini "admin log
+					// söyler" diye anlatıyor; budayıcı oraya hiç
+					// yazmadığı için o cümle bugüne kadar doğru
+					// değildi.
+					for _, id := range ids {
+						if lerr := db.LogAdmin(c, store.AdminLogEntry{
+							Actor: "system", Via: "system",
+							Action: "recording.prune", Entity: id,
+							Details: "deleted by retention after " + keepFor.String(),
+						}); lerr != nil {
+							logger.Error("could not log a retention deletion",
+								"session_id", id, "error", lerr)
+						}
+					}
+				})
+				go archiver.Start(ctx)
+			}
+			go pruner.Start(ctx)
 
 			/*
 			 * ⚠️ OOB KAPISI KOŞULSUZ KURULUYOR.
@@ -697,4 +734,46 @@ func freshenLookup(ctx context.Context, db *store.Store, src *auth.SwitchableGro
 		return src.Groups(ctx, auth.Identity{Username: username})
 	}
 	return src.GroupsBySubject(ctx, subject)
+}
+
+/*
+ * buildArchiver, kayıt arşivleyicisini kurar. Kapalıysa (nil, nil).
+ *
+ * ⚠️ HATALAR AÇILIŞTA VERİLİYOR. Yanlış yazılmış bir uç adresi ya da
+ * okunamayan bir sır dosyası, saatler sonra "yükleme başarısız"
+ * satırları olarak görünseydi operatör sebebi aramak zorunda kalırdı —
+ * ve o sırada kayıtlar budanamadığı için disk doluyor olurdu.
+ */
+func buildArchiver(cfg *config.Config, db *store.Store, logger *slog.Logger) (*archive.Archiver, error) {
+	ac := cfg.Recording.Archive
+	if !ac.Enabled() {
+		return nil, nil
+	}
+
+	secret, err := ac.SecretAccessKey()
+	if err != nil {
+		return nil, err
+	}
+
+	client, err := objstore.New(objstore.Config{
+		Endpoint:             ac.Endpoint,
+		Region:               ac.Region,
+		Bucket:               ac.Bucket,
+		CAFile:               ac.CAFile,
+		Timeout:              ac.Timeout,
+		ServerSideEncryption: ac.ServerSideEncryption,
+		Credentials: objstore.Credentials{
+			AccessKeyID:     ac.AccessKeyID,
+			SecretAccessKey: secret,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return archive.New(db, client, archive.Config{
+		RecordingsDir: cfg.Recording.Dir,
+		Prefix:        ac.Prefix,
+		Interval:      ac.Interval,
+	}, logger), nil
 }

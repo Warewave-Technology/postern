@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 
@@ -384,6 +385,8 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 		conn   *upstream.Conn
 		rec    *record.Writer
 		id     string
+		f      *os.File
+		path   string
 	)
 	defer func() {
 		if opened {
@@ -391,7 +394,32 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 		}
 		if rec != nil {
 			_ = rec.Close()
+		} else if f != nil {
+			// rec kurulamadıysa dosyayı kimse kapatmıyordu.
+			_ = f.Close()
 		}
+
+		/*
+		 * ⚠️ YARIM KALAN KAYIT DOSYASI SİLİNİYOR.
+		 *
+		 * ÖLÇÜLEN ARIZA: Records.Create dosyayı açtıktan sonra
+		 * NewWriter ya da StartSession başarısız olursa, diskte
+		 * yalnızca asciicast başlığı içeren ve HİÇBİR OTURUMA AİT
+		 * OLMAYAN bir .cast kalıyordu. Hiçbir sorgu onu tanımıyor,
+		 * hiçbir şey temizlemiyordu.
+		 *
+		 * Arşivleme bunu görünür bir soruna çeviriyor: budayıcının
+		 * kapısı varsayılan olarak reddediyor, yani kimliği
+		 * çözülemeyen bu dosyalar sonsuza dek tutulur ve diski
+		 * doldururdu. Kanıt kaybı yok: oturum hiç başlamadı.
+		 */
+		if path != "" {
+			if rmErr := os.Remove(path); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
+				log.Warn("could not remove the abandoned recording file",
+					"path", path, "error", rmErr)
+			}
+		}
+
 		if conn != nil {
 			_ = conn.Close()
 		}
@@ -463,7 +491,7 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 		return nil, fmt.Errorf("proxy.Open: %w", ErrUnavailable)
 	}
 
-	f, path, err := deps.Records.Create(id)
+	f, path, err = deps.Records.Create(id)
 	if err != nil {
 		log.Error("recording file create failed", "error", err)
 		return nil, fmt.Errorf("proxy.Open: %w", ErrUnavailable)
@@ -694,8 +722,26 @@ func (s *Session) Close(ctx context.Context) {
 	// ⚠️ WithoutCancel: oturum bittiğinde çağıranın ctx'i de iptal olur.
 	// İptal edilmiş ctx ile yapılan kapanış, denetim satırını sonsuza dek
 	// "running" bırakır.
-	if serr := s.deps.Store.EndSession(context.WithoutCancel(ctx), s.ID, time.Now()); serr != nil {
+	closeCtx := context.WithoutCancel(ctx)
+	if serr := s.deps.Store.EndSession(closeCtx, s.ID, time.Now()); serr != nil {
 		s.Log.Error("end session failed", "error", serr)
+	}
+
+	/*
+	 * ⚠️ ARŞİV KUYRUĞUNA YAZMA — VE BU BİR VERİTABANI SATIRI, AĞ DEĞİL.
+	 *
+	 * Oturum yolunun yükleme ile TEK teması burası. Yükleyicinin
+	 * kendisi (internal/archive) proxy.Deps'in üyesi değil: Open ona
+	 * ulaşamıyor, dolayısıyla nesne deposunun bir kesintisi oturumu
+	 * reddedemez. Buraya bir S3 çağrısı koymak, bastion'ı bulut
+	 * sağlayıcısının çalışma süresine zincirlemek olurdu.
+	 *
+	 * Hata YUTULMUYOR ama oturumu da ETKİLEMİYOR: satır yazılamazsa
+	 * kayıt yerelde kalıyor ve budayıcı ona dokunmuyor (varsayılan
+	 * reddetme). Yani en kötü hâl "yüklenmedi", "kayboldu" değil.
+	 */
+	if qerr := s.deps.Store.QueueArchive(closeCtx, s.ID); qerr != nil {
+		s.Log.Error("could not queue the recording for archiving", "error", qerr)
 	}
 
 	if s.conn != nil {

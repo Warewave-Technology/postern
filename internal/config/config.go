@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -413,6 +414,124 @@ type RecordingConfig struct {
 	 * onu diskin kendisinin haber vermesini beklemek.
 	 */
 	MinFree string `yaml:"min_free"`
+
+	// Archive, kayıtların nesne deposuna kopyalanması. Boş = kapalı.
+	Archive ArchiveConfig `yaml:"archive"`
+}
+
+/*
+ * ArchiveConfig, kayıtların S3 uyumlu bir depoya yüklenmesi.
+ *
+ * ⚠️ NEDEN VAR: denetim izi bugüne kadar yalnızca denetlenen makinede
+ * duruyordu. Bastion'ı ele geçiren kayıtları da ele geçiriyor.
+ *
+ * ⚠️ YÜKLEME OTURUM YOLUNDA DEĞİL. Kayıt önce yerele yazılıyor;
+ * yükleme ayrı bir döngüde, sonradan. Bu yüzden nesne deposunun
+ * kesintisi bastion'ın kesintisi DEĞİL — bedeli, yüklenemeyen
+ * kayıtların budanamaması ve diskin dolabilmesi (bkz. MinFree).
+ */
+type ArchiveConfig struct {
+	// Endpoint boşsa arşivleme kapalı ve hiçbir şey değişmiyor.
+	Endpoint string `yaml:"endpoint"`
+	Bucket   string `yaml:"bucket"`
+	Region   string `yaml:"region"`
+
+	// Prefix, nesne anahtarının önüne eklenen yol ("postern/uretim").
+	Prefix string `yaml:"prefix"`
+
+	// CAFile, şirket içi bir depo kendi kökünü kullanıyorsa.
+	//
+	// ⚠️ insecure_skip_verify YOK ve olmayacak: doğrulanmamış bir TLS
+	// bağlantısına oturum kayıtlarını yazmak, denetim izini araya
+	// girene teslim etmenin en sessiz yolu.
+	CAFile string `yaml:"ca_file"`
+
+	AccessKeyID string `yaml:"access_key_id"`
+
+	/*
+	 * SecretKeyFile, gizli anahtarı TAŞIYAN DOSYANIN YOLU.
+	 *
+	 * ⚠️ SIRRIN KENDİSİ CONFIG'E YAZILMIYOR. Aynı gerekçe
+	 * POSTERN_DATABASE_DSN'de de geçerli: config dosyası kopyalanıyor,
+	 * yedekleniyor, hata raporuna yapıştırılıyor. Dosya yolu vermek,
+	 * sırrı 0600 bir dosyada ve süreçle aynı sahiplikte tutmayı
+	 * mümkün kılıyor.
+	 *
+	 * POSTERN_ARCHIVE_SECRET_KEY ortam değişkeni bunu geçersiz kılıyor
+	 * (systemd EnvironmentFile ile kullanmak için).
+	 */
+	SecretKeyFile string `yaml:"secret_key_file"`
+
+	/*
+	 * ServerSideEncryption, x-amz-server-side-encryption değeri.
+	 * BOŞ = başlık gönderilmiyor ve VARSAYILAN BU.
+	 *
+	 * ⚠️ ÖLÇÜLDÜ: koşulsuz "AES256" göndermek, KMS yapılandırılmamış
+	 * bir MinIO'da 501 NotImplemented veriyor — yani şirket içi
+	 * kurulumların çoğunda hiçbir kayıt yüklenemezdi. Üstelik
+	 * bastion'ı ele geçiren yükleme kimliğini de ele geçirdiği için
+	 * bu başlığın O saldırgana karşı bir faydası yok. Doğru yer
+	 * kovanın kendi varsayılanı.
+	 */
+	ServerSideEncryption string `yaml:"server_side_encryption"`
+
+	// Interval, tarama sıklığı. Boş = 1 dakika.
+	Interval time.Duration `yaml:"interval"`
+
+	// Timeout, tek bir yükleme isteğinin üst sınırı. Boş = 30 saniye.
+	Timeout time.Duration `yaml:"timeout"`
+}
+
+/*
+ * checkKeyPerm, sır taşıyan bir dosyanın gruba/dünyaya kapalı
+ * olduğunu doğrular.
+ *
+ * ⚠️ Aynı kontrol host anahtarı için sshd/server.go:199'da var.
+ * Yükleme sırrı için olmaması, grup okunabilir bir dosyanın sessizce
+ * kabul edilmesi demekti — ve o sır, bütün denetim arşivine yazma
+ * yetkisi.
+ */
+func checkKeyPerm(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("recording.archive.secret_key_file: %w", err)
+	}
+	if perm := info.Mode().Perm(); perm&0o077 != 0 {
+		return fmt.Errorf("recording.archive.secret_key_file %s is group/world accessible (%04o); "+
+			"chmod 600 it", path, perm)
+	}
+	return nil
+}
+
+// Enabled, arşivlemenin açık olup olmadığı.
+func (a ArchiveConfig) Enabled() bool { return a.Endpoint != "" }
+
+/*
+ * SecretAccessKey, gizli anahtarı çözer.
+ *
+ * ⚠️ ORTAM DEĞİŞKENİ DOSYAYI GEÇERSİZ KILIYOR, tersi değil: systemd
+ * EnvironmentFile ile çalışan bir kurulumun config'i değiştirmesi
+ * gerekmesin.
+ *
+ * ⚠️ DOSYA İZNİ KONTROL EDİLİYOR. CA ve mühür anahtarları için bu
+ * kontrol var; yükleme sırrı için olmaması, grup okunabilir bir
+ * dosyanın sessizce kabul edilmesi demekti.
+ */
+func (a ArchiveConfig) SecretAccessKey() (string, error) {
+	if v := os.Getenv("POSTERN_ARCHIVE_SECRET_KEY"); v != "" {
+		return v, nil
+	}
+	if a.SecretKeyFile == "" {
+		return "", fmt.Errorf("recording.archive: set secret_key_file or POSTERN_ARCHIVE_SECRET_KEY")
+	}
+	if err := checkKeyPerm(a.SecretKeyFile); err != nil {
+		return "", err
+	}
+	b, err := os.ReadFile(a.SecretKeyFile)
+	if err != nil {
+		return "", fmt.Errorf("recording.archive.secret_key_file: %w", err)
+	}
+	return strings.TrimSpace(string(b)), nil
 }
 
 // DefaultRecordingMinFree, MinFree boş bırakıldığında geçerli olan.

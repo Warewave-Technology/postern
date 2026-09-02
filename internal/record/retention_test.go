@@ -43,7 +43,7 @@ func TestPruneUsesModTimeNotDirectoryName(t *testing.T) {
 	// Aynı dizinde gerçekten eski bir dosya: gitmeli.
 	old := write(t, dir, "2020-01-01", "eski.cast", 200*24*time.Hour, 100)
 
-	res, err := Prune(context.Background(), dir, 90*24*time.Hour, time.Now())
+	res, err := Prune(context.Background(), dir, 90*24*time.Hour, time.Now(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestPruneWithZeroKeepsEverything(t *testing.T) {
 	p := write(t, dir, "2020-01-01", "a.cast", 10000*time.Hour, 10)
 
 	for _, d := range []time.Duration{0, -time.Hour} {
-		res, err := Prune(context.Background(), dir, d, time.Now())
+		res, err := Prune(context.Background(), dir, d, time.Now(), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -92,7 +92,7 @@ func TestPruneRemovesOnlyEmptiedDays(t *testing.T) {
 	write(t, dir, "2020-01-02", "a.cast", 200*24*time.Hour, 1)
 	write(t, dir, "2020-01-02", "b.cast", time.Minute, 1)
 
-	res, err := Prune(context.Background(), dir, 90*24*time.Hour, time.Now())
+	res, err := Prune(context.Background(), dir, 90*24*time.Hour, time.Now(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

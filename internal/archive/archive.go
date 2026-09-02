@@ -1,0 +1,327 @@
+package archive
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/warewave/postern/internal/objstore"
+	"github.com/warewave/postern/internal/store"
+)
+
+/*
+ * Kayıtları nesne deposuna taşıyan işçi.
+ *
+ * ⚠️ AĞ, OTURUM YOLUNA HİÇ DOKUNMUYOR — ve bu, bu paketin var olma
+ * biçimini belirleyen tek kural.
+ *
+ * Bugün "kayıt açılamazsa oturum reddedilir" kuralı YEREL bir dosya
+ * açmaya bakıyor. Yüklemeyi o yola bağlasaydık, nesne deposunun bir
+ * kesintisi bastion'ın kesintisine dönüşürdü: postern, bulut
+ * sağlayıcısının çalışma süresine zincirlenirdi.
+ *
+ * Yapısal güvence şu: bu paket proxy.Deps'in ÜYESİ DEĞİL. proxy.Open
+ * ona ulaşamıyor, dolayısıyla ondan zarar da göremiyor. Oturum
+ * yolunun yükleme ile tek teması, kapanışta yazılan bir veritabanı
+ * satırı — o da başarısız olsa oturumu etkilemiyor.
+ *
+ * ⚠️ İŞ SIRASI: yükle → deponun kendisine sor → damgala → budayıcıya
+ * silme izni doğ. Damgayı yüklemeden önce atmak, gönderilmemiş bir
+ * kaydı silinebilir yapardı; doğrulamadan atmak ise "gönderdim" ile
+ * "orada" arasındaki farkı yok sayardı.
+ */
+
+// Config, arşivleyicinin çalışma parametreleri.
+type Config struct {
+	// RecordingsDir, .cast dosyalarının kökü.
+	RecordingsDir string
+
+	// Bucket ve Prefix, nesne anahtarını kuruyor.
+	Prefix string
+
+	// Interval, iki tarama arası.
+	Interval time.Duration
+
+	// Batch, bir turda kaç kayıt üstlenilecek.
+	Batch int
+
+	// ClaimTimeout, üstlenilmiş ama bitmemiş bir işin serbest kalma
+	// süresi. Öldürülen süreç temizlik yapamaz; bu süre onun yerine
+	// geçiyor.
+	ClaimTimeout time.Duration
+
+	// RetryAfter, başarısız bir denemeden sonra en erken tekrar.
+	RetryAfter time.Duration
+}
+
+func (c *Config) withDefaults() {
+	if c.Interval <= 0 {
+		c.Interval = time.Minute
+	}
+	if c.Batch <= 0 {
+		c.Batch = 8
+	}
+	if c.ClaimTimeout <= 0 {
+		c.ClaimTimeout = 15 * time.Minute
+	}
+	if c.RetryAfter <= 0 {
+		c.RetryAfter = 2 * time.Minute
+	}
+}
+
+// Archiver, bekleyen kayıtları nesne deposuna taşıyor.
+type Archiver struct {
+	db     *store.Store
+	client *objstore.Client
+	cfg    Config
+	logger *slog.Logger
+}
+
+// New, arşivleyiciyi kurar. client nil ise nil döner: arşivleme kapalı.
+func New(db *store.Store, client *objstore.Client, cfg Config, logger *slog.Logger) *Archiver {
+	if client == nil {
+		return nil
+	}
+	cfg.withDefaults()
+	return &Archiver{db: db, client: client, cfg: cfg, logger: logger}
+}
+
+/*
+ * ArchivedIDs, budayıcının sorduğu soruya cevap verir.
+ *
+ * record.Archived arayüzünü karşılıyor. Arşivleyici kapalıysa (nil)
+ * budayıcıya hiç takılmıyor, yani kapı da yok.
+ */
+func (a *Archiver) ArchivedIDs(ctx context.Context, ids []string) (map[string]bool, error) {
+	return a.db.ArchivedIDs(ctx, ids)
+}
+
+// Start, tarama döngüsünü çalıştırır. ctx bitene kadar dönmüyor.
+func (a *Archiver) Start(ctx context.Context) {
+	if a == nil {
+		return
+	}
+	a.logger.Info("recording archive is on",
+		"bucket", a.client.Bucket(), "prefix", a.cfg.Prefix,
+		"interval", a.cfg.Interval,
+		"note", "recordings are uploaded after they are finished; "+
+			"the session path never waits on the network")
+
+	// Açılışta hemen bir tur: yeniden başlatmadan sonra bekleyen iş
+	// varsa bir sonraki tick'i beklemesin.
+	a.RunOnce(ctx)
+
+	t := time.NewTicker(a.cfg.Interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			a.RunOnce(ctx)
+		}
+	}
+}
+
+/*
+ * RunOnce, bir tur yükleme yapar.
+ *
+ * DIŞARI AÇIK, çünkü testin sunucu kurmadan çağırabilmesi gerekiyor:
+ * "yeniden başlatmadan sonra bekleyen iş yükleniyor mu" sorusu ancak
+ * böyle ölçülebilir.
+ */
+func (a *Archiver) RunOnce(ctx context.Context) {
+	if a == nil {
+		return
+	}
+	now := time.Now()
+	pending, err := a.db.ClaimArchives(ctx, a.cfg.Batch, now, a.cfg.ClaimTimeout, a.cfg.RetryAfter)
+	if err != nil {
+		a.logger.Error("could not claim recordings to archive", "error", err)
+		return
+	}
+	for _, p := range pending {
+		if ctx.Err() != nil {
+			// ⚠️ KAPANIŞTA BEKLEMİYORUZ. Yarım kalan iş, claimed_at
+			// zaman aşımıyla serbest kalıyor ve bir sonraki açılışta
+			// yeniden alınıyor. Doğruluk temizlikten değil SIRADAN
+			// geliyor: damga ancak doğrulamadan sonra atılıyor.
+			return
+		}
+		a.archiveOne(ctx, p)
+	}
+	a.reportBacklog(ctx)
+}
+
+func (a *Archiver) archiveOne(ctx context.Context, p store.ArchivePending) {
+	log := a.logger.With("session_id", p.SessionID, "attempts", p.Attempts)
+
+	path, err := a.safePath(p.RecordingPath)
+	if err != nil {
+		// Kalıcı: yolun kendisi kabul edilebilir değil.
+		a.fail(ctx, p.SessionID, log, err, false)
+		return
+	}
+
+	f, err := os.Open(path) // #nosec G304 -- safePath kökün altını doğruladı
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			/*
+			 * ⚠️ DOSYA YOK: KALICI, ve bu sessizce geçilecek bir şey
+			 * değil. Özellik açılmadan önce budanmış kayıtlar bu dala
+			 * düşüyor. "Kayıp" ile "bekliyor" ayrı durumlar; ikisini
+			 * birleştirmek, kuyruğun hiç bitmeyen bir kuyruğa
+			 * dönüşmesi ve gerçek arızayı gizlemesi demekti.
+			 */
+			a.fail(ctx, p.SessionID, log,
+				fmt.Errorf("recording file is gone: %s", path), false)
+			return
+		}
+		a.fail(ctx, p.SessionID, log, err, true)
+		return
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		a.fail(ctx, p.SessionID, log, err, true)
+		return
+	}
+
+	key := a.keyFor(p, path)
+
+	sum, err := a.client.Put(ctx, key, f, info.Size())
+	if err != nil {
+		a.fail(ctx, p.SessionID, log, err, errors.Is(err, objstore.ErrTransient))
+		return
+	}
+
+	/*
+	 * ⚠️ PUT'UN 200 DÖNMESİ YETMİYOR. Damgayı atmak, budayıcıya silme
+	 * izni vermek demek; bunu yapmadan önce nesnenin orada olduğunu
+	 * DEPONUN KENDİSİNDEN duyuyoruz. Kendi istemcimizin "başarılı"
+	 * demesiyle deponun "duruyor" demesi aynı şey değil.
+	 */
+	size, err := a.client.Head(ctx, key)
+	if err != nil {
+		a.fail(ctx, p.SessionID, log, fmt.Errorf("verify: %w", err),
+			errors.Is(err, objstore.ErrTransient))
+		return
+	}
+	if size >= 0 && size != info.Size() {
+		a.fail(ctx, p.SessionID, log,
+			fmt.Errorf("verify: stored %d bytes, sent %d", size, info.Size()), true)
+		return
+	}
+
+	if err := a.db.MarkArchived(ctx, p.SessionID, a.client.Bucket(), key,
+		sum, info.Size(), time.Now()); err != nil {
+		// Yüklendi ama damgalanamadı: bir sonraki turda yeniden
+		// yüklenecek. Aynı anahtara aynı içeriği yazmak zararsız.
+		log.Error("recording uploaded but could not be marked", "error", err)
+		return
+	}
+	log.Info("recording archived", "object_key", key, "bytes", info.Size())
+}
+
+// fail, denemeyi kaydeder ve sebebini söyler.
+func (a *Archiver) fail(ctx context.Context, id string, log *slog.Logger, cause error, transient bool) {
+	// ⚠️ Hata metni ASLA Authorization taşımıyor: objstore yalnızca
+	// durum kodunu ve S3'ün XML gövdesini döndürüyor (bkz. classify).
+	if transient {
+		log.Warn("recording archive failed, will retry", "error", cause)
+	} else {
+		log.Error("recording archive failed and will not succeed without a change",
+			"error", cause)
+	}
+	if err := a.db.MarkArchiveFailed(context.WithoutCancel(ctx), id, cause.Error(), time.Now()); err != nil {
+		log.Error("could not record the archive failure", "error", err)
+	}
+}
+
+/*
+ * keyFor, nesne anahtarını kurar.
+ *
+ * ⚠️ ANAHTAR KİMLİK BİLGİSİ TAŞIMIYOR: kullanıcı adı, hedef adı ya da
+ * os_user yok. Kovayı listeleyebilen biri bunlardan bir erişim haritası
+ * çıkarabilirdi. Tarih öneki duruyor — nesne sayıları zaten aktivite
+ * hacmini veriyor ve önek, saklama kurallarını tarihe göre yazmayı
+ * mümkün kılıyor.
+ */
+func (a *Archiver) keyFor(p store.ArchivePending, path string) string {
+	day := filepath.Base(filepath.Dir(path))
+	name := filepath.Base(path)
+	key := day + "/" + name
+	if a.cfg.Prefix != "" {
+		key = trimSlashes(a.cfg.Prefix) + "/" + key
+	}
+	return key
+}
+
+func trimSlashes(s string) string {
+	for len(s) > 0 && s[0] == '/' {
+		s = s[1:]
+	}
+	for len(s) > 0 && s[len(s)-1] == '/' {
+		s = s[:len(s)-1]
+	}
+	return s
+}
+
+/*
+ * safePath, veritabanından gelen yolu kayıt kökünün altında doğrular.
+ *
+ * ⚠️ recording_path BİR VERİTABANI SÜTUNU. record.Store.Open aynı
+ * gerekçeyle aynı kontrolü yapıyor: veritabanına yazabilen her yol,
+ * aksi hâlde keyfi bir dosyayı nesne deposuna YÜKLEMEYE dönüşürdü —
+ * bariz hedef ca.key_file. Okuma tarafında korunan şeyin yazma
+ * tarafında korunmaması, kapıyı arkadan açmak olurdu.
+ */
+func (a *Archiver) safePath(stored string) (string, error) {
+	if stored == "" {
+		return "", errors.New("session has no recording path")
+	}
+	root, err := filepath.Abs(a.cfg.RecordingsDir)
+	if err != nil {
+		return "", err
+	}
+	abs, err := filepath.Abs(stored)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(root, abs)
+	if err != nil || rel == ".." || len(rel) >= 3 && rel[:3] == ".."+string(filepath.Separator) {
+		return "", fmt.Errorf("recording path is outside the recordings root: %s", stored)
+	}
+	return abs, nil
+}
+
+/*
+ * reportBacklog, bekleyen işin BÜYÜKLÜĞÜNÜ ve YAŞINI loglar.
+ *
+ * ⚠️ YAŞ, SAYIDAN DAHA ÖNEMLİ. Ölmüş bir yükleyicinin belirtisi
+ * "sayı artıyor" değil — sabit bir sayı da hiçbir şeyin ilerlemediği
+ * anlamına gelebilir. En eskisinin yaşlanması, sıkışmayı disk
+ * dolmadan günler önce gösteren tek işaret.
+ */
+func (a *Archiver) reportBacklog(ctx context.Context) {
+	pending, oldest, err := a.db.ArchiveBacklog(ctx)
+	if err != nil || pending == 0 {
+		return
+	}
+	age := time.Since(oldest).Round(time.Minute)
+	fields := []any{"pending", pending, "oldest_age", age}
+
+	// Bir günü aşan bekleme, disk baskısına dönüşmeden önce
+	// görülmesi gereken bir arıza.
+	if age > 24*time.Hour {
+		a.logger.Error("recordings have been waiting to archive for over a day; "+
+			"they cannot be pruned while they wait, so the disk will fill", fields...)
+		return
+	}
+	a.logger.Info("recordings waiting to archive", fields...)
+}
