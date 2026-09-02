@@ -18,6 +18,8 @@ func newRoleCmd() *cobra.Command {
 		Short: "Manage roles",
 	}
 	cmd.AddCommand(newRoleAddCmd())
+	cmd.AddCommand(newRoleListCmd())
+	cmd.AddCommand(newRoleRevokeTargetCmd())
 	return cmd
 }
 
