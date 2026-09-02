@@ -1057,6 +1057,29 @@ sync:
       <h3>The panel did not change after a rebuild</h3>
       <p><code>make web</code> alone does nothing to a running server — the assets are embedded. Rebuild the binary.</p>
 
+      <h3>Someone was re-created in the directory and cannot sign in</h3>
+      <p>
+        A directory that deletes and re-creates a person gives them a new
+        stable identity. postern binds accounts to that identity rather than to
+        a username — deliberately, so renaming somebody does not hand their
+        access to whoever takes the old name — so the account is now bound to
+        an identity nobody has. Signing in through the browser answers
+        <i>this bastion has no account for you</i>, and SSH refuses with
+        <i>not in the directory</i>.
+      </p>
+      <p>
+        Detach the old binding on the bastion host. The next directory sign-in
+        binds the account again, and roles, keys and session history are
+        untouched:
+      </p>
+<pre>$ postern user unbind-directory --name ayse --config postern.yaml
+"ayse" is bound to directory identity 9f2c…
+detaching means the NEXT directory sign-in claims this account, whoever it comes from.
+
+type the account name to confirm: ayse
+</pre>
+      <div class="stop"><b>Only when the directory really did re-create them</b><p>Between detaching and their next sign-in, the account is claimable by whatever directory identity signs in with that username. That is why the command lives on the host and not in the panel, and why it writes to the admin log: it is the one command that opens an existing account to a different identity. Confirm who you are helping before running it.</p></div>
+
       <h3>Locked out of the panel</h3>
       <p>Go to the host. <code>postern admin issue --name &lt;user&gt;</code> prints a fresh secret. This is why the local administrator is never removed.</p>
     </section>

@@ -34,6 +34,7 @@ func newUserCmd() *cobra.Command {
 	cmd.AddCommand(newUserModifyCmd())
 	cmd.AddCommand(newUserAllowBindCmd())
 	cmd.AddCommand(newUserStateCmd())
+	cmd.AddCommand(newUserUnbindDirectoryCmd())
 	cmd.AddCommand(newUserPurgeCmd())
 	cmd.AddCommand(newUserGrantRoleCmd())
 	cmd.AddCommand(newUserRevokeRoleCmd())
