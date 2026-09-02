@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Session, api, toMessage } from "../api";
-import { ErrorLine } from "./common";
+import { ActionButton, ErrorLine, OkLine } from "./common";
 
 /**
  * Overview — bastion'da ŞU AN ne olduğu.
@@ -62,20 +62,63 @@ export default function Overview() {
   const [feed, setFeed] = useState<LiveEvent[]>([]);
   const [status, setStatus] = useState<Status>("connecting");
   const [error, setError] = useState("");
+  // ⚠️ Başarı kanalı YOKTU: kapatma, ekran okuyucuya tamamen
+  // sessiz kalırdı ve gören kullanıcı için de satırın kaybolması
+  // dışında bir işaret olmazdı.
+  const [okMsg, setOkMsg] = useState("");
 
   // Oturum listesi olay geldikçe tazeleniyor ama arka arkaya gelen beş
   // olay beş istek açmasın diye kısa bir gecikmeyle toplanıyor.
   const refreshTimer = useRef<number | null>(null);
 
-  const loadSessions = useCallback(() => {
-    api
-      .sessions()
-      .then((v) => {
-        setSessions(v);
-        setError("");
-      })
-      .catch((e: unknown) => setError(toMessage(e)));
-  }, []);
+  // Söz DÖNÜYOR: çağıranın tazelemenin bitmesini bekleyebilmesi gerekiyor
+  // (bkz. closeSession — bu fonksiyon başarıda hata satırını temizliyor).
+  const loadSessions = useCallback(
+    () =>
+      api
+        .sessions()
+        .then((v) => {
+          setSessions(v);
+          setError("");
+        })
+        .catch((e: unknown) => setError(toMessage(e))),
+    [],
+  );
+
+  /*
+   * closeSession, oturumu kapatır ve listeyi SUNUCUDAN tazeler.
+   *
+   * ⚠️ İYİMSER SİLME YOK. Satırı hemen listeden atmak, kapatma
+   * başarısız olduğunda oturumu gizlerdi — operatör akan bir oturumu
+   * kapanmış sanardı. Gerçeği sunucu söylüyor.
+   *
+   * ⚠️ OLAY AKIŞINI BEKLEMİYORUZ. SessionEnded artık ended_at
+   * yazıldıktan SONRA yayınlanıyor (proxy.Session.Close), ama akış
+   * sadece bu sürecin olaylarını taşıyor ve bağlantı kopmuş olabilir.
+   * Doğrudan tazelemek, düğmenin cevabını akışın sağlığına bağlamıyor.
+   */
+  const closeSession = async (s: Session) => {
+    setError("");
+    setOkMsg("");
+    try {
+      await api.terminateSession(s.id);
+      setOkMsg(`Closed ${s.user}'s session on ${s.target}.`);
+      await loadSessions();
+    } catch (e: unknown) {
+      /*
+       * ⚠️ ÖNCE TAZELE, SONRA HATAYI YAZ — ve bunu bir test yakaladı.
+       *
+       * loadSessions başarılı çekimde setError("") yapıyor. Hatayı önce
+       * yazsaydık tazeleme onu SİLERDİ: kapatma başarısız olur, satır
+       * yerinde durur ve ekranda tek bir işaret bulunmazdı. Operatör
+       * "bastım, bir şey olmadı" ile "bastım, olmadı ve sebebi şu"
+       * arasındaki farkı kaybederdi.
+       */
+      const msg = toMessage(e);
+      await loadSessions();
+      setError(msg);
+    }
+  };
 
   const scheduleRefresh = useCallback(() => {
     if (refreshTimer.current !== null) return;
@@ -155,7 +198,21 @@ export default function Overview() {
     };
   }, [loadSessions, scheduleRefresh]);
 
-  const active = sessions.filter((s) => !s.ended_at);
+  /*
+   * ⚠️ AÇIK SATIR ≠ AKAN OTURUM.
+   *
+   * ended_at'in boş olması "bitişini kaydetmedik" demek. postern SIGKILL
+   * yerse o satır sonsuza dek boş kalıyor (ölçüldü) ve panel onu süresiz
+   * "çalışıyor" gösteriyordu. Artık sunucu her satıra `running` koyuyor:
+   * gerçeği yalnızca süreçteki defter biliyor.
+   *
+   * Akmayanı gizlemiyoruz — açık ama akmayan satır, bir çökmenin izi ve
+   * operatörün görmesi gereken bir şey; yalnızca "çalışıyor" demiyoruz
+   * ve kapatma düğmesini ona çizmiyoruz.
+   */
+  const openRows = sessions.filter((s) => !s.ended_at);
+  const active = openRows.filter((s) => s.running !== false);
+  const stranded = openRows.filter((s) => s.running === false);
   const denials = feed.filter((e) => e.kind === "auth.denied").length;
 
   // "Bugün" istemcinin saat diliminde: operatör ekrana kendi saatiyle
@@ -188,6 +245,7 @@ export default function Overview() {
       </div>
 
       <ErrorLine msg={error} />
+      <OkLine msg={okMsg} />
 
       <div className="stat-grid">
         <div className="stat">
@@ -219,7 +277,17 @@ export default function Overview() {
       <div className="card">
         <div className="card-head">
           <h3>Active sessions</h3>
-          <p>Open right now. Closing one is not possible from here yet.</p>
+          {/*
+            ⚠️ CÜMLE, DÜĞMENİN YAPMADIĞINI SÖYLÜYOR. Kapatma bağlantıyı
+            düşürüyor ama erişimi almıyor: roller bağlanma anında
+            çözülüyor ve hesaba dokunulmadığı için kişi hemen yeniden
+            bağlanabiliyor. Olay anındaki bir yönetici "kestim, artık
+            dışarıda" diye okursa, ekran ona yalan söylemiş olur.
+          */}
+          <p>
+            Open right now. Closing one ends the connection; it does not take
+            access away.
+          </p>
         </div>
         {active.length === 0 ? (
           <p className="no-match">No session is open.</p>
@@ -240,10 +308,48 @@ export default function Overview() {
                     </time>
                   </span>
                 </span>
-                <span className="badge badge-ok">running</span>
+                <span className="row-actions">
+                  <span className="badge badge-ok">running</span>
+                  <ActionButton
+                    variant="danger"
+                    /* ⚠️ "close", "kill" DEĞİL: paneldeki fiiller Revoke,
+                       Deactivate, Delete, Remove — "kill" bu sözlükte yok. */
+                    label={`close ${s.user}'s session on ${s.target}`}
+                    /*
+                      ⚠️ HİÇBİR ÇARE ADI VERİLMİYOR ve bu, ölçtükten
+                      sonra alınmış bir karar. İlk metin "hesabı Users
+                      sayfasından pasifleştirmek bunu durdurur" diyordu.
+                      DOĞRU DEĞİL: dört giriş yolunun dördü de
+                      ConfirmAccount çağırıyor ve o, 'inactive'i
+                      'active'e geri çeviriyor (store/accountstate.go).
+                      Yani pasifleştirme dizin/OIDC/parola ile girenleri
+                      durdurmuyor. Operatörden güvenmesini istediğimiz
+                      kutuya yarı doğru bir vaat koymak, hiçbir şey
+                      dememekten kötü.
+                    */
+                    confirm={
+                      `Close ${s.user}'s session on ${s.target}?\n\n` +
+                      `The connection drops and the recording is kept. It does ` +
+                      `not take access away: ${s.user} can reconnect straight ` +
+                      `away unless you also remove what grants it.`
+                    }
+                    onClick={() => closeSession(s)}
+                  >
+                    Close
+                  </ActionButton>
+                </span>
               </li>
             ))}
           </ul>
+        )}
+        {stranded.length > 0 && (
+          <p className="small muted stranded-note">
+            {stranded.length === 1
+              ? "1 more row is still open but nothing here is carrying it"
+              : `${stranded.length} more rows are still open but nothing here is carrying them`}{" "}
+            — left over from an earlier run of this bastion. They cannot be
+            closed from here; a restart clears them.
+          </p>
         )}
       </div>
 

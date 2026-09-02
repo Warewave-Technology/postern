@@ -177,6 +177,13 @@ export type Session = {
   src_ip: string;
   started_at: string;
   ended_at: string | null;
+  /** Bu süreçte GERÇEKTEN akıyor mu.
+   *
+   *  ⚠️ `!ended_at` ile AYNI ŞEY DEĞİL: ended_at'in boş olması "bitişini
+   *  kaydetmedik" demek ve postern çökerse o satır sonsuza dek boş
+   *  kalıyor. Kapatma düğmesi yalnızca `running` olana çizilir; aksi
+   *  hâlde panel var olmayan bir oturumu kapatmayı teklif ederdi. */
+  running?: boolean;
 };
 /** MyTarget, ana ekrandaki kutu. Adres YOK: sıradan kullanıcı hedefe
  *  postern üzerinden bağlanıyor ve ağ topolojisini bilmesi gerekmiyor. */
@@ -855,6 +862,13 @@ export const api = {
   sessions: () => req<Session[]>("GET", "/api/admin/sessions"),
   sessionDetail: (id: string) =>
     req<SessionDetail>("GET", `/api/admin/sessions/${encodeURIComponent(id)}`),
+  /** Canlı oturumu kapatır. DELETE DEĞİL: oturum satırı silinmiyor,
+   *  denetim izi olarak kalıyor; duran şey akışın kendisi. */
+  terminateSession: (id: string) =>
+    req<{ ok: boolean }>(
+      "POST",
+      `/api/admin/sessions/${encodeURIComponent(id)}/terminate`,
+    ),
   // Kaydın kendisi: asciicast v2, satır satır JSON — düz metin olarak
   // alınıyor (bkz. reqText).
   sessionRecording: (id: string) =>
