@@ -509,6 +509,36 @@ export type SessionFile = {
   detail?: string;
 };
 
+/*
+ * FileTouch, bir YOLA dokunan tek bir olay — ve onu yapan kişi.
+ *
+ * ⚠️ SessionFile'ın alanlarını taşıyor ama oturum üstverisi de ekli.
+ * Soruşturmanın sorusu "bu dosyayı kim aldı" ve cevabı bir oturum
+ * kimliği değil, bir kişi.
+ *
+ * ⚠️ user/target BOŞ OLABİLİR: sunucu LEFT JOIN kullanıyor, yani
+ * oturum satırı okunamayan bir olay yine de listeleniyor. Olayın
+ * kendisi kanıt; kimin yaptığını bilememek onu gizlemenin gerekçesi
+ * değil.
+ */
+export type FileTouch = SessionFile & {
+  session_id: string;
+  user: string;
+  target: string;
+  os_user: string;
+  src_ip: string;
+};
+
+/** Bir yolun geçmişi. `truncated`, listenin sunucuda kesildiğini
+ *  söylüyor — sessizce ilk N'i göstermek, denetçiye "olan biten bu"
+ *  dedirtirdi. */
+export type FileHistory = {
+  path: string;
+  events: FileTouch[];
+  limit: number;
+  truncated: boolean;
+};
+
 export type SessionDetail = Session & {
   recording: {
     state: RecordingState;
@@ -946,4 +976,11 @@ export const api = {
       `/api/admin/users/${encodeURIComponent(name)}/totp/reset`,
     ),
   adminLog: () => req<LogEntry[]>("GET", "/api/admin/log"),
+  /** "Bu dosyaya kim dokundu" — oturumdan dosyaya değil, dosyadan
+   *  oturuma bakan sorgu. */
+  fileHistory: (path: string) =>
+    req<FileHistory>(
+      "GET",
+      `/api/admin/files?path=${encodeURIComponent(path)}`,
+    ),
 };

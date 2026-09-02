@@ -12,6 +12,7 @@ import Users from "./admin/Users";
 import Targets from "./admin/Targets";
 import Roles from "./admin/Roles";
 import { AdminLog, Sessions } from "./admin/Audit";
+import FileHistory from "./admin/FileHistory";
 import Mappings from "./admin/Mappings";
 import Pending from "./admin/Pending";
 import AuthSource from "./admin/AuthSource";
@@ -36,6 +37,7 @@ import {
   PlayIcon,
   PulseIcon,
   RolesIcon,
+  SearchIcon,
   TargetIcon,
   UsersIcon,
   IdPIcon,
@@ -56,6 +58,7 @@ type Section =
   | "oidc"
   | "ldap"
   | "sessions"
+  | "files"
   | "log";
 
 /*
@@ -112,6 +115,16 @@ const NAV: { title?: string; items: [Section, string, ReactNode][] }[] = [
     title: "Audit",
     items: [
       ["sessions", "Sessions", <PlayIcon key="i" />],
+      /*
+       * ⚠️ OTURUMLARIN YANINDA, ÇÜNKÜ TERS SORU.
+       *
+       * "Sessions" oturumdan dosyaya bakıyor; soruşturmanın elinde ise
+       * oturum değil YOL oluyor ("/etc/shadow'u kim aldı"). Depoda
+       * doğru sorgu ilk günden duruyordu ve panelde hiçbir yerden
+       * çağrılmıyordu — SFTP denetimini yazma gerekçesi olan sorunun
+       * cevabı, yazılmış ve ulaşılamaz hâlde bekliyordu.
+       */
+      ["files", "File history", <SearchIcon key="i" size={15} />],
       ["log", "Admin log", <LogIcon key="i" />],
     ],
   },
@@ -610,6 +623,7 @@ export default function App() {
                   {section === "oidc" && <OIDCSettingsScreen />}
                   {section === "ldap" && <Settings meName={me.name} />}
                   {section === "sessions" && <Sessions theme={resolved} />}
+                  {section === "files" && <FileHistory />}
                   {section === "log" && <AdminLog />}
                 </div>
               </div>

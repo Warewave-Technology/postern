@@ -83,6 +83,10 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	}
 	mux.Handle("GET /api/admin/log", admin(s.adminListLog))
 
+	// "Bu dosyaya kim dokundu" — oturumdan dosyaya değil, dosyadan
+	// oturuma bakan tek yüzey.
+	s.registerFileRoutes(mux, admin)
+
 	// Kayıt izleme yalnızca UseRecordings çağrıldıysa.
 	s.registerRecordingRoutes(mux, admin)
 }

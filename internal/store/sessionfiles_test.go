@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -166,5 +167,101 @@ func TestSessionFilesEmptyIsAList(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Fatalf("beklenmeyen satır: %+v", got)
+	}
+}
+
+/*
+ * ⚠️ CEVAP BİR UUID DEĞİL, BİR KİŞİ.
+ *
+ * "Kim aldı" sorusuna oturum kimliğiyle cevap vermek, denetçiyi her
+ * satır için ayrı bir sorguya mecbur bırakır — ve pratikte soruyu
+ * cevapsız bırakır.
+ */
+func TestFileHistoryNamesThePerson(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	startFileSession(t, s, "sess-who")
+
+	now := time.Now().Truncate(time.Second)
+	if err := s.AddSessionFiles(ctx, "sess-who", []SessionFile{
+		{At: now, Op: "transfer", Path: "/etc/shadow", Read: 100, OK: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	hist, err := s.FileHistory(ctx, "/etc/shadow", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hist) != 1 {
+		t.Fatalf("geçmiş = %d satır, 1 bekleniyordu", len(hist))
+	}
+	if hist[0].User != "yigit" {
+		t.Errorf("kullanıcı = %q, \"yigit\" bekleniyordu", hist[0].User)
+	}
+	if hist[0].Target != "web01" {
+		t.Errorf("hedef = %q, \"web01\" bekleniyordu", hist[0].Target)
+	}
+	if hist[0].OSUser != "yigit" || hist[0].SrcIP != "10.0.0.1" {
+		t.Errorf("oturum üstverisi eksik: %+v", hist[0])
+	}
+}
+
+/*
+ * ⚠️ DOSYA ORAYA BİR RENAME İLE GELMİŞ OLABİLİR.
+ *
+ * "/tmp/exfil buraya nereden geldi" sorusunda aranan yol satırın
+ * `path`inde değil `new_path`inde durur. Yalnızca `path`e bakan bir
+ * arama "hiç dokunulmamış" derdi — dosyayı oraya taşıyan satır
+ * elimizdeyken. Sızdırmanın en ucuz biçimini görünmez yapardı.
+ */
+func TestFileHistoryFindsTheDestinationOfARename(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	startFileSession(t, s, "sess-rename")
+
+	now := time.Now().Truncate(time.Second)
+	if err := s.AddSessionFiles(ctx, "sess-rename", []SessionFile{
+		{At: now, Op: "rename", Path: "/etc/shadow",
+			NewPath: "/tmp/exfil", OK: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	hist, err := s.FileHistory(ctx, "/tmp/exfil", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hist) != 1 {
+		t.Fatalf("hedef yol üzerinden bulunamadı: %d satır", len(hist))
+	}
+	if hist[0].Op != "rename" || hist[0].Path != "/etc/shadow" {
+		t.Errorf("beklenen rename satırı değil: %+v", hist[0])
+	}
+}
+
+/*
+ * ⚠️ BOŞ ARAMA REDDEDİLİYOR.
+ *
+ * Satırların çoğunda new_path boş. Koşulun ikinci yarısı korumasız
+ * kalsaydı, boş bir arama tabloda ne varsa döner ve denetçiye aradığı
+ * dosyanın geçmişi diye rastgele bir liste gösterirdi — yanlış cevabın
+ * en pahalı biçimi, çünkü dolu bir ekran "bulundu" gibi okunur.
+ */
+func TestFileHistoryRefusesAnEmptyPath(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	startFileSession(t, s, "sess-empty")
+
+	now := time.Now().Truncate(time.Second)
+	if err := s.AddSessionFiles(ctx, "sess-empty", []SessionFile{
+		{At: now, Op: "transfer", Path: "/etc/shadow", Read: 1, OK: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	hist, err := s.FileHistory(ctx, "", 0)
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("boş yol kabul edildi: err=%v, %d satır döndü", err, len(hist))
 	}
 }

@@ -179,3 +179,73 @@ export function ActionButton({
     </button>
   );
 }
+
+/*
+ * ⚠️ BURADA, Audit.tsx'te DEĞİL. Üç denetim ekranı da (oturumlar,
+ * defter, dosya geçmişi) aynı damgayı ve aynı bayt biçimini
+ * kullanıyor; ikinci ekran için kopyalansalardı, biri düzeltilip
+ * öbürü unutulduğunda aynı olay iki ekranda iki farklı zaman
+ * gösterirdi.
+ */
+/*
+ * Damgalar KISA biçimde yazılıyor ("28 Aug 09:31:56").
+ *
+ * toLocaleString() "8/28/2026, 9:31:56 AM" üretiyordu; iki damgalı bir
+ * satır tabloyu ~200px genişletiyor ve sağdaki EYLEM sütununu yatay
+ * kaydırmanın ardına itiyordu.
+ */
+const stampFmt = new Intl.DateTimeFormat(undefined, {
+  day: "2-digit",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+});
+
+/**
+ * Timestamp renders an RFC3339 stamp compactly and keeps the exact
+ * original in the title, for copying into a report or a log query.
+ */
+export function Timestamp({ value }: { value: string }) {
+  const d = new Date(value);
+  // Ayrıştıramadığımız damgayı "Invalid Date" diye göstermek kaydın
+  // kendisini gizlemek olurdu: ham değer hiç yoktan iyidir.
+  if (Number.isNaN(d.getTime())) return <>{value}</>;
+  return (
+    <time dateTime={value} title={value}>
+      {stampFmt.format(d)}
+    </time>
+  );
+}
+
+/**
+ * sortableTime, sıralama için sayısal damga.
+ *
+ * ⚠️ METİN SIRALAMASI YANLIŞ OLURDU: gösterilen biçimde yıl yok ve
+ * "28 Aug" ile "3 Sep" alfabetik sıralandığında Ağustos, Eylül'den
+ * sonra gelir. Sıralama ham değerin zamanına bakıyor.
+ */
+export function sortableTime(v: string | null): number {
+  if (!v) return 0;
+  const t = new Date(v).getTime();
+  return Number.isNaN(t) ? 0 : t;
+}
+
+/*
+ * Bayt sayısını okunur hâle getirir.
+ *
+ * Denetçinin sorusu "4823905 bayt mı" değil "4,6 MB mı". Ham sayı, iki
+ * transferi gözle karşılaştırmayı imkânsız kılıyordu.
+ */
+export function bytes(n: number): string {
+  if (n === 0) return "—";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let v = n;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${i === 0 ? v : v.toFixed(1)} ${units[i]}`;
+}
