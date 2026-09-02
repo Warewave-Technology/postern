@@ -58,11 +58,19 @@ function SessionFiles({
 
   return (
     <div className="card">
-      <h3>Files</h3>
-      <p className="page-sub">
-        What this session did over SFTP. A transfer row counts the bytes that
-        actually crossed, not the bytes requested.
-      </p>
+      {/*
+        ⚠️ card-head, ÇIPLAK h3 DEĞİL. `.card`ın kendi dolgusu yok
+        (styles.css); başlık sarmalayıcısız bırakılınca kartın üst
+        kenarına yapışıyordu. Tablo kenardan kenara kalıyor — bu
+        deponun her kart+tablo ekranında olduğu gibi.
+      */}
+      <div className="card-head">
+        <h3>Files</h3>
+        <p>
+          What this session did over SFTP. A transfer row counts the bytes that
+          actually crossed, not the bytes requested.
+        </p>
+      </div>
       <table className="data">
         <thead>
           <tr>
@@ -183,8 +191,8 @@ export function Sessions({ theme }: { theme: Resolved }) {
             setWhy(
               a
                 ? `This recording is no longer on the bastion — it was ` +
-                  `archived to ${a.bucket}/${a.object_key}. Fetch it with ` +
-                  `your own credentials; postern does not hold a read key.`
+                    `archived to ${a.bucket}/${a.object_key}. Fetch it with ` +
+                    `your own credentials; postern does not hold a read key.`
                 : "This recording was archived off the bastion.",
             );
             return;

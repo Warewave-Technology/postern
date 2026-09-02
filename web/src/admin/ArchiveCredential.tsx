@@ -54,9 +54,8 @@ export default function ArchiveCredential() {
           <h3>Recording archive</h3>
           <p>
             No destination is configured. Set{" "}
-            <code>recording.archive.endpoint</code> and{" "}
-            <code>bucket</code> in the config file; the key can then be entered
-            here.
+            <code>recording.archive.endpoint</code> and <code>bucket</code> in
+            the config file; the key can then be entered here.
           </p>
         </div>
       </div>
@@ -117,86 +116,95 @@ export default function ArchiveCredential() {
         </p>
       </div>
 
-      <ErrorLine msg={error} />
-      <OkLine msg={okMsg} />
+      {/*
+        ⚠️ card-body ŞART. `.card`ın kendi dolgusu yok (styles.css);
+        onu `.card-head`/`.card-body` veriyor. Sarmalayıcı olmadan
+        alanlar ve düğmeler kartın kenarına yapışıyordu — panelin
+        başka hiçbir kartı öyle durmuyor. Dosya geçmişi ekranı aynı
+        kusurla çıktı ve ikisi tek seferde düzeltildi.
+      */}
+      <div className="card-body">
+        <ErrorLine msg={error} />
+        <OkLine msg={okMsg} />
 
-      {fromHost ? (
-        <p className="small muted">
-          This bastion takes its archive key from the host
-          (<code>secret_key_file</code> or <code>POSTERN_ARCHIVE_SECRET_KEY</code>),
-          so it cannot be changed here. Access key in use:{" "}
-          <code>{status.access_key_id || "—"}</code>.
-        </p>
-      ) : (
-        <>
+        {fromHost ? (
           <p className="small muted">
-            {status.credential_source === "panel" ? (
-              <>
-                Current access key: <code>{status.access_key_id}</code>. The
-                secret is never shown again — entering a new one replaces it.
-              </>
-            ) : (
-              <>
-                No key is set, so nothing is being uploaded — and nothing can be
-                pruned while it waits.
-              </>
-            )}
+            This bastion takes its archive key from the host (
+            <code>secret_key_file</code> or{" "}
+            <code>POSTERN_ARCHIVE_SECRET_KEY</code>), so it cannot be changed
+            here. Access key in use: <code>{status.access_key_id || "—"}</code>.
           </p>
+        ) : (
+          <>
+            <p className="small muted">
+              {status.credential_source === "panel" ? (
+                <>
+                  Current access key: <code>{status.access_key_id}</code>. The
+                  secret is never shown again — entering a new one replaces it.
+                </>
+              ) : (
+                <>
+                  No key is set, so nothing is being uploaded — and nothing can
+                  be pruned while it waits.
+                </>
+              )}
+            </p>
 
-          <div className="wfield">
-            <label className="wfield-label" htmlFor="archive-key-id">
-              Access key ID
-            </label>
-            <input
-              id="archive-key-id"
-              value={keyID}
-              onChange={(e) => setKeyID(e.target.value)}
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </div>
-          <div className="wfield">
-            <label className="wfield-label" htmlFor="archive-secret">
-              Secret access key
-            </label>
-            {/* type=password: omuz üstünden okunmasın. Değer zaten
+            <div className="wfield">
+              <label className="wfield-label" htmlFor="archive-key-id">
+                Access key ID
+              </label>
+              <input
+                id="archive-key-id"
+                value={keyID}
+                onChange={(e) => setKeyID(e.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </div>
+            <div className="wfield">
+              <label className="wfield-label" htmlFor="archive-secret">
+                Secret access key
+              </label>
+              {/* type=password: omuz üstünden okunmasın. Değer zaten
                 geri okunmuyor; bu yalnızca yazarken. */}
-            <input
-              id="archive-secret"
-              type="password"
-              value={secret}
-              onChange={(e) => setSecret(e.target.value)}
-              autoComplete="new-password"
-            />
-          </div>
+              <input
+                id="archive-secret"
+                type="password"
+                value={secret}
+                onChange={(e) => setSecret(e.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
 
-          <div className="card-actions">
-            <ActionButton
-              variant="primary"
-              label="save the archive key"
-              disabled={keyID.trim() === "" || secret === ""}
-              onClick={save}
-            >
-              Save key
-            </ActionButton>
-            {status.credential_source === "panel" && (
+            <div className="card-actions">
               <ActionButton
-                variant="danger"
-                label="remove the archive key"
-                confirm={
-                  "Remove the archive key?\n\n" +
-                  "Uploading stops. Recordings are kept locally and will not " +
-                  "be pruned while they wait, so the disk will grow until a " +
-                  "key is set again."
-                }
-                onClick={clear}
+                variant="primary"
+                label="save the archive key"
+                disabled={keyID.trim() === "" || secret === ""}
+                onClick={save}
               >
-                Remove
+                Save key
               </ActionButton>
-            )}
-          </div>
-        </>
-      )}
+              {status.credential_source === "panel" && (
+                <ActionButton
+                  variant="danger"
+                  label="remove the archive key"
+                  confirm={
+                    "Remove the archive key?\n\n" +
+                    "Uploading stops. Recordings are kept locally and will not " +
+                    "be pruned while they wait, so the disk will grow until a " +
+                    "key is set again."
+                  }
+                  onClick={clear}
+                >
+                  Remove
+                </ActionButton>
+              )}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

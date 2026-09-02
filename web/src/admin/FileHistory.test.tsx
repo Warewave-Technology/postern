@@ -48,6 +48,23 @@ it("aramadan önce bile kapsamın SFTP ile sınırlı olduğunu söylüyor", () 
 });
 
 /*
+ * ⚠️ KART İÇERİĞİ DOLGUSUZ KALMAMALI.
+ *
+ * `.card`ın kendi dolgusu yok (styles.css: yalnızca yüzey, kenarlık,
+ * yuvarlatma); dolguyu `.card-head` ve `.card-body` veriyor.
+ * Sarmalayıcı unutulduğunda ekran ÇALIŞMAYA DEVAM EDİYOR — yalnızca
+ * etiket kartın üst kenarına yapışıyor ve alan kenardan kenara
+ * uzuyor. Bu ekran tam da öyle çıktı ve hiçbir davranış testi
+ * görmedi; kusuru panele bakan bir insan buldu.
+ */
+it("form alanları kartın dolgulu gövdesinde duruyor", () => {
+  const { container } = render(<FileHistory />);
+  const field = container.querySelector(".wfield");
+  expect(field).toBeTruthy();
+  expect(field!.closest(".card-body")).toBeTruthy();
+});
+
+/*
  * ⚠️ "HENÜZ ARANMADI" İLE "BULUNAMADI" AYRI ŞEYLER.
  *
  * Açılışta boş sonuç metni gösteren bir ekran, sorulmamış bir soruyu
@@ -91,9 +108,15 @@ describe("sonuçlar", () => {
     });
     await search();
 
-    await waitFor(() => expect(screen.getByText(/nothing found/i)).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText(/nothing found/i)).toBeTruthy(),
+    );
     expect(
-      screen.getByText(/not the same\s+as saying the file was never read/i),
+      screen.getByText(/not the\s+same as saying the file was never read/i),
+    ).toBeTruthy();
+    // Boş sonuç kartı da dolgulu gövdede — aynı kusur oraya da düşebilir.
+    expect(
+      screen.getByText(/nothing found/i).closest(".card-body"),
     ).toBeTruthy();
   });
 
@@ -144,10 +167,14 @@ describe("sonuçlar", () => {
    * "dokunulmadı" gibi göstermek, bu ekranın tam olarak kaçındığı şey.
    */
   it("arama başarısızsa boş sonuç değil hata gösteriyor", async () => {
-    vi.spyOn(api, "fileHistory").mockRejectedValue(new Error("database is down"));
+    vi.spyOn(api, "fileHistory").mockRejectedValue(
+      new Error("database is down"),
+    );
     await search();
 
-    await waitFor(() => expect(screen.getByText(/database is down/i)).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText(/database is down/i)).toBeTruthy(),
+    );
     expect(screen.queryByText(/nothing found/i)).toBeNull();
   });
 });

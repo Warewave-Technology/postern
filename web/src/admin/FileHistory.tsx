@@ -95,36 +95,47 @@ export default function FileHistory() {
           void search();
         }}
       >
-        <div className="wfield">
-          <label className="wfield-label" htmlFor="file-history-path">
-            Full path
-          </label>
-          <input
-            id="file-history-path"
-            value={path}
-            onChange={(e) => setPath(e.target.value)}
-            placeholder="/etc/shadow"
-            autoComplete="off"
-            spellCheck={false}
-          />
-          {/*
-            ⚠️ TAM EŞLEŞME OLDUĞU YAZILI. "/etc" yazıp altındaki her şeyi
-            bekleyen biri boş sonuç alır ve onu "dokunulmamış" diye okur.
-          */}
-          <p className="small muted">
-            Matched exactly, not as a prefix — and the path is the one the
-            client asked for, as the server recorded it.
-          </p>
-        </div>
-        <div className="card-actions">
-          <ActionButton
-            variant="primary"
-            label="search the file history"
-            disabled={path.trim() === "" || state.kind === "busy"}
-            onClick={search}
-          >
-            {state.kind === "busy" ? "Searching…" : "Search"}
-          </ActionButton>
+        {/*
+          ⚠️ card-body ŞART, SÜS DEĞİL. `.card`ın kendi dolgusu YOK
+          (styles.css: yalnızca kenarlık ve yuvarlatma); dolguyu
+          `.card-head`/`.card-body` veriyor. Sarmalayıcı olmadan etiket
+          kartın üst kenarına yapışıyor ve alan kenardan kenara
+          uzuyordu — panelin geri kalanının hiçbir yerinde öyle
+          durmuyor.
+        */}
+        <div className="card-body">
+          <div className="wfield">
+            <label className="wfield-label" htmlFor="file-history-path">
+              Full path
+            </label>
+            <input
+              id="file-history-path"
+              value={path}
+              onChange={(e) => setPath(e.target.value)}
+              placeholder="/etc/shadow"
+              autoComplete="off"
+              spellCheck={false}
+            />
+            {/*
+              ⚠️ TAM EŞLEŞME OLDUĞU YAZILI. "/etc" yazıp altındaki her
+              şeyi bekleyen biri boş sonuç alır ve onu "dokunulmamış"
+              diye okur.
+            */}
+            <p className="small muted">
+              Matched exactly, not as a prefix — and the path is the one the
+              client asked for, as the server recorded it.
+            </p>
+          </div>
+          <div className="card-actions">
+            <ActionButton
+              variant="primary"
+              label="search the file history"
+              disabled={path.trim() === "" || state.kind === "busy"}
+              onClick={search}
+            >
+              {state.kind === "busy" ? "Searching…" : "Search"}
+            </ActionButton>
+          </div>
         </div>
       </form>
 
@@ -146,14 +157,16 @@ function Result({ result }: { result: History }) {
   if (result.events.length === 0) {
     return (
       <div className="card">
-        <h3>
-          Nothing found for <code>{q}</code>
-        </h3>
-        <p className="page-sub">
-          No SFTP event recorded against this exact path. That is not the same
-          as saying the file was never read — see the note above — and it is
-          also not the same as saying the path never existed.
-        </p>
+        <div className="card-body">
+          <h3>
+            Nothing found for <code>{q}</code>
+          </h3>
+          <p className="page-sub">
+            No SFTP event recorded against this exact path. That is not the same
+            as saying the file was never read — see the note above — and it is
+            also not the same as saying the path never existed.
+          </p>
+        </div>
       </div>
     );
   }
@@ -188,7 +201,11 @@ function Result({ result }: { result: History }) {
       // kullanıyor: oturum üstverisi okunamayan bir olay yine geliyor
       // ve satırı yutmak, elimizdeki kanıtı saklamak olurdu.
       render: (f) =>
-        f.user || <span className="muted" title="session metadata missing">—</span>,
+        f.user || (
+          <span className="muted" title="session metadata missing">
+            —
+          </span>
+        ),
     },
     { key: "target", header: "Target", value: (f) => f.target },
     { key: "op", header: "Op", value: (f) => f.op },
@@ -236,7 +253,12 @@ function Result({ result }: { result: History }) {
           </span>
         ),
     },
-    { key: "read", header: "Read", value: (f) => f.read, render: (f) => bytes(f.read) },
+    {
+      key: "read",
+      header: "Read",
+      value: (f) => f.read,
+      render: (f) => bytes(f.read),
+    },
     {
       key: "wrote",
       header: "Wrote",
@@ -249,7 +271,9 @@ function Result({ result }: { result: History }) {
       key: "session",
       header: "Session",
       value: (f) => f.session_id,
-      render: (f) => <code title={f.session_id}>{f.session_id.slice(0, 12)}…</code>,
+      render: (f) => (
+        <code title={f.session_id}>{f.session_id.slice(0, 12)}…</code>
+      ),
     },
   ];
 
