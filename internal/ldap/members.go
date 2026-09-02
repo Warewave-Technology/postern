@@ -35,11 +35,11 @@ type GroupMembers struct {
  * farklı bir gerçeği gösterir — onay ekranının yapabileceği en kötü şey.
  */
 func (s *Source) MembersOf(ctx context.Context, group string) (GroupMembers, error) {
-	conn, err := s.connect(ctx)
+	conn, releaseConn, err := s.connect(ctx)
 	if err != nil {
 		return GroupMembers{}, err
 	}
-	defer conn.Close()
+	defer releaseConn()
 
 	// Grubu KAPSAM İÇİNDE arıyoruz: kapsam dışındaki aynı adlı bir grup
 	// yönetici veremeyeceği için önizlemede de görünmemeli.

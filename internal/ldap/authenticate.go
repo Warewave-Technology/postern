@@ -109,11 +109,11 @@ func (s *Source) Authenticate(ctx context.Context, username, password string) (A
 		return AuthResult{Presence: PresenceUnknown}, ErrEmptySecret
 	}
 
-	lookupConn, err := s.connect(ctx)
+	lookupConn, releaseLookup, err := s.connect(ctx)
 	if err != nil {
 		return AuthResult{Presence: PresenceUnknown}, err
 	}
-	defer lookupConn.Close()
+	defer releaseLookup()
 
 	ue, err := s.findUser(lookupConn, username)
 	if err != nil {
@@ -147,11 +147,11 @@ func (s *Source) Authenticate(ctx context.Context, username, password string) (A
 		return out, nil
 	}
 
-	bindConn, err := s.connect(ctx)
+	bindConn, releaseBind, err := s.connect(ctx)
 	if err != nil {
 		return AuthResult{Presence: PresenceUnknown}, err
 	}
-	defer bindConn.Close()
+	defer releaseBind()
 
 	if berr := bindConn.Bind(ue.DN, password); berr != nil {
 		var lerr *goldap.Error

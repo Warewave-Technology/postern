@@ -155,11 +155,11 @@ func (s *Source) GroupsBySubject(ctx context.Context, subject string) (auth.Grou
 
 // lookup, iki arama yolunun paylaştığı gövde.
 func (s *Source) lookup(ctx context.Context, find func(*goldap.Conn) (userEntry, error)) (LookupResult, error) {
-	conn, err := s.connect(ctx)
+	conn, releaseConn, err := s.connect(ctx)
 	if err != nil {
 		return LookupResult{Presence: PresenceUnknown}, err
 	}
-	defer conn.Close()
+	defer releaseConn()
 
 	ue, err := find(conn)
 	if err != nil {
@@ -206,11 +206,11 @@ func (s *Source) lookup(ctx context.Context, find func(*goldap.Conn) (userEntry,
 //
 // Senkronizasyon TEK BİR kullanıcıya bile dokunmadan önce bunu çağırır.
 func (s *Source) Probe(ctx context.Context) error {
-	conn, err := s.connect(ctx)
+	conn, releaseConn, err := s.connect(ctx)
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer releaseConn()
 
 	req := goldap.NewSearchRequest(
 		s.cfg.UserBase, goldap.ScopeWholeSubtree, goldap.NeverDerefAliases,

@@ -533,3 +533,37 @@ func TestWriterWithoutFailureHookStillReturnsFirstErr(t *testing.T) {
 		t.Error("firstErr kaydedilmemiş")
 	}
 }
+
+/*
+ * ⚠️ PENCERE BOYUTU YAZILAMIYORSA DA HABER VERİLMELİ.
+ *
+ * noteFailure yalnızca akış sarmalayıcılarından çağrılıyordu; Resize
+ * bir Writer metodu ve hatası oraya hiç ulaşmıyordu. "Kaydedilemeyen
+ * oturum geçmez" kuralında küçük ama gerçek bir delik: aynı dolu disk
+ * bir pty-req'i düşürdüğünde oturum akmaya devam ediyor, kayıt sessizce
+ * eksiliyor ve geriye yalnızca broker'ın log satırı kalıyordu.
+ */
+func TestResizeFailureTripsTheKillSwitch(t *testing.T) {
+	sink := &failingWriter{err: errors.New("disk dolu")}
+
+	w, err := NewWriter(sink, 80, 24, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := make(chan error, 4)
+	w.OnFailure(func(e error) { got <- e })
+
+	if err := w.Resize(120, 30); err == nil {
+		t.Fatal("Resize hatayı yutmuş")
+	}
+
+	select {
+	case e := <-got:
+		if e == nil {
+			t.Error("kanca nil hata ile çağrıldı")
+		}
+	default:
+		t.Fatal("PENCERE BOYUTU YAZILAMADI AMA KAYIT ANAHTARI TETİKLENMEDİ")
+	}
+}

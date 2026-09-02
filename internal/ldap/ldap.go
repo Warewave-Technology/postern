@@ -250,41 +250,60 @@ func isLoopback(rawURL string) bool {
 //
 // Bağlantı havuzu yok: giriş sıklığı düşük ve her sorguda taze bağlantı
 // açmak, bayat bir bağlantının sessizce ölmesinden daha öngörülebilir.
-func (s *Source) connect(ctx context.Context) (*goldap.Conn, error) {
-	conn, err := goldap.DialURL(s.cfg.URL,
+/*
+ * ⚠️ İKİNCİ DÖNÜŞ DEĞERİ SERBEST BIRAKMA — VE VARLIK SEBEBİ ÖLÇÜLDÜ.
+ *
+ * Burada `stop := context.AfterFunc(...)` yazılıp `_ = stop` deniyordu.
+ * AfterFunc kaydı ebeveyn context'e bir çocuk olarak takılıyor ve
+ * YALNIZCA stop çağrılınca (ya da ebeveyn iptal edilince) çözülüyor.
+ * Atıldığında her arama bir kayıt bırakıyor, kapanışta çağrılacak
+ * closure da kapalı bağlantıyı canlı tutuyordu: uzun bir
+ * senkronizasyon koşusunda kullanıcı başına bir tane, koşu sonuna
+ * kadar.
+ *
+ * `defer stop()` connect'in İÇİNDE yanlış olurdu: kanca bağlantının
+ * ömrü boyunca durmalı, connect'in ömrü boyunca değil. Bu yüzden
+ * çağırana veriliyor ve çağıran `defer release()` yazıyor — hem
+ * bağlantıyı kapatıyor hem kaydı çözüyor.
+ */
+func (s *Source) connect(ctx context.Context) (conn *goldap.Conn, release func(), err error) {
+	conn, err = goldap.DialURL(s.cfg.URL,
 		goldap.DialWithDialer(&net.Dialer{Timeout: dialTimeout}),
 		goldap.DialWithTLSConfig(&tls.Config{MinVersion: tls.VersionTLS12}),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("ldap: dial: %w", err)
+		return nil, nil, fmt.Errorf("ldap: dial: %w", err)
 	}
 
 	// ctx iptal edilirse bağlantıyı kopar: SSH tarafı gittiğinde sorgu
 	// dizinde asılı kalmasın.
 	stop := context.AfterFunc(ctx, func() { conn.Close() })
-	_ = stop
+	release = func() {
+		stop()
+		conn.Close()
+	}
 
 	conn.SetTimeout(dialTimeout)
 
 	if s.cfg.BindDN != "" {
 		if err := conn.Bind(s.cfg.BindDN, s.cfg.BindPassword); err != nil {
-			conn.Close()
+			release()
 			// Parola hata metnine GİRMEZ; go-ldap zaten koymuyor ama
 			// sarmalarken de dikkat.
-			return nil, fmt.Errorf("ldap: bind as %s: %w", s.cfg.BindDN, err)
+			return nil, nil, fmt.Errorf("ldap: bind as %s: %w", s.cfg.BindDN, err)
 		}
 	}
-	return conn, nil
+	return conn, release, nil
 }
 
 // Test, yapılandırmanın çalıştığını doğrular: bağlan, bind et, kullanıcı
 // tabanını ara. Panelden "bağlantıyı test et" için.
 func (s *Source) Test(ctx context.Context) error {
-	conn, err := s.connect(ctx)
+	conn, releaseConn, err := s.connect(ctx)
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer releaseConn()
 
 	// Tek satır isteyerek tabanın var olduğunu doğrula: yanlış base DN
 	// ilk gerçek girişte değil, testte ortaya çıksın.

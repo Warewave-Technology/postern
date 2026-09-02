@@ -137,8 +137,19 @@ func TestForgetPendingUndoesRejection(t *testing.T) {
 }
 
 // Rozet sayacı yalnızca BEKLEYENLERİ saymalı: reddedilenleri de sayan
-// bir rozet asla sıfırlanmaz ve okunmaz hâle gelir.
-func TestPendingWaitingCountIgnoresRejected(t *testing.T) {
+/*
+ * ⚠️ REDDEDİLEN BAŞVURU "BEKLEYEN" OLMAKTAN ÇIKMALI.
+ *
+ * Çıkmazsa yönetici onu bir kez reddeder ve kuyruk bir daha
+ * boşalmaz — sıfırlanmayan bir bekleme listesi okunmaz hâle gelir ve
+ * gerçek başvurular içinde kaybolur.
+ *
+ * (Bunu sayan bir store.PendingWaitingCount vardı, "panelde rozet
+ * için" diye yazılmıştı ve hiçbir yerden çağrılmıyordu; silindi.
+ * Ölçtüğü davranış silinmedi: ListPending'in durumu bu testte
+ * doğrulanıyor.)
+ */
+func TestRejectedPendingLeavesTheWaitingQueue(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 	for i, subj := range []string{"aaaa-1", "bbbb-2"} {
@@ -152,8 +163,18 @@ func TestPendingWaitingCountIgnoresRejected(t *testing.T) {
 	if err := s.RejectPending(ctx, all[0].ID, "hayır", "ops"); err != nil {
 		t.Fatal(err)
 	}
-	n, err := s.PendingWaitingCount(ctx)
-	if err != nil || n != 1 {
-		t.Fatalf("bekleyen sayısı = %d, %v", n, err)
+
+	after, err := s.ListPending(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waiting := 0
+	for _, p := range after {
+		if p.State == "waiting" {
+			waiting++
+		}
+	}
+	if waiting != 1 {
+		t.Fatalf("bekleyen = %d, 1 bekleniyordu: reddedilen kuyruktan çıkmamış", waiting)
 	}
 }

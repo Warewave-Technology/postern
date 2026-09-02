@@ -91,22 +91,6 @@ func (s *Store) DirSubjectOf(ctx context.Context, username string) (string, erro
 	return subject.String, nil
 }
 
-/*
- * HasDirectoryIdentity, hesabın dizine BAĞLI olup olmadığı.
- *
- * ⚠️ freshen'ın doğru koşulu bu — `sso_only` DEĞİL. Ölçüldü: yetkisi
- * dizinden gelen bir yönetici (admin_via='group') demo veritabanında
- * sso_only=false ile duruyordu, yani dizine karşı hiç yeniden
- * sorulmuyordu. Dizinde kapatılsa bile anahtarıyla oturum açardı.
- */
-func (s *Store) HasDirectoryIdentity(ctx context.Context, username string) (bool, error) {
-	subject, err := s.DirSubjectOf(ctx, username)
-	if err != nil {
-		return false, err
-	}
-	return subject != "", nil
-}
-
 // DirectoryAccount, dizinden kendiliğinden açılacak hesabın girdisi.
 type DirectoryAccount struct {
 	Username string

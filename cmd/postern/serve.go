@@ -234,6 +234,21 @@ func newServeCmd() *cobra.Command {
 			}
 			refreshCache := map[string]refreshVerdict{}
 
+			/*
+			 * ⚠️ TAZELEME HERKES İÇİN ÇALIŞIYOR — `sso_only` diye bir
+			 * kapı YOK, ve olmaması bir düzeltmenin sonucu.
+			 *
+			 * ÖLÇÜLDÜ: yetkisi dizinden gelen bir yönetici
+			 * (admin_via='group') demo veritabanında sso_only=false
+			 * ile duruyordu. Tazelemeyi o bayrağa bağlayan bir koşul,
+			 * o kişiyi dizine karşı hiç yeniden sormazdı: dizinde
+			 * kapatılsa bile anahtarıyla oturum açmaya devam ederdi.
+			 *
+			 * (Bir zamanlar bu koşulu ifade etmek için yazılmış bir
+			 * store.HasDirectoryIdentity vardı ve hiçbir yerden
+			 * çağrılmıyordu. Silindi: doğru koşul "kapı yok",
+			 * dolayısıyla kapının yardımcısına da gerek yok.)
+			 */
 			freshen := func(c context.Context, username string) error {
 				/*
 				 * ⚠️ ÖNBELLEK BİR YÜK KORUMASI. Tazeleme

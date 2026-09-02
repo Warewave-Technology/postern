@@ -76,28 +76,38 @@ func TestDirIdentityCannotBeSilentlyRebound(t *testing.T) {
 }
 
 /*
- * ⚠️ freshen'ın DOĞRU koşulu: "dizine bağlı mı", `sso_only` değil.
+ * ⚠️ BAĞ, `sso_only`DEN BAĞIMSIZ — ve bunu ölçmek hâlâ gerekli.
  *
- * Ölçüldü: yetkisi dizinden gelen bir yönetici (admin_via='group') demo
- * veritabanında sso_only=false ile duruyordu — yani dizine karşı hiç
- * yeniden sorulmuyordu ve dizinde kapatılsa bile anahtarıyla girerdi.
+ * Vaktiyle bunu ifade eden bir store.HasDirectoryIdentity vardı ve
+ * hiçbir yerden çağrılmıyordu; silindi (gerekçesi serve.go'daki
+ * freshen notunda). Ölçülen davranış duruyor: BindDirIdentity
+ * sso_only'ye dokunmuyor, dolayısıyla bağın varlığını o bayraktan
+ * okumaya çalışan her kod yanlış cevap alır — dizinden yetki almış bir
+ * yönetici sso_only=false ile durur ve dizine hiç yeniden sorulmazdı.
  */
-func TestHasDirectoryIdentityIsIndependentOfSSOOnly(t *testing.T) {
+func TestDirectoryBindDoesNotDependOnSSOOnly(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 	if _, err := s.CreateUser(ctx, "ayse", "ayse@warewave.io", "ayse"); err != nil {
 		t.Fatal(err)
 	}
 
-	if bound, err := s.HasDirectoryIdentity(ctx, "ayse"); err != nil || bound {
-		t.Fatalf("bağlanmamış hesap bağlı göründü: %v %v", bound, err)
+	if subject, err := s.DirSubjectOf(ctx, "ayse"); err != nil || subject != "" {
+		t.Fatalf("bağlanmamış hesap bağlı göründü: %q %v", subject, err)
 	}
 	if err := s.BindDirIdentity(ctx, "ayse", "f74a3e90-373a-1041-92eb-dbd441920715"); err != nil {
 		t.Fatal(err)
 	}
 	// sso_only'ye HİÇ dokunmadık.
-	if bound, err := s.HasDirectoryIdentity(ctx, "ayse"); err != nil || !bound {
-		t.Fatalf("bağlı hesap bağsız göründü: %v %v", bound, err)
+	u, err := s.User(ctx, "ayse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.SSOOnly {
+		t.Error("BindDirIdentity sso_only'yi de yazmış: iki kavram karışıyor")
+	}
+	if subject, err := s.DirSubjectOf(ctx, "ayse"); err != nil || subject == "" {
+		t.Fatalf("bağlı hesap bağsız göründü: %q %v", subject, err)
 	}
 }
 

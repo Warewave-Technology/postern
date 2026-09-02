@@ -8,7 +8,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -242,15 +241,4 @@ func (s *Store) ForgetPending(ctx context.Context, id string) error {
 		return fmt.Errorf("store.ForgetPending[%s]: %w", id, ErrNotFound)
 	}
 	return nil
-}
-
-// PendingWaitingCount, bekleyen başvuru sayısı — panelde rozet için.
-func (s *Store) PendingWaitingCount(ctx context.Context) (int, error) {
-	var n int
-	err := s.db.QueryRowContext(ctx,
-		`SELECT count(*) FROM pending_users WHERE state = 'waiting';`).Scan(&n)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return 0, translateErr("store.PendingWaitingCount", err)
-	}
-	return n, nil
 }

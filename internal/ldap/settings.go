@@ -136,9 +136,12 @@ func CheckConnection(ctx context.Context, db *store.Store) error {
 	}
 
 	s := &Source{cfg: cfg}
-	conn, err := s.connect(ctx)
+	_, releaseConn, err := s.connect(ctx)
 	if err != nil {
 		return err
 	}
-	return conn.Close()
+	// release: bağlantıyı kapatmanın yanında context kancasını da
+	// çözüyor — yalnızca Close çağırmak kaydı ebeveynde bırakırdı.
+	releaseConn()
+	return nil
 }

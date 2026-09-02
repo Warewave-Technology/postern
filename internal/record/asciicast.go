@@ -155,8 +155,27 @@ func (w *Writer) Input(b []byte) error {
 	return nil
 }
 
-// Resize records a terminal size change as an "r" event ("120x30").
+/*
+ * Resize records a terminal size change as an "r" event ("120x30").
+ *
+ * ⚠️ HATASI KAYIT ANAHTARINA BAĞLI — VE DEĞİLDİ. noteFailure yalnızca
+ * akış sarmalayıcılarından (OutputWriter/InputWriter) çağrılıyordu;
+ * Resize bir Writer metodu ve hatası hiçbir zaman oraya ulaşmıyordu.
+ * Sonuç, "kaydedilemeyen oturum geçmez" kuralında küçük ama gerçek bir
+ * delik: pencere boyutu diske yazılamıyorken oturum akmaya devam
+ * ediyor, kayıt sessizce eksiliyor ve broker yalnızca log'a bir satır
+ * bırakıyordu.
+ *
+ * ⚠️ noteFailure KİLİDİN DIŞINDA çağrılıyor: kendisi w.mu'yu alıyor ve
+ * `defer w.mu.Unlock()` altında çağırmak kilitlenme olurdu.
+ */
 func (w *Writer) Resize(cols, rows int) error {
+	err := w.resizeLocked(cols, rows)
+	w.noteFailure(err)
+	return err
+}
+
+func (w *Writer) resizeLocked(cols, rows int) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -164,8 +183,7 @@ func (w *Writer) Resize(cols, rows int) error {
 		return nil
 	}
 
-	err := w.writeEvent("r", []byte(fmt.Sprintf("%dx%d", cols, rows)))
-	if err != nil {
+	if err := w.writeEvent("r", []byte(fmt.Sprintf("%dx%d", cols, rows))); err != nil {
 		return fmt.Errorf("record.Resize: %w", err)
 	}
 
