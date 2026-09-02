@@ -807,12 +807,17 @@ make audit          # gosec + govulncheck
 make ci             # everything CI runs, in the same order
 ```
 
-`make ci` runs lint, vet, `test-race`, `audit` (gosec + govulncheck) and
-`test-integration`. That is most of CI but not all of it: `ci.yml` also
-runs `make web-test`, `make web-check` and `make fuzz`, so a green
-`make ci` is not by itself a green CI run — the panel's tests are the
-easiest of the three to break without noticing. Run those three too
-before pushing, or expect CI to find what you did not.
+`make ci` runs lint, vet, `test-race`, `audit` (gosec + govulncheck),
+`test-integration`, `web-test` and `web-check` — everything
+`.github/workflows/ci.yml` runs except `make fuzz`, which is left out on
+purpose because it costs `FUZZTIME` per target and the seed corpora
+already run as ordinary tests on every commit.
+
+The two web targets were missing from this list until 2026-09-03, and
+their absence was the point: a green local run did not cover the panel's
+312 tests, and `web-check` is the only thing that catches a commit that
+edited `web/src` without rebuilding — which has happened here, shipping
+a bundle that still displayed text the source had removed.
 
 CI additionally re-runs `govulncheck` weekly: its input changes without
 the code changing, and a vulnerability published on a quiet Tuesday

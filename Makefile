@@ -121,7 +121,19 @@ fuzz:
 audit: sec vuln
 
 # CI'ın koştuğunun aynısı — bir şeyi bozmadan önce yerelde koş.
-ci: lint vet test-race audit test-integration
+#
+# ⚠️ web-test VE web-check DAHİL, ve eksiklikleri ölçüldü. Bu hedef
+# "CI'ın koştuğunun aynısı" diye duruyordu ama panelin 312 testini
+# koşmuyordu: yerelde yeşil gören biri, CI'da arayüz testlerinden
+# düşüyordu. web-check'in eksikliği daha sinsiydi — web/src'i değiştirip
+# yeniden kurmayı unutan bir commit'i yakalayan tek kontrol o, ve
+# yakalamadığında gömülü panel sessizce eskiyor (bu depoda bir kez oldu:
+# kaldırılmış bir metni hâlâ gösteren bir paket commit'lendi).
+#
+# ⚠️ SIRA: web-check `make web` çalıştırıyor, yani npm kurulumu ve
+# derleme. Go testlerinden SONRA duruyor ki hızlı geri bildirim önce
+# gelsin — lint'te düşecek bir değişiklik için npm ci beklemek gerekmez.
+ci: lint vet test-race audit test-integration web-test web-check
 
 clean:
 	rm -rf bin
