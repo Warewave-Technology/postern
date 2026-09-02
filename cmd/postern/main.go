@@ -35,5 +35,6 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newSecretCmd())
 	root.AddCommand(newSettingsCmd())
 	root.AddCommand(newSyncCmd())
+	root.AddCommand(newArchiveCmd())
 	return root
 }
