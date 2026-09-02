@@ -227,6 +227,53 @@ with a letter O, silently becoming 25 again, would mean a ceiling running
 at a number nobody chose — in a loop that takes access away, that is the
 worst place to be quietly wrong.
 
+### Reading the audit trail
+
+```bash
+postern log --limit 50 --config postern.yaml
+postern log --actor yigit --config postern.yaml
+postern log --action session. --config postern.yaml
+postern log --entity web-01 --config postern.yaml
+```
+
+Both the panel and this CLI write to `admin_log`; this is the only way
+to read it from the host, which matters on the day the panel is the
+thing that is broken.
+
+`--action` matches a prefix, so `user.` returns the whole family. The
+other filters are exact — bringing the wrong person is worse than
+bringing too few.
+
+Two things it refuses to blur. A filter that matches nothing says so
+distinctly from an empty trail, because reading "nothing here" as "no
+records are kept" is the most expensive misunderstanding an audit tool
+can cause. And when the output is cut short it says so, rather than
+letting the first N read as all of them.
+
+### Health checks
+
+```bash
+curl -fsS http://127.0.0.1:8088/healthz   # the process is up
+curl -fsS http://127.0.0.1:8088/readyz    # it can do work
+```
+
+Two endpoints, and the split is a security decision rather than a
+convention. `/healthz` touches nothing at all. `/readyz` looks at the
+database, and its answer is cached for a second — neither endpoint asks
+for credentials, so without that cache anyone could turn an
+unauthenticated request into database load at whatever rate they liked.
+Concurrent requests collapse onto one probe for the same reason.
+
+`/readyz` says "not ready" and nothing else. The database error can
+carry a DSN fragment or an internal hostname, and this endpoint has no
+authentication; the detail goes to the log, where the operator is
+looking anyway.
+
+Neither depends on setup being finished. A bastion nobody has configured
+yet is still up, and answering 503 there would have systemd and your
+proxy declare the service dead before anyone had a chance to configure
+it.
+
 ### Closing a live session
 
 An administrator can close a session this bastion is carrying, from the
@@ -448,6 +495,26 @@ store and carries no vendor dependency. Single PUT only — measured, a
 recording is about the size of the terminal output it captured, so the
 5 GB limit is not reachable by realistic sessions; one that exceeds it
 is kept locally and reported rather than silently dropped.
+
+### What the recordings are not
+
+A recording is evidence of what happened, not a seal that proves it was
+not changed afterwards. There is no hash chain and no signature.
+
+That is a decision, not an omission. The files are `0600` and owned by
+the service user; anyone who can rewrite them already owns the bastion,
+and a chain postern computes and stores on the same machine is one that
+attacker can recompute. It would catch a careless operator, not an
+adversary, and it would read like a guarantee.
+
+Archiving changes the shape of this rather than the reasoning. The
+checksum sent with each upload is a corruption control — it proves the
+bytes arrived intact, not that they were honest when they left. What
+actually protects the archive from someone who owns the bastion is the
+bucket: versioning, and Object Lock in compliance mode with a default
+retention. `postern archive check` reports whether those are on, and
+says plainly that it cannot verify them from the machine an attacker
+would be standing on.
 
 ### Limits
 

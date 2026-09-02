@@ -624,6 +624,45 @@ $ asciinema play /var/lib/postern/recordings/&lt;...&gt;.cast
         any asciinema client. Output is always recorded; input is recorded only
         if you set <code>recording.record_input</code>.
       </p>
+      <h3>Reading the audit trail</h3>
+<pre>$ postern log --limit 50 --config postern.yaml
+$ postern log --actor yigit --config postern.yaml
+$ postern log --action session. --config postern.yaml
+</pre>
+      <p>
+        The panel and the CLI both write to <code>admin_log</code>; this reads
+        it from the host, which is what you need on the day the panel is the
+        broken thing. <code>--action</code> matches a prefix, so
+        <code>user.</code> returns the whole family; the other filters are
+        exact.
+      </p>
+      <p>
+        A filter that matches nothing says so distinctly from an empty trail —
+        reading "nothing here" as "no records are kept" is the most expensive
+        mistake an audit tool can invite — and truncated output says it was
+        truncated rather than letting the first rows read as all of them.
+      </p>
+
+      <h3>Health checks</h3>
+<pre>$ curl -fsS http://127.0.0.1:8088/healthz   <span class="c"># the process is up</span>
+$ curl -fsS http://127.0.0.1:8088/readyz    <span class="c"># it can do work</span>
+</pre>
+      <p>
+        The split is a security decision, not a convention. Neither endpoint
+        asks for credentials — that is what a health check is for — so
+        <code>/healthz</code> touches nothing, and <code>/readyz</code> caches
+        its database answer for a second and collapses concurrent probes onto
+        one. Without that, an unauthenticated request would be a lever on your
+        database at whatever rate someone chose.
+      </p>
+      <p>
+        <code>/readyz</code> answers "not ready" and no more: a database error
+        can carry a DSN fragment or an internal hostname, and the detail belongs
+        in the log rather than in an unauthenticated response. Neither endpoint
+        depends on setup being finished — a bastion nobody has configured yet is
+        still up, and 503 there would have your proxy declare it dead first.
+      </p>
+
       <h3>Closing a live session</h3>
       <p>
         The panel's <b>Active sessions</b> card offers <b>Close</b> on a
@@ -948,7 +987,7 @@ sync:
         <li><b>Single node.</b> No clustering or shared state; recordings are local files.</li>
         <li><b>TOTP only</b> as a second factor — no WebAuthn, no push.</li>
         <li><b>No port forwarding</b>, by design.</li>
-        <li><b>No object storage</b> for recordings; retention is disk plus <code>retain</code>.</li>
+        <li><b>No integrity seal on recordings.</b> A recording is evidence of what happened, not proof it was not altered afterwards — no hash chain, no signature. Deliberate: anyone able to rewrite the files already owns the bastion, and a chain computed and stored on that same machine is one they can recompute. The archive's protection comes from the bucket instead (versioning, Object Lock), which is why <code>archive check</code> reports on it.</li>
         <li><b>Closing a session reaches only this process.</b> A second postern against the same database is not asked and cannot be told; the panel answers "not running on this instance" rather than pretending. That startup sweep would also close the other instance's live rows — one more reason 1.0 means one node.</li>
         <li><b>The panel speaks HTTP</b>; TLS is your reverse proxy's job.</li>
         <li><b>Certificate login only on targets.</b> postern does not carry a user's own key or a password through to a server that does not trust the CA.</li>

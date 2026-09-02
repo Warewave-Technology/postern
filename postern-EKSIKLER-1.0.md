@@ -39,7 +39,7 @@ neye baktığımı bilmen lazım.
 
 ---
 
-## Bulunan ve DÜZELTİLEN dokuz şey
+## Bulunan ve DÜZELTİLEN on dört şey
 
 İlk üçü aynı sınıftan: **kural yazılmıştı, bağlanmamıştı.** Dördüncüsü
 bir adım daha ince: iki ayrı doğru karar, birleşince yanlış davranıyordu.
@@ -494,52 +494,138 @@ kablolamayı değil. Bölüm sessizce düşseydi rapor "kontrol ettim,
 güvendeyim" diye okunur hâle gelirdi. Komutun gerçek çıktısını ölçen iki
 test eklendi.
 
+### B10 — Sağlık ucu yok ✅ 2 Eylül'de kapatıldı
+
+Vekil, systemd ya da bir izleme sistemi "ayakta mı" diye soramıyordu;
+TCP bağlantısının kurulması PostgreSQL'in yaşadığı anlamına gelmiyor.
+
+**İki uç, ve bölünme bir güvenlik kararı** — endişemi tasarımla
+çözdüm. İkisi de kimlik istemiyor (bir sağlık kontrolünün amacı zaten
+o), dolayısıyla:
+
+- `/healthz` **hiçbir şeye dokunmuyor**. Süreç ayakta mı, o kadar.
+- `/readyz` veritabanına bakıyor ama cevabı **bir saniye
+  önbellekleniyor** ve eşzamanlı istekler tek yoklamaya iniyor.
+  Önbellek hız için değil: kimliksiz bir isteği veritabanı yüküne
+  çevirmenin azami hızını bağlıyor.
+
+**`/readyz` sebebi söylemiyor.** Veritabanı hata metni DSN parçası ya da
+iç ana makine adı taşıyabiliyor; ayrıntı log'a gidiyor.
+
+**Kurulum durumuna bakmıyorlar.** Kurulmamış bir bastion da ayakta; ilk
+açılışta 503 dönmek, systemd'nin ve vekilin daha kimse kurulumu
+bitirmeden servisi ölü sanmasına yol açardı.
+
+**Canlı ölçüm:** veritabanını durdurdum — `/healthz` 200 kaldı,
+`/readyz` 503 verdi, veritabanı geri gelince kendiliğinden 200'e döndü.
+
+Üç mutasyon: önbelleği kaldırınca "50 istek 50 yoklama üretti" diye
+düşüyor; hata sebebini gövdeye yazınca "iç ayrıntı sızdı" diyor;
+`/healthz`'i veritabanına bağlayınca test panikle düşüyor (sahte
+sunucuda depo yok — dokunmadığının kanıtı).
+
+### B11 — Denetimin okuma yarısı CLI'da yoktu ✅ 2 Eylül'de kapatıldı
+
+`admin_log`'a hem panel hem CLI yazıyordu ama host'tan okunamıyordu —
+yani panelin çalışmadığı gün yapılan değişikliklerin izi yine
+panelden okunuyordu. `store.AdminLog` vardı, çağıranı yalnızca panel.
+
+```
+postern log --limit 50
+postern log --actor yigit
+postern log --action session.
+postern log --entity web-01
+```
+
+**En sinsi tuzak ve nasıl kapatıldı:** süzme istemcide yapılıyor
+(store'da süzgeçli okuma yok). Limiti olduğu gibi kullansaydım,
+`--actor yigit --limit 5` **son 5 satırdan** yigit'e ait olanları
+gösterirdi — yani çoğu zaman boş çıkar ve operatör "hiç yapmamış" diye
+okurdu. Süzgeç varken daha geniş okunuyor.
+
+**İki şeyi bulanıklaştırmayı reddediyor:**
+
+- **"Defter boş" ile "aradığın yok" ayrı cümleler.** İkincisini
+  birincisi diye okumak, hiç kayıt tutulmadığını sanmaya yol açardı —
+  bir denetim aracında en pahalı yanlış anlama.
+- **Kesildiyse söylüyor.** Sessizce ilk N'i göstermek, "hepsi bu"
+  sandırırdı.
+
+**Bir pürüz canlı denemede çıktı:** eşleşme yokken tablo başlığı yine
+basılıyordu. Boşluğun üstünde tek başına duran bir başlık "burada veri
+var" demek; artık başlık ilk satırla birlikte yazılıyor.
+
+Ve `user purge` ile `user allow-bind` çıktıları artık gerçekten var
+olan bir komuta yönlendiriyor — B6'da panelin Admin log'una çevirmiştim.
+
+### B12 — `Broker.Run` ölü hata dalları ✅ 2 Eylül'de kapatıldı
+
+`Run` koşulsuz `nil` dönüyordu, yani `sshd/channel.go` ve
+`httpapi/terminal.go`'daki `if err := sess.Run(...); err != nil` dalları
+**hiçbir koşulda çalışmıyordu**. Bu, deponun tekrar eden sınıfının
+tersi: yazılmış ve hiç tetiklenemeyen bir hata yolu.
+
+Ve kaybolan sinyal gerçekti: SFTP çözücüsü akışı anlayamadığında oturumu
+**kasten** kapatıyoruz (`abortAudit`) ve bu, "kullanıcı çıktı" ile
+karıştırılmaması gereken bir bitiş. Artık sebep saklanıyor ve `Run` onu
+döndürüyor.
+
+Kapatma hataları döndürülmüyor: karşı taraf çoktan gitmiş olabilir ve o
+gürültü asıl sinyali gömerdi.
+
+⚠️ Yazarken bir veri yarışı çıktı: `abortErr` başka goroutine'den
+yazılıyor ve `Run` her çıkış yolunda okuyordu. Yalnızca kanalın
+kapandığı **görüldükten sonra** okunuyor — kapalı kanaldan alma,
+close'dan önceki yazmayı görünür kılıyor.
+
+### B13 — Cevap vermeyen istemcinin tuttuğu goroutine'ler ✅ ölçüldü, sınırı yazıldı
+
+`Run`'ın beş goroutine'inden ikisi WaitGroup dışında ve bu **bilinçli**:
+ikisi de istemciden okuyor, beklemeye alsaydık hiçbir şey yazmayan bir
+istemci oturumun hiç bitmemesi demek olurdu.
+
+**Bedeli ölçüldü.** x/crypto kaynağına bakıldı: `channel.Close()`
+yalnızca `channelCloseMsg` **gönderiyor**; okuyucuyu serbest bırakan
+`ch.close()` ancak karşı taraftan close **alındığında** çalışıyor. Yani
+o ikisi, istemci cevap verene ya da TCP ölene kadar yaşıyor.
+
+Sınırsız değil: bağlantı başına en fazla `max_channels_per_conn`,
+toplamda `max_conns` ile çarpımı kadar. Düzeltmek ürünün en kritik veri
+yolunu yeniden kurmayı gerektirirdi; **sınırı ölçüp yazmak** doğru
+karşılık.
+
+⚠️ **Bu arada koşumda bir yalan bulundu:** `fakeChannel.Close()`
+okumada bekleyenleri uyandırıyor ve yorumu "gerçek kanal gibi" diyordu —
+değil. Koşum gerçeklikten daha bağışlayıcı olduğu için mevcut testlerin
+hiçbiri bu sınıfı göremiyordu. Yorum düzeltildi ve gerçeği taklit eden
+`deafChannel` eklendi.
+
+### B14 — Kayıtların bütünlük mührü: yazıldı, yapılmadı ✅
+
+Kod değil, bir karar ve gerekçesi. Kayıt, olanın **kanıtı**; sonradan
+değiştirilmediğinin **mührü** değil. Hash zinciri yok, imza yok.
+
+Bilinçli: dosyalar `0600` ve servis kullanıcısının; onları yeniden
+yazabilen zaten bastion'a sahip, ve postern'in aynı makinede hesaplayıp
+sakladığı bir zinciri o saldırgan da yeniden hesaplar. Dikkatsiz bir
+operatörü yakalardı, hasmı değil — ve garanti gibi okunurdu.
+
+Arşivleme bunun **şeklini** değiştiriyor, gerekçesini değil: yüklemeyle
+giden sağlama bir bozulma kontrolü, dürüstlük kanıtı değil. Arşivi
+bastion'ı ele geçirene karşı koruyan şey kova: sürümleme ve compliance
+kipinde Object Lock. `postern archive check` bunları raporluyor ve
+doğrulayamadığını da söylüyor.
+
 ---
 
 ## Kapatılmayan eksikler
 
+Kalmadı — onayladığın sıranın sekiz maddesi de kapandı.
 
-### S3 — Sağlık ucu yok
+Bu, "her şey bitti" demek değil: aşağıdaki **yapılmaması gerekenler**
+listesi hâlâ geçerli ve `postern archive check`'in "asla öğrenemez"
+sütunu, ürünün doğrulayamadığı şeylerin listesi olarak duruyor.
 
-**Ciddiyet: düşük, tamamen operasyonel.**
-
-`/healthz` yok. Vekil, systemd ya da bir izleme sistemi "ayakta mı"yı
-soramıyor; TCP bağlantısı kurulması PostgreSQL'in yaşadığı anlamına gelmiyor.
-
-**En küçük düzeltme:** kimlik istemeyen `GET /healthz`, DB ping'i yapıp
-200/503 dönen. On satır.
-
----
-
-
-
-### S7 — Denetim kaydının OKUMA yolu CLI'da yok
-
-**Ciddiyet: düşük–orta.**
-
-`admin_log`'a CLI de panel de yazıyor ama CLI'dan okunamıyor:
-`store.AdminLog` var, çağıranı yalnızca panel. Yani panelin çalışmadığı
-gün yapılan değişikliklerin izi, yine panelden okunabiliyor.
-
-**En küçük düzeltme:** `postern log [--limit N]`. ~30 satır ve yazma
-tarafı zaten duruyor.
-
-
-
-### S5 — Kayıtların bütünlük mührü yok
-
-**Ciddiyet: düşük — ve 1.0'da kapatılmasını ÖNERMİYORUM.**
-
-Kayıtlar düz asciicast dosyaları. Dosyaya yazma yetkisi olan biri geçmişe
-dönük değiştirebilir ve bunu fark eden bir şey yok.
-
-Neden yine de kapatılmasını önermiyorum: dosyalar `0600` ve servis
-kullanıcısının; o yetkiye sahip olan zaten bastion'ın kendisine sahip. Hash
-zinciri gerçek bir saldırganı değil, yalnızca dikkatsiz bir operatörü
-yakalardı. **Bunu bir "bilinen sınır" olarak yazmak doğru cevap**, kod
-yazmak değil.
-
----
 
 ## Belgelerde düzelttiklerim (kod değil)
 
@@ -571,29 +657,25 @@ değil.
 
 ---
 
-## Önerim
+## Nerede kaldık
 
-**B1–B9** kapandı; dokuzu da testli ve mutasyon testinden geçti.
-Kalanlar için önerdiğim sıra:
+Onayladığın sekiz maddenin sekizi de kapandı:
 
-Onayladığın sıra (2 Eylül):
+| | |
+|---|---|
+| ~~Arşiv/disk görünürlüğü~~ | ✅ B8 |
+| ~~Panelden S3 kimliği~~ | ✅ B8 |
+| ~~`postern archive check`~~ | ✅ B9 |
+| ~~`/healthz`~~ | ✅ B10 |
+| ~~`postern log`~~ | ✅ B11 |
+| ~~Ölü hata dalları~~ | ✅ B12 |
+| ~~Goroutine sızıntısı~~ | ✅ B13 (ölçüldü, sınırı yazıldı) |
+| ~~Bütünlük mührü~~ | ✅ B14 (yapılmadı, gerekçesi yazıldı) |
 
-1. ~~Arşiv/disk görünürlüğü~~ ✅ B8
-2. ~~Panelden S3 kimliği~~ ✅ B8
-3. ~~`postern archive check`~~ ✅ B9
-4. **S3** — `/healthz`; on satır. Kimliksiz bir uç yeni bir yüzey ve
-   DB'ye dokunuyor.
-5. **S7** — `postern log`; ~30 satır, denetimin okuma yarısı.
-6. **S9** — `Broker.Run` her zaman `nil` dönüyor, yani iki çağrı
-   yerindeki hata dalları ölü kod. Ya gerçek hata döndürsün ya dallar
-   silinsin.
-7. **S10** — `Broker.Run`'ın beş goroutine'inden ikisi WaitGroup
-   dışında; cevap vermeyen bir istemciyle oturum başına iki sızıntı.
-   Boşta kalma ve ömür sınırı da aynı yoldan geçiyor, yani bu kesmeden
-   eski.
-8. **S5** — kod değil, bir cümle: "bilinen sınırlar"a yazılır.
+Toplamda on dört madde kapandı; hepsi `make ci` yeşilken commit edildi
+ve mutasyon testinden geçti — **B13 ve B14 hariç**, ki onlar zaten kod
+değişikliği değil: biri ölçüm ve gerekçe, diğeri bir karar.
 
----
 
 ## Yöntem notu
 
