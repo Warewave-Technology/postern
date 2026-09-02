@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/warewave/postern/internal/auth"
+	"github.com/warewave/postern/internal/config"
 	"github.com/warewave/postern/internal/events"
 	"github.com/warewave/postern/internal/groupsync"
 	"github.com/warewave/postern/internal/proxy"
@@ -78,6 +79,17 @@ type Server struct {
 	// records nil ise kayıt izleme yapılandırılmamış demektir ve
 	// rotalar HİÇ kurulmaz — kapalı özellik, kapalı yüzey.
 	records *record.Store
+
+	/*
+	 * archiveDest, kayıt arşivinin HEDEFİ — config'ten geliyor ve
+	 * panelden değiştirilemiyor. Panelin salt okunur alanları doğru
+	 * çizebilmesi ve "buradan yönetilmiyor" diyebilmesi için burada.
+	 */
+	archiveDest config.ArchiveConfig
+
+	// archiveHostSecret, host'tan gelen yükleme sırrı (dosya ya da
+	// ortam). Doluysa panel kimliği DEĞİŞTİREMİYOR ve bunu söylüyor.
+	archiveHostSecret string
 
 	// live, akan oturumların defteri (proxy.Live).
 	//
@@ -178,6 +190,18 @@ func (s *Server) SetSSHEndpoint(host string, port int) {
 
 // SetSyncDefaults, YAML'dan gelen senkronizasyon varsayılanlarını bildirir.
 func (s *Server) SetSyncDefaults(d groupsync.Settings) { s.syncDefaults = d }
+
+/*
+ * UseArchive, arşiv hedefini ve host sırrının varlığını bildirir.
+ *
+ * ⚠️ SIRRIN KENDİSİ DEĞİL, VARLIĞI önemli: panel yalnızca "buradan
+ * değiştirilebilir mi" sorusunu cevaplıyor. Değeri httpapi'ye taşımak,
+ * onu bir daha gerekmeyecek bir yerde tutmak olurdu.
+ */
+func (s *Server) UseArchive(dest config.ArchiveConfig, hostSecret string) {
+	s.archiveDest = dest
+	s.archiveHostSecret = hostSecret
+}
 
 // UseLiveSessions, akan oturum defterini bildirir; kesme uçları buradan
 // çalışıyor. Dinlemeye başlamadan ÖNCE çağrılmalı: alan kilitsiz.
@@ -317,6 +341,12 @@ func (s *Server) Handler() http.Handler {
 	s.registerSetupRoutes(mux)
 	s.registerEventRoutes(mux)
 	s.registerTargetRoutes(mux)
+
+	// Arşiv kimliği: kendi ucu, genel ayarlar yolu DEĞİL (gerekçe
+	// archivesettings.go'da — oradaki sınıflandırma fail-open).
+	s.registerArchiveRoutes(mux, func(h http.HandlerFunc) http.Handler {
+		return noStore(s.requireSession(s.requireAdmin(s.sameOrigin(h))))
+	})
 
 	// Terminal: yalnızca yapılandırıldıysa. Kapalıyken rota yok — açık
 	// ama yetkisiz bir uç, kapalı bir uçtan daha büyük bir yüzeydir.

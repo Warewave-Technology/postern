@@ -604,6 +604,21 @@ func newServeCmd() *cobra.Command {
 				// demek olurdu — üstelik sessizce.
 				webAPI.UseLiveSessions(s.LiveSessions())
 
+				/*
+				 * ⚠️ ARŞİV HEDEFİ PANELE SALT OKUNUR VERİLİYOR.
+				 * Panel kimliği yönetebiliyor ama hedefi
+				 * değiştiremiyor; alanları doğru çizebilmesi için
+				 * hedefi bilmesi gerekiyor.
+				 */
+				archiveHostSecret := ""
+				if ac := cfg.Recording.Archive; ac.Enabled() &&
+					(ac.SecretKeyFile != "" || os.Getenv("POSTERN_ARCHIVE_SECRET_KEY") != "") {
+					if v, serr := ac.SecretAccessKey(); serr == nil {
+						archiveHostSecret = v
+					}
+				}
+				webAPI.UseArchive(cfg.Recording.Archive, archiveHostSecret)
+
 				// Web terminali yalnızca açıkça istendiğinde: rota bile
 				// kurulmaz. Bağımlılıklar sshd'ninkilerle AYNI — iki kapı
 				// tek oturum akışını paylaşıyor (proxy.Open).
@@ -750,30 +765,56 @@ func buildArchiver(cfg *config.Config, db *store.Store, logger *slog.Logger) (*a
 		return nil, nil
 	}
 
-	secret, err := ac.SecretAccessKey()
-	if err != nil {
-		return nil, err
+	/*
+	 * ⚠️ HOST SIRRI OLMADAN DA KURULUYOR.
+	 *
+	 * Hedef config'de yazılıysa arşivleyici çalışıyor; kimlik henüz
+	 * yoksa yükleme yapmıyor ve sebebini söylüyor. Böylece panelden
+	 * anahtar girildiği anda iş başlıyor — yeniden başlatma
+	 * gerekmiyor. Kimliğin açılışta ŞART olması, panel yolunu
+	 * "kaydettim ama hiçbir şey olmadı"ya çevirirdi.
+	 *
+	 * Dosya VARSA ve okunamıyorsa yine de başlamıyoruz: operatör bir
+	 * dosya göstermişse onu sessizce yok saymak yanlış olurdu.
+	 */
+	hostSecret := ""
+	if ac.SecretKeyFile != "" || os.Getenv("POSTERN_ARCHIVE_SECRET_KEY") != "" {
+		v, serr := ac.SecretAccessKey()
+		if serr != nil {
+			return nil, serr
+		}
+		hostSecret = v
 	}
 
-	client, err := objstore.New(objstore.Config{
-		Endpoint:             ac.Endpoint,
-		Region:               ac.Region,
-		Bucket:               ac.Bucket,
-		CAFile:               ac.CAFile,
-		Timeout:              ac.Timeout,
+	// Uç adresi ve TLS açılışta doğrulanıyor: yanlış yazılmış bir adres
+	// saatler sonra "yükleme başarısız" satırları olarak görünmesin.
+	if _, err := objstore.New(objstore.Config{
+		Endpoint: ac.Endpoint, Region: ac.Region, Bucket: ac.Bucket,
+		CAFile: ac.CAFile, Timeout: ac.Timeout,
 		ServerSideEncryption: ac.ServerSideEncryption,
-		Credentials: objstore.Credentials{
-			AccessKeyID:     ac.AccessKeyID,
-			SecretAccessKey: secret,
-		},
-	})
-	if err != nil {
+		Credentials:          objstore.Credentials{AccessKeyID: "x", SecretAccessKey: "x"},
+	}); err != nil {
 		return nil, err
 	}
 
-	return archive.New(db, client, archive.Config{
+	build := func(creds objstore.Credentials) (*objstore.Client, error) {
+		return objstore.New(objstore.Config{
+			Endpoint: ac.Endpoint, Region: ac.Region, Bucket: ac.Bucket,
+			CAFile: ac.CAFile, Timeout: ac.Timeout,
+			ServerSideEncryption: ac.ServerSideEncryption,
+			Credentials:          creds,
+		})
+	}
+
+	resolve := func(ctx context.Context) (objstore.Credentials, error) {
+		creds, _, rerr := archive.Credentials(ctx, db, ac.AccessKeyID, hostSecret)
+		return creds, rerr
+	}
+
+	return archive.New(db, archive.Config{
 		RecordingsDir: cfg.Recording.Dir,
+		Bucket:        ac.Bucket,
 		Prefix:        ac.Prefix,
 		Interval:      ac.Interval,
-	}, logger), nil
+	}, resolve, build, logger), nil
 }

@@ -27,6 +27,16 @@ import (
 	"github.com/warewave/postern/internal/testdb"
 )
 
+// fixedArchiver, sabit bir istemciyle arşivleyici kurar (testler için).
+func fixedArchiver(db *store.Store, client *objstore.Client, cfg Config, logger *slog.Logger) *Archiver {
+	return New(db, cfg,
+		func(context.Context) (objstore.Credentials, error) {
+			return objstore.Credentials{AccessKeyID: "test", SecretAccessKey: "test"}, nil
+		},
+		func(objstore.Credentials) (*objstore.Client, error) { return client, nil },
+		logger)
+}
+
 // newDB, göçleri uygulanmış boş bir veritabanı.
 func newDB(t *testing.T) *store.Store {
 	t.Helper()
@@ -240,7 +250,7 @@ func newArchiver(t *testing.T, db *store.Store, dir, endpoint, bucket string) *A
 	if err != nil {
 		t.Fatal(err)
 	}
-	return New(db, client, Config{RecordingsDir: dir, Prefix: "postern"},
+	return fixedArchiver(db, client, Config{RecordingsDir: dir, Prefix: "postern", Bucket: bucket},
 		slog.New(slog.NewTextHandler(os.Stderr, nil)))
 }
 
@@ -454,7 +464,7 @@ func newArchiverAt(t *testing.T, db *store.Store, dir, endpoint, bucket string) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	return New(db, client, Config{RecordingsDir: dir, RetryAfter: time.Second},
+	return fixedArchiver(db, client, Config{RecordingsDir: dir, RetryAfter: time.Second, Bucket: bucket},
 		slog.New(slog.NewTextHandler(os.Stderr, nil)))
 }
 
@@ -541,7 +551,7 @@ func TestPutSuccessWithoutTheObjectIsNotArchived(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := New(db, client, Config{RecordingsDir: dir},
+	a := fixedArchiver(db, client, Config{RecordingsDir: dir, Bucket: "kova"},
 		slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	a.RunOnce(context.Background())
 

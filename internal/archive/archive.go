@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/warewave/postern/internal/objstore"
@@ -40,7 +41,9 @@ type Config struct {
 	// RecordingsDir, .cast dosyalarının kökü.
 	RecordingsDir string
 
-	// Bucket ve Prefix, nesne anahtarını kuruyor.
+	// Bucket ve Prefix, nesne anahtarını kuruyor. İkisi de CONFIG'ten
+	// geliyor ve panelden değiştirilemiyor (bkz. settings.go).
+	Bucket string
 	Prefix string
 
 	// Interval, iki tarama arası.
@@ -76,18 +79,90 @@ func (c *Config) withDefaults() {
 // Archiver, bekleyen kayıtları nesne deposuna taşıyor.
 type Archiver struct {
 	db     *store.Store
-	client *objstore.Client
 	cfg    Config
 	logger *slog.Logger
+
+	/*
+	 * ⚠️ KİMLİK HER TURDA ÇÖZÜLÜYOR, açılışta bir kez değil.
+	 *
+	 * Panelden girilen bir anahtarın yürürlüğe girmesi için postern'i
+	 * yeniden başlatmak gerekseydi, ekran "kaydedildi" der ve hiçbir
+	 * şey olmazdı — bu depodaki en tanıdık arıza. Çözücü her turda
+	 * soruluyor; istemci yalnızca kimlik DEĞİŞTİĞİNDE yeniden
+	 * kuruluyor.
+	 */
+	resolve func(context.Context) (objstore.Credentials, error)
+	build   func(objstore.Credentials) (*objstore.Client, error)
+
+	mu      sync.Mutex
+	client  *objstore.Client
+	forID   string
+	noCreds bool
 }
 
-// New, arşivleyiciyi kurar. client nil ise nil döner: arşivleme kapalı.
-func New(db *store.Store, client *objstore.Client, cfg Config, logger *slog.Logger) *Archiver {
-	if client == nil {
+/*
+ * New, arşivleyiciyi kurar.
+ *
+ * resolve nil ise ya da hedef yapılandırılmamışsa nil döner: arşivleme
+ * kapalı ve budayıcının kapısı da kurulmuyor.
+ *
+ * ⚠️ KİMLİK OLMADAN DA KURULUYOR. Hedef config'de yazılıysa ama anahtar
+ * henüz girilmemişse arşivleyici ÇALIŞIYOR, yükleme yapmıyor ve sebebini
+ * söylüyor — böylece panelden anahtar girildiği anda iş başlıyor.
+ */
+func New(db *store.Store, cfg Config, resolve func(context.Context) (objstore.Credentials, error),
+	build func(objstore.Credentials) (*objstore.Client, error), logger *slog.Logger) *Archiver {
+
+	if resolve == nil || build == nil {
 		return nil
 	}
 	cfg.withDefaults()
-	return &Archiver{db: db, client: client, cfg: cfg, logger: logger}
+	return &Archiver{db: db, cfg: cfg, logger: logger, resolve: resolve, build: build}
+}
+
+/*
+ * current, yürürlükteki istemciyi döner.
+ *
+ * Kimlik yoksa (nil, nil): çağıran turu atlıyor. Sebep BİR KEZ
+ * loglanıyor — her turda tekrarlansaydı, gerçek arızalar bu gürültünün
+ * içinde kaybolurdu.
+ */
+func (a *Archiver) current(ctx context.Context) (*objstore.Client, error) {
+	creds, err := a.resolve(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if creds.AccessKeyID == "" || creds.SecretAccessKey == "" {
+		if !a.noCreds {
+			a.noCreds = true
+			a.logger.Warn("recording archive is configured but has no credential; " +
+				"nothing is being uploaded and nothing can be pruned until one is set")
+		}
+		a.client = nil
+		a.forID = ""
+		return nil, nil
+	}
+	a.noCreds = false
+
+	// ⚠️ Karşılaştırma yalnızca ERİŞİM KİMLİĞİ üzerinden: gizli anahtarı
+	// bellekte kıyaslamak için tutmak gereksiz bir kopya olurdu ve
+	// pratikte kimlik değişmeden sır değişmiyor.
+	if a.client != nil && a.forID == creds.AccessKeyID {
+		return a.client, nil
+	}
+
+	c, berr := a.build(creds)
+	if berr != nil {
+		return nil, berr
+	}
+	a.client = c
+	a.forID = creds.AccessKeyID
+	a.logger.Info("recording archive credential loaded", "access_key_id", creds.AccessKeyID)
+	return c, nil
 }
 
 /*
@@ -106,7 +181,7 @@ func (a *Archiver) Start(ctx context.Context) {
 		return
 	}
 	a.logger.Info("recording archive is on",
-		"bucket", a.client.Bucket(), "prefix", a.cfg.Prefix,
+		"bucket", a.cfg.Bucket, "prefix", a.cfg.Prefix,
 		"interval", a.cfg.Interval,
 		"note", "recordings are uploaded after they are finished; "+
 			"the session path never waits on the network")
@@ -138,6 +213,17 @@ func (a *Archiver) RunOnce(ctx context.Context) {
 	if a == nil {
 		return
 	}
+	client, cerr := a.current(ctx)
+	if cerr != nil {
+		a.logger.Error("could not load the archive credential", "error", cerr)
+		return
+	}
+	if client == nil {
+		// Kimlik yok: iş üstlenmiyoruz. Satırlar bekliyor ve
+		// budayıcı onlara dokunmuyor.
+		return
+	}
+
 	now := time.Now()
 	pending, err := a.db.ClaimArchives(ctx, a.cfg.Batch, now, a.cfg.ClaimTimeout, a.cfg.RetryAfter)
 	if err != nil {
@@ -152,12 +238,12 @@ func (a *Archiver) RunOnce(ctx context.Context) {
 			// geliyor: damga ancak doğrulamadan sonra atılıyor.
 			return
 		}
-		a.archiveOne(ctx, p)
+		a.archiveOne(ctx, client, p)
 	}
 	a.reportBacklog(ctx)
 }
 
-func (a *Archiver) archiveOne(ctx context.Context, p store.ArchivePending) {
+func (a *Archiver) archiveOne(ctx context.Context, client *objstore.Client, p store.ArchivePending) {
 	log := a.logger.With("session_id", p.SessionID, "attempts", p.Attempts)
 
 	path, err := a.safePath(p.RecordingPath)
@@ -194,7 +280,7 @@ func (a *Archiver) archiveOne(ctx context.Context, p store.ArchivePending) {
 
 	key := a.keyFor(p, path)
 
-	sum, err := a.client.Put(ctx, key, f, info.Size())
+	sum, err := client.Put(ctx, key, f, info.Size())
 	if err != nil {
 		a.fail(ctx, p.SessionID, log, err, errors.Is(err, objstore.ErrTransient))
 		return
@@ -206,7 +292,7 @@ func (a *Archiver) archiveOne(ctx context.Context, p store.ArchivePending) {
 	 * DEPONUN KENDİSİNDEN duyuyoruz. Kendi istemcimizin "başarılı"
 	 * demesiyle deponun "duruyor" demesi aynı şey değil.
 	 */
-	size, err := a.client.Head(ctx, key)
+	size, err := client.Head(ctx, key)
 	if err != nil {
 		a.fail(ctx, p.SessionID, log, fmt.Errorf("verify: %w", err),
 			errors.Is(err, objstore.ErrTransient))
@@ -218,7 +304,7 @@ func (a *Archiver) archiveOne(ctx context.Context, p store.ArchivePending) {
 		return
 	}
 
-	if err := a.db.MarkArchived(ctx, p.SessionID, a.client.Bucket(), key,
+	if err := a.db.MarkArchived(ctx, p.SessionID, client.Bucket(), key,
 		sum, info.Size(), time.Now()); err != nil {
 		// Yüklendi ama damgalanamadı: bir sonraki turda yeniden
 		// yüklenecek. Aynı anahtara aynı içeriği yazmak zararsız.

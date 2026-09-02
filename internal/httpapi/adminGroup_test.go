@@ -5,6 +5,7 @@ import (
 
 	"github.com/warewave/postern/internal/ldap"
 
+	"github.com/warewave/postern/internal/archive"
 	"github.com/warewave/postern/internal/auth"
 
 	"github.com/warewave/postern/internal/store"
@@ -143,29 +144,42 @@ func TestEverySettingKeyIsClassified(t *testing.T) {
 		auth.KeyOIDCClientSecret: "own endpoint: write-only, never read back",
 		auth.KeyOIDCManaged:      "written by the server, not by an operator",
 		auth.KeySetupCompleted:   "written by the server when setup finishes",
+		/*
+		 * ⚠️ ARŞİV KİMLİĞİ GENEL AYARLAR YOLUNDAN GEÇEMEZ.
+		 *
+		 * Oradaki sınıflandırma fail-open: haritada olmayan anahtar
+		 * sessizce "sır değil" sayılıp DÜZ METİN saklanıyor
+		 * (federation.go:210). Yükleme sırrının mühürlenmesi bir
+		 * harita girdisinin varlığına bağlı olamaz — kendi ucu var ve
+		 * orada encrypted=true zorunlu.
+		 */
+		archive.KeyAccessKeyID:     "own endpoint: lives with the sealed half",
+		archive.KeySecretAccessKey: "own endpoint: sealed, never read back",
 	}
 
 	all := map[string]string{
-		"auth.KeyLoginSource":      auth.KeyLoginSource,
-		"auth.KeyAdminGroup":       auth.KeyAdminGroup,
-		"auth.KeyAutoCreate":       auth.KeyAutoCreate,
-		"auth.KeyConfirmTTL":       auth.KeyConfirmTTL,
-		"auth.KeyDeleteTTL":        auth.KeyDeleteTTL,
-		"auth.KeySetupCompleted":   auth.KeySetupCompleted,
-		"auth.KeyOIDCIssuer":       auth.KeyOIDCIssuer,
-		"auth.KeyOIDCClientID":     auth.KeyOIDCClientID,
-		"auth.KeyOIDCClientSecret": auth.KeyOIDCClientSecret,
-		"auth.KeyOIDCManaged":      auth.KeyOIDCManaged,
-		"ldap.KeyURL":              ldap.KeyURL,
-		"ldap.KeyBindDN":           ldap.KeyBindDN,
-		"ldap.KeyBindPassword":     ldap.KeyBindPassword,
-		"ldap.KeyUserBase":         ldap.KeyUserBase,
-		"ldap.KeyUserFilter":       ldap.KeyUserFilter,
-		"ldap.KeyGroupAttribute":   ldap.KeyGroupAttribute,
-		"ldap.KeyGroupBase":        ldap.KeyGroupBase,
-		"ldap.KeyGroupFilter":      ldap.KeyGroupFilter,
-		"ldap.KeyGroupNameFrom":    ldap.KeyGroupNameFrom,
-		"ldap.KeyGroupScope":       ldap.KeyGroupScope,
+		"auth.KeyLoginSource":        auth.KeyLoginSource,
+		"auth.KeyAdminGroup":         auth.KeyAdminGroup,
+		"auth.KeyAutoCreate":         auth.KeyAutoCreate,
+		"auth.KeyConfirmTTL":         auth.KeyConfirmTTL,
+		"auth.KeyDeleteTTL":          auth.KeyDeleteTTL,
+		"auth.KeySetupCompleted":     auth.KeySetupCompleted,
+		"auth.KeyOIDCIssuer":         auth.KeyOIDCIssuer,
+		"auth.KeyOIDCClientID":       auth.KeyOIDCClientID,
+		"auth.KeyOIDCClientSecret":   auth.KeyOIDCClientSecret,
+		"auth.KeyOIDCManaged":        auth.KeyOIDCManaged,
+		"ldap.KeyURL":                ldap.KeyURL,
+		"ldap.KeyBindDN":             ldap.KeyBindDN,
+		"ldap.KeyBindPassword":       ldap.KeyBindPassword,
+		"ldap.KeyUserBase":           ldap.KeyUserBase,
+		"ldap.KeyUserFilter":         ldap.KeyUserFilter,
+		"ldap.KeyGroupAttribute":     ldap.KeyGroupAttribute,
+		"ldap.KeyGroupBase":          ldap.KeyGroupBase,
+		"ldap.KeyGroupFilter":        ldap.KeyGroupFilter,
+		"ldap.KeyGroupNameFrom":      ldap.KeyGroupNameFrom,
+		"ldap.KeyGroupScope":         ldap.KeyGroupScope,
+		"archive.KeyAccessKeyID":     archive.KeyAccessKeyID,
+		"archive.KeySecretAccessKey": archive.KeySecretAccessKey,
 	}
 
 	for name, key := range all {
