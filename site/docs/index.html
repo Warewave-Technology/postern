@@ -483,7 +483,7 @@ $ journalctl -u ssh -n 50
         <tr><th>Tag</th><th>With <code>--tag-key role</code></th></tr>
         <tr><td><code>role_os-admins</code></td><td>grants to role <code>os-admins</code></td></tr>
         <tr><td><code>role=ops</code></td><td>grants to role <code>ops</code> (vSphere, where <code>=</code> is legal)</td></tr>
-        <tr><td><code>production</code></td><td>ignored — no key</td></tr>
+        <tr><td><code>production</code></td><td>no key, so it names no role — the machine lands in <code>unknown</code></td></tr>
       </table>
       <p>
         vSphere carries real tag categories, so <code>--tag-key</code> names the
@@ -493,7 +493,8 @@ $ journalctl -u ssh -n 50
     --username 'discovery@vsphere.local' --password "$VC_PASS" \
     --tag-key role --config postern.yaml
 </pre>
-      <div class="note"><b>Read-only, and dry by default</b><p>Use a credential with read permission only. Nothing is written without <code>--apply</code>, and an <code>--apply</code> that matched nothing exits non-zero and prints the tags it actually saw — so a typo in <code>--tag-key</code> fails loudly instead of quietly doing nothing.</p></div>
+      <div class="note"><b>Read-only, and dry by default</b><p>Use a credential with read permission only, and nothing is written without <code>--apply</code>.</p>
+      <p><b>The exit code answers a narrower question than you might expect.</b> An <code>--apply</code> exits non-zero only when machines were found and <em>nothing at all</em> was written — no target, no role, no grant. It does not key on your <code>--tag-key</code> matching: a run where most machines carry no role tag still creates targets, puts them in <code>unknown</code>, and exits zero. A discovery that finds no machines at all also exits zero. So a typo in <code>--tag-key</code> is visible in the summary — every machine in <code>unknown</code> — rather than in the exit status.</p></div>
     </section>
 
     <section id="labels">
@@ -627,7 +628,7 @@ $ postern sync status --config postern.yaml
         <tr><td><code>sync.min_zero_floor</code></td><td>3</td><td>the same, on small installations</td></tr>
         <tr><td><code>sync.max_unknown_fraction</code></td><td>0.25</td><td>a run where too much could not be resolved</td></tr>
         <tr><td><code>sync.max_revoke_per_run</code></td><td>25</td><td>a run that would revoke a fleet's worth of access at once</td></tr>
-        <tr><td><code>sync.grace</code></td><td>—</td><td>how long an unconfirmed account waits before going inactive</td></tr>
+        <tr><td><code>sync.grace</code></td><td>—</td><td>how long a user missing from the directory waits before their <em>directory roles</em> are revoked. It does not deactivate accounts: that is a separate loop with its own timer (<code>auth.confirm_ttl</code>), and it leaves roles alone and closes the door instead.</td></tr>
         <tr><td><code>sync.dry_run</code></td><td>false</td><td>everything; reports what it would do</td></tr>
       </table>
       <div class="note"><b>Turn it on dry first</b><p>Run with <code>sync.dry_run</code> for a cycle and read <code>sync status</code>. A directory filter that is subtly wrong looks identical to a directory that lost people.</p></div>
@@ -916,8 +917,11 @@ recording:
   min_free: 5GB
 
 target_probe:
-  enabled: true
-  refresh: 5m
+  # Default false, and left false here on purpose: switching this on
+  # makes postern run commands (uname, cat /etc/os-release) on every
+  # target, and it logs a warning at every startup saying so.
+  enabled: false
+  refresh: 24h
   timeout: 5s
 
 sync:
@@ -1004,11 +1008,21 @@ sync:
         the two failed.
       </p>
 
-      <h3>The panel says a target is unreachable</h3>
+      <h3>A target shows no facts, or connecting to it fails</h3>
       <p>
-        The probe dials from the bastion. Check <code>target_probe.timeout</code>,
-        then try the dial by hand from the bastion host — a firewall between
-        bastion and target is the usual answer.
+        These are two different things and only one of them involves the probe.
+        The panel has no "unreachable" state: it shows <b>Last reached</b> and,
+        when <code>target_probe</code> is on, what the machine said about itself.
+        Empty facts mean the probe is off or has not run — <code>refresh</code>
+        defaults to 24 hours — not that the host is down, and
+        <code>target_probe.timeout</code> bounds those identification commands
+        only. A session never waits for the probe and is never refused by it.
+      </p>
+      <p>
+        If <em>connecting</em> fails, the answer is between the bastion and the
+        target: try the dial by hand from the bastion host. A firewall in
+        between is the usual cause; a changed host key is the other, and that
+        one is reported rather than accepted.
       </p>
 
       <h3>"no route to host" only from some places</h3>

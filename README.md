@@ -807,10 +807,16 @@ make audit          # gosec + govulncheck
 make ci             # everything CI runs, in the same order
 ```
 
-`make ci` is what `.github/workflows/ci.yml` runs, so a green run locally
-means a green run there. CI additionally re-runs `govulncheck` weekly:
-its input changes without the code changing, and a vulnerability
-published on a quiet Tuesday should not wait for the next commit.
+`make ci` runs lint, vet, `test-race`, `audit` (gosec + govulncheck) and
+`test-integration`. That is most of CI but not all of it: `ci.yml` also
+runs `make web-test`, `make web-check` and `make fuzz`, so a green
+`make ci` is not by itself a green CI run — the panel's tests are the
+easiest of the three to break without noticing. Run those three too
+before pushing, or expect CI to find what you did not.
+
+CI additionally re-runs `govulncheck` weekly: its input changes without
+the code changing, and a vulnerability published on a quiet Tuesday
+should not wait for the next commit.
 
 `make sec` excludes gosec's G104 (unhandled errors), because all 22 hits
 are `Close()`/`Reject()` in cleanup paths where there is nothing to do
@@ -826,7 +832,7 @@ a blank error and pass for a success, that a 403 does not reload the page
 into a loop, and that a 500 during sign-in shows "postern is unreachable"
 instead of sending you back to the identity provider that cannot help.
 
-`make fuzz` runs the fuzz campaign — 15 targets, one invocation each,
+`make fuzz` runs the fuzz campaign — 17 targets, one invocation each,
 since `-fuzz` takes exactly one target and one package. It is not in
 `make ci`: the seed corpora already run as ordinary tests on every
 `go test`, so `make test-race` exercises every target under the race
