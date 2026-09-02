@@ -64,6 +64,9 @@ type Broker struct {
 	 */
 	aborted chan struct{}
 
+	// abortErr, denetimi çökerten sebep. Run bunu döndürüyor.
+	abortErr error
+
 	logger *slog.Logger
 }
 
@@ -187,6 +190,27 @@ func (b *Broker) Run(ctx context.Context) error {
 	wgCloseSignal := make(chan struct{})
 	wg.Add(3)
 
+	/*
+	 * ⚠️ BU İKİSİ WaitGroup DIŞINDA ve bu bilinçli — aşağıdaki
+	 * relayRequests(b.up, b.downR, ...) da öyle.
+	 *
+	 * İkisi de İSTEMCİDEN okuyor. Beklemeye alsaydık, hiçbir şey
+	 * yazmayan bir istemci oturumun hiç bitmemesi demek olurdu:
+	 * kullanıcı çıksa, hedef kapatsa, yönetici kessin — Run yine de
+	 * istemcinin bir tuşa basmasını beklerdi.
+	 *
+	 * ⚠️ BEDELİ ÖLÇÜLDÜ: kendi Close()'umuz kendi Read'imizi
+	 * uyandırmıyor (x/crypto channel.go — close mesajı gönderiliyor,
+	 * okuyucuyu serbest bırakan ch.close() ise karşı taraftan close
+	 * ALINDIĞINDA çalışıyor). Yani bu ikisi, istemci close'a cevap
+	 * verene ya da TCP ölene kadar yaşıyor.
+	 *
+	 * Sınırsız DEĞİL: bağlantı başına en fazla max_channels_per_conn,
+	 * toplamda max_conns ile çarpımı kadar. Düzeltmek ürünün en
+	 * kritik veri yolunu yeniden kurmayı gerektirirdi; sınırı bilmek
+	 * ve yazmak doğru karşılık. Ölçüm:
+	 * TestUnansweredCloseHoldsTwoGoroutines.
+	 */
 	go func() {
 		n, err := pipe(b.inputSink(), b.down, b.up)
 		if err != nil {
@@ -271,7 +295,37 @@ func (b *Broker) Run(ctx context.Context) error {
 	b.up.Close()
 	b.down.Close()
 
-	return nil
+	/*
+	 * ⚠️ DENETİM ÇÖKTÜĞÜ İÇİN KAPATTIYSAK BUNU SÖYLÜYORUZ.
+	 *
+	 * ÖLÇÜLEN ARIZA: Run koşulsuz nil dönüyordu, yani iki çağrı
+	 * yerindeki `if err := sess.Run(...); err != nil` dalları ÖLÜ
+	 * KODDU — hiçbir koşulda çalışmıyorlardı. Bu depodaki tekrar eden
+	 * sınıfın tersi: yazılmış ve hiç tetiklenemeyen bir hata yolu.
+	 *
+	 * Gerçek bir sinyal var ve kayboluyordu: SFTP çözücüsü akışı
+	 * anlayamadığında oturumu KASTEN kapatıyoruz (abortAudit) ve bu,
+	 * "kullanıcı çıktı" ile karıştırılmaması gereken bir bitiş.
+	 *
+	 * Kapatma hataları döndürülmüyor: karşı taraf çoktan gitmiş
+	 * olabilir ve o gürültü, asıl sinyali gömerdi.
+	 *
+	 * ⚠️ abortErr YALNIZCA KANALIN KAPANDIĞINI GÖRDÜKTEN SONRA
+	 * OKUNUYOR. Alan başka bir goroutine'den yazılıyor (abortAudit) ve
+	 * doğrudan okumak veri yarışı olurdu: Run, wgCloseSignal ya da
+	 * ctx.Done yoluyla da çıkabiliyor, o yollarda yazma ile okuma
+	 * arasında hiçbir sıralama garantisi yok.
+	 *
+	 * Kapalı bir kanaldan alma, close'dan ÖNCEKİ her yazmayı
+	 * görünür kılıyor — abortAudit de abortErr'i close'dan önce
+	 * yazıyor. Kapanmamışsa alana hiç dokunmuyoruz.
+	 */
+	select {
+	case <-b.aborted:
+		return b.abortErr
+	default:
+		return nil
+	}
 }
 
 // relayRequests forwards allowed requests from src to dst, answering the

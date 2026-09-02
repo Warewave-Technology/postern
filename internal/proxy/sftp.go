@@ -138,6 +138,10 @@ func feedFromTarget(s *sftpaudit.Session, p []byte) error { return s.FromTarget(
 func (b *Broker) abortAudit(err error) {
 	b.abortOnce.Do(func() {
 		b.logger.Error("sftp audit failed; ending session", "error", err)
+		// ⚠️ SEBEP SAKLANIYOR: Run bunu ÇAĞIRANA döndürüyor. Yalnızca
+		// loglamak, oturumu denetim çöktüğü için kapattığımızı
+		// çağıranın hiç öğrenememesi demekti (bkz. Run'ın dönüşü).
+		b.abortErr = err
 		close(b.aborted)
 		b.down.Close()
 		b.up.Close()

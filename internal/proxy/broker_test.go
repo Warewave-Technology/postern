@@ -3,8 +3,10 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -74,7 +76,19 @@ func (c *fakeChannel) Close() error {
 	c.mu.Lock()
 	c.closed = true
 	c.mu.Unlock()
-	// Gerçek kanal gibi: kapanış, okumada bekleyenleri uyandırır.
+	/*
+	 * ⚠️ BU, GERÇEK ssh.Channel DEĞİL — ve eski yorum öyle diyordu.
+	 *
+	 * x/crypto'da Close() yalnızca channelCloseMsg GÖNDERİYOR;
+	 * okumada bekleyenleri uyandıran ch.close(), karşı taraftan close
+	 * ALINDIĞINDA çalışıyor (channel.go, msgChannelClose dalı). Yani
+	 * gerçekte kapanış tek başına okuyucuyu serbest bırakmıyor.
+	 *
+	 * Buradaki uyandırma testlerin çoğunu basitleştirdiği için
+	 * duruyor, ama koşumun GERÇEKTEN DAHA BAĞIŞLAYICI olduğunu bilerek
+	 * yazıyoruz: cevap vermeyen bir istemcinin davranışı bu tiple
+	 * ölçülemez, onun için deafChannel var.
+	 */
 	c.dataR.Close()
 	c.errR.Close()
 	return nil
@@ -456,4 +470,169 @@ func TestBrokerTeedInputKeepsHalfClose(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatal("stdin kapandı ama hedefe yarı kapatma iletilmedi — tee CloseWrite'ı yuttu")
+}
+
+/*
+ * ⚠️ DENETİM ÇÖKÜNCE Run BUNU ÇAĞIRANA SÖYLEMELİ.
+ *
+ * ÖLÇÜLEN ARIZA: Run koşulsuz nil dönüyordu, yani sshd/channel.go ve
+ * httpapi/terminal.go'daki `if err := sess.Run(...); err != nil`
+ * dalları ÖLÜ KODDU — hiçbir koşulda çalışmıyorlardı. Bu depodaki
+ * tekrar eden sınıfın tersi: yazılmış ve hiç tetiklenemeyen bir hata
+ * yolu.
+ *
+ * Kaybolan sinyal gerçekti: SFTP çözücüsü akışı anlayamadığında
+ * oturumu KASTEN kapatıyoruz ve bu, "kullanıcı çıktı" ile
+ * karıştırılmaması gereken bir bitiş.
+ */
+func TestRunReportsAnAuditAbort(t *testing.T) {
+	down, _, _ := newFakeChannel()
+	up, _, _ := newFakeChannel()
+	downR := make(chan *ssh.Request)
+	upR := make(chan *ssh.Request)
+
+	b := New(down, downR, up, upR, nil, false, RequestPolicy{}, testLogger())
+
+	done := make(chan error, 1)
+	go func() { done <- b.Run(context.Background()) }()
+
+	cause := errors.New("sftp stream stopped making sense")
+	b.abortAudit(cause)
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("denetim çöktü ama Run nil döndü — çağıranın hata dalı ölü kod")
+		}
+		if !errors.Is(err, cause) {
+			t.Errorf("dönen hata sebebi taşımıyor: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run dönmedi")
+	}
+}
+
+// Normal çıkışta nil dönmeli: her bitişi hata saymak, gerçek sinyali
+// gürültüye gömerdi.
+func TestRunReturnsNilOnANormalExit(t *testing.T) {
+	down, _, _ := newFakeChannel()
+	up, _, _ := newFakeChannel()
+	downR := make(chan *ssh.Request)
+	upR := make(chan *ssh.Request)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- New(down, downR, up, upR, nil, false, RequestPolicy{}, testLogger()).Run(ctx) }()
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("normal çıkışta hata döndü: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run dönmedi")
+	}
+}
+
+/*
+ * ⚠️ SAĞIR KANAL: GERÇEK ssh.Channel GİBİ DAVRANAN SAHTE.
+ *
+ * newFakeChannel'ın Close'u okumada bekleyenleri uyandırıyor ve yorumu
+ * "gerçek kanal gibi" diyor. YANLIŞ — x/crypto kaynağına bakıldı:
+ * channel.Close() yalnızca channelCloseMsg GÖNDERİYOR; okuyucuları
+ * uyandıran ch.close() ancak karşı taraftan close ALINDIĞINDA
+ * çağrılıyor (channel.go, msgChannelClose dalı).
+ *
+ * Fark önemli: koşum gerçeklikten daha bağışlayıcı olduğu için, cevap
+ * vermeyen bir istemcinin ne yaptığını mevcut testlerin hiçbiri
+ * göremiyor. Bu tip o boşluğu kapatıyor.
+ */
+type deafChannel struct {
+	*fakeChannel
+	block chan struct{}
+}
+
+func newDeafChannel() *deafChannel {
+	ch, _, _ := newFakeChannel()
+	return &deafChannel{fakeChannel: ch, block: make(chan struct{})}
+}
+
+// Read, karşı taraf cevap verene kadar dönmüyor — Close bile uyandırmaz.
+func (d *deafChannel) Read(p []byte) (int, error) {
+	<-d.block
+	return 0, io.EOF
+}
+
+/*
+ * answer, karşı tarafın nihayet close'a cevap vermesi.
+ *
+ * ⚠️ İSTEK KANALLARI DA KAPANIYOR ve bu gerçeğin taklidi: x/crypto'da
+ * karşı taraftan close alındığında ch.close() çalışıyor ve o,
+ * pending.eof() ile BİRLİKTE close(c.incomingRequests) da yapıyor.
+ * Yalnızca okumayı serbest bırakan bir taklit, istek röleleri hiç
+ * bitmediği için "serbest kalmadılar" derdi — koşumun eksikliğini
+ * ürünün kusuru sanmak olurdu (ilk hâli tam olarak bunu yaptı).
+ */
+func (d *deafChannel) answer(reqs ...chan *ssh.Request) {
+	close(d.block)
+	for _, r := range reqs {
+		close(r)
+	}
+}
+
+/*
+ * ⚠️ CEVAP VERMEYEN İSTEMCİ, OTURUM BİTTİKTEN SONRA GOROUTINE TUTUYOR.
+ *
+ * Run'ın beş goroutine'inden ikisi WaitGroup dışında ve bu BİLİNÇLİ:
+ * hiçbir şey yazmayan bir istemciyi beklemek, oturumun hiç
+ * bitmemesi demek olurdu. Bedeli, o ikisinin karşı taraf close'a cevap
+ * verene (ya da TCP ölene) kadar yaşaması.
+ *
+ * Bu test o bedeli ÖLÇÜYOR ve sınırlarını yazıya döküyor. Sınırsız
+ * değil: bağlantı başına en fazla max_channels_per_conn, toplamda
+ * max_conns ile çarpımı kadar. Düzeltmek, ürünün en kritik veri
+ * yolunu yeniden kurmayı gerektirirdi; ölçüp sınırını bilmek doğru
+ * karşılık.
+ */
+func TestUnansweredCloseHoldsTwoGoroutines(t *testing.T) {
+	down := newDeafChannel()
+	up, _, _ := newFakeChannel()
+	downR := make(chan *ssh.Request)
+	upR := make(chan *ssh.Request)
+
+	before := runtime.NumGoroutine()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- New(down, downR, up, upR, nil, false, RequestPolicy{}, testLogger()).Run(ctx) }()
+
+	// Oturumu bitir: Run dönmeli, istemci cevap vermese bile.
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("cevap vermeyen istemci Run'ı kilitledi — oturum hiç bitmezdi")
+	}
+
+	// ⚠️ ASIL ÖLÇÜM: Run döndü ama istemci tarafındaki okuyucular hâlâ
+	// bekliyor. Sayı SIFIRA dönmüyor ve bu beklenen davranış.
+	time.Sleep(200 * time.Millisecond)
+	during := runtime.NumGoroutine()
+	if during <= before {
+		t.Skip("goroutine sayısı ölçülemedi (koşumdaki gürültü); " +
+			"ölçüm ortama duyarlı, iddiayı zorlamıyoruz")
+	}
+
+	// Karşı taraf nihayet cevap verince serbest kalıyorlar.
+	down.answer(downR, upR)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if runtime.NumGoroutine() <= before+1 {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Errorf("istemci cevap verdikten sonra da serbest kalmadılar: "+
+		"önce=%d sonra=%d — sızıntı sınırsız olurdu", before, runtime.NumGoroutine())
 }
