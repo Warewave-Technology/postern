@@ -158,6 +158,21 @@ function Result({ result }: { result: History }) {
     );
   }
 
+  /*
+   * ⚠️ SÜTUN SIRASI SORUŞTURMANIN OKUMA SIRASI.
+   *
+   * Ölçüldü: 11 sütun 1500px'lik bir pencerede 1438px yer istiyor,
+   * kapsayıcı 1022px veriyor — 416px yatay taşma. Yani ilk bakışta
+   * hangi sütunların görüneceği bir tercih değil, bir karar.
+   *
+   * İlk hâlinde taşıp kaybolan sütun RESULT'tı: bir denetim ekranında
+   * "işlem tuttu mu" sorusunun cevabı. /etc/shadow satırlarında görünen
+   * her şey doğruydu ve ekran, erişimin REDDEDİLDİĞİNİ söylemiyordu.
+   *
+   * Sıra artık: ne zaman → kim → nerede → ne yaptı → hangi dosya →
+   * tuttu mu → ne kadar taşındı. Bağlam sütunları (os user, src,
+   * session) sona; kaybolurlarsa cevap yine elde kalıyor.
+   */
   const columns: Column<FileTouch>[] = [
     {
       key: "at",
@@ -176,8 +191,6 @@ function Result({ result }: { result: History }) {
         f.user || <span className="muted" title="session metadata missing">—</span>,
     },
     { key: "target", header: "Target", value: (f) => f.target },
-    { key: "os_user", header: "OS user", value: (f) => f.os_user },
-    { key: "src", header: "Src", value: (f) => f.src_ip },
     { key: "op", header: "Op", value: (f) => f.op },
     {
       key: "path",
@@ -208,13 +221,6 @@ function Result({ result }: { result: History }) {
         </>
       ),
     },
-    { key: "read", header: "Read", value: (f) => f.read, render: (f) => bytes(f.read) },
-    {
-      key: "wrote",
-      header: "Wrote",
-      value: (f) => f.wrote,
-      render: (f) => bytes(f.wrote),
-    },
     {
       key: "ok",
       header: "Result",
@@ -230,6 +236,15 @@ function Result({ result }: { result: History }) {
           </span>
         ),
     },
+    { key: "read", header: "Read", value: (f) => f.read, render: (f) => bytes(f.read) },
+    {
+      key: "wrote",
+      header: "Wrote",
+      value: (f) => f.wrote,
+      render: (f) => bytes(f.wrote),
+    },
+    { key: "os_user", header: "OS user", value: (f) => f.os_user },
+    { key: "src", header: "Src", value: (f) => f.src_ip },
     {
       key: "session",
       header: "Session",
