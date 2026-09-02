@@ -805,6 +805,7 @@ make test-integration   # against real OpenSSH containers; needs Docker
 make lint vet
 make audit          # gosec + govulncheck
 make ci             # everything CI runs, in the same order
+postern version     # which build is this, and was it built from a tag
 ```
 
 `make ci` runs lint, vet, `test-race`, `audit` (gosec + govulncheck),

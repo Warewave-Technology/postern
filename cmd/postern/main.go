@@ -6,6 +6,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"github.com/warewave/postern/internal/version"
 )
 
 func main() {
@@ -21,7 +23,14 @@ func newRootCmd() *cobra.Command {
 		Short:         "Certificate-based, session-recording SSH bastion",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+
+		// ⚠️ `--version` TEK SATIR. Betikler bunu ayrıştırıyor;
+		// ayrıntı (commit, kirlilik, Go sürümü) `postern version`da.
+		Version: version.Get().Short(),
 	}
+	// Cobra'nın varsayılan şablonu "postern version X" basıyor;
+	// yalnızca değeri istiyoruz.
+	root.SetVersionTemplate("{{.Version}}\n")
 	root.AddCommand(newServeCmd())
 	root.AddCommand(newCACmd())
 	root.AddCommand(newDBCmd())
@@ -37,5 +46,6 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newSyncCmd())
 	root.AddCommand(newArchiveCmd())
 	root.AddCommand(newLogCmd())
+	root.AddCommand(newVersionCmd())
 	return root
 }

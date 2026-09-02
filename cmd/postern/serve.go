@@ -32,6 +32,7 @@ import (
 	"github.com/warewave/postern/internal/sshd"
 	"github.com/warewave/postern/internal/store"
 	"github.com/warewave/postern/internal/upstream"
+	"github.com/warewave/postern/internal/version"
 )
 
 /*
@@ -56,6 +57,20 @@ func newServeCmd() *cobra.Command {
 		Short: "Start the bastion (SSH listener)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+			/*
+			 * ⚠️ İLK SATIR SÜRÜM — VE HİÇ YOKTU.
+			 *
+			 * Bir güvenlik açığı yayınlandığında operatörün ilk
+			 * sorusu "hangi sürümü çalıştırıyorum" ve log'da cevabı
+			 * yoktu. Açılışta yazmak, o cevabı olaydan ÖNCE
+			 * arşivlenmiş hâle getiriyor: log toplayıcıda zaten
+			 * duruyor, ikiliye erişmek gerekmiyor.
+			 *
+			 * Yapılandırmadan ÖNCE basılıyor: config hatasıyla açılamayan
+			 * bir kurulumda bile hangi ikilinin denediği görünsün.
+			 */
+			logger.Info("postern starting", "version", version.Get().Short())
 
 			cfg, err := config.Load(configPath)
 			if err != nil {

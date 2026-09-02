@@ -1,5 +1,26 @@
 GO ?= go
 
+# VERSION, ikiliye basılan sürüm etiketi.
+#
+# ⚠️ `git describe` KULLANILIYOR, elle yazılan bir sabit DEĞİL. Elle
+# tutulan bir sürüm satırı, etiketlemeyi unutan ya da etiketten sonra
+# commit atan her derlemede yalan söyler. describe ikisini de anlatıyor:
+# "v1.0.0" tam etiketli bir ağaç, "v1.0.0-3-gab12cd" etiketten üç commit
+# sonrası.
+#
+# ⚠️ `--always` YOK — VE ÖNCE VARDI. Onunla describe, etiket
+# bulamadığında çıplak commit hash'ine düşüyor; o hash de ikiliye
+# BASILIYOR, yani ikili kendini "etiketlenmiş" sanıyor ve "bu bir sürüm
+# derlemesi değil" uyarısı hiç çıkmıyordu. Ölçüldü: etiketsiz bir ağaçta
+# `postern version`, uyarısız bir şekilde "15911df-dirty" diyordu.
+#
+# Etiket yoksa VERSION boş kalıyor ve ikili kendini "dev" diye tanıtıyor.
+# Kendini sürüm sanan bir geliştirme derlemesi, "yamalı mıyım" sorusuna
+# verilebilecek en kötü cevap.
+VERSION ?= $(shell git describe --tags --dirty 2>/dev/null)
+LDFLAGS := -X github.com/warewave/postern/internal/version.version=$(VERSION)
+
+
 # Araç sürümleri sabitlenmiş: "@latest" ile koşan bir CI, aracın yeni bir
 # sürümü çıktığında hiçbir şey değişmemişken kırmızıya döner. Yükseltme
 # bilinçli bir commit olmalı.
@@ -9,7 +30,7 @@ GOVULNCHECK_VERSION  ?= v1.7.0
 .PHONY: build test test-race test-short test-integration vet fmt lint sec vuln fuzz audit ci web web-test web-check clean
 
 build:
-	$(GO) build -o bin/postern ./cmd/postern
+	$(GO) build -ldflags "$(LDFLAGS)" -o bin/postern ./cmd/postern
 
 # ⚠️ Docker gerektirir: store'a dokunan testler gerçek bir PostgreSQL'e
 # karşı koşuyor (internal/testdb). Konteynersiz koşmak için: make test-short

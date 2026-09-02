@@ -1057,6 +1057,28 @@ sync:
       <h3>The panel did not change after a rebuild</h3>
       <p><code>make web</code> alone does nothing to a running server — the assets are embedded. Rebuild the binary.</p>
 
+      <h3>Which version am I running?</h3>
+      <p>
+        Ask the binary, or read the first line the service logged when it
+        started — postern writes its version before it even reads the config
+        file, so it is there even for a start that failed:
+      </p>
+<pre>$ postern version
+postern v1.0.0
+  commit    3f2a9c1de4b0 (clean)
+  committed 2026-09-03T10:12:44Z
+  go        go1.26.6
+  platform  linux/amd64
+</pre>
+      <p>
+        Two lines are worth reading closely. A build that did not come from a
+        release tag says so rather than inventing a number, and a build made
+        from a modified working tree is marked <code>MODIFIED</code> — the tag
+        it carries does not then correspond to any commit, which is exactly the
+        distinction that matters when you are checking whether a patch is
+        actually in the binary you are running.
+      </p>
+
       <h3>Someone was re-created in the directory and cannot sign in</h3>
       <p>
         A directory that deletes and re-creates a person gives them a new
