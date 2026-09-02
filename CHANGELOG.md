@@ -164,6 +164,14 @@ recordings.
   green local run did not cover 320 tests or the check that catches a
   commit editing `web/src` without rebuilding the embedded bundle.
 
+### Legal
+
+- **The `LICENSE` file was a truncated copy of Apache-2.0** and is now
+  the upstream text verbatim. It ended at section 9, missing
+  `END OF TERMS AND CONDITIONS` and the appendix — the part that tells a
+  reader how to apply the licence to their own work. Nothing about the
+  terms changed; the file simply stopped early.
+
 ### Removed
 
 - **`store.ActiveUser`**, **`store.HasDirectoryIdentity`** and

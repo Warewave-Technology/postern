@@ -916,4 +916,12 @@ the host key scan when registering a target.
 
 ## License
 
-Apache-2.0 — see [LICENSE](LICENSE).
+Copyright 2026 Warewave.
+
+Licensed under the Apache License, Version 2.0 — see [LICENSE](LICENSE).
+
+The file in this repository was a truncated copy until 2026-09-03: it
+stopped at the end of section 9, without `END OF TERMS AND CONDITIONS`
+or the appendix. It is now the upstream text verbatim, byte-identical to
+the copy shipped by six unrelated projects in the module cache, which is
+how it was checked.
