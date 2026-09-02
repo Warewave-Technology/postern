@@ -59,10 +59,13 @@ it("host kimligi kullaniliyorsa form cizmez ve sebebini soyler", async () => {
   );
   render(<ArchiveCredential />);
   await waitFor(() =>
-    expect(screen.getByText(/takes its archive key from the host/i))
-      .toBeInTheDocument(),
+    expect(
+      screen.getByText(/takes its archive key from the host/i),
+    ).toBeInTheDocument(),
   );
-  expect(screen.queryByRole("button", { name: /save the archive key/i })).toBeNull();
+  expect(
+    screen.queryByRole("button", { name: /save the archive key/i }),
+  ).toBeNull();
 });
 
 // Kimlik yokken sonucu söylenmeli: yükleme durmuş VE budama da durmuş.
@@ -72,8 +75,9 @@ it("kimlik yokken budamanin da durdugunu soyler", async () => {
   );
   render(<ArchiveCredential />);
   await waitFor(() =>
-    expect(screen.getByText(/nothing can be pruned while it waits/i))
-      .toBeInTheDocument(),
+    expect(
+      screen.getByText(/nothing can be pruned while it waits/i),
+    ).toBeInTheDocument(),
   );
 });
 
@@ -92,7 +96,9 @@ it("sirri hicbir bicimde gostermez", async () => {
   );
   expect(screen.getByText(/never shown again/i)).toBeInTheDocument();
   // Sır kutusu BOŞ açılıyor: saklı değerin yer tutucusu bile yok.
-  const secret = screen.getByLabelText(/secret access key/i) as HTMLInputElement;
+  const secret = screen.getByLabelText(
+    /secret access key/i,
+  ) as HTMLInputElement;
   expect(secret.value).toBe("");
   expect(secret.placeholder).toBe("");
   expect(secret.type).toBe("password");
@@ -103,10 +109,14 @@ it("yarim kimlik gonderilemez", async () => {
   vi.spyOn(api, "archiveStatus").mockResolvedValue(
     status({ credential_source: "none", access_key_id: "" }),
   );
-  const set = vi.spyOn(api, "setArchiveCredential").mockResolvedValue({ ok: true });
+  const set = vi
+    .spyOn(api, "setArchiveCredential")
+    .mockResolvedValue({ ok: true });
   render(<ArchiveCredential />);
 
-  const btn = await screen.findByRole("button", { name: /save the archive key/i });
+  const btn = await screen.findByRole("button", {
+    name: /save the archive key/i,
+  });
   expect(btn).toBeDisabled();
 
   await userEvent.type(screen.getByLabelText(/access key id/i), "AKIANEW");
@@ -126,7 +136,9 @@ it("silme onayi diskin buyuyecegini soyler", async () => {
   vi.stubGlobal("confirm", confirmSpy);
 
   render(<ArchiveCredential />);
-  const btn = await screen.findByRole("button", { name: /remove the archive key/i });
+  const btn = await screen.findByRole("button", {
+    name: /remove the archive key/i,
+  });
   await userEvent.click(btn);
 
   const msg = String(confirmSpy.mock.calls[0]?.[0] ?? "");

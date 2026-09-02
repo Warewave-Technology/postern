@@ -25,7 +25,10 @@ const columns: Column<Row>[] = [
 ];
 
 const names = () =>
-  screen.getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell")[0].textContent);
+  screen
+    .getAllByRole("row")
+    .slice(1)
+    .map((r) => within(r).getAllByRole("cell")[0].textContent);
 
 function setup(extra?: Partial<React.ComponentProps<typeof DataTable<Row>>>) {
   return render(
@@ -57,13 +60,17 @@ describe("DataTable sıralama", () => {
   // gözle yanlış görünür ve operatör aradığını olmayan yerde arar.
   it("ad icindeki sayilar dogru siralanir", async () => {
     setup();
-    await userEvent.click(screen.getByRole("button", { name: /sort by Name/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /sort by Name/i }),
+    );
     expect(names()).toEqual(["db-01", "web-2", "web-10"]);
   });
 
   it("sayi sutunu metin degil sayi olarak siralanir", async () => {
     setup();
-    await userEvent.click(screen.getByRole("button", { name: /sort by Seen/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /sort by Seen/i }),
+    );
     // Metin sıralaması olsaydı "2, 30, 9" gelirdi.
     expect(names()).toEqual(["web-10", "db-01", "web-2"]);
   });
@@ -72,7 +79,9 @@ describe("DataTable sıralama", () => {
   // yalnızca göreni bilgilendirir.
   it("siralanan sutun aria-sort tasir, digerleri tasimaz", async () => {
     setup();
-    await userEvent.click(screen.getByRole("button", { name: /sort by Name/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /sort by Name/i }),
+    );
 
     const headers = screen.getAllByRole("columnheader");
     const nameTh = headers.find((h) => h.textContent?.includes("Name"))!;
@@ -117,7 +126,9 @@ describe("DataTable arama", () => {
     await userEvent.type(box, "db");
     expect(names()).toEqual(["db-01"]);
 
-    await userEvent.click(screen.getByRole("button", { name: /clear the search/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /clear the search/i }),
+    );
     expect(names()).toHaveLength(3);
   });
 

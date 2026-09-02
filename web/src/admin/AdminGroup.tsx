@@ -180,10 +180,10 @@ export default function AdminGroup({ meName }: { meName?: string }) {
                 // gizlerdi.
                 <p className="msg msg-warn" role="alert">
                   <b>The directory cannot be asked who is in a group.</b> LDAP
-                  is configured but postern could not build a working
-                  connection from it: <code>{status.enumerable_error}</code>.
-                  Fix that above and this screen starts working — the same
-                  fault also affects sign-in.
+                  is configured but postern could not build a working connection
+                  from it: <code>{status.enumerable_error}</code>. Fix that
+                  above and this screen starts working — the same fault also
+                  affects sign-in.
                 </p>
               ) : (
                 <p className="msg msg-warn" role="status">
@@ -273,8 +273,7 @@ export default function AdminGroup({ meName }: { meName?: string }) {
                 {shown && !shown.ok && (
                   <ErrorLine
                     msg={
-                      shown.error ||
-                      "the directory refused and did not say why"
+                      shown.error || "the directory refused and did not say why"
                     }
                   />
                 )}
@@ -290,8 +289,8 @@ export default function AdminGroup({ meName }: { meName?: string }) {
                     ) : (
                       <div className="msg msg-warn" role="status">
                         <b>
-                          You are giving administrator to{" "}
-                          {shown.admins.length} account(s):
+                          You are giving administrator to {shown.admins.length}{" "}
+                          account(s):
                         </b>
                         <ul className="problem-list">
                           {shown.admins.map((n) => (
@@ -366,9 +365,9 @@ export default function AdminGroup({ meName }: { meName?: string }) {
                     {shown.truncated && (
                       <p className="msg msg-warn" role="status">
                         <b>The member list was cut short.</b> postern stops
-                        reading a group after a fixed number of members, so
-                        this list may be incomplete — and a group this large is
-                        an odd choice for administrator anyway.
+                        reading a group after a fixed number of members, so this
+                        list may be incomplete — and a group this large is an
+                        odd choice for administrator anyway.
                       </p>
                     )}
                   </>

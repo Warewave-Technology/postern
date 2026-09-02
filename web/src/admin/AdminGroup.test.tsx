@@ -44,7 +44,10 @@ const saveBtn = () =>
 
 beforeEach(() => {
   vi.restoreAllMocks();
-  vi.stubGlobal("confirm", vi.fn(() => true));
+  vi.stubGlobal(
+    "confirm",
+    vi.fn(() => true),
+  );
   vi.spyOn(api, "adminGroup").mockResolvedValue(status());
 });
 
@@ -93,7 +96,12 @@ describe("yonetici grubu onayi", () => {
     vi.spyOn(api, "previewAdminGroup").mockResolvedValue(preview());
     const set = vi
       .spyOn(api, "setAdminGroup")
-      .mockResolvedValue({ ok: true, group: "sysadmins", granted: [], revoked: [] });
+      .mockResolvedValue({
+        ok: true,
+        group: "sysadmins",
+        granted: [],
+        revoked: [],
+      });
 
     await seeWho();
     await waitFor(() => expect(saveBtn()).toBeEnabled());
@@ -174,9 +182,13 @@ describe("yonetici grubu onayi", () => {
     await seeWho();
 
     await waitFor(() =>
-      expect(screen.getByText(/You are giving administrator/i)).toBeInTheDocument(),
+      expect(
+        screen.getByText(/You are giving administrator/i),
+      ).toBeInTheDocument(),
     );
-    expect(screen.queryByText(/removes your own administrator access/i)).toBeNull();
+    expect(
+      screen.queryByText(/removes your own administrator access/i),
+    ).toBeNull();
   });
 
   // Hesabı olmayan üye: yetkisi ancak ilk girişinde oluşur. "Şimdi
@@ -203,7 +215,9 @@ describe("yonetici grubu onayi", () => {
     await seeWho();
 
     await waitFor(() =>
-      expect(screen.getByText(/Nobody resolves in that group/i)).toBeInTheDocument(),
+      expect(
+        screen.getByText(/Nobody resolves in that group/i),
+      ).toBeInTheDocument(),
     );
   });
 });
@@ -230,7 +244,10 @@ describe("uyeligin sayilamadigi kurulumlar", () => {
   // teşhis konur: operatör claim modunda olduğunu sanıp arızayı aramaz.
   it("bozuk yapilandirmayi claim moduyla karistirmaz", async () => {
     vi.spyOn(api, "adminGroup").mockResolvedValue(
-      status({ enumerable: false, enumerable_error: "ldap: group_base is required" }),
+      status({
+        enumerable: false,
+        enumerable_error: "ldap: group_base is required",
+      }),
     );
     render(<AdminGroup meName="yigit" />);
 
@@ -251,7 +268,12 @@ describe("gruptan vazgecme", () => {
     vi.stubGlobal("confirm", confirmSpy);
     const set = vi
       .spyOn(api, "setAdminGroup")
-      .mockResolvedValue({ ok: true, group: "", granted: [], revoked: ["yigit"] });
+      .mockResolvedValue({
+        ok: true,
+        group: "",
+        granted: [],
+        revoked: ["yigit"],
+      });
 
     render(<AdminGroup meName="ops" />);
     await waitFor(() =>
@@ -297,7 +319,9 @@ describe("liste kapsami", () => {
     // CLI'dan gelenler LİSTEDE değil...
     expect(cell.querySelector("ul")?.textContent).not.toMatch(/ops|sre/);
     // ...ama sayıları söyleniyor.
-    expect(cell.textContent).toMatch(/2 more administrators come from the bastion host/i);
+    expect(cell.textContent).toMatch(
+      /2 more administrators come from the bastion host/i,
+    );
   });
 
   it("gruptan kimse gelmiyorsa bunu soyler", async () => {

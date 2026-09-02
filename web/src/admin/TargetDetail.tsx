@@ -85,11 +85,13 @@ export default function TargetDetail({
 
   const remove = () => {
     setOk("");
-    return api
-      .deleteTarget(name)
-      // Silinen hedefin sayfasında kalmak anlamsız: listeye dön.
-      .then(onBack)
-      .catch((e: unknown) => setError(toMessage(e)));
+    return (
+      api
+        .deleteTarget(name)
+        // Silinen hedefin sayfasında kalmak anlamsız: listeye dön.
+        .then(onBack)
+        .catch((e: unknown) => setError(toMessage(e)))
+    );
   };
 
   return (
@@ -133,9 +135,9 @@ export default function TargetDetail({
             sağda "nasıl düzenlenmiş ve kim erişiyor", altta geçmiş.
           */}
           <div className="detail-main">
-              <div className="card">
-                <div className="card-head">
-                  <h3>Configuration</h3>
+            <div className="card">
+              <div className="card-head">
+                <h3>Configuration</h3>
                 <p>What an operator entered. postern holds the host to this.</p>
               </div>
               <div className="card-body">
@@ -179,7 +181,9 @@ export default function TargetDetail({
                     <Stamp value={t.facts.last_seen_at} />
                   </dd>
                   <dt>Handshake</dt>
-                  <dd>{t.facts.connect_ms ? `${t.facts.connect_ms} ms` : "—"}</dd>
+                  <dd>
+                    {t.facts.connect_ms ? `${t.facts.connect_ms} ms` : "—"}
+                  </dd>
                 </dl>
 
                 {/* Başarı, önceki HATAYI SİLMİYOR: "en son ne zaman
@@ -231,19 +235,18 @@ export default function TargetDetail({
                   // gösterirdi.
                   <p className="no-match">
                     This host has not been identified. Either{" "}
-                    <code>target_probe</code> is switched off on this bastion, or
-                    nobody has connected since it was turned on.
+                    <code>target_probe</code> is switched off on this bastion,
+                    or nobody has connected since it was turned on.
                   </p>
                 )}
               </div>
             </div>
-
           </div>
 
           <div className="detail-side">
-              <div className="card">
-                <div className="card-head">
-                  <h3>Labels</h3>
+            <div className="card">
+              <div className="card-head">
+                <h3>Labels</h3>
                 <p>
                   Notes for finding this host. A label grants nothing — access
                   comes only from a role.
@@ -301,8 +304,8 @@ export default function TargetDetail({
               <div className="card-head">
                 <h3>Reached by</h3>
                 <p>
-                  The roles that grant this target. Anyone holding one of them can
-                  open a session here.
+                  The roles that grant this target. Anyone holding one of them
+                  can open a session here.
                 </p>
               </div>
               <div className="card-body">
@@ -321,7 +324,6 @@ export default function TargetDetail({
                 )}
               </div>
             </div>
-
           </div>
 
           <div className="card detail-wide">
@@ -330,7 +332,9 @@ export default function TargetDetail({
               <p>The last connections opened to this host.</p>
             </div>
             {t.recent_sessions.length === 0 ? (
-              <p className="no-match">No session has been opened to this host.</p>
+              <p className="no-match">
+                No session has been opened to this host.
+              </p>
             ) : (
               <div className="table-wrap">
                 <table>

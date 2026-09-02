@@ -6,7 +6,12 @@ import "@xterm/xterm/css/xterm.css";
 import { ApiError, api, toMessage } from "../api";
 import { ErrorLine, WarnLine } from "./common";
 import {
-  parseCast, compress, duration, formatDuration, initialSize, parseResize,
+  parseCast,
+  compress,
+  duration,
+  formatDuration,
+  initialSize,
+  parseResize,
   type CastEvent,
 } from "../cast";
 
@@ -139,7 +144,11 @@ export default function CastPlayer({
     let index = 0;
     term.reset();
     const startedFrom = at;
-    for (; index < cast.events.length && cast.events[index].playAt < startedFrom; index++) {
+    for (
+      ;
+      index < cast.events.length && cast.events[index].playAt < startedFrom;
+      index++
+    ) {
       const e = cast.events[index];
       if (e.kind === "o") term.write(e.data);
       // Geri sarmada da boyut uygulanmalı: aksi hâlde ortadan
@@ -235,7 +244,10 @@ export default function CastPlayer({
             >
               {playing ? "Pause" : "Play"}
             </button>
-            <button onClick={() => seek(0)} aria-label="restart from the beginning">
+            <button
+              onClick={() => seek(0)}
+              aria-label="restart from the beginning"
+            >
               Restart
             </button>
 
@@ -254,7 +266,10 @@ export default function CastPlayer({
 
             <label>
               speed
-              <select value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>
+              <select
+                value={speed}
+                onChange={(e) => setSpeed(Number(e.target.value))}
+              >
                 {SPEEDS.map((s) => (
                   <option key={s} value={s}>
                     {s}×
@@ -269,8 +284,8 @@ export default function CastPlayer({
           </div>
 
           <p className="note">
-            Idle gaps longer than two seconds are shortened. Keystrokes are not shown —
-            recordings do not capture input by default.
+            Idle gaps longer than two seconds are shortened. Keystrokes are not
+            shown — recordings do not capture input by default.
           </p>
         </>
       )}

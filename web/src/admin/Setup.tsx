@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
-import { AuthSourceStatus, OIDCSettings, Setting, api, toMessage } from "../api";
+import {
+  AuthSourceStatus,
+  OIDCSettings,
+  Setting,
+  api,
+  toMessage,
+} from "../api";
 import { ActionButton, ErrorLine, OkLine } from "./common";
 import AdminGroup from "./AdminGroup";
 import Mappings from "./Mappings";
@@ -94,7 +100,8 @@ export default function Setup({
 
   const idx = STEPS.findIndex((s) => s.id === step);
   const eligible = status?.options.find((o) => o.source === choice);
-  const adminGroup = settings.find((s) => s.key === "ldap.admin_group")?.value ?? "";
+  const adminGroup =
+    settings.find((s) => s.key === "ldap.admin_group")?.value ?? "";
 
   const setAuto = (on: boolean) =>
     api
@@ -176,9 +183,7 @@ export default function Setup({
           <path d="M20 33.5 28.5 42 45 24" />
         </svg>
         <h2>All is set</h2>
-        <p>
-          postern is configured and ready. Taking you to the app…
-        </p>
+        <p>postern is configured and ready. Taking you to the app…</p>
       </section>
     );
   }
@@ -243,7 +248,10 @@ export default function Setup({
           ))}
           <div className="wizard-nav">
             <span className="spacer" />
-            <button className="btn-primary" onClick={() => setStep("configure")}>
+            <button
+              className="btn-primary"
+              onClick={() => setStep("configure")}
+            >
               Continue
             </button>
           </div>
@@ -265,7 +273,9 @@ export default function Setup({
                     id="oidc-issuer"
                     value={oidc.issuer}
                     placeholder="https://idp.example/realms/company"
-                    onChange={(e) => setOidc({ ...oidc, issuer: e.target.value })}
+                    onChange={(e) =>
+                      setOidc({ ...oidc, issuer: e.target.value })
+                    }
                   />
                   <p className="wfield-hint">
                     postern reads{" "}
@@ -280,7 +290,9 @@ export default function Setup({
                   <input
                     id="oidc-client"
                     value={oidc.clientID}
-                    onChange={(e) => setOidc({ ...oidc, clientID: e.target.value })}
+                    onChange={(e) =>
+                      setOidc({ ...oidc, clientID: e.target.value })
+                    }
                   />
                 </div>
                 <div className="wfield">
@@ -292,7 +304,9 @@ export default function Setup({
                     type="password"
                     value={oidc.secret}
                     placeholder={oidcState?.client_secret_set ? "••••••••" : ""}
-                    onChange={(e) => setOidc({ ...oidc, secret: e.target.value })}
+                    onChange={(e) =>
+                      setOidc({ ...oidc, secret: e.target.value })
+                    }
                   />
                   {/*
                     ⚠️ Sır geri OKUNMUYOR ve boş bırakmak "değiştirme"
@@ -356,8 +370,8 @@ export default function Setup({
                     filter that matches the groups you intend to map.
                   </li>
                 </ul>
-                Whatever the claim is called, set{" "}
-                <code>oidc.groups_claim</code> to match it.
+                Whatever the claim is called, set <code>oidc.groups_claim</code>{" "}
+                to match it.
               </div>
               <p className="note">
                 Anyone whose source answers but names no group lands in the{" "}
@@ -447,18 +461,17 @@ export default function Setup({
               </p>
               <ul className="problem-list">
                 <li>
-                  <b>Roles</b> — create a role and give it targets. A role is
-                  a set of machines, and it is what access means here.
+                  <b>Roles</b> — create a role and give it targets. A role is a
+                  set of machines, and it is what access means here.
                 </li>
                 <li>
                   <b>Users</b> — create the account with{" "}
-                  <code>postern user add</code> on the bastion host, then
-                  assign roles to it from the Users screen.
+                  <code>postern user add</code> on the bastion host, then assign
+                  roles to it from the Users screen.
                 </li>
                 <li>
-                  <b>Administrators</b> — only{" "}
-                  <code>postern admin issue</code> on the host. There is no
-                  group to inherit it from.
+                  <b>Administrators</b> — only <code>postern admin issue</code>{" "}
+                  on the host. There is no group to inherit it from.
                 </li>
               </ul>
               <p className="note">
@@ -484,8 +497,8 @@ export default function Setup({
                     />{" "}
                     <b>No — put them in a queue</b>
                     <p className="note">
-                      Someone the source authenticates but postern does not
-                      know is told their account is waiting, and appears under{" "}
+                      Someone the source authenticates but postern does not know
+                      is told their account is waiting, and appears under{" "}
                       <b>Pending</b>.
                     </p>
                   </div>
@@ -625,9 +638,10 @@ export default function Setup({
             <p className="note">
               Your local account and its secret are <b>not</b> discarded by
               this. They stay as the way back: if the source ever stops
-              answering, <code>postern settings set --key auth.source --value
-              local</code> on the bastion host opens that door again and the
-              same secret still works. Keep it somewhere you will find it.
+              answering,{" "}
+              <code>postern settings set --key auth.source --value local</code>{" "}
+              on the bastion host opens that door again and the same secret
+              still works. Keep it somewhere you will find it.
             </p>
           )}
 

@@ -44,13 +44,12 @@ it("akan oturuma kapatma dugmesi cizer", async () => {
 });
 
 it("acik ama akmayan satira dugme cizmez", async () => {
-  vi.spyOn(api, "sessions").mockResolvedValue([
-    session({ running: false }),
-  ]);
+  vi.spyOn(api, "sessions").mockResolvedValue([session({ running: false })]);
   render(<Overview />);
   await waitFor(() =>
-    expect(screen.getByText(/still open but nothing here is carrying/i))
-      .toBeInTheDocument(),
+    expect(
+      screen.getByText(/still open but nothing here is carrying/i),
+    ).toBeInTheDocument(),
   );
   expect(screen.queryByRole("button", { name: /close .*session/i })).toBeNull();
 });
@@ -67,9 +66,7 @@ it("erisimi almadigini yaziyor", async () => {
   vi.spyOn(api, "sessions").mockResolvedValue([session()]);
   render(<Overview />);
   await waitFor(() =>
-    expect(
-      screen.getByText(/does not take access away/i),
-    ).toBeInTheDocument(),
+    expect(screen.getByText(/does not take access away/i)).toBeInTheDocument(),
   );
 });
 
@@ -193,7 +190,9 @@ it("bekleyen arsiv isinin yasini ve sonucunu yazar", async () => {
   render(<Overview />);
   await waitFor(() => expect(screen.getByText("7")).toBeInTheDocument());
   expect(screen.getByText(/oldest 3d 4h/i)).toBeInTheDocument();
-  expect(screen.getByText(/cannot be pruned while they wait/i)).toBeInTheDocument();
+  expect(
+    screen.getByText(/cannot be pruned while they wait/i),
+  ).toBeInTheDocument();
   expect(screen.getByText("42 files")).toBeInTheDocument();
 });
 

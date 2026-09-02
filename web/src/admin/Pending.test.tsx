@@ -19,7 +19,10 @@ const row = (over: Partial<PendingUser> = {}): PendingUser => ({
 
 beforeEach(() => {
   vi.restoreAllMocks();
-  vi.stubGlobal("confirm", vi.fn((_m?: string) => true));
+  vi.stubGlobal(
+    "confirm",
+    vi.fn((_m?: string) => true),
+  );
 });
 
 describe("onay kuyrugu", () => {
@@ -58,7 +61,9 @@ describe("onay kuyrugu", () => {
 
   it("gerekceyi sunucuya gonderir", async () => {
     vi.spyOn(api, "pending").mockResolvedValue([row()]);
-    const reject = vi.spyOn(api, "rejectPending").mockResolvedValue({ ok: true });
+    const reject = vi
+      .spyOn(api, "rejectPending")
+      .mockResolvedValue({ ok: true });
 
     render(<Pending />);
     await userEvent.type(
@@ -97,11 +102,15 @@ describe("onay kuyrugu", () => {
     vi.spyOn(api, "pending").mockResolvedValue([
       row({ state: "rejected", reason: "yanlislikla", decided_by: "ops" }),
     ]);
-    const forget = vi.spyOn(api, "forgetPending").mockResolvedValue({ ok: true });
+    const forget = vi
+      .spyOn(api, "forgetPending")
+      .mockResolvedValue({ ok: true });
 
     render(<Pending />);
     await userEvent.click(
-      await screen.findByRole("button", { name: /let ayse.yilmaz apply again/i }),
+      await screen.findByRole("button", {
+        name: /let ayse.yilmaz apply again/i,
+      }),
     );
     await waitFor(() => expect(forget).toHaveBeenCalledWith("p1"));
   });

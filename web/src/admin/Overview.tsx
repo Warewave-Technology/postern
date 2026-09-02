@@ -57,7 +57,6 @@ function kindBadge(kind: string) {
   }
 }
 
-
 /** formatBytes, insan okuyacak biçim. */
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;

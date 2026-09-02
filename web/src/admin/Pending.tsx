@@ -108,7 +108,10 @@ export default function Pending() {
                   `at their next sign-in.`
                 }
                 onClick={() =>
-                  run(api.approvePending(p.id), `account created for ${p.username}`)
+                  run(
+                    api.approvePending(p.id),
+                    `account created for ${p.username}`,
+                  )
                 }
               >
                 Approve
