@@ -23,6 +23,21 @@ type Field = {
   get: (s: SyncSettings) => string;
 };
 
+/*
+ * ⚠️ PATLAMA YARIÇAPI TAVANLARI BU LİSTEDE YOK — VE OLMAMASI BİR KARAR.
+ *
+ * max_zero_fraction, min_zero_floor, max_unknown_fraction ve
+ * max_revoke_per_run burada dört kutuydu. Sunucu tarafındaki
+ * SyncConfig yorumu ise bunu bir güvenlik değişmezi olarak ilan
+ * ediyordu: "tavanı yükseltebilmek için host'a erişmek gerekmeli."
+ * Yorum bir garanti veriyor, panel onu bozuyordu.
+ *
+ * Otomatik toplu yetki iptalinin üst sınırını, ele geçirilmiş bir panel
+ * oturumu yükseltebilmemeli — panelden `is_admin` verilmemesiyle ve
+ * arşiv hedefinin panelden değiştirilememesiyle aynı raf. Burada kalan
+ * dördü tavan değil ritim: ne sıklıkta, ne kadar bekleyerek, ve
+ * yazmadan mı.
+ */
 const LIMITS: Field[] = [
   {
     key: "sync.interval",
@@ -35,30 +50,6 @@ const LIMITS: Field[] = [
     label: "Grace",
     hint: "how long someone may be missing from the directory before their access is revoked. A short replication lag or a maintenance window must not cost anyone their roles.",
     get: (s) => s.grace,
-  },
-  {
-    key: "sync.max_zero_fraction",
-    label: "Max zero fraction",
-    hint: "abort if more than this share of users would end up with no roles (0–1)",
-    get: (s) => String(s.max_zero_fraction),
-  },
-  {
-    key: "sync.min_zero_floor",
-    label: "Min zero floor",
-    hint: "…and at least this many. Both have to be exceeded: in a small org the fraction trips on one person, in a large one the floor alone means nothing.",
-    get: (s) => String(s.min_zero_floor),
-  },
-  {
-    key: "sync.max_unknown_fraction",
-    label: "Max unknown fraction",
-    hint: "abort if this share of users could not be looked up at all (0–1) — a half-answering directory is not evidence of anything",
-    get: (s) => String(s.max_unknown_fraction),
-  },
-  {
-    key: "sync.max_revoke_per_run",
-    label: "Max revoke per run",
-    hint: "hard ceiling on revocations in one run",
-    get: (s) => String(s.max_revoke_per_run),
   },
 ];
 
@@ -159,11 +150,25 @@ export default function SyncPanel({ ldapReady }: { ldapReady: boolean }) {
         <div className="danger-note">
           <b>This loop revokes access on its own.</b> Run it with <b>dry run</b>{" "}
           on for a while first and read <code>postern sync status</code>: it
-          computes and reports every decision without writing anything. The
-          ceilings below exist because a directory that answers wrongly —
-          half-migrated, mid-outage, a filter typo — would otherwise take
-          everyone&apos;s access at once.
+          computes and reports every decision without writing anything.
         </div>
+
+        {/*
+          ⚠️ TAVANLARIN NEREDE OLDUĞU YAZILIYOR.
+          Dört kutuyu buradan kaldırmak yetmez: nereye gittiklerini
+          söylemeyen bir ekran, operatörü olmayan bir düğmeyi aramaya
+          bırakır — ve bu deponun kuralı, kaldırılan yeteneğin sessiz
+          kalmamasıdır.
+        */}
+        <p className="small muted">
+          A directory that answers wrongly — half-migrated, mid-outage, a filter
+          typo — would otherwise take everyone&apos;s access at once, so the
+          loop has four ceilings on how much one run may revoke. They are set in
+          the config file (<code>sync.max_revoke_per_run</code> and its three
+          siblings) and deliberately cannot be raised from here: a stolen panel
+          session must not be able to lift the limit on automatic bulk
+          revocation.
+        </p>
 
         <div className="sync-toggles">
           <label className="toggle">

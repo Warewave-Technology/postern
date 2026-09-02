@@ -415,6 +415,14 @@ func (r *Runner) refresh(ctx context.Context) (bool, time.Duration) {
 		return false, r.interval
 	}
 
+	// ⚠️ YOK SAYILAN AYAR SESSİZ KALMIYOR. Patlama yarıçapı tavanları
+	// artık yalnızca config dosyasından okunuyor; ayarlar tablosunda
+	// kalmış bir satır, operatörün yürürlükte sandığı bir değer demek.
+	for _, k := range s.IgnoredKeys {
+		r.logger.Warn("stored setting is ignored; this ceiling is read from the config file only",
+			"key", k, "where", "sync.* in postern.yaml")
+	}
+
 	r.mu.Lock()
 	r.dryRun = s.Config.DryRun
 	r.limits = s.Config.Limits

@@ -41,6 +41,16 @@ const (
 type Settings struct {
 	Enabled bool
 	Config  Config
+
+	/*
+	 * IgnoredKeys, ayarlar tablosunda duran ama ARTIK OKUNMAYAN
+	 * anahtarlar (patlama yarıçapı tavanları; gerekçe LoadSettings'te).
+	 *
+	 * ⚠️ Çağıranın bunu bildirmesi ŞART. Bir değeri yok saymak ile
+	 * yok saydığını söylemek arasındaki fark, operatörün yürürlükte
+	 * sandığı bir ayarla çalışıp çalışmadığıdır.
+	 */
+	IgnoredKeys []string
 }
 
 /*
@@ -111,46 +121,32 @@ func LoadSettings(ctx context.Context, db *store.Store, fallback Settings) (Sett
 		*d.dst = parsed
 	}
 
-	for _, f := range []struct {
-		key string
-		dst *float64
-	}{
-		{KeyMaxZeroFraction, &out.Config.Limits.MaxZeroFraction},
-		{KeyMaxUnknownFraction, &out.Config.Limits.MaxUnknownFraction},
+	/*
+	 * ⚠️ PATLAMA YARIÇAPI TAVANLARI BURADAN OKUNMUYOR — YALNIZCA
+	 * CONFIG DOSYASINDAN.
+	 *
+	 * config.go'daki SyncConfig yorumu bunu bir güvenlik değişmezi
+	 * olarak ilan ediyor: "tavanı yükseltebilmek için host'a erişmek
+	 * gerekmeli — admin bayrağının yalnızca CLI'dan verilebilmesiyle
+	 * aynı gerekçe." Kod ise dördünü de ayarlar tablosundan okuyup
+	 * paneli üstüne yazdırıyordu. Yorum mu kod mu yanlış sorusunun
+	 * cevabı yorum lehine verildi: otomatik toplu iptalin üst
+	 * sınırını ele geçirilmiş bir panel oturumu yükseltebilmemeli.
+	 *
+	 * ⚠️ ESKİ SATIRLAR SESSİZCE YOK SAYILMIYOR. Panelden bir değer
+	 * yazmış kurulumlar var olabilir; onu okumayı bırakıp susmak,
+	 * yürürlükte sandığı bir ayarla çalışan operatör bırakırdı — bu
+	 * deponun en tanıdık arızası. Kalan satır uyarıyla bildiriliyor.
+	 */
+	for _, key := range []string{
+		KeyMaxZeroFraction, KeyMinZeroFloor,
+		KeyMaxUnknownFraction, KeyMaxRevokePerRun,
 	} {
-		v, ok, err := str(f.key)
-		if err != nil {
+		if _, ok, err := str(key); err != nil {
 			return out, err
+		} else if ok {
+			out.IgnoredKeys = append(out.IgnoredKeys, key)
 		}
-		if !ok {
-			continue
-		}
-		parsed, perr := strconv.ParseFloat(v, 64)
-		if perr != nil || parsed < 0 || parsed > 1 {
-			return out, invalid(f.key, v, "a fraction between 0 and 1")
-		}
-		*f.dst = parsed
-	}
-
-	for _, n := range []struct {
-		key string
-		dst *int
-	}{
-		{KeyMinZeroFloor, &out.Config.Limits.MinZeroFloor},
-		{KeyMaxRevokePerRun, &out.Config.Limits.MaxRevokePerRun},
-	} {
-		v, ok, err := str(n.key)
-		if err != nil {
-			return out, err
-		}
-		if !ok {
-			continue
-		}
-		parsed, perr := strconv.Atoi(v)
-		if perr != nil || parsed < 0 {
-			return out, invalid(n.key, v, "a whole number, zero or more")
-		}
-		*n.dst = parsed
 	}
 
 	return out, nil

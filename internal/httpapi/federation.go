@@ -508,14 +508,28 @@ var knownSettingKeys = map[string]bool{
 	// yönetiliyor; ayarlarının yalnızca YAML'da olması, en çok
 	// ihtiyaç duyulan düğmeyi — dry_run — dosya düzenleyip yeniden
 	// başlatmaya bağlıyordu.
-	groupsync.KeyEnabled:            true,
-	groupsync.KeyInterval:           true,
-	groupsync.KeyGrace:              true,
-	groupsync.KeyDryRun:             true,
-	groupsync.KeyMaxZeroFraction:    true,
-	groupsync.KeyMinZeroFloor:       true,
-	groupsync.KeyMaxUnknownFraction: true,
-	groupsync.KeyMaxRevokePerRun:    true,
+	groupsync.KeyEnabled:  true,
+	groupsync.KeyInterval: true,
+	groupsync.KeyGrace:    true,
+	groupsync.KeyDryRun:   true,
+
+	/*
+	 * ⚠️ PATLAMA YARIÇAPI TAVANLARI BİLEREK YOK —
+	 * max_zero_fraction, min_zero_floor, max_unknown_fraction,
+	 * max_revoke_per_run.
+	 *
+	 * config.go'daki SyncConfig yorumu bunu bir değişmez olarak ilan
+	 * ediyordu ("tavanı yükseltebilmek için host'a erişmek gerekmeli")
+	 * ve bu harita dördünü de yazdırıyordu: yorum bir güvenlik
+	 * garantisi veriyor, kod onu tutmuyordu. Yorum lehine karar
+	 * verildi — otomatik toplu yetki iptalinin üst sınırını ele
+	 * geçirilmiş bir panel oturumu yükseltememeli, panelden `is_admin`
+	 * verilememesiyle aynı raf.
+	 *
+	 * Kalan dördü panelde: enabled, interval, grace ve dry_run. Onlar
+	 * tavan değil, ritim — ve dry_run zaten en çok ihtiyaç duyulan
+	 * düğme.
+	 */
 
 	/*
 	 * Hesap yaşam döngüsü süreleri (göç 023).

@@ -58,18 +58,17 @@ func TestLoadSettingsFallsBackToTheFile(t *testing.T) {
 	}
 }
 
-// Panelden yazılan değer dosyayı EZER — özelliğin bütün amacı bu.
-func TestLoadSettingsPanelOverridesFile(t *testing.T) {
+// Ritim ayarları panelden ezilebiliyor — dry_run'ın orada olması
+// özelliğin en çok işe yarayan yanı.
+func TestLoadSettingsPanelOverridesTheRhythm(t *testing.T) {
 	ctx := context.Background()
 	db := syncStore(t)
 
 	for k, v := range map[string]string{
-		KeyEnabled:         "true",
-		KeyDryRun:          "true",
-		KeyInterval:        "3m",
-		KeyGrace:           "30m",
-		KeyMaxRevokePerRun: "7",
-		KeyMaxZeroFraction: "0.5",
+		KeyEnabled:  "true",
+		KeyDryRun:   "true",
+		KeyInterval: "3m",
+		KeyGrace:    "30m",
 	} {
 		if err := db.SetSetting(ctx, k, v, false, "test"); err != nil {
 			t.Fatalf("SetSetting %s: %v", k, err)
@@ -86,12 +85,48 @@ func TestLoadSettingsPanelOverridesFile(t *testing.T) {
 	if got.Config.Interval != 3*time.Minute || got.Config.Limits.Grace != 30*time.Minute {
 		t.Errorf("süreler okunmadı: %+v", got.Config)
 	}
-	if got.Config.Limits.MaxRevokePerRun != 7 || got.Config.Limits.MaxZeroFraction != 0.5 {
-		t.Errorf("tavanlar okunmadı: %+v", got.Config.Limits)
+}
+
+/*
+ * ⚠️ PATLAMA YARIÇAPI TAVANLARI PANELDEN EZİLEMEZ.
+ *
+ * config.go'daki SyncConfig yorumu bunu bir güvenlik değişmezi olarak
+ * ilan ediyordu — "tavanı yükseltebilmek için host'a erişmek gerekmeli,
+ * admin bayrağının yalnızca CLI'dan verilebilmesiyle aynı gerekçe" —
+ * ama kod dördünü de ayarlar tablosundan okuyup panele yazdırıyordu.
+ * Yani yorum bir garanti veriyor, kod tutmuyordu.
+ *
+ * ⚠️ VE YOK SAYMAK SESSİZ DEĞİL. Panelden bir değer yazmış kurulumlar
+ * olabilir; okumayı bırakıp susmak, operatörü yürürlükte sandığı bir
+ * ayarla bırakırdı — bu deponun en tanıdık arızası.
+ */
+func TestCeilingsIgnoreTheSettingsTableAndSaySo(t *testing.T) {
+	ctx := context.Background()
+	db := syncStore(t)
+
+	for k, v := range map[string]string{
+		KeyMaxRevokePerRun:    "9999",
+		KeyMaxZeroFraction:    "1",
+		KeyMinZeroFloor:       "100000",
+		KeyMaxUnknownFraction: "1",
+	} {
+		if err := db.SetSetting(ctx, k, v, false, "test"); err != nil {
+			t.Fatalf("SetSetting %s: %v", k, err)
+		}
 	}
-	// Yazılmayan anahtar dosyadan gelmeye devam etmeli.
-	if got.Config.Limits.MinZeroFloor != 3 {
-		t.Errorf("yazılmayan anahtar varsayılanı kaybetti: %d", got.Config.Limits.MinZeroFloor)
+
+	got, err := LoadSettings(ctx, db, fallback())
+	if err != nil {
+		t.Fatalf("LoadSettings: %v", err)
+	}
+
+	want := fallback().Config.Limits
+	if got.Config.Limits != want {
+		t.Errorf("tavanlar ayarlar tablosundan ezildi:\n got %+v\nwant %+v",
+			got.Config.Limits, want)
+	}
+	if len(got.IgnoredKeys) != 4 {
+		t.Errorf("yok sayılan anahtarlar bildirilmedi: %v", got.IgnoredKeys)
 	}
 }
 
@@ -107,14 +142,15 @@ func TestLoadSettingsRefusesUnusableValues(t *testing.T) {
 	ctx := context.Background()
 
 	cases := map[string]string{
-		KeyEnabled:            "evet",
-		KeyInterval:           "15 dakika",
-		KeyGrace:              "-1h",
-		KeyMaxRevokePerRun:    "2O",
-		KeyMaxZeroFraction:    "1.5",
-		KeyMinZeroFloor:       "-1",
-		KeyMaxUnknownFraction: "yuzde on",
-		KeyDryRun:             "1 tabii",
+		KeyEnabled:  "evet",
+		KeyInterval: "15 dakika",
+		KeyGrace:    "-1h",
+		// ⚠️ Tavanlar burada YOK: artık ayarlar tablosundan hiç
+		// okunmuyorlar (config dosyasından geliyorlar), dolayısıyla
+		// oradaki bozuk bir değer bir ayrıştırma hatası değil, yok
+		// sayılan bir satır. Onu TestCeilingsIgnoreTheSettingsTable
+		// ölçüyor.
+		KeyDryRun: "1 tabii",
 	}
 
 	for key, bad := range cases {

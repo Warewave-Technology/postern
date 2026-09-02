@@ -11,6 +11,7 @@ import (
 	"github.com/warewave/postern/internal/config"
 
 	"github.com/warewave/postern/internal/archive"
+	"github.com/warewave/postern/internal/groupsync"
 )
 
 /*
@@ -113,5 +114,41 @@ func TestArchiveCredentialClearRefusesWhenTheHostOwnsIt(t *testing.T) {
 
 	if w.Code != http.StatusConflict {
 		t.Fatalf("durum = %d, 409 bekleniyordu", w.Code)
+	}
+}
+
+/*
+ * ⚠️ PATLAMA YARIÇAPI TAVANLARI GENEL AYARLAR YOLUNDAN GEÇMEMELİ.
+ *
+ * config.go'daki SyncConfig yorumu bunu bir güvenlik değişmezi olarak
+ * ilan ediyordu — "tavanı yükseltebilmek için host'a erişmek gerekmeli,
+ * admin bayrağının yalnızca CLI'dan verilebilmesiyle aynı gerekçe" —
+ * ve harita dördünü de yazdırıyordu. Bu test, birinin ileride
+ * "operatör istiyor" diye onları geri eklemesini engelliyor: o an,
+ * ele geçirilmiş bir panel oturumu otomatik toplu iptalin üst sınırını
+ * yükseltebilir hâle gelir.
+ */
+func TestBlastRadiusCeilingsAreNotPanelWritable(t *testing.T) {
+	for _, k := range []string{
+		groupsync.KeyMaxZeroFraction,
+		groupsync.KeyMinZeroFloor,
+		groupsync.KeyMaxUnknownFraction,
+		groupsync.KeyMaxRevokePerRun,
+	} {
+		if _, allowed := knownSettingKeys[k]; allowed {
+			t.Errorf("%q panelden yazılabilir — otomatik toplu iptalin "+
+				"üst sınırı panel oturumuna açılmış", k)
+		}
+	}
+
+	// Ritim ayarları panelde KALMALI: dry_run en çok ihtiyaç duyulan
+	// düğme ve onu host'a bağlamak, korumayı kapalı bırakırdı.
+	for _, k := range []string{
+		groupsync.KeyEnabled, groupsync.KeyInterval,
+		groupsync.KeyGrace, groupsync.KeyDryRun,
+	} {
+		if _, allowed := knownSettingKeys[k]; !allowed {
+			t.Errorf("%q panelden yazılamıyor: ritim ayarı, tavan değil", k)
+		}
 	}
 }
