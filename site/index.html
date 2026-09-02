@@ -1,4 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!--
+  ⚠️ BU BAŞLIK BLOĞU SÜS DEĞİL — ÜÇÜ DE ÖLÇÜLDÜ.
+
+  Sayfalar bir <title> ile başlıyordu: ne doctype, ne <head>, ne meta.
+  Yerel bir sunucudan servis edip tarayıcıya sorduk:
+
+    document.compatMode  → "BackCompat"      (quirks modu)
+    document.characterSet → "windows-1252"   (UTF-8 DEĞİL)
+
+  Sonuçları sırayla:
+
+  charset — sayfalarda 90 ASCII dışı karakter var (uzun tire, ok, §).
+  Charset bildirilmeyince tarayıcı yerel ayara düşüyor ve hepsi
+  "â€"" diye çıkıyor. Ölçüldü: sayfanın metninde mojibake vardı.
+  Bazı statik sunucular başlıkta charset gönderiyor ve kusuru
+  gizliyor; göndermeyen birinde sayfa bozuk açılıyor. Belgede
+  bildirmek, sunucuya güvenmemek demek.
+
+  viewport — bunsuz telefon sayfayı masaüstü genişliğinde çizip
+  uzaklaştırıyor. Bir tanıtım sayfası için bu, ziyaretçilerin
+  yarısında okunmaz demek.
+
+  doctype — yokluğu quirks moduna düşürüyor; kutu modeli ve satır
+  yüksekliği standart moddan farklı davranıyor, yani sayfa test
+  edildiği gibi görünmüyor.
+-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>postern</title>
+<meta name="description" content="A certificate-based, session-recording SSH bastion. Short-lived certificates per session, no keys on your targets, and a session that cannot be recorded does not start.">
+<meta name="color-scheme" content="dark light">
 <style>
   :root {
     --bg: #1d2021; --surface: #282828; --raised: #32302f; --sunken: #1b1b1b;
@@ -25,7 +58,12 @@
   nav.top-nav a { color: var(--muted); text-decoration: none; }
   nav.top-nav a:hover { color: var(--ink); }
 
-  .hero { padding: 5rem 0 3.5rem; }
+  /* ⚠️ YATAY DOLGU AÇIKÇA TEKRARLANIYOR. Kısayol biçimi ("5rem 0
+     3.5rem") .wrap'ın "0 1.5rem" dolgusunu SIFIRLIYOR ve iki kural da
+     tek sınıf özgüllüğünde; sonra gelen kazanıyor. Ölçüldü: 375px'lik
+     bir ekranda h1'in sol kenar boşluğu 0px'ti, yani başlık ekranın
+     kenarına yapışıyordu. */
+  .hero { padding: 5rem 1.5rem 3.5rem; }
   .hero h1 { font-size: clamp(2.4rem, 6vw, 3.6rem); line-height: 1.08; margin: 0 0 1.1rem; letter-spacing: -.03em; }
   .hero .lede { font-size: 1.2rem; color: var(--muted); margin: 0 0 1rem; max-width: 46rem; }
   .hero .lede strong { color: var(--ink); font-weight: 600; }
@@ -83,7 +121,8 @@
     :root:not([data-theme="dark"]) .btn.primary { color: #fbf1c7; }
   }
 </style>
-
+</head>
+<body>
 <header class="top">
   <div class="wrap">
     <span class="brand">
@@ -125,7 +164,7 @@ $ ssh <span class="g">yigit:web-01</span>@bastion
 </pre>
     <ul class="plain">
       <li><strong>Who are you.</strong> A local credential, your directory, or your identity provider. An OIDC identity is bound by <code>(iss, sub)</code> — never by a username somebody can edit.</li>
-      <li><strong>What may you reach.</strong> Roles, resolved live at connect time, so a revoked grant does not wait for a session to end. No role, no answer.</li>
+      <li><strong>What may you reach.</strong> Roles, read from the database at connect time rather than from a cache, so a revoked grant stops the next attempt immediately. A session already running is not cut by the revocation — an administrator closes it from the panel. No role, no answer.</li>
       <li><strong>How do you get in.</strong> A fresh ed25519 key is generated for this one session, signed by postern's CA for a single principal, and valid for five minutes — long enough to finish a handshake, not long enough to be worth stealing. It never touches disk, it carries <code>permit-pty</code> and nothing else, and the target never holds a key of yours.</li>
       <li><strong>What happened.</strong> The session is recorded as asciicast v2 and replays in the panel or with <code>asciinema play</code>. If the recording cannot be written, the session is refused.</li>
     </ul>
@@ -147,7 +186,7 @@ $ ssh <span class="g">yigit:web-01</span>@bastion
       </div>
       <div class="card">
         <h3>Host keys are pinned</h3>
-        <p>Every target's key is stored and checked. <code>InsecureIgnoreHostKey</code> appears nowhere in the source. A target that presents a different key is reported, not accepted.</p>
+        <p>Every target's key is stored and checked. <code>InsecureIgnoreHostKey</code> is called nowhere, tests included. A target that presents a different key is reported, not accepted.</p>
       </div>
       <div class="card">
         <h3>"Empty" is not "unknown"</h3>
@@ -173,7 +212,7 @@ $ ssh <span class="g">yigit:web-01</span>@bastion
       <h3>Not in this release</h3>
       <ul>
         <li><strong>SSH and SFTP only.</strong> No HTTP, RDP, VNC, MySQL, PostgreSQL or Kubernetes proxying.</li>
-        <li><strong>One node.</strong> No clustering, no shared state between instances, no S3 offload — recordings are files on the bastion's disk.</li>
+        <li><strong>One node.</strong> No clustering and no shared state between instances. Recordings are files on the bastion's disk; finished ones can be copied to an S3-compatible bucket, but the bucket is a copy, not a second bastion.</li>
         <li><strong>No port forwarding.</strong> <code>direct-tcpip</code> is refused; a tunnel postern cannot record is a tunnel it will not carry.</li>
         <li><strong>TOTP only</strong> for the second factor — no WebAuthn, no push.</li>
         <li><strong>No agent on the target.</strong> That is the point, and it is also the limit: postern sees the SSH channel, not the processes behind it.</li>
@@ -195,10 +234,10 @@ $ ssh <span class="g">yigit:web-01</span>@bastion
       <tr><th>Piece</th><th>What it is</th></tr>
       <tr><td>The bastion</td><td>One Go binary. The panel is compiled into it; there is no second service to run.</td></tr>
       <tr><td>State</td><td>PostgreSQL. Users, roles, targets, sessions, audit — all of it, in schema you can read.</td></tr>
-      <tr><td>Recordings</td><td>Plain asciicast files on disk, one per session, pruned on a retention you set.</td></tr>
+      <tr><td>Recordings</td><td>Plain asciicast files on disk, one per session, pruned on a retention you set — and, if you point postern at a bucket, copied there before anything local is deleted.</td></tr>
       <tr><td>On each target</td><td>One line of <code>sshd_config</code> trusting postern's CA. No daemon, no package.</td></tr>
     </table>
-    <p style="margin-top:1.4rem">Nine Go modules at runtime, four in the panel. Nothing is pulled in that could be written in an afternoon and tested in a morning — the TOTP, QR and SFTP-audit code is postern's own, checked against the RFC test vectors and a reference encoder.</p>
+    <p style="margin-top:1.4rem">Nine Go modules at runtime and four in the panel — direct dependencies; twenty packages once their own are counted. Nothing is pulled in that could be written in an afternoon and tested in a morning — the TOTP, QR and SFTP-audit code is postern's own, checked against the RFC test vectors and a reference encoder.</p>
   </div>
 </section>
 
@@ -237,3 +276,6 @@ $ ssh <span class="g">you:web-01</span>@bastion
     <a href="docs/index.html">Documentation</a>.
   </div>
 </footer>
+
+</body>
+</html>

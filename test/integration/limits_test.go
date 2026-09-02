@@ -81,13 +81,17 @@ func TestPerIPConnectionLimit(t *testing.T) {
 	addr, hostPub, signer := withConfig(t, caKeyPath, func(c *config.Config) {
 		c.Listen.MaxConnsPerIP = 2
 	}, tc)
-	_ = hostPub
 
 	dial := func() (*ssh.Client, error) {
 		return ssh.Dial("tcp", addr, &ssh.ClientConfig{
-			User:            "yigit:web01",
-			Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
-			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+			User: "yigit:web01",
+			Auth: []ssh.AuthMethod{ssh.PublicKeys(signer)},
+			// ⚠️ InsecureIgnoreHostKey TESTTE DE YASAK — handshake_test.go
+			// ve cert_test.go'daki notlar bunu açıkça söylüyor, ama iki
+			// test yine de onu çağırıyordu. Kural bir yerde yazılıp başka
+			// bir yerde çiğneniyorsa kural değil, temennidir. Host key
+			// zaten elde: withConfig onu döndürüyordu ve atılıyordu.
+			HostKeyCallback: ssh.FixedHostKey(hostPub),
 			Timeout:         10 * time.Second,
 		})
 	}

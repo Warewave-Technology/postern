@@ -1,4 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!--
+  ⚠️ BU BAŞLIK BLOĞU SÜS DEĞİL — ÜÇÜ DE ÖLÇÜLDÜ.
+
+  Sayfalar bir <title> ile başlıyordu: ne doctype, ne <head>, ne meta.
+  Yerel bir sunucudan servis edip tarayıcıya sorduk:
+
+    document.compatMode  → "BackCompat"      (quirks modu)
+    document.characterSet → "windows-1252"   (UTF-8 DEĞİL)
+
+  Sonuçları sırayla:
+
+  charset — sayfalarda 90 ASCII dışı karakter var (uzun tire, ok, §).
+  Charset bildirilmeyince tarayıcı yerel ayara düşüyor ve hepsi
+  "â€"" diye çıkıyor. Ölçüldü: sayfanın metninde mojibake vardı.
+  Bazı statik sunucular başlıkta charset gönderiyor ve kusuru
+  gizliyor; göndermeyen birinde sayfa bozuk açılıyor. Belgede
+  bildirmek, sunucuya güvenmemek demek.
+
+  viewport — bunsuz telefon sayfayı masaüstü genişliğinde çizip
+  uzaklaştırıyor. Bir tanıtım sayfası için bu, ziyaretçilerin
+  yarısında okunmaz demek.
+
+  doctype — yokluğu quirks moduna düşürüyor; kutu modeli ve satır
+  yüksekliği standart moddan farklı davranıyor, yani sayfa test
+  edildiği gibi görünmüyor.
+-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>postern docs</title>
+<meta name="description" content="Installing, configuring and operating postern — the certificate-based, session-recording SSH bastion.">
+<meta name="color-scheme" content="dark light">
 <style>
   :root {
     --bg: #1d2021; --surface: #282828; --raised: #32302f; --sunken: #1b1b1b;
@@ -77,6 +110,33 @@
     .shell { grid-template-columns: minmax(0, 1fr); gap: 0; }
     aside { position: static; max-height: none; border-bottom: 1px solid var(--line); padding-bottom: 1.2rem; }
   }
+  /*
+   * Dar ekran düzeltmeleri — ikisi de ÖLÇÜLDÜ, tahmin değil.
+   *
+   * 375px genişlikte tarayıcıya sorduk:
+   *   header.scrollWidth 453 > clientWidth 375  → üst menü 78px taşıyor,
+   *                                               "Troubleshooting" ekran dışında
+   *   aside.height 981 ≈ innerHeight 982        → içindekiler listesi TAM BİR
+   *                                               EKRAN; telefonda gelen kişi
+   *                                               belgeye ulaşmadan önce yirmi
+   *                                               beş bağlantı kaydırıyor
+   *
+   * Çözüm ikisinde de GİZLEMEK DEĞİL: menü yatay kayıyor, içindekiler
+   * kendi içinde kayıyor. Bir belge sayfasında gezinmeyi kaldırmak,
+   * onu okunur yapmanın yolu değil.
+   */
+  @media (max-width: 720px) {
+    header.top .bar { overflow-x: auto; }
+    header.top .bar > * { flex: 0 0 auto; }
+    aside {
+      position: static;
+      max-height: 40vh;
+      overflow-y: auto;
+      padding: 1rem 0;
+      border-bottom: 1px solid var(--line);
+    }
+  }
+
   @media (prefers-color-scheme: light) {
     :root:not([data-theme="dark"]) {
       --bg: #fbf1c7; --surface: #f9f5d7; --raised: #f2e5bc; --sunken: #f2e5bc;
@@ -87,7 +147,8 @@
     :root:not([data-theme="dark"]) header.top { background: rgba(251,241,199,.94); }
   }
 </style>
-
+</head>
+<body>
 <header class="top">
   <div class="bar">
     <a class="brand" href="../index.html">
@@ -984,7 +1045,7 @@ sync:
       <h2>Limits of 1.0</h2>
       <ul>
         <li><b>SSH and SFTP only.</b> No HTTP, RDP, VNC, database or Kubernetes proxying.</li>
-        <li><b>Single node.</b> No clustering or shared state; recordings are local files.</li>
+        <li><b>Single node.</b> No clustering or shared state. Recordings are local files; the archive copies finished ones to a bucket but does not make a second node possible.</li>
         <li><b>TOTP only</b> as a second factor — no WebAuthn, no push.</li>
         <li><b>No port forwarding</b>, by design.</li>
         <li><b>No integrity seal on recordings.</b> A recording is evidence of what happened, not proof it was not altered afterwards — no hash chain, no signature. Deliberate: anyone able to rewrite the files already owns the bastion, and a chain computed and stored on that same machine is one they can recompute. The archive's protection comes from the bucket instead (versioning, Object Lock), which is why <code>archive check</code> reports on it.</li>
@@ -1006,3 +1067,6 @@ sync:
     </footer>
   </main>
 </div>
+
+</body>
+</html>

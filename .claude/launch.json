@@ -4,8 +4,28 @@
     {
       "name": "postern-web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--prefix", "web", "--", "--port", "5199"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--prefix",
+        "web",
+        "--",
+        "--port",
+        "5199"
+      ],
       "port": 5199
+    },
+    {
+      "name": "postern-site",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "5200",
+        "--directory",
+        "site"
+      ],
+      "port": 5200
     }
   ]
 }

@@ -110,9 +110,13 @@ func TestDeadlineIsClearedAfterHandshake(t *testing.T) {
 	addr := serveOn(t, srv)
 
 	client, err := ssh.Dial("tcp", addr.String(), &ssh.ClientConfig{
-		User:            "yigit:web01",
-		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		User: "yigit:web01",
+		Auth: []ssh.AuthMethod{ssh.PublicKeys(signer)},
+		// ⚠️ InsecureIgnoreHostKey TESTTE DE YASAK (handshake_test.go ve
+		// cert_test.go'daki notlar). Anahtar cfg.HostKey'de duruyor;
+		// geri okumak iki satır. Kuralı yazıp çiğnemek, kuralı hiç
+		// yazmamaktan kötü: sonraki okuyan onu geçerli bir desen sanar.
+		HostKeyCallback: ssh.FixedHostKey(hostKeyOf(t, cfg.HostKey)),
 		Timeout:         10 * time.Second,
 	})
 	if err != nil {
@@ -170,4 +174,22 @@ func testConfigNoDB(t *testing.T) *config.Config {
 		CA:        config.CAConfig{KeyFile: testCAKey(t)},
 		Recording: config.RecordingConfig{Dir: filepath.Join(t.TempDir(), "recordings")},
 	}
+}
+
+// hostKeyOf, host key dosyasının AÇIK anahtarını döner.
+//
+// testConfig anahtarı üretip yolunu veriyor ama açık yarısını atıyor;
+// burada dosyadan geri okumak, testConfig'in imzasını ve bütün
+// çağıranlarını değiştirmekten ucuz.
+func hostKeyOf(t *testing.T, path string) ssh.PublicKey {
+	t.Helper()
+	pem, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := ssh.ParsePrivateKey(pem)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signer.PublicKey()
 }
