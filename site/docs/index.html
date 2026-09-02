@@ -924,6 +924,12 @@ target_probe:
   refresh: 24h
   timeout: 5s
 
+shutdown:
+  # How long open sessions get to finish when postern is asked to stop.
+  # When it expires they are closed with a reason, so the recording is
+  # written and queued for the archive instead of being cut off.
+  drain_timeout: 30s
+
 sync:
   enabled: true
   interval: 1h

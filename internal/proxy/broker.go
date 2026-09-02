@@ -163,6 +163,11 @@ func (b *Broker) sayGoodbye(ctx context.Context) {
 		if who, ok := TerminatedBy(cause); ok && who != "" {
 			line += " (" + who + ")"
 		}
+	case errors.Is(cause, ErrShuttingDown):
+		// ⚠️ "Bir yönetici kesti" DEMİYOR. Bir dağıtım gecesi herkese
+		// yapılmamış bir kesme bildirmek, hem kullanıcıyı yanlış yere
+		// baktırır hem denetim defterini kirletir.
+		line = "session closed: this bastion is shutting down"
 	case errors.Is(cause, ErrIdleTimeout):
 		line = "session closed: idle too long"
 	case errors.Is(cause, ErrMaxLifetime):

@@ -29,6 +29,17 @@ import (
 var ErrTerminated = errors.New("proxy: session terminated by an administrator")
 
 /*
+ * ErrShuttingDown: bastion kapanıyor ve bekleme süresi doldu.
+ *
+ * ⚠️ ErrTerminated'DAN AYRI TUTULUYOR. İkisi de oturumu kapatıyor ama
+ * denetim kaydına ve kullanıcıya bambaşka şeyler söylüyorlar: biri "bir
+ * yönetici seni kesti", öbürü "makine yeniden başlıyor". Aynı sebebi
+ * kullansaydık, bir dağıtım gecesi denetim defteri kimsenin yapmadığı
+ * yüzlerce kesme ile dolardı.
+ */
+var ErrShuttingDown = errors.New("proxy: the bastion is shutting down")
+
+/*
  * terminatedError, kesmeyi YAPANI taşıyan sebep.
  *
  * ⚠️ AKTÖR ALAN OLARAK TAŞINIYOR, METİNDEN KAZINMIYOR. İlk hâl sebebi
@@ -153,4 +164,36 @@ func TerminatedBy(cause error) (string, bool) {
 		return te.by, true
 	}
 	return "", errors.Is(cause, ErrTerminated)
+}
+
+/*
+ * TerminateAll, akan bütün oturumları verilen sebeple keser ve kaç
+ * tanesini kestiğini döner.
+ *
+ * ⚠️ KAPANIŞIN SON ADIMI. Bekleme süresi dolduğunda çağrılıyor:
+ * oturumları öylece bırakıp süreçten çıkmak, kaydı yarım ve arşiv
+ * kuyruğuna hiç girmemiş hâlde bırakmak demekti. Buradan geçen her
+ * oturum normal kapanış yolunu yürüyor — kullanıcı sebebini görüyor,
+ * kayıt kapanıyor, Close arşivi kuyruğa yazıyor.
+ *
+ * ⚠️ KOPYA ÜZERİNDE GEZİLİYOR. cancel çağrıları Run'ın kendi
+ * goroutine'lerini uyandırıyor ve onlar remove'a giriyor; defterin
+ * kilidini tutarken iptal etmek kilitlenme demekti (Terminate'teki
+ * notun aynısı).
+ */
+func (l *Live) TerminateAll(cause error) int {
+	if l == nil {
+		return 0
+	}
+	l.mu.Lock()
+	cancels := make([]context.CancelCauseFunc, 0, len(l.m))
+	for _, c := range l.m {
+		cancels = append(cancels, c)
+	}
+	l.mu.Unlock()
+
+	for _, c := range cancels {
+		c(cause)
+	}
+	return len(cancels)
 }

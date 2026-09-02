@@ -262,7 +262,21 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	return s.Serve(ctx, l)
 }
 
-// Serve accepts connections from l until ctx is cancelled.
+/*
+ * Serve accepts connections from l until ctx is cancelled, then drains.
+ *
+ * ⚠️ KAPANIŞTA BEKLİYOR — VE BEKLEMİYORDU. ctx iptal edilince
+ * dinleyici kapanıyor, döngü `return nil` diyordu ve bağlantıları
+ * taşıyan goroutine'leri bekleyen HİÇBİR ŞEY yoktu: süreç ölürken o an
+ * bağlı olan herkesin oturumu ortasından kopuyordu. Bedeli yalnızca
+ * kullanıcının rahatsızlığı değildi — Session.Close hiç çalışmadığı
+ * için kayıt yarım kapanıyor ve arşiv kuyruğuna hiç girmiyordu, yani
+ * bir yeniden başlatma o oturumların kaydını hem eksik hem
+ * yüklenemez bırakıyordu.
+ *
+ * Sıra: dinlemeyi bırak → açık oturumları drain süresince bekle →
+ * kalanları SEBEBİYLE kapat → onların da bitmesini bekle.
+ */
 func (s *Server) Serve(ctx context.Context, l net.Listener) error {
 	stopped := make(chan struct{})
 	defer close(stopped)
@@ -274,6 +288,10 @@ func (s *Server) Serve(ctx context.Context, l net.Listener) error {
 		case <-stopped:
 		}
 	}()
+
+	// live, akan bağlantıları sayar. Kapanışta beklenecek olan bu.
+	var live sync.WaitGroup
+	defer s.drain(ctx, &live)
 
 	// backoff, geçici Accept hatalarından sonraki bekleme. Sıfırdan
 	// başlar, her hatada ikiye katlanır, başarıda sıfırlanır.
@@ -324,9 +342,83 @@ func (s *Server) Serve(ctx context.Context, l net.Listener) error {
 			continue
 		}
 
-		go s.handleConn(ctx, conn, release)
+		live.Add(1)
+		go func() {
+			defer live.Done()
+			s.handleConn(ctx, conn, release)
+		}()
 	}
 }
+
+/*
+ * drain, açık oturumların bitmesini bekler ve kalanları kapatır.
+ *
+ * ⚠️ YALNIZCA KAPANIŞTA. Serve başka bir sebeple dönerse (kalıcı bir
+ * Accept hatası) bekleyecek bir şey yok: bağlantılar zaten kendi
+ * yollarına devam ediyor ve süreç ölmüyor.
+ *
+ * ⚠️ SINIRSIZ BEKLEME YOK. Tek bir uzun oturum yeniden başlatmayı
+ * süresiz bloklardı ve init sistemi sonunda SIGKILL gönderip
+ * başladığımız yere — yarım kayıtlara — döndürürdü. Süre dolunca
+ * oturumlar normal kapanış yolundan geçiyor: kullanıcı sebebini
+ * görüyor, kayıt kapanıyor, Close arşivi kuyruğa yazıyor.
+ */
+func (s *Server) drain(ctx context.Context, live *sync.WaitGroup) {
+	if ctx.Err() == nil {
+		return
+	}
+
+	done := make(chan struct{})
+	go func() {
+		live.Wait()
+		close(done)
+	}()
+
+	grace := s.cfg.Shutdown.DrainTimeoutOrDefault()
+	select {
+	case <-done:
+		s.logger.Info("all sessions ended; shutting down")
+		return
+	case <-time.After(grace):
+	}
+
+	n := s.live.TerminateAll(proxy.ErrShuttingDown)
+	if n == 0 {
+		// Bekleyen bağlantı var ama akan oturum yok: el sıkışmasını
+		// ya da kimlik doğrulamayı bitirememiş bağlantılar. Onlar
+		// kendi zaman aşımlarıyla ölüyor.
+		s.logger.Warn("shutdown grace expired with connections still open",
+			"grace", grace)
+		return
+	}
+
+	s.logger.Warn("shutdown grace expired; closing live sessions",
+		"grace", grace, "sessions", n)
+
+	/*
+	 * ⚠️ KESTİKTEN SONRA DA BEKLİYORUZ. Kapatma isteği eşzamansız:
+	 * hemen dönseydik süreç, kayıtları kapanmadan ve arşiv satırları
+	 * yazılmadan ölürdü — yani düzeltmenin asıl amacı kaçırılırdı.
+	 * Bu ikinci bekleme kısa: yapılacak iş yalnızca kapanış.
+	 */
+	select {
+	case <-done:
+	case <-time.After(closeGrace):
+		s.logger.Error("sessions did not finish closing; recordings may be incomplete",
+			"grace", closeGrace)
+	}
+}
+
+/*
+ * closeGrace, kesme isteğinden sonra kapanışın tamamlanması için
+ * beklenen süre.
+ *
+ * Yapılacak iş yalnızca "kaydı kapat, satırı yaz, kuyruğa ekle" —
+ * saniyeler değil milisaniyeler sürer. Yine de sınırsız değil: bir
+ * veritabanı takılmasının süreci sonsuza kadar ayakta tutmasını
+ * istemiyoruz.
+ */
+const closeGrace = 5 * time.Second
 
 // isTemporaryAcceptErr, Accept hatasının geçici olup olmadığını söyler.
 //

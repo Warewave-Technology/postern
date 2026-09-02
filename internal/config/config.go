@@ -46,6 +46,47 @@ type Config struct {
 	// mevcut kurulumlar hiçbir şey değiştirmeden çalışmaya devam eder.
 	HTTP HTTPConfig `yaml:"http"`
 	OIDC OIDCConfig `yaml:"oidc"`
+
+	// Shutdown, SIGTERM alındığında açık oturumlara ne olacağı.
+	Shutdown ShutdownConfig `yaml:"shutdown"`
+}
+
+/*
+ * ShutdownConfig, kapanışın açık oturumlara davranışı.
+ *
+ * ⚠️ NEDEN VAR: Serve, ctx iptal edilince dinleyiciyi kapatıp HEMEN
+ * dönüyordu ve bağlantıları taşıyan goroutine'leri bekleyen hiçbir şey
+ * yoktu. Süreç ölürken herkesin oturumu ortasından kopuyor, kayıtları
+ * yarım kapanıyor ve — Close hiç çalışmadığı için — arşiv kuyruğuna
+ * hiç girmiyorlardı. Yani bir yeniden başlatma, o an bağlı olan
+ * herkesin kaydını hem yarım hem yüklenemez bırakıyordu.
+ */
+type ShutdownConfig struct {
+	/*
+	 * DrainTimeout, açık oturumların kendiliğinden bitmesi için
+	 * beklenen süre. Dolduğunda oturumlar SEBEBİYLE kapatılıyor:
+	 * kullanıcı "bastion kapanıyor" cümlesini görüyor, kayıt düzgün
+	 * kapanıyor ve arşiv kuyruğuna giriyor.
+	 *
+	 * ⚠️ SINIRSIZ BEKLEME SEÇENEĞİ YOK ve bu bilinçli: tek bir uzun
+	 * oturum yeniden başlatmayı süresiz bloklardı, init sistemi de
+	 * sonunda SIGKILL gönderip başladığımız yere — yarım kayıtlara —
+	 * geri dönerdi. Beklemenin bir sonu olmalı ve sonu biz
+	 * söylemeliyiz.
+	 */
+	DrainTimeout time.Duration `yaml:"drain_timeout"`
+}
+
+// DrainTimeoutOrDefault, yazılmamışsa 30 saniye.
+//
+// systemd'nin varsayılan TimeoutStopSec'i 90 saniye; 30 saniye hem
+// kullanıcının cümleyi görüp çıkmasına yetiyor hem de init sisteminin
+// sabrının epey altında kalıyor.
+func (c ShutdownConfig) DrainTimeoutOrDefault() time.Duration {
+	if c.DrainTimeout <= 0 {
+		return 30 * time.Second
+	}
+	return c.DrainTimeout
 }
 
 /*
