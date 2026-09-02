@@ -13,6 +13,10 @@ identity are built and exercised against real OpenSSH, Keycloak and OpenLDAP.
 The roadmap lives in
 [postern-PLAN.md](postern-PLAN.md) (Turkish).
 
+Release notes and upgrade steps live in [CHANGELOG.md](CHANGELOG.md).
+Read the *Needs action* section before upgrading — a setting that
+silently stops being honoured is worse than one that refuses to start.
+
 ## What it does today
 
 - Proxies SSH sessions and records them as

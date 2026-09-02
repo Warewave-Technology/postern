@@ -1,0 +1,174 @@
+# Changelog
+
+What changed, for the person running it.
+
+Entries are written from the operator's side: what is different on your
+bastion, and what you have to do about it. An entry that only makes
+sense with the diff open does not belong here — that is what the commit
+message is for, and this project's commit messages are long on purpose.
+
+Three rules the sections encode:
+
+- **Security first, always.** Advisory IDs, whether postern's own code
+  reached the vulnerable path, and the version that fixes it. A reader
+  scanning for "am I affected" should not have to read past the top.
+- **"Needs action" is its own section.** A change that silently stops
+  honouring a setting you wrote is worse than one that refuses to start,
+  and it belongs where nobody can miss it.
+- **Removals are listed.** A capability that quietly disappears sends
+  someone looking for a button that is no longer there.
+
+Versions follow [semantic versioning](https://semver.org). The schema
+has its own number: `postern db migrate` moves it, and the bastion
+refuses to start against a schema it does not match rather than writing
+audit rows into a shape it does not understand.
+
+<!--
+  There is no "Unreleased" section yet: 1.0.0 is not out, so everything
+  below is unreleased. Open one above the 1.0.0 heading on the first
+  commit after the tag.
+-->
+
+## 1.0.0 — unreleased
+
+The first release. postern is an SSH bastion that mints a short-lived
+certificate per session and records what happens: targets hold no
+`authorized_keys`, users land as themselves, and a session that cannot
+be recorded does not start.
+
+What 1.0 covers, and what it deliberately does not, is written up in
+[the documentation](site/docs/index.html#limits) — read that section
+before deploying. The short version: SSH and SFTP only, one node, TOTP
+as the only second factor, no port forwarding, and no integrity seal on
+recordings.
+
+### Security
+
+- **`golang.org/x/crypto` upgraded to v0.56.0** for
+  [GO-2026-6355](https://pkg.go.dev/vuln/GO-2026-6355) and
+  [GO-2026-6354](https://pkg.go.dev/vuln/GO-2026-6354), two
+  denial-of-service bugs in `x/crypto/ssh` channel handling. Both were
+  reachable from postern's own call graph rather than sitting in unused
+  code — `sshd.Server.handleConn` and `upstream.ScanHostKey`, which are
+  the front door and the host-key scanner. To check a binary you already
+  have: `go version -m ./postern | grep x/crypto` — anything below
+  v0.56.0 is affected.
+
+- **The public-key door no longer admits an account it cannot check.**
+  The account-state lookup was written so that a database error skipped
+  the check and fell through to accept, which meant a directory-disabled
+  account could sign in with its key during any lookup failure. It now
+  refuses.
+
+- **The bulk-revocation ceilings can no longer be raised from the
+  panel.** See *Needs action* below.
+
+### Needs action when upgrading a pre-release build
+
+- **Run `postern db migrate`.** The schema is at 31. The bastion refuses
+  to start against an older one, so this is a failed start rather than a
+  silent problem — but it is still a step your deploy has to take. If you
+  script the upgrade, run migrate before starting the new binary.
+
+- **Four sync settings moved out of the panel and back to the config
+  file:** `sync.max_zero_fraction`, `sync.min_zero_floor`,
+  `sync.max_unknown_fraction` and `sync.max_revoke_per_run`. They are the
+  ceilings on how much one directory-sync run may revoke, and raising one
+  should require reaching the host — the same reason the admin flag can
+  only be granted from the CLI. If you set any of them from the panel,
+  **put them in `postern.yaml` now**: the stored value is no longer read.
+  It is not ignored silently — the sync loop logs each one it found and
+  where the real setting lives — but the ceiling in force until you move
+  it is the default, not what you chose.
+
+- **`shutdown.drain_timeout` is new**, defaulting to 30 seconds. No
+  action needed unless your sessions are long-lived and your init system
+  is impatient: postern now waits this long for open sessions to finish
+  before closing them, so a restart takes up to that much longer than it
+  used to. Keep it under your `TimeoutStopSec` (systemd's default is 90s).
+
+### Added
+
+- **Recording archive.** Finished recordings are copied to an
+  S3-compatible bucket and only then may be pruned locally. The upload
+  never sits on the session path, a PUT is verified with a HEAD before
+  anything is marked archived, and nothing unarchived is ever deleted.
+  The panel holds the credential; the destination stays in the config
+  file, because a panel session must not be able to redirect the audit
+  trail. `postern archive check` reports what the bucket says about its
+  own configuration — and says plainly that it is a misconfiguration
+  detector, not a security control.
+
+- **File history.** "Who touched `/etc/shadow`" is now a question the
+  panel can answer, searchable by path, by person, by machine, or any
+  combination, and by a whole directory tree rather than one exact path.
+  It names the person rather than a session id, marks files that arrived
+  somewhere by rename, and says on every screen that it covers SFTP
+  events only — a file read inside a shell leaves no row there.
+
+- **Closing a live session** from the panel, with the reason reaching
+  both the user's terminal and the recording.
+
+- **`postern log`** reads the administrative audit trail from the host.
+  Both the panel and the CLI write to it; this is the only way to read it
+  without the panel.
+
+- **`postern user unbind-directory`** detaches an account from a
+  directory identity that no longer exists. A person deleted and
+  re-created in the directory gets a new stable identity and was
+  previously locked out of their own account with no way back except
+  editing the database by hand.
+
+- **`postern version`** reports the tag, the commit, whether the tree was
+  modified when it was built, the Go version and the platform. A build
+  that did not come from a release tag says so rather than inventing a
+  number.
+
+- **`/healthz` and `/readyz`.** The first touches nothing; the second
+  checks the database behind a one-second cache so an unauthenticated
+  endpoint cannot be used to load it. Neither reports a version, a
+  hostname, or a reason.
+
+- **CLI role management** — `postern role list`, `role revoke-target`,
+  `user grant-role`, `user revoke-role` — including a warning when a
+  manual grant takes over a role that came from a directory group, since
+  directory sync will no longer take it away.
+
+- **A production checklist and an Ansible role** for the one line each
+  target needs. The role validates with `sshd -t` before installing and
+  reloads rather than restarts, so nobody's session dies for it.
+
+### Changed
+
+- **Shutdown waits for open sessions** instead of cutting them
+  mid-flight. Beyond the interruption, the old behaviour meant
+  `Session.Close` never ran: the audit row stayed "running" forever, the
+  recording closed half-written, and the session never reached the
+  archive queue — where, since nothing unarchived is pruned, it then sat
+  on disk unable to be uploaded or removed.
+
+- **Screens no longer report a failed query as an empty result.** Six of
+  them did: two target pages, two CLI listings, the session count on the
+  overview, and the recordings-on-disk figure. An audit tool that answers
+  "nothing happened" when it means "I could not look" is worse than one
+  that says nothing at all.
+
+- **Failed archive uploads back off exponentially** instead of retrying
+  a misspelled bucket name on every pass, and rows that keep failing are
+  counted separately from rows that are merely waiting. Nothing is marked
+  permanently dead, so fixing the bucket lets the queue drain without a
+  new command.
+
+- **`make ci` runs the panel's tests.** It described itself as
+  "everything CI runs" while leaving out `web-test` and `web-check`, so a
+  green local run did not cover 320 tests or the check that catches a
+  commit editing `web/src` without rebuilding the embedded bundle.
+
+### Removed
+
+- **`store.ActiveUser`**, **`store.HasDirectoryIdentity`** and
+  **`store.PendingWaitingCount`** — written, tested, and called from
+  nowhere. The first was the more dangerous of the three: it refused any
+  account that was not `active`, which is stricter than the session
+  middleware deliberately is, and leaving the wrong option next to the
+  right one was an invitation to pick it.
