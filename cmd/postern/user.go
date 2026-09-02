@@ -35,6 +35,8 @@ func newUserCmd() *cobra.Command {
 	cmd.AddCommand(newUserAllowBindCmd())
 	cmd.AddCommand(newUserStateCmd())
 	cmd.AddCommand(newUserPurgeCmd())
+	cmd.AddCommand(newUserGrantRoleCmd())
+	cmd.AddCommand(newUserRevokeRoleCmd())
 	return cmd
 }
 
@@ -152,7 +154,7 @@ func newUserPurgeCmd() *cobra.Command {
 				name, res.Keys, res.Roles)
 			fmt.Fprintln(cmd.OutOrStdout(),
 				"the account row is kept: audit entries naming it stay readable, "+
-					"and `postern log` records when the name was released")
+					"and the panel's Admin log records when the name was released")
 			return nil
 		},
 	}
@@ -221,7 +223,7 @@ func newUserAllowBindCmd() *cobra.Command {
 				"the next sign-in as %q may claim this account\n", name)
 			fmt.Fprintln(cmd.OutOrStdout(),
 				"this is single use: have them sign in now, and check "+
-					"`postern log` afterwards to see which identity took it")
+					"the panel's Admin log afterwards to see which identity took it")
 			return nil
 		},
 	}
@@ -324,7 +326,7 @@ func newUserAddCmd() *cobra.Command {
 					}
 					return err
 				}
-				if aerr := auditCLI(ctx, db, "user.role_assign", name,
+				if aerr := auditCLI(ctx, db, "user.grant_role", name,
 					"assigned role "+role); aerr != nil {
 					return aerr
 				}

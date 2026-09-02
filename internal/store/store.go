@@ -2249,3 +2249,38 @@ func (s *Store) ClaimByVerifiedEmail(ctx context.Context,
 	}
 	return s.User(ctx, u.Name)
 }
+
+/*
+ * RoleGrantSource, bir atamanın NEREDEN geldiğini söyler: "manual" ya
+ * da "sso". found=false, böyle bir atama yok demek.
+ *
+ * ⚠️ NEDEN GEREKLİ: AssignRole'un ON CONFLICT dalı source'u koşulsuz
+ * 'manual' yapıyor, SyncRoles ise yalnızca source='sso' satırlarını
+ * siliyor. Yani dizinden gelen bir rolü elle "yeniden vermek", o rolü
+ * senkronizasyonun erişemeyeceği bir yere taşıyor: kişi gruptan
+ * çıkarıldığında rol ÜZERİNDE KALIYOR ve hiçbir otomatik yol onu geri
+ * alamıyor. Bu okuma olmadan çağıran, sessizce kalıcı yetki üretiyor.
+ *
+ * Kimseyi engellemek için değil, SÖYLEYEBİLMEK için var.
+ */
+func (s *Store) RoleGrantSource(ctx context.Context, username, roleName string) (source string, found bool, err error) {
+	userID, err := s.rowID(ctx, "store.RoleGrantSource", "users", "username", username)
+	if err != nil {
+		return "", false, err
+	}
+	roleID, err := s.rowID(ctx, "store.RoleGrantSource", "roles", "name", roleName)
+	if err != nil {
+		return "", false, err
+	}
+
+	qerr := s.db.QueryRowContext(ctx,
+		`SELECT source FROM user_roles WHERE user_id = $1 AND role_id = $2;`,
+		userID, roleID).Scan(&source)
+	if errors.Is(qerr, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if qerr != nil {
+		return "", false, translateErr("store.RoleGrantSource", qerr)
+	}
+	return source, true, nil
+}
