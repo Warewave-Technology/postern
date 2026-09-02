@@ -211,6 +211,8 @@ export type MyTargetDetail = MyTarget & {
     ended?: string;
     os_user: string;
   }[];
+  /** Geçmiş okunamadı; boş listeyle karıştırılmamalı. */
+  sessions_error?: boolean;
 };
 
 /** ScannedKey, bir adresteki makinenin O ANDA sunduğu host key.
@@ -256,6 +258,10 @@ export type TargetDetail = {
     started_at: string;
     ended_at?: string;
   }[];
+  /** Liste okunamadı. Boş listeyle karıştırılmamalı — "hiç oturum
+   *  açılmamış" ile "bakamadık" farklı şeyler ve ikincisi bir denetim
+   *  ekranında araştırılması gereken bir şey. */
+  recent_error?: boolean;
 };
 
 export type Mapping = { group: string; role: string; created_by: string };
@@ -577,7 +583,10 @@ export type SessionDetail = Session & {
  *  ikincisini sıfır göstermek, dizini okuyamayan bir kurulumu "her şey
  *  yolunda" diye göstermek olurdu. */
 export type Storage = {
-  recordings?: { files: number; bytes: number };
+  /** skipped: okunamadığı için toplamdan DÜŞEN giriş sayısı. Sıfırdan
+   *  büyükse rakam eksik — "ölçemedik" (recordings_error) ile
+   *  "kısmen ölçtük" farklı şeyler ve ikincisi de sessiz kalmamalı. */
+  recordings?: { files: number; bytes: number; skipped?: number };
   recordings_error?: boolean;
   archive?: {
     pending: number;

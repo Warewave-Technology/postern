@@ -287,11 +287,19 @@ func sessionIDOf(name string) (string, bool) {
  * için de seçmez. Varsayılanı "hiç silme" olan bir ayarın işe
  * yaraması, bu sayının bir yerde yazmasına bağlı.
  */
-func Usage(dir string) (files int, bytes int64, err error) {
+func Usage(dir string) (files int, bytes int64, skipped int, err error) {
 	werr := filepath.WalkDir(dir, func(_ string, d os.DirEntry, err error) error {
 		if err != nil {
 			// Okunamayan bir alt dizin toplamı düşürmemeli: eksik bir
 			// sayı, hiç sayı olmamasından iyi.
+			//
+			// ⚠️ AMA SESSİZ DE OLMAMALI — ve öyleydi. Atlananları
+			// saymadan `err == nil` dönmek, eksik bir toplamı tam bir
+			// toplam gibi sunmak demekti: disk raporu "5 GB" diyor,
+			// gerçekte 40 GB var ve aradaki fark okunamayan bir alt
+			// ağaçta duruyor. Uç zaten "ölçemedik"i ayırıyor
+			// (recordings_error); ayıramadığı "kısmen ölçtük"tü.
+			skipped++
 			return nil //nolint:nilerr // kasıtlı: bkz. yorum
 		}
 		if d.IsDir() {
@@ -299,6 +307,7 @@ func Usage(dir string) (files int, bytes int64, err error) {
 		}
 		info, ierr := d.Info()
 		if ierr != nil {
+			skipped++
 			return nil
 		}
 		files++
@@ -306,7 +315,7 @@ func Usage(dir string) (files int, bytes int64, err error) {
 		return nil
 	})
 	if werr != nil && !errors.Is(werr, os.ErrNotExist) {
-		return files, bytes, fmt.Errorf("record.Usage: %w", werr)
+		return files, bytes, skipped, fmt.Errorf("record.Usage: %w", werr)
 	}
-	return files, bytes, nil
+	return files, bytes, skipped, nil
 }

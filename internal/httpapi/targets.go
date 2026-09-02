@@ -175,8 +175,26 @@ func (s *Server) adminTargetDetail(w http.ResponseWriter, r *http.Request) {
 		EndedAt   string `json:"ended_at,omitempty"`
 	}
 	recent := []sessionRow{}
+	/*
+	 * ⚠️ OKUNAMADIYSA SÖYLE — VE BU BİR DÜZELTME.
+	 *
+	 * Burada `else` yoktu: sorgu çöktüğünde `recent` boş kalıyor ve
+	 * cevaba `recent_sessions: []` diye gidiyordu, hiçbir hata alanı
+	 * olmadan. Panel de bunu görüp "No session has been opened to this
+	 * host." yazıyordu — yani "bakamadık"ı "hiç olmamış" diye
+	 * bildiriyordu, üstelik bir denetim ekranında.
+	 *
+	 * Oturum detayındaki `files_error` deseninin aynısı: liste düşse
+	 * de sayfa düşmüyor, ama boşluğun ne anlama GELMEDİĞİ yazılıyor.
+	 */
+	recentErr := false
 	// Boş kullanıcı adı = "hepsi" (bkz. store.Sessions).
-	if sessions, serr := s.store.Sessions(r.Context(), "", sessionScanLimit); serr == nil {
+	sessions, serr := s.store.Sessions(r.Context(), "", sessionScanLimit)
+	if serr != nil {
+		s.logger.Error("target session history unavailable",
+			"target", t.Name, "error", serr)
+		recentErr = true
+	} else {
 		for _, sn := range sessions {
 			if sn.Target != t.Name {
 				continue
@@ -204,6 +222,9 @@ func (s *Server) adminTargetDetail(w http.ResponseWriter, r *http.Request) {
 		Facts       factsOut          `json:"facts"`
 		GrantedBy   []string          `json:"granted_by"`
 		Recent      []sessionRow      `json:"recent_sessions"`
+		// recent_error: liste okunamadı. Boş listeyle karıştırılmamalı
+		// — "dokunulmadı" ile "bakamadık" farklı şeyler.
+		RecentErr bool `json:"recent_error,omitempty"`
 	}{
 		Name:        t.Name,
 		Host:        t.Host,
@@ -213,6 +234,7 @@ func (s *Server) adminTargetDetail(w http.ResponseWriter, r *http.Request) {
 		Facts:       toFactsOut(facts),
 		GrantedBy:   granting,
 		Recent:      recent,
+		RecentErr:   recentErr,
 	})
 }
 
@@ -438,6 +460,10 @@ func (s *Server) handleMyTargetDetail(w http.ResponseWriter, r *http.Request) {
 		OSUser  string `json:"os_user"`
 	}
 	rows := make([]sessionRow, 0, 8)
+	// ⚠️ Aşağıdaki else dalı bunu zaten log'a yazıyordu; eksik olan,
+	// aynı ayrımın CEVAPTA da olmasıydı. Log'a yazılan bir uyarı
+	// kullanıcının ekranında görünmüyor.
+	sessionsErr := false
 	if all, serr := s.store.Sessions(r.Context(), me, sessionScanLimit); serr == nil {
 		for _, sn := range all {
 			if !strings.EqualFold(sn.Target, tgt.Name) {
@@ -462,6 +488,7 @@ func (s *Server) handleMyTargetDetail(w http.ResponseWriter, r *http.Request) {
 		// demek değil.
 		s.logger.Error("own session history unavailable",
 			"user", me, "target", tgt.Name, "error", serr)
+		sessionsErr = true
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -470,5 +497,8 @@ func (s *Server) handleMyTargetDetail(w http.ResponseWriter, r *http.Request) {
 		"server_version": facts.ServerVersion,
 		"last_seen_at":   stampOrEmpty(facts.LastSeenAt),
 		"sessions":       rows,
+		// sessions_error: geçmiş okunamadı. Boş listeyle
+		// karıştırılmamalı.
+		"sessions_error": sessionsErr,
 	})
 }

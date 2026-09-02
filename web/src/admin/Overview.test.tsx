@@ -207,3 +207,64 @@ it("depolama hatasi oturum listesini dusurmez", async () => {
     ).toBeInTheDocument(),
   );
 });
+
+/*
+ * ⚠️ "BUGÜN" SAYISI TAM MI, ALT SINIR MI.
+ *
+ * Sayım sunucuda değil panelde yapılıyor ve sunucu en fazla 200 oturum
+ * döndürüyor. Yoğun bir günde rakam sessizce doyuyordu; ekranda bunu
+ * söyleyen hiçbir şey yoktu. Tamlık ölçülebilir: liste gece yarısının
+ * ötesine uzanıyorsa bugünün tamamı elde demektir.
+ */
+it("liste gece yarısına ulaşmıyorsa sayının alt sınır olduğunu söylüyor", async () => {
+  const now = new Date();
+  const afterMidnight = new Date(now);
+  afterMidnight.setHours(23, 30, 0, 0);
+  // En eski satır bile bugüne ait: demek ki daha eskisi kesilmiş.
+  vi.spyOn(api, "sessions").mockResolvedValue([
+    session({ id: "a", started_at: afterMidnight.toISOString() }),
+    session({ id: "b", started_at: afterMidnight.toISOString() }),
+  ]);
+  render(<Overview />);
+
+  await waitFor(() =>
+    expect(screen.getByText(/the list stops before midnight/i)).toBeTruthy(),
+  );
+});
+
+// Liste düne uzanıyorsa sayı TAM: her rakama "+" koymak, işareti
+// anlamsızlaştırırdı.
+it("liste düne uzanıyorsa sayıyı kesin veriyor", async () => {
+  const yesterday = new Date(Date.now() - 36 * 60 * 60 * 1000);
+  vi.spyOn(api, "sessions").mockResolvedValue([
+    session({ id: "a", started_at: new Date().toISOString() }),
+    session({ id: "b", started_at: yesterday.toISOString() }),
+  ]);
+  render(<Overview />);
+
+  await waitFor(() =>
+    expect(screen.getByText(/since midnight, your time/i)).toBeTruthy(),
+  );
+  expect(screen.queryByText(/the list stops before midnight/i)).toBeNull();
+});
+
+/*
+ * ⚠️ "KISMEN ÖLÇTÜK", "ÖLÇTÜK" DEĞİLDİR.
+ *
+ * record.Usage okunamayan alt ağaçları atlayıp devam ediyor — kasıtlı,
+ * eksik sayı hiç sayı olmamasından iyi. Ama eksik bir toplamı tam gibi
+ * göstermek, "5 GB" diyen bir rapora bakıp saklama süresi seçtirmek
+ * demek; gerçekte 40 GB olabilir.
+ */
+it("disk ölçümü eksikse rakamın alt sınır olduğunu söylüyor", async () => {
+  vi.spyOn(api, "sessions").mockResolvedValue([]);
+  vi.spyOn(api, "storage").mockResolvedValue({
+    recordings: { files: 3, bytes: 1024, skipped: 2 },
+  } as never);
+  render(<Overview />);
+
+  await waitFor(() =>
+    expect(screen.getByText(/could not be read/i)).toBeTruthy(),
+  );
+  expect(screen.getByText(/at least 3 files/i)).toBeTruthy();
+});

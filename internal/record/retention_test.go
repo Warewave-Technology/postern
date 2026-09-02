@@ -158,12 +158,17 @@ func TestUsage(t *testing.T) {
 	write(t, dir, "2020-01-01", "a.cast", time.Hour, 100)
 	write(t, dir, "2020-01-02", "b.cast", time.Hour, 250)
 
-	files, bytes, err := Usage(dir)
+	files, bytes, skipped, err := Usage(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if files != 2 || bytes != 350 {
 		t.Fatalf("kullanım = %d dosya %d bayt", files, bytes)
+	}
+	// Okunabilir bir ağaçta atlanan giriş olmamalı: sayaç yalnızca
+	// gerçek bir eksikliği bildirmeli, yoksa uyarı gürültüye döner.
+	if skipped != 0 {
+		t.Errorf("sağlam dizinde %d giriş atlandı", skipped)
 	}
 }
 
@@ -185,4 +190,43 @@ func TestNewPrunerIsNilWhenOff(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	p.Start(ctx)
+}
+
+/*
+ * ⚠️ KISMİ TOPLAM, TAM TOPLAM GİBİ DÖNMEMELİ.
+ *
+ * Usage okunamayan alt ağaçları atlayıp devam ediyor — kasıtlı, çünkü
+ * eksik bir sayı hiç sayı olmamasından iyi. Ama eskiden bunu söylemenin
+ * yolu yoktu: `err == nil` dönüyordu ve çağıran eksik toplamı tam
+ * sanıyordu. Disk raporu "5 GB" derken gerçekte 40 GB olabilir, ve
+ * saklama süresi o rapora bakılarak seçiliyor.
+ */
+func TestUsageReportsWhatItCouldNotRead(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.cast"), []byte("hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	locked := filepath.Join(dir, "kilitli")
+	if err := os.Mkdir(locked, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(locked, "b.cast"), []byte("gizli"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Okuma izni kaldırılınca WalkDir bu alt ağaca giremiyor.
+	if err := os.Chmod(locked, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
+
+	files, _, skipped, err := Usage(dir)
+	if err != nil {
+		t.Fatalf("okunamayan alt ağaç bütün ölçümü düşürdü: %v", err)
+	}
+	if files != 1 {
+		t.Errorf("okunabilen dosya = %d, 1 bekleniyordu", files)
+	}
+	if skipped == 0 {
+		t.Error("okunamayan alt ağaç sessizce yutuldu: toplam eksik ama 'tam' diye dönüyor")
+	}
 }

@@ -153,7 +153,15 @@ export default function TargetPage({ me, name }: { me: Me; name: string }) {
           <p>The last ten times you opened a session on this host.</p>
         </div>
         <div className="card-body">
-          {t.sessions.length === 0 ? (
+          {t.sessions_error ? (
+            /* ⚠️ Sunucu bunu zaten log'a yazıyordu; eksik olan aynı
+               ayrımın EKRANDA olmasıydı. Log'daki bir uyarıyı
+               kullanıcı görmüyor. */
+            <p className="msg msg-warn">
+              Your history for this host could not be read, so this is not a
+              statement that you have never connected to it.
+            </p>
+          ) : t.sessions.length === 0 ? (
             <p className="state">You have not connected to this host yet.</p>
           ) : (
             <table className="data">

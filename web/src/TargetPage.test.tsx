@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TargetPage, { targetFromPath, targetURL } from "./TargetPage";
 import { api, type Me, type MyTargetDetail } from "./api";
@@ -132,5 +132,42 @@ describe("hedef sayfası", () => {
     expect(
       await screen.findByRole("button", { name: /shell options for web-01/i }),
     ).toBeTruthy();
+  });
+});
+
+/*
+ * ⚠️ "GEÇMİŞ OKUNAMADI", "HİÇ BAĞLANMADIN" DEĞİLDİR.
+ *
+ * Sunucu bu ayrımı zaten log'a yazıyordu ve yorumu kuralı doğru
+ * söylüyordu — ama cevap gövdesi yine boş listeden kuruluyordu, yani
+ * ekranda görünen tek şey olumlu cümleydi. Log'daki bir uyarıyı
+ * kullanıcı görmüyor.
+ */
+describe("oturum geçmişi okunamadığında", () => {
+  it("'hiç bağlanmadın' demiyor", async () => {
+    vi.spyOn(api, "myTarget").mockResolvedValue(
+      detail({ sessions_error: true }),
+    );
+    render(<TargetPage me={me} name="web-01" />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/could not be read/i)).toBeTruthy(),
+    );
+    expect(
+      screen.queryByText(/have not connected to this host yet/i),
+    ).toBeNull();
+  });
+
+  // Gerçekten boşken olumlu cümle DURUYOR: düzeltme boş durumu
+  // susturmak değil, iki durumu ayırmak.
+  it("gerçekten boşken hâlâ 'hiç bağlanmadın' diyor", async () => {
+    vi.spyOn(api, "myTarget").mockResolvedValue(detail());
+    render(<TargetPage me={me} name="web-01" />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/have not connected to this host yet/i),
+      ).toBeTruthy(),
+    );
   });
 });

@@ -331,7 +331,16 @@ export default function TargetDetail({
               <h3>Recent sessions</h3>
               <p>The last connections opened to this host.</p>
             </div>
-            {t.recent_sessions.length === 0 ? (
+            {t.recent_error ? (
+              /* ⚠️ "Bakamadık" ile "hiç olmamış" AYRI cümleler.
+                 Sorgu çöktüğünde boş liste gelir ve olumlu cümle bir
+                 olgu gibi okunur — bir denetim ekranında en pahalı
+                 yanlış anlama bu. */
+              <p className="msg msg-warn">
+                The session history for this host could not be read, so this is
+                not a statement that nobody has connected to it.
+              </p>
+            ) : t.recent_sessions.length === 0 ? (
               <p className="no-match">
                 No session has been opened to this host.
               </p>

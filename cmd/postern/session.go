@@ -61,7 +61,28 @@ func newSessionListCmd() *cobra.Command {
 				return nil
 			}
 
-			return printSessionTable(cmd, sessions)
+			if err := printSessionTable(cmd, sessions); err != nil {
+				return err
+			}
+
+			/*
+			 * ⚠️ KESİLDİYSE SÖYLE. İki kardeşi de söylüyor: `postern
+			 * log` "(showing N; there are older entries)" basıyor,
+			 * panel de listenin sınıra dayandığını yazıyor. Bu komut
+			 * yazmıyordu — tam --limit satır basıp susuyordu, ve
+			 * susan bir denetim aracı "hepsi bu" diye okunuyor.
+			 *
+			 * ⚠️ "DAHA ESKİSİ VAR" DEMİYOR, "OLMAYABİLİR" DİYOR. Tam
+			 * sınırda duran bir liste gerçekten sınıra dayanmış da
+			 * olabilir, tesadüfen o kadar da. Var olmayan kaydı var
+			 * diye bildirmek, olanı yok saymak kadar yanlış.
+			 */
+			if limit > 0 && len(sessions) == limit {
+				fmt.Fprintf(cmd.OutOrStdout(),
+					"\n(showing %d; there may be older sessions — raise --limit)\n",
+					limit)
+			}
+			return nil
 		},
 	}
 

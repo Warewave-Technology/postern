@@ -39,12 +39,29 @@ func (s *Server) adminStorage(w http.ResponseWriter, r *http.Request) {
 	 * göstermekti. Panel bu bayrağı görünce sayı yerine sebebi yazıyor.
 	 */
 	if s.records != nil {
-		files, bytes, err := record.Usage(s.records.Root())
-		if err != nil {
+		files, bytes, skipped, err := record.Usage(s.records.Root())
+		switch {
+		case err != nil:
 			s.logger.Error("recording usage unavailable", "error", err)
 			out["recordings_error"] = true
-		} else {
-			out["recordings"] = map[string]any{"files": files, "bytes": bytes}
+		default:
+			rec := map[string]any{"files": files, "bytes": bytes}
+			/*
+			 * ⚠️ ÜÇÜNCÜ DURUM: KISMEN ÖLÇTÜK.
+			 *
+			 * Usage okunamayan alt ağaçları atlayıp devam ediyor
+			 * (kasıtlı: eksik sayı, hiç sayı olmamasından iyi) ama
+			 * eskiden bunu söylemenin yolu yoktu. Eksik bir toplamı
+			 * tam gibi göstermek, "5 GB yer kaplıyor" diyen bir
+			 * raporun aslında 40 GB'ı görmemesi demek — ve saklama
+			 * süresi o rapora bakılarak seçiliyor.
+			 */
+			if skipped > 0 {
+				rec["skipped"] = skipped
+				s.logger.Warn("recording usage is partial",
+					"skipped_entries", skipped)
+			}
+			out["recordings"] = rec
 		}
 	}
 

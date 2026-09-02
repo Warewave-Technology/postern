@@ -267,6 +267,25 @@ export default function Overview() {
     (s) => new Date(s.started_at) >= startOfDay,
   ).length;
 
+  /*
+   * ⚠️ BU SAYI TAM MI, YOKSA ALT SINIR MI.
+   *
+   * Sayım sunucuda değil, BURADA yapılıyor — ve sunucu en fazla 200
+   * oturum döndürüyor (httpapi/admin.go, store.Sessions(ctx,"",200)).
+   * Yani yoğun bir günde rakam sessizce 200'e doğru doyuyordu ve
+   * ekranda bunu söyleyen hiçbir şey yoktu.
+   *
+   * Tamlık ölçülebilir bir şey: liste gece yarısının ÖTESİNE
+   * uzanıyorsa bugünün tamamı elimizde demektir. En eski satır da
+   * gece yarısından sonraysa, görmediğimiz daha eski oturumlar
+   * bugüne ait olabilir — o hâlde rakam bir alt sınır ve öyle
+   * yazılıyor.
+   */
+  const oldest = sessions.length
+    ? Math.min(...sessions.map((s) => new Date(s.started_at).getTime()))
+    : Infinity;
+  const todayIsPartial = sessions.length > 0 && oldest >= startOfDay.getTime();
+
   return (
     <section>
       <div className="page-bar">
@@ -301,8 +320,15 @@ export default function Overview() {
         </div>
         <div className="stat">
           <span className="k">Sessions today</span>
-          <span className="n">{today}</span>
-          <span className="sub">since midnight, your time</span>
+          <span className="n">
+            {today}
+            {todayIsPartial ? "+" : ""}
+          </span>
+          <span className="sub">
+            {todayIsPartial
+              ? "at least — the list stops before midnight"
+              : "since midnight, your time"}
+          </span>
         </div>
         <div className="stat">
           <span className="k">Refused sign-ins</span>
@@ -320,12 +346,20 @@ export default function Overview() {
           <span className="k">Recordings on disk</span>
           <span className="n">
             {storage?.recordings ? formatBytes(storage.recordings.bytes) : "—"}
+            {/* ⚠️ ÜÇÜNCÜ DURUM: KISMEN ÖLÇTÜK. Sunucu okunamayan alt
+                ağaçları atlayıp devam ediyor (eksik sayı, hiç sayı
+                olmamasından iyi) ama eksik bir toplamı tam gibi
+                göstermek, saklama süresini yanlış bir rakama
+                baktırmak demek. */}
+            {storage?.recordings?.skipped ? "+" : ""}
           </span>
           <span className="sub">
             {storage?.recordings_error
               ? "could not be measured"
               : storage?.recordings
-                ? `${storage.recordings.files} file${storage.recordings.files === 1 ? "" : "s"}`
+                ? storage.recordings.skipped
+                  ? `at least ${storage.recordings.files} file${storage.recordings.files === 1 ? "" : "s"} — ${storage.recordings.skipped} entr${storage.recordings.skipped === 1 ? "y" : "ies"} could not be read`
+                  : `${storage.recordings.files} file${storage.recordings.files === 1 ? "" : "s"}`
                 : "not measured"}
           </span>
         </div>

@@ -124,9 +124,24 @@ func newLogCmd() *cobra.Command {
 			 * ⚠️ KESİLDİYSE SÖYLE. Sessizce ilk N'i göstermek,
 			 * operatörün "hepsi bu" sanması demek — bir denetim
 			 * aracında en pahalı yanlış anlama.
+			 *
+			 * ⚠️ İKİ AYRI KESİLME VAR VE İKİNCİSİ SESSİZDİ.
+			 * Birincisi --limit: istenen kadar satır bulundu, daha
+			 * fazlası olabilir. İkincisi İÇ OKUMA TAVANI: süzgeç
+			 * istemcide çalıştığı için komut limit*50 (en çok 5000)
+			 * satır okuyor, ve eşleşen satır --limit'ten AZ olsa bile
+			 * defter o tavanda bitmiş olabilir. Eski koşul
+			 * `matched == limit` istediği için, tam da az eşleşen —
+			 * yani operatörün "demek ki bu kadarmış" diyeceği —
+			 * durumda susuyordu.
 			 */
-			if limit > 0 && matched == limit && len(entries) >= read {
+			switch {
+			case limit > 0 && matched == limit && len(entries) >= read:
 				fmt.Fprintf(out, "\n(showing %d; there are older entries — raise --limit)\n", limit)
+			case len(entries) >= read:
+				fmt.Fprintf(out,
+					"\n(searched the newest %d entries and stopped there; "+
+						"older ones were not examined)\n", read)
 			}
 			return nil
 		},

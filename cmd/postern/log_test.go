@@ -162,3 +162,44 @@ func TestLogSaysWhenItTruncated(t *testing.T) {
 		t.Errorf("kesildiği söylenmiyor:\n%s", out)
 	}
 }
+
+/*
+ * ⚠️ İKİNCİ KESİLME DE SÖYLENMELİ — VE BOŞLUK ORTADAKİ DURUMDA.
+ *
+ * Süzme istemcide, dolayısıyla komut --limit'in çok üstünde
+ * (limit*50, en çok 5000) satır okuyor. Üç durum var:
+ *
+ *   matched == 0            → "no entries matched (searched the newest N)"
+ *   matched == limit        → "(showing N; there are older entries)"
+ *   0 < matched < limit     → HİÇBİR ŞEY
+ *
+ * Üçüncüsü tam da operatörün "demek ki bu kadarmış" diyeceği durum:
+ * birkaç satır geldi, liste sınıra dayanmış görünmüyor, ve defter
+ * aslında iç tavanda kesilmiş. İlk yazdığım test bunu ölçmüyordu —
+ * mutasyon geçti ve yanlış yere baktığımı gösterdi.
+ */
+func TestLogSaysWhenItStoppedAtTheReadCap(t *testing.T) {
+	e := newEnv(t)
+	// --limit 2 → iç tavan 100. 120 satır yazıyoruz; yalnızca biri
+	// süzgece uyuyor, yani matched=1 (0 < 1 < 2) ve okuma tavana
+	// dayanıyor.
+	// ⚠️ SIRA ÖNEMLİ: eşleşen satır EN YENİ olmalı ki okuma
+	// penceresinin İÇİNDE kalsın. Dolgu önce yazılıyor.
+	for range 120 {
+		seedLog(t, e, store.AdminLogEntry{Actor: "baskasi", Via: "cli",
+			Action: "user.create", Entity: "x"})
+	}
+	seedLog(t, e, store.AdminLogEntry{Actor: "yigit", Via: "cli",
+		Action: "user.create", Entity: "son"})
+
+	out, err := e.run(t, newRootCmd(), "log", "--actor", "yigit", "--limit", "2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "yigit") {
+		t.Fatalf("eşleşen satır hiç gelmedi:\n%s", out)
+	}
+	if !strings.Contains(out, "not examined") {
+		t.Errorf("okuma tavanına dayandığı söylenmiyor:\n%s", out)
+	}
+}
