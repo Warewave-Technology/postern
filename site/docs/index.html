@@ -65,6 +65,29 @@
   aside a { display: block; padding: .16rem 0 .16rem .7rem; color: var(--muted); text-decoration: none; border-left: 2px solid transparent; }
   aside a:hover { color: var(--ink); border-left-color: var(--line); }
 
+  /*
+   * ⚠️ OKUNAN BÖLÜM SOLDA İŞARETLİ.
+   *
+   * Yirmi dört bölümlük bir belgede, kenar listesi nerede olduğunu
+   * söylemiyorsa gezinme değil yalnızca bir bağlantı yığınıdır:
+   * okuyucu kaydırdıkça hangi başlığın altında olduğunu kaybediyordu.
+   *
+   * Vurgu SOL ÇUBUKLA, arka planla değil: hover zaten çubuğu soluk
+   * renklendiriyor, aynı dili sürdürmek ikisini birbirinden ayırt
+   * edilebilir tutuyor.
+   */
+  aside a[aria-current] { color: var(--ink); border-left-color: var(--accent); font-weight: 600; }
+
+  /*
+   * ⚠️ ÇAPA HEDEFİ YAPIŞKAN BAŞLIĞIN ALTINA KAÇMASIN.
+   *
+   * Üst şerit position:sticky ve 56px; scroll-margin olmadan bir
+   * "#targets" bağlantısına tıklamak bölümün başlığını tam da o
+   * şeridin altına gizliyordu. İçindekiler listesindeki her tıklama
+   * okuyucuyu başlığı görünmeyen bir yere bırakıyordu.
+   */
+  main section[id] { scroll-margin-top: 72px; }
+
   main { padding: 2rem 0 5rem; min-width: 0; }
   main > section { padding-bottom: .5rem; }
   h1 { font-size: 2.1rem; letter-spacing: -.025em; margin: .4rem 0 .6rem; }
@@ -1133,5 +1156,108 @@ type the account name to confirm: ayse
   </main>
 </div>
 
+
+<script>
+/*
+ * Okunan bölümü kenar listesinde işaretler.
+ *
+ * ⚠️ SAYFANIN TEK BETİĞİ VE JAVASCRIPT'SİZ DE ÇALIŞIYOR. Betik hiç
+ * koşmazsa liste eski hâliyle duruyor: yirmi dört çalışan bağlantı.
+ * İşaretleme bir kolaylık, gezinmenin koşulu değil — bu sayfalar
+ * file:// üzerinden ve hava boşluğu arkasında da açılabilmeli.
+ *
+ * ⚠️ IntersectionObserver DEĞİL, DOĞRUDAN ÖLÇÜM. Aynı anda birden çok
+ * bölüm ekranda olabiliyor ve gözlemci "hangisi" sorusunu kendiliğinden
+ * cevaplamıyor; kural açıkça yazıldığında ne olduğu okunabiliyor:
+ * başlığı şeridin altından yukarı geçmiş SON bölüm.
+ *
+ * ⚠️ URL'YE DOKUNMUYOR. Kaydırdıkça hash yazmak tarayıcı geçmişini
+ * doldurur ve geri tuşunu kullanılmaz hâle getirir.
+ */
+(function () {
+  var links = Array.prototype.slice.call(
+    document.querySelectorAll("aside a[href^='#']"));
+  if (!links.length) return;
+
+  var items = links.map(function (a) {
+    return { link: a, section: document.getElementById(a.hash.slice(1)) };
+  }).filter(function (i) { return i.section; });
+  if (!items.length) return;
+
+  var current = null;
+  function mark(item) {
+    if (item === current) return;
+    if (current) current.link.removeAttribute("aria-current");
+    item.link.setAttribute("aria-current", "true");
+    current = item;
+
+    /*
+     * ⚠️ KENAR LİSTESİ KENDİ İÇİNDE KAYIYOR. Liste ekrandan uzun ve
+     * kendi kaydırma kutusunda; işaretlenen satır görünmüyorsa
+     * işaretlemenin bir faydası yok.
+     *
+     * scrollIntoView yerine elle hesap: birincisi SAYFAYI da
+     * kaydırabiliyor ve okuyucunun bulunduğu yeri değiştirmek, tam da
+     * "neredeyim" sorusunu çözerken kabul edilemez.
+     */
+    var box = item.link.parentElement;
+    if (!box || box.scrollHeight <= box.clientHeight) return;
+    var top = item.link.offsetTop - box.offsetTop;
+    var bottom = top + item.link.offsetHeight;
+    if (top < box.scrollTop) box.scrollTop = top - 8;
+    else if (bottom > box.scrollTop + box.clientHeight)
+      box.scrollTop = bottom - box.clientHeight + 8;
+  }
+
+  // Yapışkan şeridin hemen altı: bir başlık bu çizgiyi geçtiğinde
+  // okuyucu artık o bölümdedir.
+  var LINE = 80;
+
+  function update() {
+    /*
+     * ⚠️ SAYFA SONU ÖZEL DURUM. Son bölüm kısa olduğunda başlığı
+     * çizgiye hiç ulaşmıyor ve klasik kaydırma takibi son maddeyi asla
+     * işaretlemiyor — okuyucu sayfanın dibinde, liste bir öncekini
+     * gösteriyor.
+     */
+    if (window.innerHeight + window.scrollY >= document.body.scrollHeight - 2) {
+      mark(items[items.length - 1]);
+      return;
+    }
+    var found = items[0];
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].section.getBoundingClientRect().top <= LINE) found = items[i];
+      else break;
+    }
+    mark(found);
+  }
+
+  var queued = false;
+  function onScroll() {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(function () { queued = false; update(); });
+  }
+
+  window.addEventListener("scroll", onScroll, { passive: true });
+  window.addEventListener("resize", onScroll, { passive: true });
+
+  /*
+   * ⚠️ GÖRÜNÜR OLUNCA YENİDEN HESAPLA.
+   *
+   * Arka plan sekmesinde requestAnimationFrame durduruluyor ve
+   * tarayıcı, sekme öne geldiğinde kaydırma konumunu geri
+   * yükleyebiliyor — ikisi birleştiğinde okuyucu sayfanın ortasında
+   * açılıyor ve liste, sekme arkaya atılmadan önceki bölümü
+   * gösteriyor. Ölçüldü: gizli bir sekmede rAF hiç çalışmıyor
+   * (visibilityState "hidden", innerHeight 0).
+   */
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) update();
+  });
+
+  update();
+})();
+</script>
 </body>
 </html>

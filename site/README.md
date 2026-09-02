@@ -8,7 +8,10 @@ any static host.
 - `docs/index.html` — the documentation
 
 Both carry their CSS inline and load nothing from the network, so they
-work from `file://` and behind an air gap. They follow the reader's
+work from `file://` and behind an air gap. The docs page carries one
+small inline script — it marks the section you are reading in the side
+list — and the page works without it: if the script never runs, the
+list is still twenty-four working links. They follow the reader's
 light/dark preference.
 
 ⚠️ **Do not strip the `<head>` block.** It was missing until 2026-09-02
