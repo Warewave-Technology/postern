@@ -258,6 +258,36 @@ crosses processes: a second postern on the same database is not asked,
 and the endpoint answers "not running on this instance" rather than
 claiming success.
 
+### Changing someone's roles
+
+```bash
+postern role list --config postern.yaml
+postern user grant-role  --name suleyman --role ops --config postern.yaml
+postern user revoke-role --name suleyman --role ops --config postern.yaml
+postern role revoke-target --name ops --target web-01 --config postern.yaml
+```
+
+These exist because the CLI is the path that has to work when the panel
+does not, and until now it could only set roles while creating an
+account.
+
+Three things the commands say out loud, because each is a way an
+operator would otherwise be misled:
+
+- Revoking a role the user never held reports *held no active grant*,
+  not *revoked*. A mistyped role name should not read as success.
+- Revoking a role that came from a directory group lasts until that
+  person's next sign-in — `SyncRoles` rewrites the IdP's list on every
+  SSO login. Removing the group mapping is what makes it stick.
+- Granting a role they **already have from a directory group** converts
+  it to a manual grant, and synchronisation can no longer take it away:
+  the role survives them leaving the group. The command is not blocked —
+  break-glass must never lock you out — but it says so.
+
+Granting a role to a deleted account is allowed: restoring roles before
+reactivating is a legitimate order, and `postern user state` exists so no
+state is a dead end. The command says the account cannot sign in yet.
+
 ### Registering a target
 
 A target is pinned to its host key, so registering one means deciding

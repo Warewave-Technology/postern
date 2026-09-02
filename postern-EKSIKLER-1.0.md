@@ -39,7 +39,7 @@ neye baktığımı bilmen lazım.
 
 ---
 
-## Bulunan ve DÜZELTİLEN beş şey
+## Bulunan ve DÜZELTİLEN altı şey
 
 İlk üçü aynı sınıftan: **kural yazılmıştı, bağlanmamıştı.** Dördüncüsü
 bir adım daha ince: iki ayrı doğru karar, birleşince yanlış davranıyordu.
@@ -260,6 +260,58 @@ pasifleştir" birleşik diyaloğu, zorunlu gerekçe alanı, süreçler arası
 kesme. Sonuncusunun tek yükümlülüğü ucun "bu süreçte akmıyor" diye ayrı
 bir cevap vermesi ve veriyor.
 
+### B6 — CLI, var olan bir kullanıcıya rol veremiyordu ✅ 2 Eylül'de kapatıldı
+
+`user add --role` yalnızca hesabı AÇARKEN rol verebiliyordu; `user
+modify` e-posta, os-user, admin ve sso-only ile sınırlıydı. Panelde
+vardı, CLI'da yoktu — yani tam olarak **panelin çalışmadığı an** için var
+olan yolda yoktu. Demo kurulurken de aynı duvara toslandı.
+
+**Eklenen dört komut:**
+
+| Komut | Neden |
+|---|---|
+| `user grant-role --name X --role Y` | Asıl eksik |
+| `user revoke-role --name X --role Y` | Aynısının tersi |
+| `role list` | `store.Roles` yazılmıştı, CLI'dan çağıran yoktu: host'a girmiş operatör hangi roller var göremiyordu |
+| `role revoke-target --name X --target Y` | `store.RevokeTarget` da öyle: rol bir makineye bağlanıyordu ama geri alınamıyordu |
+
+Adlandırma `grant-role` / `revoke-role`, `grant` / `revoke` değil: bu
+CLI'da `add` satır yaratan komutların sözü ve atama satır yaratmıyor.
+
+**Yol boyunca çıkan üç şey — üçü de aynı sette kapandı:**
+
+1. ⚠️ **En ciddisi, sessiz bir yetki kalıcılaşması.** `AssignRole`'un
+   `ON CONFLICT` dalı `source`'u koşulsuz `manual` yapıyor; `SyncRoles`
+   ise yalnızca `source='sso'` satırlarını siliyor. Yani dizinden gelen
+   bir rolü elle "yeniden vermek", o rolü senkronizasyonun
+   erişemeyeceği yere taşıyor: kişi gruptan çıkarıldığında **rol
+   üzerinde kalıyor ve hiçbir otomatik yol geri alamıyor.** Komut artık
+   yazmadan önce kaynağı okuyup bunu söylüyor. Engellemiyor — acil çıkış
+   yolu kimseyi kilitlemez — ama sessiz de kalmıyor.
+2. **Denetim adı ikiye ayrılmıştı.** CLI `user.role_assign`, panel
+   `user.grant_role` yazıyordu; `action=user.grant_role` diye süzen bir
+   denetçi, break-glass yoluyla verilmiş **her** rolü kaçırırdı. İkisi
+   birleştirildi.
+3. **İki komut olmayan bir komuta yönlendiriyordu.** `user purge` ve
+   `user allow-bind` çıktıları "`postern log`"u işaret ediyordu; öyle bir
+   komut yok. Metinler panelin Admin log'unu gösterecek şekilde
+   düzeltildi. (`postern log` eklemek ayrı bir iş — aşağıda S7.)
+
+**Dürüstlük kararları:** verilmemiş bir rolü almak "revoked" değil
+"held no active grant" diyor; dizinden gelen bir rolü almak, bir sonraki
+girişte geri geleceğini söylüyor; silinmiş hesaba rol vermek
+**reddedilmiyor** ("önce rolleri ver, sonra hesabı aç" meşru bir sıra) ama
+hesabın giremediği yazılıyor.
+
+**Süreli atama (`--until`) YAPILMADI.** `expires_at` şemada var ve erişim
+kararı veren iki sorgu da onu uyguluyor — ama hiçbir yerden okunamıyor
+(`model.Role` süre taşımıyor, `user list` gösteremiyor) ve `AssignRole`'un
+`ON CONFLICT` dalı bayraksız ikinci bir atamada süreyi **sessizce
+siliyor**. Yazması olup okuması olmayan bir alan, erişimin kimsenin
+bakamayacağı bir saatte kaybolması demek. Eklenecekse okuma yoluyla
+birlikte eklenmeli.
+
 ---
 
 ## Kapatılmayan eksikler
@@ -277,25 +329,84 @@ soramıyor; TCP bağlantısı kurulması PostgreSQL'in yaşadığı anlamına ge
 
 ---
 
-### S4 — CLI, var olan bir kullanıcıya rol veremiyor
 
-**Ciddiyet: orta. Acil çıkış yolunun eksik yarısı.**
 
-`postern user add --role ...` yeni hesaba rol veriyor. Var olan bir
-hesaba rol **eklemenin** ya da rolünü **almanın** CLI karşılığı yok:
-`user modify` yalnızca e-posta, os-user, admin ve sso-only değiştiriyor;
-`role` altında yalnızca `add` var.
+### S7 — Denetim kaydının OKUMA yolu CLI'da yok
 
-Bu, panelde durduğu için normalde sorun değil. Sorun, CLI'ın tam olarak
-**panelin çalışmadığı an** için var olması: kilitlendiğinde ya da IdP
-düştüğünde host'a giriyorsun ve orada birine erişim veremiyorsun. Bu
-gece demoyu kurarken de aynı duvara toslandı; çare, kullanıcının zaten
-sahip olduğu role hedef eklemek oldu — doğru çözüm değil, dolambaç.
+**Ciddiyet: düşük–orta.**
 
-**En küçük düzeltme:** `postern user grant --name X --role Y` ve
-`postern user revoke --name X --role Y`. Store'da `AssignRole` /
-`RemoveRole` zaten var; eksik olan yalnızca komut. `admin_log`'a
-aktörüyle yazılmalı.
+`admin_log`'a CLI de panel de yazıyor ama CLI'dan okunamıyor:
+`store.AdminLog` var, çağıranı yalnızca panel. Yani panelin çalışmadığı
+gün yapılan değişikliklerin izi, yine panelden okunabiliyor.
+
+**En küçük düzeltme:** `postern log [--limit N]`. ~30 satır ve yazma
+tarafı zaten duruyor.
+
+### S6 — Kayıtlar nesne depolamaya gönderilemiyor
+
+**Ciddiyet: orta. 1.0 kapsamına ALINDI (2 Eylül kararı).**
+
+⚠️ **Bu maddede fikrimi değiştirdim ve sebebi kendi analizim değil.**
+Raporun ilk hâlinde bunu "1.0'da yapılmamalı" listesine koymuştum;
+gerekçem *"disk + `retain` yetiyor, bulut bağımlılığı kapsam değil"*di.
+O gerekçe eksikti ve nedenini yazıyorum ki karar sonradan okunabilsin.
+
+Bugün kayıtlar yalnızca bastion'ın diskinde. Bunun üç sonucu var ve
+üçü de projenin kendi duruşuyla çelişiyor:
+
+1. **Denetim izi, denetlenen makineyle aynı yerde duruyor.** Bastion'ı
+   ele geçiren biri kayıtları da ele geçiriyor. "Kayıt açılamazsa oturum
+   reddedilir" diyen bir tasarımın, o kaydı saldırganın erişebildiği tek
+   diskte bırakması tutarsız.
+2. **Saklama süresi diske bağlı.** `retain: 90d` ile `min_free: 5GB`
+   çarpışınca kaybeden saklama süresi oluyor: disk dolduğunda oturumlar
+   reddedilmeye başlıyor (doğru davranış) ama operatörün seçeneği
+   kaydı kısaltmak. Yasal saklama yükümlülüğü olan bir kurulumda bu
+   yeterli değil.
+3. **Yedek alma operatörün elle çözdüğü bir problem.** Belgelerde
+   "kayıtları da yedekle" yazıyoruz ve orada bırakıyoruz.
+
+Kullanıcının kararı: **1.0 özelliği.**
+
+**Yapılırken dikkat edilecekler** (analiz değil, şimdiden görünen
+tuzaklar):
+
+- **Kayıt yazma yolu ASLA ağa bağlanmamalı.** Bugün "kayıt açılamazsa
+  oturum reddedilir" kuralı yerel bir dosya açmaya bakıyor. Aynı kuralı
+  bir S3 PUT'una bağlamak, ağ arızasını oturum reddine çevirirdi —
+  yani bastion'ı bulut sağlayıcısının uptime'ına zincirlemek. Doğru
+  şekil: yerele yaz, **sonra** yükle.
+- **Yükleme başarısızlığı sessiz kalmamalı.** Yüklenemeyen kayıt,
+  silinmemiş ama korunmamış bir kayıttır; ikisi ayrı durum ve
+  operatörün ayırt edebilmesi gerekir.
+- **Budayıcı, yüklenmemiş kaydı silmemeli.** `retain` süresi dolan ama
+  henüz yüklenememiş bir dosyayı silmek, denetim izini sessizce yok
+  etmek olur.
+- **Sırlar `secret_key_file` ile mühürlenmeli**, config'de düz metin
+  anahtar durmamalı — LDAP/OIDC kimlik bilgileri için kurulan düzenin
+  aynısı.
+- **Sunucu tarafı şifreleme yetmez.** Bastion'ı ele geçiren, yükleme
+  kimlik bilgisini de ele geçirir; silme yetkisi olmayan bir kimlik
+  (append-only / object lock) bunun tek gerçek cevabı.
+
+Kapsam kararı verirken tekrar bakılacak: yalnızca S3 uyumlu API mi,
+yoksa `rclone`/`aws s3 cp` çağıran genel bir "arşiv komutu" mu — ikincisi
+kod olarak neredeyse yok ve her sağlayıcıyı destekler.
+
+**Koda bakıp çıkardığım iki somut nokta** (tasarımı doğrudan etkiler):
+
+- **Budayıcı bugün yalnızca yaşa bakıyor.** `record.Prune(dir, keepFor,
+  now)` dosyaları tarihe göre siliyor ve "bu yüklendi mi" diye
+  soramıyor — sorabileceği bir yer de yok. Yükleme eklenirse budayıcının
+  yüklenme durumunu okuyabilmesi gerekir, yoksa `retain` süresi dolan ama
+  henüz yüklenememiş bir kayıt sessizce yok olur. En küçük hâli: yüklenen
+  dosyanın yanına bir işaret dosyası ya da `sessions` tablosunda bir
+  sütun.
+- **`min_free` yükü kaydırmaz, oturumu reddeder.** `record.CheckSpace`
+  eşiğin altında `ErrDiskLow` dönüyor ve `proxy.Open` oturumu reddediyor.
+  Yükleme, diski boşaltmanın yolu olacaksa budama ile yükleme arasındaki
+  sıra bir tasarım kararı: "yüklendi, artık silinebilir" ile "silindi,
+  yüklenememişti" arasındaki fark bu sıradan çıkıyor.
 
 ### S5 — Kayıtların bütünlük mührü yok
 
@@ -336,7 +447,6 @@ değil.
 | Kayıt hash zinciri | Yukarıda: gerçek saldırganı yakalamıyor |
 | WebAuthn | TOTP zaten var ve iş görüyor; ikinci bir faktör mekanizması yeni yüzey |
 | Kümeleme / çok düğüm | Tek düğüm bilinçli sınır; paylaşılan durum bambaşka bir proje |
-| S3'e kayıt atma | Disk + `retain` yetiyor; bulut bağımlılığı 1.0'ın kapsamı değil |
 | Metrik / Prometheus | `admin_log` ve `session list` var; asıl eksik `/healthz` |
 | SSH şifreleyici listesi ayarı | Go'nun varsayılanları makul; ayar yapılabilir olması yanlış ayarlanabilir olması demek |
 | Panelden `is_admin` verme | Bilinçli olarak reddedildi, öyle kalmalı |
@@ -345,15 +455,15 @@ değil.
 
 ## Önerim
 
-**B1–B5** kapandı; beşi de testli ve mutasyon testinden geçti.
+**B1–B6** kapandı; altısı da testli ve mutasyon testinden geçti.
 Kalanlar için önerdiğim sıra:
 
-1. **S4** — CLI'ın acil çıkış yolu yarım; iki komut, yarım saat.
-2. **S3** — on satır. Ama kimliksiz bir uç yeni bir yüzey ve DB'ye
+1. **S6** — kayıtların nesne depolamaya gönderilmesi. 1.0 kapsamına
+   alındı; en büyüğü ve tasarım kararı gerektiren tek madde.
+2. **S7** — `postern log`; ~30 satır, denetimin okuma yarısı.
+3. **S3** — on satır. Ama kimliksiz bir uç yeni bir yüzey ve DB'ye
    dokunuyor; bunu bilerek senin kararına bıraktım.
-3. **S5** — kod değil, bir cümle: "bilinen sınırlar"a yazılır.
-
-Hiçbiri 1.0'ı bekletmez.
+4. **S5** — kod değil, bir cümle: "bilinen sınırlar"a yazılır.
 
 ---
 

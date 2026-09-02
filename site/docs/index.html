@@ -459,6 +459,23 @@ $ postern user add --name suleyman --os-user suleyman --role ops --config poster
 $ postern user list --config postern.yaml
 $ postern user modify --name suleyman --os-user deploy --config postern.yaml
 </pre>
+      <h3>Changing someone's roles</h3>
+<pre>$ postern role list --config postern.yaml
+$ postern user grant-role  --name suleyman --role ops --config postern.yaml
+$ postern user revoke-role --name suleyman --role ops --config postern.yaml
+$ postern role revoke-target --name ops --target web-01 --config postern.yaml
+</pre>
+      <p>
+        Three things these say out loud, because each is a way you would
+        otherwise be misled:
+      </p>
+      <ul>
+        <li>Revoking a role the user never held reports <i>held no active grant</i>, not <i>revoked</i> — a mistyped role name should not read as success.</li>
+        <li>Revoking a role that came from a directory group lasts until that person's next sign-in; removing the group mapping is what makes it stick.</li>
+        <li>Granting a role they <b>already have from a directory group</b> turns it into a manual grant that synchronisation can no longer take away — so it survives them leaving the group. Not blocked, but said.</li>
+      </ul>
+      <div class="note"><b>Break-glass never blocks</b><p>Granting a role to a deleted account is allowed — restoring roles before reactivating is a legitimate order — and the command tells you the account cannot sign in yet. The CLI is the path that has to work when the panel does not; refusing a legitimate ordering is how that promise gets broken.</p></div>
+
       <h3>Leaving</h3>
       <p>
         Accounts are not deleted out from under the audit trail. An account moves
@@ -692,6 +709,8 @@ session:
         <tr><td><code>session.idle_timeout</code></td><td>close a session that has gone quiet</td></tr>
         <tr><td><code>session.max_lifetime</code></td><td>close a session no matter how busy</td></tr>
       </table>
+      <div class="warn"><b>Recordings live on the bastion, and only there</b><p>There is no upload to object storage in this release, so retention is bounded by the disk and by <code>retain</code>. Two consequences worth deciding deliberately: the audit trail sits on the machine being audited, so whoever takes the bastion takes the recordings; and a legal retention period longer than your disk allows has no answer here yet. Copy the recordings directory off the host on a schedule if either matters to you. Offload is planned.</p></div>
+
       <div class="warn"><b>record_input is a privacy decision</b><p>Keystroke capture records a password typed into a prompt on the target. Decide it deliberately, tell the people it applies to, and protect the recordings accordingly.</p></div>
     </section>
 
