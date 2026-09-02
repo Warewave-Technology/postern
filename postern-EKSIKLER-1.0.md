@@ -39,7 +39,7 @@ neye baktığımı bilmen lazım.
 
 ---
 
-## Bu gece bulunan ve DÜZELTİLEN dört şey
+## Bulunan ve DÜZELTİLEN beş şey
 
 İlk üçü aynı sınıftan: **kural yazılmıştı, bağlanmamıştı.** Dördüncüsü
 bir adım daha ince: iki ayrı doğru karar, birleşince yanlış davranıyordu.
@@ -194,31 +194,76 @@ operatörün vekilini tanıttığını sandığı ama tanıtmadığı bir kurulu
 
 Yedi test, iki mutasyonla doğrulandı.
 
+### B5 — Yönetici canlı bir oturumu sonlandıramıyordu ✅ 2 Eylül'de kapatıldı
+
+Panel canlı oturumları listeliyor ama kesecek bir düğmesi yoktu; kartın
+kendi alt satırı bunu yazıyordu: *"Closing one is not possible from here
+yet."* Bir bastion için "şu an kes" çekirdek işlem — kayıt tutup
+kesememek, olaydan sonra ne olduğunu izleyip o sırada seyretmek demek.
+
+**Mekanizma yeni değil.** Boşta kalma ve ömür sınırı zaten bağlamı
+iptal ederek çalışıyordu ve o yol `TestIdleSessionIsClosedAndRecorded`
+ile kanıtlıydı. Kesme, dördüncü bir kapanış sebebi olarak aynı yola
+girdi: `Broker.Run` `ctx.Done()`'da uyanıyor, yarım SFTP transferlerini
+yazıyor, kanalları kapatıyor; `Close` kaydı kapatıp `ended_at` yazıyor.
+
+Üzerine eklenenler:
+
+- **`POST /api/admin/sessions/{id}/terminate`** — `DELETE` değil: bu
+  API'de DELETE satır siliyor ve oturum satırı denetim izi, asla
+  silinmiyor.
+- **Denetim satırı ÖNCE.** Yazamıyorsak kesmiyoruz. Sonra yazsaydık,
+  veritabanı o an düşen bir kurulumda yöneticinin izsiz iş yapabildiği
+  bir yol açılırdı.
+- **Dört ayrı cevap, tek "başarısız" değil:** kesildi / zaten bitmişti /
+  bu süreçte akmıyor / böyle bir oturum yok.
+- **Kullanıcı sebebini görüyor** ve aynı cümle kayda işleniyor — yoksa
+  oynatılan `.cast` ortasından kesilmiş görünür ve olayı inceleyen
+  "burada ne oldu" sorusunu kayıttan cevaplayamazdı.
+- **Yıkım sırası ters çevrildi:** önce hedef, sonra istemci. `down.Close()`
+  kovulan tarafa yazıyor; tıkalı bir istemci onu geciktirdiğinde hedefteki
+  kabuk yaşamaya devam ediyordu — yani düğmenin verdiği tek garanti
+  sıranın sonundaydı.
+
+**Ekranın yalan söylemediği yer:** kesmek erişimi ALMIYOR. Kart artık
+bunu yazıyor. Onay kutusunda bir çare adı da **vermiyoruz**: ilk metin
+"hesabı pasifleştir" diyordu, sonra ölçüldü ki dört giriş yolunun dördü
+de `ConfirmAccount` çağırıyor ve o `inactive`'i `active`'e geri
+çeviriyor. Operatörden güvenmesini istediğimiz kutuya yarı doğru bir
+vaat koymak, hiçbir şey dememekten kötüydü.
+
+**Bu iş üç önceden var olan sorunu da açığa çıkardı** ve üçü de aynı
+commit setinde kapandı, çünkü hepsi düğmeyi yalancı çıkarıyordu:
+
+1. **Açılışta sahipsiz satırlar uzlaştırılmıyordu.** SIGKILL sonrası
+   `ended_at` sonsuza dek NULL kalıyordu (ölçüldü). Panel onları süresiz
+   "çalışıyor" gösteriyordu; düğme var olmayan bir oturuma basardı.
+   Artık açılışta kapanıyor ve kaç satır olduğu loglanıyor.
+2. **`SessionEnded` olayı `ended_at` yazılmadan ÖNCE yayınlanıyordu.**
+   Paneli olayla tazeleyen yönetici oturumu hâlâ "running" görüyordu —
+   yani çalışan bir kesme "bastım, bir şey olmadı" diye okunurdu. Yayın
+   `Close`'a taşındı.
+3. **Aktif liste en yeni 200 satır üzerinde istemci süzgeciydi.**
+   Sabahtan beri açık bir oturumun üstüne 200 yeni oturum bindiğinde o
+   oturum karttan düşüyordu; görünmeyen oturum kesilemez de. Açık
+   oturumlar artık kendi sorgusundan geliyor.
+
+**Kanıt:** `TestTerminateClosesALiveSession` gerçek bir `sleep 300`
+oturumu açıp API'den kesiyor ve oturumun GERÇEKTEN öldüğünü ölçüyor —
+durum kodu testi, çalışan bir kesmeyi hiçbir şey yapmayan bir 200'den
+ayırt edemezdi. Mutasyon: `Terminate` iptal etmeden `true` dönünce test
+"KESME İŞE YARAMADI: `sleep 300` hâlâ akıyor" diyerek düşüyor.
+
+**Yapılmayanlar** (tek düğüm 1.0 için fazlalık): `sessions` tablosuna
+`closed_by` sütunu, kullanıcının kendi oturumunu kesmesi, "kes ve
+pasifleştir" birleşik diyaloğu, zorunlu gerekçe alanı, süreçler arası
+kesme. Sonuncusunun tek yükümlülüğü ucun "bu süreçte akmıyor" diye ayrı
+bir cevap vermesi ve veriyor.
+
 ---
 
 ## Kapatılmayan eksikler
 
-### S2 — Yönetici canlı bir oturumu sonlandıramıyor
-
-**Ciddiyet: orta. Sömürülebilir bir açık değil; olay anında eksik bir
-yetenek.**
-
-Panel canlı oturumları **listeliyor** ([Overview.tsx:221](web/src/admin/Overview.tsx:221))
-ama kesecek bir düğme yok, API'de de karşılığı yok (arandı: `Terminate`,
-`Kill`, `Disconnect` — hiçbiri yok).
-
-Roller bağlanma anında çözülüyor; bu iyi bir karar ama **açık bir oturumu
-etkilemiyor.** Hesabı ele geçirilmiş birinin oturumu, erişimini iptal
-ettikten sonra da `idle_timeout` ya da `max_lifetime` dolana kadar sürüyor.
-
-Bir bastion için "şu an kes" çekirdek işlem. Kayıt tutup kesememek,
-olaydan sonra ne olduğunu izleyip o sırada seyretmek demek.
-
-**En küçük düzeltme:** canlı oturumları session id ile tutan bir kayıt
-defteri, `DELETE /api/admin/sessions/{id}`, ve panelde bir düğme. Kesme
-`admin_log`'a aktörüyle yazılmalı.
-
----
 
 ### S3 — Sağlık ucu yok
 
@@ -300,18 +345,15 @@ değil.
 
 ## Önerim
 
-Bu gece **B1–B4** kapandı; dördü de testli ve mutasyon testinden geçti.
+**B1–B5** kapandı; beşi de testli ve mutasyon testinden geçti.
 Kalanlar için önerdiğim sıra:
 
-1. **S2** — bir bastion'da "şu an kes" düğmesinin olmaması tuhaf. Kod
-   olarak en büyüğü ve tek başına bir oturum işi.
-2. **S4** — CLI'ın acil çıkış yolu yarım; iki komut, yarım saat.
-3. **S3** — on satır. Ama kimliksiz bir uç yeni bir yüzey ve DB'ye
+1. **S4** — CLI'ın acil çıkış yolu yarım; iki komut, yarım saat.
+2. **S3** — on satır. Ama kimliksiz bir uç yeni bir yüzey ve DB'ye
    dokunuyor; bunu bilerek senin kararına bıraktım.
-4. **S5** — kod değil, bir cümle: "bilinen sınırlar"a yazılır.
+3. **S5** — kod değil, bir cümle: "bilinen sınırlar"a yazılır.
 
-Hiçbiri 1.0'ı bekletmez bence. **S2** ilk noktalama sürümünde olmalı:
-kaydı tutup kesememek, olayı seyretmek demek.
+Hiçbiri 1.0'ı bekletmez.
 
 ---
 

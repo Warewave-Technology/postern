@@ -607,6 +607,27 @@ $ asciinema play /var/lib/postern/recordings/&lt;...&gt;.cast
         any asciinema client. Output is always recorded; input is recorded only
         if you set <code>recording.record_input</code>.
       </p>
+      <h3>Closing a live session</h3>
+      <p>
+        The panel's <b>Active sessions</b> card offers <b>Close</b> on a
+        session this bastion is actually carrying. Closing drops the
+        connection to the target, tells the person why — the same line is
+        written into the recording, so a later reviewer is not left staring at
+        a transcript that simply stops — and finalises the recording and the
+        audit row. Who closed it is written to the admin log <i>before</i>
+        anything is closed: if that write fails, nothing is closed and you are
+        told so.
+      </p>
+      <div class="warn"><b>Closing is not revoking</b><p>The person can reconnect immediately. Access is decided at connect time from roles and account state; closing a session touches neither. If you need them out, remove what grants the access — and remember that on a directory-backed install the directory is the source, so the change has to hold there too.</p></div>
+      <p>
+        A row can be open without running: <code>ended_at</code> is empty
+        means "we never recorded an end", which is also what a crash leaves
+        behind. Those rows are shown but not offered — the button appears only
+        where the process confirms traffic is flowing. Startup closes leftovers
+        from an earlier run and says how many, because their recorded duration
+        will read longer than the real one.
+      </p>
+
       <div class="stop"><b>No recording, no session</b><p>If the recording cannot be opened, the session is refused rather than allowed to proceed unwatched. That is a deliberate audit-first choice: a bastion whose recording silently fails is worse than no bastion, because you believe you have a trail.</p></div>
       <p>
         Watch the disk. A full disk stops sessions from starting — which is the
@@ -851,6 +872,7 @@ sync:
         <li><b>TOTP only</b> as a second factor — no WebAuthn, no push.</li>
         <li><b>No port forwarding</b>, by design.</li>
         <li><b>No object storage</b> for recordings; retention is disk plus <code>retain</code>.</li>
+        <li><b>Closing a session reaches only this process.</b> A second postern against the same database is not asked and cannot be told; the panel answers "not running on this instance" rather than pretending. That startup sweep would also close the other instance's live rows — one more reason 1.0 means one node.</li>
         <li><b>The panel speaks HTTP</b>; TLS is your reverse proxy's job.</li>
         <li><b>Certificate login only on targets.</b> postern does not carry a user's own key or a password through to a server that does not trust the CA.</li>
       </ul>

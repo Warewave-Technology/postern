@@ -227,6 +227,37 @@ with a letter O, silently becoming 25 again, would mean a ceiling running
 at a number nobody chose — in a loop that takes access away, that is the
 worst place to be quietly wrong.
 
+### Closing a live session
+
+An administrator can close a session this bastion is carrying, from the
+panel's Active-sessions card. It cancels the session: the connection to
+the target is dropped, the person is shown one line saying who closed
+it, that same line goes into the recording so a later reviewer is not
+left with a transcript that just stops, in-flight SFTP transfers are
+recorded as interrupted with the bytes that crossed, and the audit row
+is finalised.
+
+Who pressed it is written to `admin_log` **before** anything is closed.
+If that write fails, nothing is closed and the operator is told — an
+administrator who can end sessions without leaving a trace is not an
+administrator this design allows.
+
+**Closing is not revoking.** Roles and account state are read at connect
+time; closing touches neither, so the person can reconnect immediately.
+The card says so, and the confirmation deliberately names no remedy:
+deactivating an account does not reliably help either, because all four
+sign-in paths call `ConfirmAccount` and that flips `inactive` back to
+`active`.
+
+An open row is not proof of a running session. `ended_at` being empty
+means "we never recorded an end" — which is also what a crash leaves
+behind. Startup closes those leftovers and logs how many, since their
+recorded duration reads longer than the real one, and the panel offers
+Close only where the process confirms traffic is flowing. None of this
+crosses processes: a second postern on the same database is not asked,
+and the endpoint answers "not running on this instance" rather than
+claiming success.
+
 ### Registering a target
 
 A target is pinned to its host key, so registering one means deciding
