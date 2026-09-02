@@ -475,7 +475,18 @@ export type TOTPEnrolment = {
   qr: string[];
 };
 
-export type RecordingState = "none" | "missing" | "partial" | "complete";
+export type RecordingState =
+  | "none"
+  | "missing"
+  | "partial"
+  | "complete"
+  /** Yerelde yok AMA nesne deposunda duruyor.
+   *
+   *  ⚠️ "missing" ile AYNI ŞEY DEĞİL: o, "silindi" diyor. Arşivlenmiş
+   *  bir kaydı kayıp göstermek, denetçiye var olan bir kanıtı yok
+   *  diye bildirmek olurdu. Durum dosyanın yokluğundan değil, arşiv
+   *  defterinden geliyor. */
+  | "archived";
 
 /*
  * SessionFile, SFTP oturumunda gerçekleşen tek bir dosya olayı.
@@ -499,7 +510,20 @@ export type SessionFile = {
 };
 
 export type SessionDetail = Session & {
-  recording: { state: RecordingState; size: number };
+  recording: {
+    state: RecordingState;
+    size: number;
+    /** Yalnızca state === "archived" iken dolu. Panel nesneyi
+     *  İNDİRMİYOR: bastion'a bir okuma kimliği koymak, bütün arşivi
+     *  tek bir ele geçirmeyle dışarı çıkarılabilir yapardı. Denetçi
+     *  kendi kimliğiyle alıyor. */
+    archive?: {
+      bucket: string;
+      object_key: string;
+      sha256: string;
+      archived_at: string;
+    };
+  };
   files: SessionFile[];
   // files_error: liste okunamadı. Boş liste ile karıştırılmamalı —
   // "dokunulmadı" ile "bakamadık" farklı şeyler.

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -44,6 +45,19 @@ const (
 	recPartial = "partial"
 	// recComplete: oturum bitti, kayıt tam.
 	recComplete = "complete"
+	/*
+	 * recArchived: yerel dosya yok AMA kayıt nesne deposunda.
+	 *
+	 * ⚠️ recMissing'DEN AYRI TUTULUYOR. "missing" panelde "saklama
+	 * politikası sildi ya da postern dışında silindi" diye
+	 * gösteriliyor; arşivlenmiş bir kayıt için bu cümle YANLIŞ olurdu
+	 * ve denetçi var olan bir kaydı kayıp sanırdı.
+	 *
+	 * ⚠️ DOSYANIN YOKLUĞUNDAN ÇIKARILMIYOR: arşiv satırından
+	 * okunuyor. Yoklukla çıkarım yapmak, yüklenmemiş ama elle silinmiş
+	 * bir kaydı "güvende" göstermek olurdu.
+	 */
+	recArchived = "archived"
 )
 
 // UseRecordings, kayıt deposunu bağlar ve kayıt uçlarını açar.
@@ -79,6 +93,14 @@ func (s *Server) sessionRecording(sess model.Session) (*os.File, string, int64, 
 		return nil, recMissing, 0, nil
 
 	case errors.Is(err, os.ErrNotExist):
+		/*
+		 * Dosya yok. Arşiv defteri "yüklendi" diyorsa bu bir kayıp
+		 * değil, bir TAŞINMA — ve panel ikisini karıştırmamalı.
+		 */
+		if st, found, aerr := s.store.ArchiveStateOf(context.Background(), sess.ID); aerr == nil &&
+			found && st.Archived {
+			return nil, recArchived, st.SizeBytes, nil
+		}
 		return nil, recMissing, 0, nil
 
 	case err != nil:
@@ -142,11 +164,37 @@ func (s *Server) adminSessionDetail(w http.ResponseWriter, r *http.Request) {
 		"src_ip":     sess.SrcIP,
 		"started_at": sess.StartedAt.Format(time.RFC3339),
 		"ended_at":   endedAt(sess),
-		"recording":  map[string]any{"state": state, "size": size},
+		"recording":  recordingBlock(r, s, sess, state, size),
 		"files":      files,
 		// files_error, "dokunulmadı" ile "bakamadık"ı ayırıyor.
 		"files_error": ferr != nil,
 	})
+}
+
+/*
+ * recordingBlock, panelin kayıt bölümünü kurar.
+ *
+ * ⚠️ ARŞİVLENMİŞ KAYITTA NESNENİN YERİ DE DÖNÜYOR — ve bu, 1.0'da
+ * panelin nesne deposundan OKUMAMASININ karşılığı. Denetçi kaydı
+ * kendi kimliğiyle oradan alıyor; bastion'a bir okuma kimliği koymak,
+ * bütün arşivi tek bir ele geçirmeyle dışarı çıkarılabilir yapardı.
+ */
+func recordingBlock(r *http.Request, s *Server, sess model.Session, state string, size int64) map[string]any {
+	out := map[string]any{"state": state, "size": size}
+	if state != recArchived {
+		return out
+	}
+	st, found, err := s.store.ArchiveStateOf(r.Context(), sess.ID)
+	if err != nil || !found {
+		return out
+	}
+	out["archive"] = map[string]any{
+		"bucket":      st.Bucket,
+		"object_key":  st.ObjectKey,
+		"sha256":      st.SHA256,
+		"archived_at": st.ArchivedAt.Format(time.RFC3339),
+	}
+	return out
 }
 
 // adminSessionRecording: GET /api/admin/sessions/{id}/recording

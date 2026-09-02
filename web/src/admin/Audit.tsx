@@ -231,6 +231,24 @@ export function Sessions({ theme }: { theme: Resolved }) {
                 "outside postern — the admin log says which.",
             );
             return;
+          /*
+            ⚠️ ARŞİVLENMİŞ KAYIT "KAYIP" DEĞİL.
+            Aynı cümleyi göstermek, denetçiye var olan bir kanıtı yok
+            diye bildirmek olurdu. Nesnenin yeri yazılıyor çünkü panel
+            onu indirmiyor: bastion'a bir okuma kimliği koymak, bütün
+            arşivi tek bir ele geçirmeyle dışarı çıkarılabilir yapardı.
+          */
+          case "archived": {
+            const a = d.recording.archive;
+            setWhy(
+              a
+                ? `This recording is no longer on the bastion — it was ` +
+                  `archived to ${a.bucket}/${a.object_key}. Fetch it with ` +
+                  `your own credentials; postern does not hold a read key.`
+                : "This recording was archived off the bastion.",
+            );
+            return;
+          }
           case "partial":
             // ⚠️ Yarım kayıt YİNE DE OYNATILIYOR: elde olanı
             // göstermemek, hiç olmamasından iyi değil.
