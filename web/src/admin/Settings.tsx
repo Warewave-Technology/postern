@@ -201,9 +201,8 @@ function looksLikeDNS(err?: string): boolean {
 }
 
 export default function Settings({ meName }: { meName?: string }) {
-  const { items, error, denied, loading, refresh, setError } = useList<Setting>(
-    api.settings,
-  );
+  const { items, error, denied, loading, failed, refresh, setError } =
+    useList<Setting>(api.settings);
 
   const [mode, setMode] = useState<"auto" | "edit">("auto");
   const [step, setStep] = useState<StepId>("connection");
@@ -470,10 +469,9 @@ export default function Settings({ meName }: { meName?: string }) {
           */}
           <p className="page-sub">
             Where postern finds people, and what it is allowed to ask about
-            them. When the directory is the active sign-in source it also
-            checks passwords at the panel door — never for SSH, which is
-            key-only. Values live in the database, and secrets are never shown
-            again.
+            them. When the directory is the active sign-in source it also checks
+            passwords at the panel door — never for SSH, which is key-only.
+            Values live in the database, and secrets are never shown again.
           </p>
         </div>
         {configured && mode === "auto" && (
@@ -494,7 +492,13 @@ export default function Settings({ meName }: { meName?: string }) {
       <OkLine msg={status} />
       <WarnLine msg={warning} />
 
-      <ListState loading={loading} denied={denied} empty={false} emptyText="" />
+      <ListState
+        loading={loading}
+        denied={denied}
+        failed={failed}
+        empty={false}
+        emptyText=""
+      />
 
       {!loading && !denied && (
         <>

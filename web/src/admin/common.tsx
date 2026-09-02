@@ -15,6 +15,20 @@ export function useList<T>(load: () => Promise<T[]>) {
   const [error, setError] = useState("");
   const [denied, setDenied] = useState(false);
   const [loading, setLoading] = useState(true);
+  /*
+   * ⚠️ "ÇEKİLEMEDİ", "BOŞ" DEĞİLDİR.
+   *
+   * Hata dalında yalnızca setError çağrılıyordu; `items` boş kalıyor ve
+   * ListState onu `empty` sanıp OLUMLU bir cümle yazıyordu — kırmızı
+   * hata satırının hemen altında "No mappings — nobody can sign in
+   * through the IdP yet." İkisinden hangisinin okunacağı belli:
+   * olumlu cümle bir olgu gibi durur, hata satırı bir aksaklık gibi.
+   *
+   * Bu, dosyanın kendi gerekçesinin aynısı — yukarıdaki not `loading`
+   * için tam bunu söylüyor ("hiç kural yok" ile "henüz gelmedi" aynı
+   * ekranı gösteremez) — ve dördüncü hâl eksikti.
+   */
+  const [failed, setFailed] = useState(false);
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -26,6 +40,7 @@ export function useList<T>(load: () => Promise<T[]>) {
         // başarılı yüklemelerde de duruyordu.
         setError("");
         setDenied(false);
+        setFailed(false);
       })
       .catch((e: unknown) => {
         // ⚠️ Burada window.location.reload() VARDI ve sonsuz döngü
@@ -42,6 +57,7 @@ export function useList<T>(load: () => Promise<T[]>) {
           return;
         }
         setError(toMessage(e));
+        setFailed(true);
       })
       .finally(() => setLoading(false));
   }, [load]);
@@ -50,7 +66,7 @@ export function useList<T>(load: () => Promise<T[]>) {
     refresh();
   }, [refresh]);
 
-  return { items, error, denied, loading, refresh, setError };
+  return { items, error, denied, loading, failed, refresh, setError };
 }
 
 /** ErrorLine, hata satırı. role="alert" ile ekran okuyucuya duyurulur. */
@@ -90,11 +106,20 @@ export function WarnLine({ msg }: { msg: string }) {
 export function ListState({
   loading,
   denied,
+  failed,
   empty,
   emptyText,
 }: {
   loading: boolean;
   denied: boolean;
+  /*
+   * ⚠️ ZORUNLU, İSTEĞE BAĞLI DEĞİL. Eksik bırakılabilseydi, eklenen
+   * her yeni liste ekranı sessizce eski davranışa düşerdi: sorgu
+   * çöktüğünde "burada bir şey yok" yazan bir ekran. Zorunlu olması,
+   * derleyicinin her liste ekranına "peki sorgu başarısız olursa?"
+   * sorusunu sorması demek.
+   */
+  failed: boolean;
   empty: boolean;
   emptyText: string;
 }) {
@@ -104,6 +129,24 @@ export function ListState({
       <p className="msg msg-warn" role="alert">
         Your admin access was refused for this request. If it was just revoked,
         signing out and back in will show you the correct view.
+      </p>
+    );
+  /*
+   * ⚠️ BOŞTAN ÖNCE. Sıra tersine olsaydı çekilemeyen bir liste yine
+   * "hiçbir şey yok" diye çıkardı — düzeltmenin tamamı bu sırada.
+   */
+  if (failed)
+    return (
+      /*
+       * ⚠️ role="alert" DEĞİL — ErrorLine zaten duyuruyor. İkinci bir
+       * alert, tek bir olay için ekran okuyucuya iki kez sözünü
+       * kestirmek olurdu; buradaki cümle uyarı değil, o uyarının ne
+       * ANLAMA GELMEDİĞİNİ söyleyen bağlam.
+       */
+      <p className="msg msg-warn">
+        This list could not be loaded, so what you see is not a statement that
+        there is nothing here. The error above says why; refresh once the cause
+        is gone.
       </p>
     );
   if (empty) return <p className="state">{emptyText}</p>;

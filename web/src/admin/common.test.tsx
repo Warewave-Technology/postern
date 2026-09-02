@@ -6,10 +6,16 @@ import { ActionButton, ErrorLine, ListState, useList } from "./common";
 
 // useList'i sınamak için ince bir kabuk.
 function Probe({ load }: { load: () => Promise<string[]> }) {
-  const { items, error, denied, loading } = useList(load);
+  const { items, error, denied, loading, failed } = useList(load);
   return (
     <>
-      <ListState loading={loading} denied={denied} empty={items.length === 0} emptyText="NOTHING HERE" />
+      <ListState
+        loading={loading}
+        denied={denied}
+        failed={failed}
+        empty={items.length === 0}
+        emptyText="NOTHING HERE"
+      />
       <ErrorLine msg={error} />
       <ul>
         {items.map((i) => (
@@ -32,7 +38,9 @@ describe("useList", () => {
     expect(screen.queryByText("NOTHING HERE")).not.toBeInTheDocument();
 
     resolve([]);
-    await waitFor(() => expect(screen.getByText("NOTHING HERE")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("NOTHING HERE")).toBeInTheDocument(),
+    );
     expect(screen.queryByText("Loading…")).not.toBeInTheDocument();
   });
 
@@ -42,15 +50,21 @@ describe("useList", () => {
     let call = 0;
     const load = () => {
       call++;
-      return call === 1 ? Promise.reject(new ApiError(500, "boom")) : Promise.resolve(["a"]);
+      return call === 1
+        ? Promise.reject(new ApiError(500, "boom"))
+        : Promise.resolve(["a"]);
     };
 
     const { rerender } = render(<Probe load={load} />);
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("boom"));
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("boom"),
+    );
 
     // Aynı kancayı yeni bir load ile yeniden kur: refresh tetiklenir.
     rerender(<Probe load={() => Promise.resolve(["a"])} />);
-    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument(),
+    );
   });
 
   // ⚠️ Burada window.location.reload() vardı ve SONSUZ DÖNGÜ riskiydi:
@@ -61,9 +75,15 @@ describe("useList", () => {
     const reload = vi.fn();
     vi.stubGlobal("location", { ...window.location, reload });
 
-    render(<Probe load={() => Promise.reject(new ApiError(403, "forbidden"))} />);
+    render(
+      <Probe load={() => Promise.reject(new ApiError(403, "forbidden"))} />,
+    );
 
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/admin access was refused/i));
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        /admin access was refused/i,
+      ),
+    );
     expect(reload).not.toHaveBeenCalled();
   });
 
@@ -97,9 +117,16 @@ describe("ActionButton", () => {
   // siliyordu.
   it("onay reddedilirse eylemi CALISTIRMAZ", async () => {
     const onClick = vi.fn();
-    vi.stubGlobal("confirm", vi.fn(() => false));
+    vi.stubGlobal(
+      "confirm",
+      vi.fn(() => false),
+    );
 
-    render(<ActionButton onClick={onClick} confirm="emin misin?">delete</ActionButton>);
+    render(
+      <ActionButton onClick={onClick} confirm="emin misin?">
+        delete
+      </ActionButton>,
+    );
     await userEvent.click(screen.getByRole("button"));
 
     expect(onClick).not.toHaveBeenCalled();
@@ -107,9 +134,16 @@ describe("ActionButton", () => {
 
   it("onay verilirse calisir", async () => {
     const onClick = vi.fn();
-    vi.stubGlobal("confirm", vi.fn(() => true));
+    vi.stubGlobal(
+      "confirm",
+      vi.fn(() => true),
+    );
 
-    render(<ActionButton onClick={onClick} confirm="emin misin?">delete</ActionButton>);
+    render(
+      <ActionButton onClick={onClick} confirm="emin misin?">
+        delete
+      </ActionButton>,
+    );
     await userEvent.click(screen.getByRole("button"));
 
     expect(onClick).toHaveBeenCalledTimes(1);
@@ -137,7 +171,46 @@ describe("ActionButton", () => {
   });
 
   it("erisilebilir ad tasir", () => {
-    render(<ActionButton onClick={() => {}} label="delete user ayse">delete</ActionButton>);
-    expect(screen.getByRole("button", { name: "delete user ayse" })).toBeInTheDocument();
+    render(
+      <ActionButton onClick={() => {}} label="delete user ayse">
+        delete
+      </ActionButton>,
+    );
+    expect(
+      screen.getByRole("button", { name: "delete user ayse" }),
+    ).toBeInTheDocument();
   });
+});
+
+/*
+ * ⚠️ "ÇEKİLEMEDİ", "BOŞ" DEĞİLDİR — dosyanın kendi gerekçesinin
+ * dördüncü hâli.
+ *
+ * Hata dalı yalnızca setError çağırıyordu; `items` boş kaldığı için
+ * ListState onu `empty` sanıp OLUMLU bir cümle yazıyordu, kırmızı hata
+ * satırının hemen altında. İkisinden hangisinin okunacağı belli: olumlu
+ * cümle bir olgu gibi durur, hata satırı bir aksaklık gibi. Yükleniyor
+ * ile boşu ayıran testin hemen yanında, çekilemeyen ile boş
+ * ayrılmıyordu.
+ */
+it("istek dustugunde bos-durum metnini GOSTERMEZ", async () => {
+  render(<Probe load={() => Promise.reject(new Error("database is down"))} />);
+
+  await waitFor(() =>
+    expect(screen.getByText(/database is down/i)).toBeInTheDocument(),
+  );
+  expect(screen.queryByText("NOTHING HERE")).not.toBeInTheDocument();
+  expect(
+    screen.getByText(/not a statement that\s+there is nothing here/i),
+  ).toBeInTheDocument();
+});
+
+// 403 hâlâ kendi cümlesini alıyor: yetkinin reddi ile sorgunun
+// çökmesi farklı şeyler ve farklı eylem gerektiriyor.
+it("403 kendi cumlesini korur", async () => {
+  render(<Probe load={() => Promise.reject(new ApiError(403, "forbidden"))} />);
+  await waitFor(() =>
+    expect(screen.getByText(/admin access was refused/i)).toBeInTheDocument(),
+  );
+  expect(screen.queryByText("NOTHING HERE")).not.toBeInTheDocument();
 });

@@ -208,10 +208,30 @@ func BuildPlan(now time.Time, obs []Observation, limits Limits) Plan {
 		}
 	}
 
-	// 4) Tek koşuda çok fazla iptal?
-	if limits.MaxRevokePerRun > 0 && revoking > limits.MaxRevokePerRun {
+	/*
+	 * 4) Tek koşuda çok fazla iptal?
+	 *
+	 * ⚠️ SIFIR "TAVAN YOK" DEMEK DEĞİL, "AYARLANMAMIŞ" DEMEK — ve bu
+	 * bir düzeltme. Koşul `MaxRevokePerRun > 0 && ...` idi, yani sıfır
+	 * bu korumayı TAMAMEN kapatıyordu. Aynı sıfır config dosyasında
+	 * "varsayılanı kullan" (25) anlamına geliyor
+	 * (config.MaxRevokePerRunOrDefault), ama panelden yazılabilen
+	 * ayarlar yolu onu olduğu gibi saklıyordu: aynı değer, iki kapıdan
+	 * girildiğinde iki zıt anlam.
+	 *
+	 * ⚠️ VE YALNIZCA BU SINIR FAIL-OPEN'DI. Kardeşleri sıfırda
+	 * fail-SAFE davranıyor: MaxUnknownFraction=0 herhangi bir
+	 * bilinmeyen kullanıcıda, MaxZeroFraction=0 herhangi bir
+	 * sıfırlamada koşuyu durduruyor. Toplu iptal tavanının tersine
+	 * davranması, üçünün en pahalısında en gevşek olması demekti.
+	 */
+	ceiling := limits.MaxRevokePerRun
+	if ceiling <= 0 {
+		ceiling = DefaultLimits().MaxRevokePerRun
+	}
+	if revoking > ceiling {
 		return Plan{Abort: fmt.Sprintf(
-			"%d revocations exceeds max_revoke_per_run (%d)", revoking, limits.MaxRevokePerRun)}
+			"%d revocations exceeds max_revoke_per_run (%d)", revoking, ceiling)}
 	}
 
 	return plan

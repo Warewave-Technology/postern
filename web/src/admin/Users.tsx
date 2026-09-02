@@ -39,9 +39,8 @@ export default function Users({
    *  kullanılamaz, yalnızca sızdırılabilecek fazladan bir sır olurdu. */
   localSource: boolean;
 }) {
-  const { items, error, denied, loading, refresh, setError } = useList<User>(
-    api.users,
-  );
+  const { items, error, denied, loading, failed, refresh, setError } =
+    useList<User>(api.users);
   // Roller ayrıca çekiliyor — burada yalnızca "hiç rol yok" uyarısı
   // için. Atama detay sayfasında.
   const roles = useList<Role>(api.roles);
@@ -344,6 +343,7 @@ export default function Users({
       <ListState
         loading={loading}
         denied={denied}
+        failed={failed}
         empty={items.length === 0}
         emptyText="No users yet. A user created here still needs a role and an SSH key before anyone can connect as them."
       />

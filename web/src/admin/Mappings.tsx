@@ -11,7 +11,8 @@ import Modal from "./Modal";
 // durmalı. Warpgate'te bu bilgi hiçbir yerde olmadığı için insanlar
 // claim'lerin geldiğini görüp neden rol oluşmadığını anlayamıyor.
 export default function Mappings() {
-  const { items, error, denied, loading, refresh, setError } = useList<Mapping>(api.mappings);
+  const { items, error, denied, loading, failed, refresh, setError } =
+    useList<Mapping>(api.mappings);
   const unmapped = useList<UnmappedGroup>(api.unmappedGroups);
   const roles = useList<Role>(api.roles);
 
@@ -33,22 +34,26 @@ export default function Mappings() {
   const add = () => {
     const g = group.trim();
     setNotice("");
-    return api
-      .addMapping(g, role)
-      .then(() => {
-        // Rol seçili KALIYOR: aynı role birden çok grup eşlemek olağan iş.
-        setGroup("");
-        setNotice(`${g} → ${role} mapped. Members get the role at their next sign-in.`);
-        refresh();
-        unmapped.refresh();
-        return true;
-      })
-      // ⚠️ BAŞARIYI DÖNDÜRÜYOR: hatada modal AÇIK kalmalı, yoksa
-      // kapanan modal işlemin tuttuğunu düşündürür.
-      .catch((e: unknown) => {
-        setError(toMessage(e));
-        return false;
-      });
+    return (
+      api
+        .addMapping(g, role)
+        .then(() => {
+          // Rol seçili KALIYOR: aynı role birden çok grup eşlemek olağan iş.
+          setGroup("");
+          setNotice(
+            `${g} → ${role} mapped. Members get the role at their next sign-in.`,
+          );
+          refresh();
+          unmapped.refresh();
+          return true;
+        })
+        // ⚠️ BAŞARIYI DÖNDÜRÜYOR: hatada modal AÇIK kalmalı, yoksa
+        // kapanan modal işlemin tuttuğunu düşündürür.
+        .catch((e: unknown) => {
+          setError(toMessage(e));
+          return false;
+        })
+    );
   };
 
   const remove = (m: Mapping) => {
@@ -75,7 +80,9 @@ export default function Mappings() {
   // duyarsız (store.ciEq) — "Developers" eşliyken "developers" satırı
   // kalmamalı.
   const mapped = new Set(items.map((m) => m.group.toLowerCase()));
-  const pending = unmapped.items.filter((g) => !mapped.has(g.name.toLowerCase()));
+  const pending = unmapped.items.filter(
+    (g) => !mapped.has(g.name.toLowerCase()),
+  );
 
   const mappingCols: Column<Mapping>[] = [
     {
@@ -118,7 +125,12 @@ export default function Mappings() {
     },
     // Sıralama SAYISAL: "12" ile "9" metin olarak sıralandığında 12 önce
     // gelir ve "en çok görülen grup" yanlış çıkar.
-    { key: "seen", header: "Times seen", className: "num", value: (g) => g.seen_count },
+    {
+      key: "seen",
+      header: "Times seen",
+      className: "num",
+      value: (g) => g.seen_count,
+    },
     { key: "last", header: "Last seen", value: (g) => g.last_seen },
     {
       key: "actions",
@@ -126,7 +138,10 @@ export default function Mappings() {
       srHeader: true,
       className: "actions",
       render: (g) => (
-        <button onClick={() => mapThisGroup(g.name)} aria-label={`map group ${g.name}`}>
+        <button
+          onClick={() => mapThisGroup(g.name)}
+          aria-label={`map group ${g.name}`}
+        >
           Map this group
         </button>
       ),
@@ -154,6 +169,7 @@ export default function Mappings() {
       <ListState
         loading={loading}
         denied={denied}
+        failed={failed}
         empty={items.length === 0}
         emptyText="No mappings — nobody can sign in through the IdP yet."
       />
@@ -186,10 +202,16 @@ export default function Mappings() {
           </label>
           <label>
             Role
-            <select ref={roleRef} value={role} onChange={(e) => setRole(e.target.value)}>
+            <select
+              ref={roleRef}
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+            >
               <option value="">select role…</option>
               {roles.items.map((r) => (
-                <option key={r.name} value={r.name}>{r.name}</option>
+                <option key={r.name} value={r.name}>
+                  {r.name}
+                </option>
               ))}
             </select>
           </label>
@@ -202,7 +224,7 @@ export default function Mappings() {
           </ActionButton>
         </div>
         <ErrorLine msg={roles.error} />
-      {/*
+        {/*
         Boş bir rol açılırı sessizce "seçecek bir şey yok" gibi duruyor.
         Sebebi söylenmezse yönetici formu bozuk sanıyor — ve reddedilmiş
         bir istek ile gerçekten rol olmaması AYNI şey değil.
@@ -228,6 +250,7 @@ export default function Mappings() {
       <ListState
         loading={unmapped.loading}
         denied={unmapped.denied}
+        failed={failed}
         empty={pending.length === 0}
         emptyText="Nothing unmapped so far — every group seen in a login matched a role."
       />

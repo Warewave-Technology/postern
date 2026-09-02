@@ -67,8 +67,31 @@ func (s *Server) publicKeyCallback(conn ssh.ConnMetadata, key ssh.PublicKey) (*s
 	 * yeniden aktif ediyor. Kaynak kişiyi gerçekten kapattıysa o giriş
 	 * zaten olmuyor.
 	 */
-	if state, _, serr := s.db.AccountState(context.Background(), u.Name); serr == nil &&
-		state != store.StateActive {
+	/*
+	 * ⚠️ SORAMADIYSAK GEÇİRMİYORUZ — VE BU BİR DÜZELTME.
+	 *
+	 * Koşul eskiden `serr == nil && state != Active` idi: sorgu HATA
+	 * VERİRSE ifade kısa devre yapıp yanlış oluyor ve akış aşağı,
+	 * yani KABULE düşüyordu. Yani "hesabın durumunu okuyamadım",
+	 * "hesap aktif" ile aynı kapıya çıkıyordu — tam da bu kontrolün
+	 * engellemek için yazıldığı hesap (IdP'de kapatılmış ama anahtarı
+	 * duran biri) hatanın olduğu anda içeri giriyordu.
+	 *
+	 * Meşru bir "okunamadı" yolu yok: buraya gelindiğinde
+	 * UserByPublicKey kullanıcıyı ZATEN bulmuş oluyor ve `state`
+	 * sütunu NOT NULL DEFAULT 'active' (göç 023). Geriye iki ihtimal
+	 * kalıyor — satır az önce silindi, ya da veritabanına
+	 * ulaşılamıyor — ve ikisinde de doğru cevap reddetmek.
+	 */
+	state, _, serr := s.db.AccountState(context.Background(), u.Name)
+	if serr != nil {
+		s.logger.Error("public key rejected: account state could not be read",
+			"user", u.Name, "error", serr, "remote", conn.RemoteAddr().String())
+		return nil, fmt.Errorf(
+			"auth.publicKeyCallback[%s]: account state for %s could not be read: "+
+				"access denied", conn.RemoteAddr(), u.Name)
+	}
+	if state != store.StateActive {
 		s.logger.Warn("public key rejected: account is not active",
 			"user", u.Name, "state", state, "remote", conn.RemoteAddr().String())
 		return nil, fmt.Errorf(

@@ -2021,7 +2021,15 @@ func (s *Store) Sessions(ctx context.Context, username string, limit int) ([]mod
 		JOIN targets t ON t.id = s.target_id
 		-- $1 İKİ KEZ geçiyor: numaralı yer tutucunun ? üzerindeki
 		-- somut faydası. Aynı değeri iki kez göndermek gerekmiyor.
-		WHERE ($1 = '' OR u.username = $1)
+		--
+		-- ⚠️ HARF DUYARSIZ — VE BU BİR DÜZELTME. Karşılaştırma düz "="
+		-- idi, oysa users.username harf duyarsız bir sütun (dialect.go
+		-- ciColumns, 009/019'daki lower() indeksleri) ve deponun başka
+		-- her sorgusu ciEq kullanıyor. "postern session list --user
+		-- Ayse" yazan denetçi, ayse'nin yüzlerce oturumu varken "no
+		-- sessions recorded" cevabını alıyordu: yazım farkı yüzünden
+		-- "hiç bağlanmamış" diye okunan bir boşluk.
+		WHERE ($1 = '' OR ` + ciEq("u.username", "$1") + `)
 		ORDER BY s.started_at DESC, s.id DESC` + limitClause(limit, "$2") + `;
 	`
 

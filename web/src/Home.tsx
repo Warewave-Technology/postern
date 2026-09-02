@@ -56,7 +56,9 @@ function shellHint(me: Me): string {
 }
 
 export default function Home({ me }: { me: Me }) {
-  const { items, error, denied, loading } = useList<MyTarget>(api.myTargets);
+  const { items, error, denied, loading, failed } = useList<MyTarget>(
+    api.myTargets,
+  );
   const [q, setQ] = useState("");
 
   const query = useMemo(() => parse(q), [q]);
@@ -81,6 +83,7 @@ export default function Home({ me }: { me: Me }) {
       <ListState
         loading={loading}
         denied={denied}
+        failed={failed}
         empty={items.length === 0}
         emptyText="No targets granted. An administrator has to grant your role a target before you can connect."
       />

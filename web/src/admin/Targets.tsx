@@ -14,7 +14,10 @@ import { matches, parse } from "../query";
  * hem boşluk — operatörün hangisini yazacağını hatırlamak zorunda
  * kalmaması için.
  */
-export function parseLabels(text: string): { labels: Record<string, string>; bad: string[] } {
+export function parseLabels(text: string): {
+  labels: Record<string, string>;
+  bad: string[];
+} {
   const labels: Record<string, string> = {};
   const bad: string[] = [];
   for (const part of text.split(/[,\s]+/)) {
@@ -38,7 +41,8 @@ function labelText(t: Target): string {
 }
 
 export default function Targets() {
-  const { items, error, denied, loading, refresh, setError } = useList<Target>(api.targets);
+  const { items, error, denied, loading, failed, refresh, setError } =
+    useList<Target>(api.targets);
   // Seçili hedef: kendi sayfası açılıyor. Tablo satırı adres, parmak
   // izi, etiketler, roller ve gözlemleri birden taşıyamıyor.
   const [selected, setSelected] = useState<string | null>(null);
@@ -102,31 +106,35 @@ export default function Targets() {
 
   const create = () => {
     setOk("");
-    return api
-      .createTarget({
-        name,
-        host,
-        port: portNum,
-        host_key: hostKey.trim(),
-        labels: parsed.labels,
-      })
-      .then(() => {
-        setOk(`${name} registered — the fingerprint in the table is what postern will hold it to.`);
-        setName("");
-        setHost("");
-        setPort("22");
-        setHostKey("");
-        setLabelText0("");
-        return refresh().then(() => true);
-      })
-      // ⚠️ BAŞARIYI DÖNDÜRÜYOR. Hatada modal AÇIK kalmalı: kapanan bir
-      // modal, arkadaki hata satırını görmeyen kullanıcıya kaydın
-      // tuttuğunu düşündürür — ve host key gibi elle yapıştırılan bir
-      // alanı ikinci kez doldurtmak, o kullanıcıyı panele küstürür.
-      .catch((e: unknown) => {
-        setError(toMessage(e));
-        return false;
-      });
+    return (
+      api
+        .createTarget({
+          name,
+          host,
+          port: portNum,
+          host_key: hostKey.trim(),
+          labels: parsed.labels,
+        })
+        .then(() => {
+          setOk(
+            `${name} registered — the fingerprint in the table is what postern will hold it to.`,
+          );
+          setName("");
+          setHost("");
+          setPort("22");
+          setHostKey("");
+          setLabelText0("");
+          return refresh().then(() => true);
+        })
+        // ⚠️ BAŞARIYI DÖNDÜRÜYOR. Hatada modal AÇIK kalmalı: kapanan bir
+        // modal, arkadaki hata satırını görmeyen kullanıcıya kaydın
+        // tuttuğunu düşündürür — ve host key gibi elle yapıştırılan bir
+        // alanı ikinci kez doldurtmak, o kullanıcıyı panele küstürür.
+        .catch((e: unknown) => {
+          setError(toMessage(e));
+          return false;
+        })
+    );
   };
 
   const remove = (t: Target) => {
@@ -326,6 +334,7 @@ export default function Targets() {
       <ListState
         loading={loading}
         denied={denied}
+        failed={failed}
         empty={items.length === 0}
         emptyText="No targets registered — until one is, nobody can open a session through this bastion."
       />
@@ -345,7 +354,11 @@ export default function Targets() {
             matches(parse(q), {
               name: t.name,
               labels: t.labels,
-              extra: { host: t.host, port: String(t.port), fingerprint: t.fingerprint },
+              extra: {
+                host: t.host,
+                port: String(t.port),
+                fingerprint: t.fingerprint,
+              },
             })
           }
         />
@@ -362,7 +375,6 @@ export default function Targets() {
         title="Register target"
         description="Everything here comes off the machine itself; nothing is guessed."
       >
-
         <div className="field-row">
           <label>
             Name
@@ -403,7 +415,8 @@ export default function Targets() {
         </div>
         {!labelsOk && (
           <p className="msg msg-warn" role="status">
-            {parsed.bad.join(", ")} — write each label as <code>key=value</code>.
+            {parsed.bad.join(", ")} — write each label as <code>key=value</code>
+            .
           </p>
         )}
 
@@ -432,8 +445,8 @@ export default function Targets() {
                 postern'in ağından bağlanıyor. Bunu yazmamak, kendi
                 makinesinde ulaşılan bir adı deneyen operatörü
                 şaşırtıyordu. */}
-            postern connects <b>from the bastion</b>, so the address has to
-            work there.
+            postern connects <b>from the bastion</b>, so the address has to work
+            there.
           </span>
         </div>
 
@@ -512,7 +525,8 @@ export default function Targets() {
             setHostKey(e.target.value);
             // Elle değiştirildiyse artık "taranmış" değil: onay kutusu
             // kalkıyor, çünkü onaylanan parmak izi bu değil.
-            if (scan && e.target.value.trim() !== scan.authorized_key) setScan(null);
+            if (scan && e.target.value.trim() !== scan.authorized_key)
+              setScan(null);
           }}
           placeholder="ssh-ed25519 AAAA…"
         />

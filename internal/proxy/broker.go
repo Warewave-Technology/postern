@@ -176,6 +176,33 @@ func (b *Broker) sayGoodbye(ctx context.Context) {
 		return
 	}
 
+	/*
+	 * ⚠️ SFTP OTURUMUNA VEDA YAZILMIYOR — VE BU BİR DÜZELTME.
+	 *
+	 * Mesaj outputSink() üzerinden gidiyor; o sink hedef yönündeki
+	 * sftpTap'i sarıyor ve tap, SFTP oturumu açıkken yazılan HER baytı
+	 * `sftpaudit.Session.FromTarget`e besliyor. finishSFTP() oturumu
+	 * bitiriyor ama `b.sftp`yi TEMİZLEMİYOR, dolayısıyla bu satır
+	 * çözümleyiciye hedeften gelmiş bir paketmiş gibi giriyordu:
+	 * bozuk bir uzunluk başlığı → abortAudit → "sftp audit failed;
+	 * ending session".
+	 *
+	 * İki yanlış birden üretiyordu. Denetim defterinde ve log'da,
+	 * denetim ÇALIŞMIŞKEN "denetim çöktü" yazıyordu; ve oturumun
+	 * bitiş sebebi "yönetici kapattı" yerine "denetim arızası"na
+	 * dönüşüyordu (Run, abortErr'i döndürüyor). Yani yöneticinin kendi
+	 * bastığı düğme, kayda bir arıza olarak geçiyordu.
+	 *
+	 * Yazmamak zaten doğrusu: karşı taraf bir `sftp` istemcisi, ikili
+	 * protokol okuyor. Ona insan cümlesi göndermek okunabilir bir
+	 * uyarı değil, protokol akışına çöp enjekte etmek olurdu. Sebep
+	 * kaybolmuyor — Run onu çağırana döndürüyor ve oturum kaydına
+	 * lifecycle yazıyor.
+	 */
+	if b.sftp.Load() != nil {
+		return
+	}
+
 	// \r\n: ham kipteki bir terminalde tek \n satırı kaydırmaz.
 	msg := []byte("\r\npostern: " + line + "\r\n")
 

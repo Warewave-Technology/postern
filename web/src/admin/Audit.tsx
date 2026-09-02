@@ -123,7 +123,7 @@ function SessionFiles({
 }
 
 export function Sessions({ theme }: { theme: Resolved }) {
-  const { items, error, denied, loading, refresh } = useList<Session>(
+  const { items, error, denied, loading, failed, refresh } = useList<Session>(
     api.sessions,
   );
   // Oynatılan oturum. Aynı anda tek kayıt: iki terminali yan yana
@@ -305,6 +305,7 @@ export function Sessions({ theme }: { theme: Resolved }) {
       <ListState
         loading={loading}
         denied={denied}
+        failed={failed}
         empty={items.length === 0}
         emptyText="No sessions recorded — nobody has connected through this bastion yet."
       />
@@ -333,7 +334,7 @@ export function Sessions({ theme }: { theme: Resolved }) {
 }
 
 export function AdminLog() {
-  const { items, error, denied, loading, refresh } = useList<LogEntry>(
+  const { items, error, denied, loading, failed, refresh } = useList<LogEntry>(
     api.adminLog,
   );
 
@@ -385,6 +386,7 @@ export function AdminLog() {
       <ListState
         loading={loading}
         denied={denied}
+        failed={failed}
         empty={items.length === 0}
         emptyText="No admin actions logged yet."
       />

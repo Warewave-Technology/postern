@@ -1,11 +1,18 @@
 import { useState } from "react";
 import { api, Role, Target, toMessage } from "../api";
-import { ActionButton, ErrorLine, ListState, WarnLine, useList } from "./common";
+import {
+  ActionButton,
+  ErrorLine,
+  ListState,
+  WarnLine,
+  useList,
+} from "./common";
 import DataTable, { Column } from "./DataTable";
 import Modal from "./Modal";
 
 export default function Roles() {
-  const { items, error, denied, loading, refresh, setError } = useList<Role>(api.roles);
+  const { items, error, denied, loading, failed, refresh, setError } =
+    useList<Role>(api.roles);
   // Hedefler ayrıca çekiliyor: adı elle yazdırmak, tek harf yanlışında
   // "target not found" veren bir grant demekti. Kutu yalnızca gerçekten
   // kayıtlı hedefleri sunuyor.
@@ -107,7 +114,9 @@ export default function Roles() {
             <select
               aria-label={`target to grant to role ${r.name}`}
               value={choice}
-              onChange={(e) => setPicked((p) => ({ ...p, [r.name]: e.target.value }))}
+              onChange={(e) =>
+                setPicked((p) => ({ ...p, [r.name]: e.target.value }))
+              }
               disabled={free.length === 0}
             >
               <option value="">
@@ -125,7 +134,11 @@ export default function Roles() {
             </select>
             <ActionButton
               onClick={() => grant(r.name, choice)}
-              label={choice ? `grant ${choice} to role ${r.name}` : `grant a target to role ${r.name}`}
+              label={
+                choice
+                  ? `grant ${choice} to role ${r.name}`
+                  : `grant a target to role ${r.name}`
+              }
               disabled={!choice}
             >
               Grant
@@ -183,6 +196,7 @@ export default function Roles() {
       <ListState
         loading={loading}
         denied={denied}
+        failed={failed}
         empty={items.length === 0}
         emptyText="No roles yet — access is granted only through a role, so nobody can reach a target until one exists."
       />
