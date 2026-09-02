@@ -383,9 +383,9 @@ function Result({ result }: { result: History }) {
       searchLabel="filter these events by user, target or operation"
       searchPlaceholder="Filter events…"
       foot={
-        <p>
-          Events matching <Criteria result={result} />. Copy a session id into
-          the Sessions screen to see everything else that session did.
+        <p data-testid="file-history-foot">
+          Events <Criteria result={result} />. Copy a session id into the
+          Sessions screen to see everything else that session did.
           {/*
             ⚠️ KESİLDİYSE SÖYLE. Sessizce ilk N'i göstermek, denetçinin
             "olan biten bu" sanması demek.
@@ -431,11 +431,19 @@ function matchesQuery(p: string, result: History): boolean {
  * çalıştırılan arama.
  */
 function Criteria({ result }: { result: History }) {
+  /*
+   * ⚠️ EDAT HER ÖLÇÜTLE BİRLİKTE GELİYOR, SABİT BİR ÖNEK DEĞİL.
+   *
+   * Metin önce "Events matching " + ölçütler diye kuruluyordu ve yol
+   * boşken ekranda "Events matching by suleyman.idinak" çıkıyordu.
+   * Yalnızca kişiyle arama yeni bir yetenek; cümlenin de onu
+   * karşılaması gerekiyor.
+   */
   const parts: React.ReactNode[] = [];
   if (result.path) {
     parts.push(
       <span key="p">
-        {result.under ? "under " : ""}
+        {result.under ? "under " : "matching "}
         <code>{result.path}</code>
       </span>,
     );

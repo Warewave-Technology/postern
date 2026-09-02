@@ -266,8 +266,10 @@ describe("ölçütler", () => {
     await userEvent.type(screen.getByLabelText(/^path$/i), "/etc");
     await userEvent.click(screen.getByRole("button", { name: /search/i }));
 
-    const foot = await screen.findByText(/Events matching/i);
-    expect(foot.textContent).toMatch(/under\s*\/etc/);
+    // ⚠️ Ölçütler ayrı <span>'lerde: eşleştirici tek bir metin
+    // düğümüne değil, kutunun tamamının metnine bakmalı.
+    const foot = await screen.findByTestId("file-history-foot");
+    expect(foot.textContent).toMatch(/Events under\s*\/etc/);
     expect(foot.textContent).toMatch(/by\s*ayse/);
     expect(foot.textContent).toMatch(/on\s*web01/);
   });
@@ -345,4 +347,24 @@ it("kök ağacında da rename hedefini işaretliyor", async () => {
   await userEvent.click(screen.getByRole("button", { name: /search/i }));
 
   await waitFor(() => expect(screen.getByText(/moved here/i)).toBeTruthy());
+});
+
+/*
+ * ⚠️ YALNIZCA KİŞİYLE ARANDIĞINDA CÜMLE DE DOĞRU KURULMALI.
+ *
+ * Metin "Events matching " + ölçütler diye sabitlenmişti ve yol boşken
+ * ekranda "Events matching by suleyman.idinak" çıkıyordu. Yeni bir
+ * yeteneği yarım cümleyle sunmak, onu yarım yapılmış gösterir.
+ */
+it("yalnızca kişiyle arandığında ölçütü düzgün yazıyor", async () => {
+  vi.spyOn(api, "fileHistory").mockResolvedValue(
+    result({ path: "", user: "suleyman.idinak" }),
+  );
+  render(<FileHistory />);
+  await userEvent.type(screen.getByLabelText(/person/i), "suleyman.idinak");
+  await userEvent.click(screen.getByRole("button", { name: /search/i }));
+
+  const foot = await screen.findByTestId("file-history-foot");
+  expect(foot.textContent).toMatch(/Events by\s*suleyman\.idinak\./);
+  expect(foot.textContent).not.toMatch(/matching/i);
 });
