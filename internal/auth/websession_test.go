@@ -13,7 +13,7 @@ import (
 func TestWebSessionRoundTrip(t *testing.T) {
 	w := NewWebSessions()
 
-	tok, err := w.Create("yigit")
+	tok, err := w.Create("yigit", "yigit"+"-id")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -21,7 +21,7 @@ func TestWebSessionRoundTrip(t *testing.T) {
 		t.Errorf("token %d karakter — 32 bayt entropi bekleniyor", len(tok))
 	}
 
-	tok2, err := w.Create("yigit")
+	tok2, err := w.Create("yigit", "yigit"+"-id")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestWebSessionUnknownToken(t *testing.T) {
 func TestWebSessionDestroy(t *testing.T) {
 	w := NewWebSessions()
 
-	tok, err := w.Create("yigit")
+	tok, err := w.Create("yigit", "yigit"+"-id")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestWebSessionExpiry(t *testing.T) {
 	current := time.Now()
 	w.now = func() time.Time { return current }
 
-	tok, err := w.Create("yigit")
+	tok, err := w.Create("yigit", "yigit"+"-id")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestWebSessionExpiry(t *testing.T) {
 
 	// Ve aktivite süreyi UZATMAMALI (kayan pencere değil): yeni oturum
 	// açıp yarı sürede dokunmak, kalan yarıyı değiştirmez.
-	tok2, err := w.Create("yigit")
+	tok2, err := w.Create("yigit", "yigit"+"-id")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestSessionAgeGrowsWithTheClock(t *testing.T) {
 	current := time.Now()
 	w.now = func() time.Time { return current }
 
-	token, err := w.Create("yigit")
+	token, err := w.Create("yigit", "yigit"+"-id")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestExpiredSessionHasNoAge(t *testing.T) {
 	current := time.Now()
 	w.now = func() time.Time { return current }
 
-	token, _ := w.Create("yigit")
+	token, _ := w.Create("yigit", "yigit"+"-id")
 	current = current.Add(webSessionTTL + time.Second)
 
 	if _, err := w.Age(token); !errors.Is(err, ErrNoSession) {
@@ -174,7 +174,7 @@ func TestUnknownTokenHasNoAge(t *testing.T) {
  */
 func TestDestroyUserMatchesTheWayTheDatabaseDoes(t *testing.T) {
 	w := NewWebSessions()
-	tok, err := w.Create("yigit")
+	tok, err := w.Create("yigit", "yigit"+"-id")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,11 +193,11 @@ func TestDestroyUserMatchesTheWayTheDatabaseDoes(t *testing.T) {
 // kuralı, bir toplu silme değil.
 func TestDestroyUserLeavesOtherAccountsAlone(t *testing.T) {
 	w := NewWebSessions()
-	keep, err := w.Create("ayse")
+	keep, err := w.Create("ayse", "ayse"+"-id")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := w.Create("yigit"); err != nil {
+	if _, err := w.Create("yigit", "yigit"+"-id"); err != nil {
 		t.Fatal(err)
 	}
 

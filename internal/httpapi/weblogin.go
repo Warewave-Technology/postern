@@ -287,7 +287,7 @@ func (s *Server) completeWebLogin(w http.ResponseWriter, r *http.Request, state,
 		return
 	}
 
-	token, err := s.webSessions.Create(u.Name)
+	token, err := s.createWebSession(r.Context(), u.Name)
 	if err != nil {
 		log.Error("web session create failed", "error", err)
 		http.Error(w, "login failed", http.StatusInternalServerError)
@@ -516,6 +516,30 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 // ctxKey, context değerleri için paket-özel anahtar tipi.
 type ctxKey int
 
+/*
+ * createWebSession / createLocalWebSession, oturumu hesabın KİMLİĞİNE
+ * bağlayarak açar.
+ *
+ * ⚠️ KİMLİK BURADA OKUNUYOR: oturum ada değil users.id'ye bağlanmalı ki
+ * ad yeniden kullanıldığında (purge) eski oturum yeni kişiye çözülmesin.
+ * Giriş nadir bir işlem; fazladan bir sorgunun bedeli önemsiz.
+ */
+func (s *Server) createWebSession(ctx context.Context, name string) (string, error) {
+	id, err := s.store.AccountID(ctx, name)
+	if err != nil {
+		return "", err
+	}
+	return s.webSessions.Create(name, id)
+}
+
+func (s *Server) createLocalWebSession(ctx context.Context, name string) (string, error) {
+	id, err := s.store.AccountID(ctx, name)
+	if err != nil {
+		return "", err
+	}
+	return s.webSessions.CreateLocal(name, id)
+}
+
 const ctxUser ctxKey = 0
 
 // requireSession, oturum isteyen uçları saran middleware: cookie →
@@ -547,8 +571,27 @@ const ctxUser ctxKey = 0
  * demek, geçerli kullanıcıyı parolasını sıfırlamaya gönderirdi; arıza
  * ise bambaşka bir yerde. "Çözemedim" ile "yetkin yok" ayrı şeyler.
  */
-func (s *Server) accountStillOpen(w http.ResponseWriter, r *http.Request, username string) bool {
-	err := s.store.RefuseIfDeleted(r.Context(), username)
+func (s *Server) accountStillOpen(w http.ResponseWriter, r *http.Request, username, accountID string) bool {
+	/*
+	 * ⚠️ KONTROL KİMLİKLE, ADLA DEĞİL — ve ada bağlıyken kaçan buydu.
+	 *
+	 * RefuseIfDeleted(username) purge sonrası YENİ satıra çözülüp nil
+	 * dönüyordu: adı devralan yeni kişinin hesabı silinmemiş, dolayısıyla
+	 * ayrılan kişinin eski sekmesi geçmeye devam ediyordu. CLI purge ayrı
+	 * bir süreç olduğu için o an bellekteki oturumu da düşüremiyor.
+	 * Kimliğe bakmak oturumun bağlı olduğu satırı görüyor: purge o satırı
+	 * deleted yapıyor, yani ret kalıcı.
+	 *
+	 * Eski oturumların accountID'si boş olabilir (yükseltmeden önce
+	 * açılmış): o durumda ada geri düşüyoruz — yükseltme herkesi
+	 * çıkarmasın; yeni oturumlar zaten kimliğe bağlı.
+	 */
+	var err error
+	if accountID != "" {
+		err = s.store.RefuseIfDeletedByID(r.Context(), accountID)
+	} else {
+		err = s.store.RefuseIfDeleted(r.Context(), username)
+	}
 	switch {
 	case err == nil:
 		return true
@@ -578,7 +621,7 @@ func (s *Server) requireSession(next http.Handler) http.Handler {
 			return
 		}
 
-		username, viaLocal, err := s.webSessions.ResolveSession(c.Value)
+		username, accountID, viaLocal, err := s.webSessions.ResolveSessionFull(c.Value)
 		if err != nil {
 			// Bayat cookie her istekte 401 üretmesin: temizle.
 			s.clearSessionCookie(w)
@@ -590,7 +633,7 @@ func (s *Server) requireSession(next http.Handler) http.Handler {
 			return
 		}
 
-		if !s.accountStillOpen(w, r, username) {
+		if !s.accountStillOpen(w, r, username, accountID) {
 			return
 		}
 

@@ -277,7 +277,7 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 
 	// ⚠️ CreateLocal: oturumun kökeni yerel parola kapısı. Zorunlu
 	// parola değişikliği kısıtı buna bakıyor (weblogin.go'daki gate).
-	token, err := s.webSessions.CreateLocal(u.Name)
+	token, err := s.createLocalWebSession(r.Context(), u.Name)
 	if err != nil {
 		log.Error("web session create failed", "error", err)
 		writeErr(w, http.StatusInternalServerError, "sign-in failed")

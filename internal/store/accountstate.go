@@ -178,6 +178,48 @@ func (s *Store) RefuseIfDeleted(ctx context.Context, username string) error {
 	return nil
 }
 
+/*
+ * AccountID, adı verilen hesabın kimliğini (users.id) döner.
+ *
+ * ⚠️ Panel oturumu bu KİMLİĞE bağlanıyor, ada değil. Ad yeniden
+ * kullanılabiliyor (purge onu serbest bırakıyor); kimlik kalıcı. Oturum
+ * ada bağlı kalırsa, adı devralan yeni kişiye çözülüyor.
+ */
+func (s *Store) AccountID(ctx context.Context, username string) (string, error) {
+	var id string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id FROM users WHERE `+ciEq("username", "$1")+`;`, username).Scan(&id)
+	if err != nil {
+		return "", translateErr("store.AccountID", err)
+	}
+	return id, nil
+}
+
+/*
+ * RefuseIfDeletedByID, RefuseIfDeleted'in KİMLİK ile çalışan hâli.
+ *
+ * ⚠️ NEDEN AD DEĞİL KİMLİK: purge, adı serbest bırakıp satırı
+ * 'purged:<id>' + deleted yapıyor. Ada bakan bir kontrol, ad yeniden
+ * yaratıldığında YENİ satıra çözülüp nil döner — ölçülen sızıntı buydu
+ * (CLI purge ayrı süreç, bellekteki oturumu düşüremiyor). Kimliğe bakan
+ * kontrol, oturumun bağlı olduğu satırı görüyor: purge sonrası o satır
+ * deleted, yani ret KALICI.
+ *
+ * Kimlik hiç yoksa (satır gerçekten silinmiş) ErrNotFound.
+ */
+func (s *Store) RefuseIfDeletedByID(ctx context.Context, id string) error {
+	var state string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT state FROM users WHERE id = $1;`, id).Scan(&state)
+	if err != nil {
+		return translateErr("store.RefuseIfDeletedByID", err)
+	}
+	if state == StateDeleted {
+		return fmt.Errorf("store.RefuseIfDeletedByID[%s]: %w", id, ErrAccessDenied)
+	}
+	return nil
+}
+
 // PurgeResult, purge'ün neyi serbest bıraktığı.
 type PurgeResult struct {
 	FormerUsername string

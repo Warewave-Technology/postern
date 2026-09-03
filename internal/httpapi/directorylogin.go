@@ -299,7 +299,7 @@ func (s *Server) finishDirectorySession(w http.ResponseWriter, r *http.Request, 
 		log.Error("confirm stamp failed", "user", u.Name, "error", cerr)
 	}
 
-	token, err := s.webSessions.Create(u.Name)
+	token, err := s.createWebSession(r.Context(), u.Name)
 	if err != nil {
 		log.Error("web session create failed", "error", err)
 		writeErr(w, http.StatusInternalServerError, "sign-in failed")

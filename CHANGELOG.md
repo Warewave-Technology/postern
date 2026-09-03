@@ -77,13 +77,15 @@ recordings.
   as a floor rather than a full account for sessions from scripted
   clients.
 
-- **Purging a username now drops that name's panel sessions.** Purging
-  releases the name for reuse; the sessions held against it were left
-  alone. Once the name was given to somebody new, the previous holder's
-  open tab resolved to the new account — their roles, their targets, and
-  audit rows written under their name. Deleting an account and setting
-  one to `deleted` drop sessions too now, rather than waiting for the
-  account's next request.
+- **A panel session is now bound to the account it signed in as, not
+  just the name.** Purging a username releases it for reuse, and the
+  sessions held against it were left alone — so once the name was given
+  to somebody new, the previous holder's open tab resolved to the new
+  account, with their roles, their targets, and audit rows under their
+  name. The panel purge dropped the in-memory sessions, but `postern user
+  purge` is a separate process and could not. Every panel request now
+  checks the account id behind the session, which the purged row keeps,
+  so the old session is refused however the account was purged.
 
 - **A target that stops responding mid-handshake can no longer hold a
   session open.** The handshake had no time limit — the one that was

@@ -174,7 +174,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	 * saldırısına açık bırakırdı.
 	 */
 	dropped := s.webSessions.DestroyUser(name)
-	token, err := s.webSessions.CreateLocal(name)
+	token, err := s.createLocalWebSession(r.Context(), name)
 	if err != nil {
 		log.Error("session rotate failed", "error", err)
 		// Parola DEĞİŞTİ; oturum verilemedi. Dürüst olan şey bunu

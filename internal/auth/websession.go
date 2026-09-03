@@ -25,7 +25,19 @@ const webSessionTTL = 12 * time.Hour
 // yapardı. Adı saklayıp her istekte store'dan okumak yetkiyi anında
 // geçerli kılar — middleware zaten her istekte çalışıyor.
 type webSession struct {
-	username  string
+	username string
+
+	/*
+	 * accountID, oturumun bağlı olduğu hesabın KİMLİĞİ (users.id).
+	 *
+	 * ⚠️ ADA DEĞİL KİMLİĞE BAĞLI. Kullanıcı adı yeniden kullanılabiliyor
+	 * (purge onu serbest bırakıyor) ama kimlik kalıcı. Oturum yalnızca
+	 * ada bağlı olsaydı, adı devralan yeni kişiye çözülürdü — ölçülen
+	 * sızıntı buydu. Her istekte bu kimliğin hâlâ silinmemiş olduğu
+	 * doğrulanıyor (accountStillOpen).
+	 */
+	accountID string
+
 	expiresAt time.Time
 
 	/*
@@ -84,18 +96,18 @@ func NewWebSessions() *WebSessions {
 //
 // Token cookie'de yaşayacak ve oturumun KENDİSİ o: 32 bayt crypto/rand,
 // tahmin edilebilirse oturum çalınır.
-func (w *WebSessions) Create(username string) (string, error) {
-	return w.create(username, false)
+func (w *WebSessions) Create(username, accountID string) (string, error) {
+	return w.create(username, accountID, false)
 }
 
 // CreateLocal, YEREL PAROLA KAPISINDAN açılan oturum. Ayrı bir isim,
 // çünkü köken çağrı yerinde görünmeli: bayrağı unutan bir kapı,
 // zorunlu parola değişikliğini sessizce atlatırdı.
-func (w *WebSessions) CreateLocal(username string) (string, error) {
-	return w.create(username, true)
+func (w *WebSessions) CreateLocal(username, accountID string) (string, error) {
+	return w.create(username, accountID, true)
 }
 
-func (w *WebSessions) create(username string, viaLocal bool) (string, error) {
+func (w *WebSessions) create(username, accountID string, viaLocal bool) (string, error) {
 	token, err := newID()
 	if err != nil {
 		return "", err
@@ -105,6 +117,7 @@ func (w *WebSessions) create(username string, viaLocal bool) (string, error) {
 	now := w.now()
 	w.byToken[token] = webSession{
 		username:  username,
+		accountID: accountID,
 		createdAt: now,
 		expiresAt: now.Add(webSessionTTL),
 		viaLocal:  viaLocal,
@@ -168,22 +181,34 @@ func (w *WebSessions) Resolve(token string) (string, error) {
 // ResolveSession, adın yanında oturumun KÖKENİNİ de döner: belirteci
 // yerel parola kapısı mı üretti?
 func (w *WebSessions) ResolveSession(token string) (username string, viaLocal bool, err error) {
+	name, _, local, err := w.resolve(token)
+	return name, local, err
+}
+
+// ResolveSessionFull, adın ve kökenin yanında oturumun bağlı olduğu
+// hesap KİMLİĞİNİ de döner. accountStillOpen bunu kullanıyor: kontrol
+// ada değil kimliğe bakmak zorunda (bkz. webSession.accountID).
+func (w *WebSessions) ResolveSessionFull(token string) (username, accountID string, viaLocal bool, err error) {
+	return w.resolve(token)
+}
+
+func (w *WebSessions) resolve(token string) (username, accountID string, viaLocal bool, err error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
 	sess, ok := w.byToken[token]
 	if !ok {
-		return "", false, ErrNoSession
+		return "", "", false, ErrNoSession
 	}
 
 	// Tembel temizlik: dokunulmayan çöp zararsızdır, dokunulan çöp
 	// kendini temizler. Ayrı bir süpürücü goroutine'e gerek yok.
 	if !w.now().Before(sess.expiresAt) {
 		delete(w.byToken, token)
-		return "", false, ErrNoSession
+		return "", "", false, ErrNoSession
 	}
 
-	return sess.username, sess.viaLocal, nil
+	return sess.username, sess.accountID, sess.viaLocal, nil
 }
 
 /*
