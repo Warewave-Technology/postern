@@ -86,6 +86,10 @@ archives:
       - CHANGELOG.md
       - deploy/systemd/postern.service
       - deploy/README.md
+      # ⚠️ deploy/README.md hem systemd'yi hem ansible'ı ANLATIYOR;
+      # ansible ağacını dışarıda bırakmak, arşivdeki belgeyi arşivde
+      # olmayan dosyalara yönlendiriyordu. Rol birkaç kB metin.
+      - deploy/ansible
 
 checksum:
   name_template: "checksums.txt"

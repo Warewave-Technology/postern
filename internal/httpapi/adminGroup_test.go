@@ -125,10 +125,16 @@ func TestWouldLeaveNoAdmin(t *testing.T) {
  * çiziliyordu, düğme çalışıyordu, ve tıklayınca "unknown setting key"
  * dönüyordu — yani sihirbaz kendi ayarını yazamıyordu.
  *
- * Bu test tek bir anahtarı değil, HATA SINIFINI kapatıyor: yeni bir
- * ayar sabiti eklendiğinde, ya listeye ya da gerekçeli reddedilenler
- * listesine girmek zorunda. Karar vermeyi unutmak derlemede değil ama
- * testte yakalanıyor.
+ * ⚠️ KAPSAM, AŞAĞIDAKİ `all` HARİTASIYLA SINIRLI — VE BU ELLE
+ * TUTULUYOR. Test, burada SAYILAN her anahtarın sınıflandırıldığını
+ * doğruluyor; yeni bir ayar sabiti eklenip bu haritaya EKLENMEZSE onu
+ * yakalayamaz. Yani "hata sınıfını tamamen kapatıyor" demek fazla
+ * iddialı olurdu: hatırlatıcı bir bekçi, mekanik bir kanıt değil.
+ *
+ * Mekanik hâli her settings paketinin sabitlerini dışa vermesini ve
+ * her birinin kendi testinde eksiksizliğini doğrulamasını gerektirir;
+ * bu ayrımın taşıdığı ağırlığa değecek bir iş değil. Yeni bir ayar
+ * ekleyen, onu `all`'a da eklemeli.
  */
 func TestEverySettingKeyIsClassified(t *testing.T) {
 	/*
