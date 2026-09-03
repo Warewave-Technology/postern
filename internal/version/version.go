@@ -3,6 +3,7 @@ package version
 
 import (
 	"fmt"
+	"regexp"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -63,6 +64,16 @@ type Info struct {
 	Platform  string
 }
 
+/*
+ * pseudoVersion, Go'nun etiketsiz bir commit için ürettiği sürüm.
+ *
+ * Üç biçimi de (vX.0.0-<ts>-<hash>, vX.Y.Z-pre.0.<ts>-<hash>,
+ * vX.Y.Z-0.<ts>-<hash>) aynı kuyrukla bitiyor: 14 haneli zaman damgası
+ * ve 12 haneli commit öneki. Kuyruğu aramak üçünü birden yakalıyor ve
+ * yeni bir bağımlılık (x/mod) getirmiyor.
+ */
+var pseudoVersion = regexp.MustCompile(`-[0-9]{14}-[0-9a-f]{12}$`)
+
 // Get, çalışan ikilinin bilgisini toplar.
 func Get() Info {
 	i := Info{
@@ -91,10 +102,33 @@ func Get() Info {
 	 *
 	 * "(devel)" bir etiket değil (etiketsiz `go build`); onu atlıyoruz.
 	 * "+dirty" ekini kırpıyoruz — kirlilik zaten ayrı alanda (Dirty).
+	 *
+	 * ⚠️ SAHTE SÜRÜM (pseudo-version) DE ETİKET DEĞİL — VE SAYILDIĞI
+	 * HÂLİ ÖLÇÜLDÜ.
+	 *
+	 * "(devel)" kontrolü yalnızca modül dışı derlemeleri yakalıyordu.
+	 * Bu depoda etiket yokken `make build` şunu basıyordu:
+	 *
+	 *   postern v0.0.0-20260903172313-67c66c03fa77
+	 *
+	 * uyarı OLMADAN. Yani Go'nun "hangi commit" demek için ürettiği
+	 * sözde sürüm, gerçek bir sürüm etiketi gibi sunuluyordu — bir
+	 * bakışta gerçek sürüm ikilisinden ayırt edilemez.
+	 *
+	 * Bu tam olarak Makefile'ın `git describe`'dan `--always`ı
+	 * kaldırma sebebi ve .goreleaser.yaml'ın snapshot için "olamaz"
+	 * dediği şey; CHANGELOG ve belgeler de "etiketten gelmeyen bir
+	 * derleme bunu SÖYLER, sayı uydurmaz" sözünü veriyor. Üçü birden
+	 * yanlıştı — ve etkilenen ikili, RELEASING.md'nin asla
+	 * gönderilmemesi gerektiğini söylediği snapshot ikilisi.
+	 *
+	 * Sürüm metni yine de KULLANILIYOR: hangi commit olduğunu söylemesi
+	 * işe yarıyor. Yalan olan Tagged'di, o yüzden yalnızca o false
+	 * kalıyor ve uyarı geri geliyor.
 	 */
 	if i.Version == "" && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
 		i.Version = strings.TrimSuffix(bi.Main.Version, "+dirty")
-		i.Tagged = true
+		i.Tagged = !pseudoVersion.MatchString(i.Version)
 	}
 	if i.Version == "" {
 		i.Version = "dev"
