@@ -18,6 +18,23 @@ Wants=network-online.target
 # Veritabanı aynı makinedeyse: postern onsuz açılmıyor.
 After=postgresql.service
 
+# ⚠️ Sonsuz yeniden başlatma YOK: yapılandırma hatası yüzünden açılmayan
+# bir süreç, saniyede bir yeniden denenerek günlüğü doldurur ve gerçek
+# arızayı görünmez yapar. Beş denemede durup açıkça "failed" demek,
+# operatöre bakılacak yeri gösteriyor.
+#
+# ⚠️ BU İKİ SATIR [Unit]'TE OLMAK ZORUNDA — VE BİR SÜRE [Service]'TEYDİ.
+# systemd v229'dan beri sayaç unit'e ait; [Service] altında yazılınca
+# systemd onları TANIMIYOR ve sessizce yok sayıyor. Ölçüldü:
+# `systemd-analyze verify` Debian 12/13 ve Ubuntu 24.04'te
+# "Unknown key 'StartLimitIntervalSec' in section [Service], ignoring"
+# uyarısını basıyor. Yani yorumun söylediğinin TAM TERSİ oluyordu:
+# açılamayan bastion sonsuza kadar 5 saniyede bir yeniden deneniyor,
+# `systemctl status` "failed" değil "activating" gösteriyor ve failed
+# unit arayan bir izleyici hiçbir şey görmüyordu.
+StartLimitBurst=5
+StartLimitIntervalSec=120
+
 [Service]
 Type=simple
 User=postern
@@ -31,12 +48,8 @@ EnvironmentFile=-/etc/postern/postern.env
 
 Restart=on-failure
 RestartSec=5s
-# ⚠️ Sonsuz yeniden başlatma YOK: yapılandırma hatası yüzünden açılmayan
-# bir süreç, saniyede bir yeniden denenerek günlüğü doldurur ve gerçek
-# arızayı görünmez yapar. Beş denemede durup açıkça "failed" demek,
-# operatöre bakılacak yeri gösteriyor.
-StartLimitBurst=5
-StartLimitIntervalSec=120
+# Yeniden başlatma sayacı [Unit] bölümünde — gerekçesi ve neden orada
+# olmak ZORUNDA olduğu orada yazılı.
 
 # --- dosya sistemi ---
 # Yazabildiği tek yer kayıtlar. CA anahtarı ve config OKUNUR.
