@@ -3,6 +3,7 @@ package httpapi
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"strings"
 	"sync"
 	"time"
 )
@@ -95,9 +96,31 @@ func newGuessBackoff() *guessBackoff {
 	return &guessBackoff{m: map[string]*backoffEntry{}, now: time.Now}
 }
 
-// backoffKey, hesap adı ve kaynak adresten özet üretir.
+/*
+ * backoffKey, hesap adı ve kaynak adresten özet üretir.
+ *
+ * ⚠️ AD KÜÇÜK HARFE KATLANIYOR — VE BUNUN OLMADIĞI HÂLİ ÖLÇÜLDÜ.
+ *
+ * Hesap her yerde harf duyarsız çözülüyor: users.username 019'dan beri
+ * harf duyarsız tekil, sorgular ciEq (lower() = lower()) kullanıyor,
+ * dizinler de uid/sAMAccountName'i caseIgnoreMatch ile eşliyor. Ham
+ * adı anahtarlamak, TEK bir hesaba adın yazım sayısı kadar ayrı kova
+ * veriyordu — sekiz harfli bir ad için 256 tane.
+ *
+ * Ölçüm (yerel kapı, aynı sahte saat, 100 istek): sabit yazımla 10
+ * deneme parola kontrolüne ulaşıyor, 90'ı gecikmeye takılıyor; yazımı
+ * döndürünce 100'ü de ulaşıyor, 0'ı takılıyor. Dizin kapısında sabit
+ * yazımla 4 bind dizine gidiyor, döndürülmüş yazımla 10 — yani hem
+ * saatte 600 tahmin geri geliyor hem de postern yeniden uzaktan hesap
+ * kilitleme kolu oluyor. İkisi de tam olarak bu dosyanın kapattığını
+ * söylediği zararlar.
+ *
+ * Adres KATLANMIYOR: o zaten normalize bir IP metni, ve (hesap, adres)
+ * çiftinin ikinci yarısı olarak kalması "kilitleme düğmesi yok"
+ * özelliğini koruyor.
+ */
 func backoffKey(username, client string) string {
-	sum := sha256.Sum256([]byte(username + "\x00" + client))
+	sum := sha256.Sum256([]byte(strings.ToLower(username) + "\x00" + client))
 	return hex.EncodeToString(sum[:16])
 }
 
