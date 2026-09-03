@@ -495,9 +495,10 @@ sends no Object Lock headers, because an attacker holding the credential
 could set the retention to zero. postern cannot verify any of this and
 does not claim to.
 
-**The key can be set from the panel; the destination cannot.** Settings
-→ Recording archive takes the access key and rotates it without a
-restart. The endpoint, bucket, prefix and CA stay in the config file,
+**The key can be set from the panel; the destination cannot.** The
+*Recording archive* card at the bottom of the **LDAP** screen — there is
+no separate Settings section — takes the access key and rotates it
+without a restart. The endpoint, bucket, prefix and CA stay in the config file,
 and that split is the point: a panel session that could move the
 destination could redirect every future recording to a bucket it
 controls, and dropping the stored secret on change — the mitigation used

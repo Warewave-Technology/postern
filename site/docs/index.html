@@ -897,7 +897,7 @@ session:
 
       <h3>Setting the key from the panel</h3>
       <p>
-        <b>Settings → Recording archive</b> takes the access key and rotates it
+        <b>LDAP → Recording archive</b> (the card at the bottom of that screen — there is no separate Settings section) takes the access key and rotates it
         without a restart. The endpoint, bucket and prefix stay in the config
         file.
       </p>
@@ -934,12 +934,14 @@ session:
 <pre>listen:
   addr: ":2222"
   external_addr: "bastion.example.com:2222"  <span class="c"># what the panel tells users</span>
-  max_conns: 200
-  max_conns_per_ip: 10
-  handshake_timeout: 30s
-  max_auth_tries: 6
-  max_channels_per_conn: 10
-  max_pending_logins: 64
+  <span class="c"># These are examples, not the defaults. Omit a line and postern uses</span>
+  <span class="c"># the value in brackets — three of these examples are LOOSER.</span>
+  max_conns: 200                <span class="c"># default 256</span>
+  max_conns_per_ip: 10          <span class="c"># default 8</span>
+  handshake_timeout: 30s        <span class="c"># default 30s</span>
+  max_auth_tries: 6             <span class="c"># default 4</span>
+  max_channels_per_conn: 10     <span class="c"># default 10</span>
+  max_pending_logins: 64        <span class="c"># default 32</span>
 
 host_key: /etc/postern/host_ed25519
 secret_key_file: /etc/postern/secret.key
