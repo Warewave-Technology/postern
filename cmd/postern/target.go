@@ -55,16 +55,33 @@ func newTargetAddCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("host key file: %w", err)
 			}
-			pub, _, _, _, err := ssh.ParseAuthorizedKey(data)
+			/*
+			 * ⚠️ DOSYADAKİ TÜM ANAHTARLAR OKUNUYOR VE EN İYİSİ SEÇİLİYOR
+			 * — İLKİNİN ALINDIĞI HÂLİ ÖLÇÜLDÜ.
+			 *
+			 * Belgelerin verdiği çift `ssh-keyscan host > web-01.pub` ile
+			 * bu komut. ssh-keyscan üç anahtar türünü PARALEL soruyor,
+			 * yani çıktı sırası VARIŞ sırası. Yalnızca ilkini alıp
+			 * gerisini atmak, aynı makineyi aynı iki komutla kaydetmenin
+			 * her seferinde başka bir anahtar pinlemesi demekti: ölçümde
+			 * sekiz koşuda ilk sıra rsa/ecdsa/rsa/rsa/ed25519/ecdsa/
+			 * ecdsa/rsa çıktı.
+			 *
+			 * Bedeli iki katmanlı. Operatör hangi anahtarın pinlendiğini
+			 * bilmiyor ve makinedeki `ssh-keygen -lf` çıktısıyla
+			 * eşleştiremiyor; ve pinlenen tür sonradan postern'in
+			 * müzakere edeceği tür olduğu için (upstream.hostKeyCallback
+			 * algoları pinlenmiş anahtardan türetiyor) rastgele RSA'ya
+			 * düşmek, her oturumu hedefin RSA anahtarını korumasına
+			 * bağlıyordu.
+			 *
+			 * ScanHostKey bu soruyu zaten doğru cevaplıyor: sunucunun
+			 * keyfi tercihi değil, sshalg.HostKeyAlgorithms sırasına göre
+			 * "elimizdekilerin en iyisi". CLI yolu artık onunla aynı.
+			 */
+			pub, err := bestHostKey(data)
 			if err != nil {
-				return fmt.Errorf("host key file %s: not a valid public key: %w", hostKeyFile, err)
-			}
-			// ⚠️ MÜZAKERE EDİLEMEYECEK HOST ANAHTARI PİNLENMİYOR. ssh-dss
-			// gibi kabul edilmeyen bir tür, saklanırsa hedef hiç
-			// bağlanamaz (dial reddeder); burada baştan reddetmek, tarama
-			// yolunun (ScanHostKey) zaten yaptığının CLI karşılığı.
-			if _, herr := sshalg.HostKeyAlgorithmsFor(pub.Type()); herr != nil {
-				return fmt.Errorf("host key file %s: %w", hostKeyFile, herr)
+				return fmt.Errorf("host key file %s: %w", hostKeyFile, err)
 			}
 			// Kanonik satır saklanır (yorumsuz): aynı anahtarın iki farklı
 			// metni iki farklı değer gibi görünmesin. hostKeyCallback'in
@@ -110,6 +127,16 @@ func newTargetAddCmd() *cobra.Command {
 					return aerr
 				}
 				fmt.Fprintf(out, "target %q registered\n", name)
+				/*
+				 * ⚠️ HANGİ ANAHTARIN PİNLENDİĞİ SÖYLENİYOR. Dosyada
+				 * birden çok anahtar olabiliyor (ssh-keyscan üçünü de
+				 * yazıyor) ve seçilen tür sonraki her oturumun müzakere
+				 * edeceği tür. Söylenmediğinde operatör bunu makinedeki
+				 * `ssh-keygen -lf /etc/ssh/ssh_host_*_key.pub` çıktısıyla
+				 * eşleştiremiyordu.
+				 */
+				fmt.Fprintf(out, "  host key %s %s\n",
+					pub.Type(), ssh.FingerprintSHA256(pub))
 			}
 
 			for _, role := range grantRoles {
@@ -295,4 +322,60 @@ func newTargetLabelRemoveCmd() *cobra.Command {
 	_ = cmd.MarkFlagRequired("target")
 	_ = cmd.MarkFlagRequired("key")
 	return cmd
+}
+
+/*
+ * bestHostKey, ssh-keyscan/authorized_keys biçimindeki bir dosyadaki
+ * anahtarlar arasından postern'in TERCİH SIRASINA göre en iyisini seçer.
+ *
+ * ⚠️ NEDEN "İLKİ" DEĞİL: ssh-keyscan türleri paralel soruyor ve çıktı
+ * sırası varış sırası — yani "ilki" makinenin tercihi bile değil, ağın
+ * o anki cilvesi. Seçim upstream.ScanHostKey ile aynı listeden
+ * (sshalg.HostKeyAlgorithms) yapılıyor ki iki kayıt yolu aynı makine
+ * için aynı anahtarı pinlesin.
+ *
+ * Hiçbiri müzakere edilemiyorsa hata BULUNANLARI sayıyor: dosyada üç
+ * anahtar varken "ssh-dss kabul edilmiyor" demek, hangisinin konu
+ * olduğunu söylemiyor.
+ */
+func bestHostKey(data []byte) (ssh.PublicKey, error) {
+	// Tel formatı → tercih sırası. RSA'nın iki imza varyantı da tek tel
+	// formatına (ssh-rsa) karşılık geliyor; ilk göreni kazanıyor.
+	rank := map[string]int{}
+	for i, a := range sshalg.HostKeyAlgorithms {
+		t := a
+		if a == ssh.KeyAlgoRSASHA512 || a == ssh.KeyAlgoRSASHA256 {
+			t = ssh.KeyAlgoRSA
+		}
+		if _, seen := rank[t]; !seen {
+			rank[t] = i
+		}
+	}
+
+	var best ssh.PublicKey
+	bestRank := len(sshalg.HostKeyAlgorithms) + 1
+	var found []string
+
+	rest := data
+	for {
+		pub, _, _, remaining, err := ssh.ParseAuthorizedKey(rest)
+		if err != nil {
+			break
+		}
+		rest = remaining
+		found = append(found, pub.Type())
+		if r, ok := rank[pub.Type()]; ok && r < bestRank {
+			best, bestRank = pub, r
+		}
+	}
+
+	if len(found) == 0 {
+		return nil, errors.New("no public key found in it")
+	}
+	if best == nil {
+		return nil, fmt.Errorf(
+			"none of its keys can be negotiated (found: %s); postern accepts %s",
+			strings.Join(found, ", "), strings.Join(sshalg.HostKeyAlgorithms, ", "))
+	}
+	return best, nil
 }
