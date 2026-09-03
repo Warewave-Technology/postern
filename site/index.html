@@ -58,6 +58,19 @@
   nav.top-nav a { color: var(--muted); text-decoration: none; }
   nav.top-nav a:hover { color: var(--ink); }
 
+  /* ⚠️ DAR EKRANDA SAYFA-İÇİ BAĞLANTILAR GİZLENİYOR — ÖLÇÜLDÜ.
+     375px'te beş öğe tek satıra sığmıyor: "What it is" ve "What it
+     isn't" KENDİ İÇLERİNDE kırılıyor, nav 46px'ten 69px'e çıkıp 56px'lik
+     başlığın dışına taşıyor ve son öğe sağdan kesiliyor. Dört öğeyle bile
+     iki satırdı; beşincisi onu görünür biçimde bozdu.
+     Gizlenenler AYNI sayfadaki kaydırma hedefleri — içerik zaten hemen
+     altta. Sayfayı TERK EDEN iki bağlantı kalıyor. */
+  @media (max-width: 640px) {
+    .top-nav { gap: 1rem; }
+    .top-nav a { white-space: nowrap; }
+    .top-nav a[href^="#"] { display: none; }
+  }
+
   /* ⚠️ YATAY DOLGU AÇIKÇA TEKRARLANIYOR. Kısayol biçimi ("5rem 0
      3.5rem") .wrap'ın "0 1.5rem" dolgusunu SIFIRLIYOR ve iki kural da
      tek sınıf özgüllüğünde; sonra gelen kazanıyor. Ölçüldü: 375px'lik
@@ -136,6 +149,14 @@
       <a href="#what">What it is</a>
       <a href="#not">What it isn't</a>
       <a href="#start">Install</a>
+      <!--
+        ⚠️ KAYNAĞA BAĞLANTI. Sayfada bir süre HİÇ yoktu: okuyucuya
+        "hepsi tek bir Go ikilisi, şu kadar bağımlılık, şunları
+        reddediyor" deniyor ve kodu görmenin bir yolu verilmiyordu.
+        Denetlenebilirlik iddiası olan bir üründe bu, iddianın kendisini
+        zayıflatıyor.
+      -->
+      <a href="https://github.com/Warewave-Technology/postern">Source</a>
     </nav>
   </div>
 </header>
@@ -273,7 +294,10 @@ $ ssh <span class="g">you:web-01</span>@bastion
 <footer>
   <div class="wrap">
     postern — a certificate-based, session-recording SSH bastion.
-    <a href="docs/index.html">Documentation</a>.
+    <a href="docs/index.html">Documentation</a> &middot;
+    <a href="https://github.com/Warewave-Technology/postern">Source</a> &middot;
+    <a href="https://github.com/Warewave-Technology/postern/blob/main/SECURITY.md">Security</a> &middot;
+    Apache&nbsp;2.0
   </div>
 </footer>
 
