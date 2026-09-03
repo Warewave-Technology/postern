@@ -425,7 +425,13 @@ $ ssh yigit:web-01@bastion -p 2222
         The same menu copies the <code>ssh</code> command for a real terminal,
         which most operators end up preferring anyway.
       </p>
-      <div class="warn"><b>If you turn it on</b><p>Serve the panel over HTTPS (an <code>https://</code> <code>external_url</code>) and keep it behind the reverse proxy. postern already sends a strict CSP and checks <code>Origin</code> on the WebSocket upgrade; those defences assume the transport is not plaintext.</p></div>
+      <div class="warn"><b>If you turn it on</b><p>Serve the panel over HTTPS (an <code>https://</code> <code>external_url</code>) and keep it behind the reverse proxy. postern already sends a CSP (<code>default-src 'self'</code>, no
+        remote scripts, <code>frame-ancestors 'none'</code>) and checks
+        <code>Origin</code> on the WebSocket upgrade. One directive is
+        deliberately not tight: <code>style-src</code> still allows
+        <code>'unsafe-inline'</code>, because the terminal emulator
+        injects a stylesheet at runtime. Nothing in the panel's own code
+        relies on it.; those defences assume the transport is not plaintext.</p></div>
       <h3>Tell postern about your reverse proxy</h3>
       <p>
         postern rate-limits sign-in attempts per <i>(account, source

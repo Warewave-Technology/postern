@@ -423,6 +423,18 @@ func (s *Server) Handler() http.Handler {
 // ölçmeden kaldırmak, yerelde (CSP'siz Vite dev sunucusu) her şey
 // çalışırken üretimde terminali sessizce bozmak olurdu — tam olarak
 // kaçınılması gereken arıza biçimi.
+// ⚠️ BU GEREKÇE BİR SÜRE web/index.html'DE, YORUM OLARAK DURUYORDU — ve
+// Vite onu paketlenmiş HTML'e olduğu gibi taşıyor. Yani ürünün kendi
+// servis ettiği sayfanın kaynağında, her ziyaretçinin görebileceği
+// yerde, "style-src 'unsafe-inline' hâlâ açık" yazıyordu. Bir güvenlik
+// ürününün view-source'unda bulunabilecek en kötü cümlelerden biri: ne
+// tarayıcıya bir şey söylüyor ne de okuyana faydası var, yalnızca
+// gevşetilmiş bir yönergeyi duyuruyor. Gerekçenin yeri burası; Go
+// kaynağı hiçbir yere gönderilmiyor.
+//
+// index.html'de satır içi <style> bloğu BİLEREK yok: tüm stiller
+// styles.css'te ve Vite onu ayrı dosya olarak yayınlıyor. Orada bir
+// blok tutmak, bu izni React yüzünden de zorunlu kılardı.
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
