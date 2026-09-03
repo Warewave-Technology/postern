@@ -95,6 +95,7 @@ func (s *Store) ClaimArchives(ctx context.Context, limit int, now time.Time,
 			FROM session_archives a
 			JOIN sessions s ON s.id = a.session_id
 			WHERE a.archived_at IS NULL
+			  AND NOT a.permanent
 			  AND (a.claimed_at IS NULL OR a.claimed_at < $2)
 			  AND (a.last_attempt_at IS NULL
 			       OR a.last_attempt_at + $3 * POWER(2, LEAST(a.attempts, 6)) < $5)
@@ -161,16 +162,21 @@ func (s *Store) MarkArchived(ctx context.Context, sessionID, bucket, key, sha st
 //
 // archived_at'e DOKUNMUYOR: bir kez doğrulanmış kayıt, sonradan gelen
 // bir hata yüzünden "güvende değil"e dönmemeli.
-func (s *Store) MarkArchiveFailed(ctx context.Context, sessionID, reason string, at time.Time) error {
+//
+// ⚠️ permanent: bu kayıt hiç yüklenemeyecek (ör. dosyası yok). true ise
+// satır candidate kümesinden çıkıyor; yoksa her turda yeniden claim
+// edilip kuyruğu ve "disk dolacak" alarmını sonsuza dek meşgul ederdi.
+func (s *Store) MarkArchiveFailed(ctx context.Context, sessionID, reason string, permanent bool, at time.Time) error {
 	// Sebep uzun olabilir (S3 XML gövdesi); tabloyu şişirmesin.
 	if len(reason) > 500 {
 		reason = reason[:500]
 	}
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE session_archives
-		SET attempts = attempts + 1, last_error = $1, last_attempt_at = $2, claimed_at = NULL
+		SET attempts = attempts + 1, last_error = $1, last_attempt_at = $2,
+		    claimed_at = NULL, permanent = $4
 		WHERE session_id = $3 AND archived_at IS NULL;`,
-		reason, at.Unix(), sessionID)
+		reason, at.Unix(), sessionID, permanent)
 	if err != nil {
 		return translateErr("store.MarkArchiveFailed", err)
 	}
@@ -257,12 +263,13 @@ func (s *Store) ArchiveStateOf(ctx context.Context, sessionID string) (ArchiveSt
 func (s *Store) ArchiveBacklog(ctx context.Context) (b ArchiveBacklogReport, err error) {
 	var oldestUnix sql.NullInt64
 	qerr := s.db.QueryRowContext(ctx, `
-		SELECT COUNT(*),
-		       MIN(s.started_at),
-		       COUNT(*) FILTER (WHERE a.attempts >= 3)
+		SELECT COUNT(*) FILTER (WHERE NOT a.permanent),
+		       MIN(s.started_at) FILTER (WHERE NOT a.permanent),
+		       COUNT(*) FILTER (WHERE NOT a.permanent AND a.attempts >= 3),
+		       COUNT(*) FILTER (WHERE a.permanent)
 		FROM session_archives a
 		JOIN sessions s ON s.id = a.session_id
-		WHERE a.archived_at IS NULL;`).Scan(&b.Pending, &oldestUnix, &b.Failing)
+		WHERE a.archived_at IS NULL;`).Scan(&b.Pending, &oldestUnix, &b.Failing, &b.Lost)
 	if qerr != nil {
 		return ArchiveBacklogReport{}, translateErr("store.ArchiveBacklog", qerr)
 	}
@@ -289,6 +296,17 @@ type ArchiveBacklogReport struct {
 	Pending int
 	Oldest  time.Time
 	Failing int
+
+	/*
+	 * Lost, dosyası KAYIP olduğu için hiç yüklenemeyecek kayıtların
+	 * sayısı (session_archives.permanent).
+	 *
+	 * ⚠️ Pending'DEN AYRI. Bunları "bekliyor" saymak, hiç bitmeyecek
+	 * bir kuyruk ve sönmeyen bir "disk dolacak" alarmı demekti — oysa
+	 * bu satırlar için yapılacak bir şey yok, yalnızca GÖRÜLMELERİ
+	 * gerekiyor. "Kayıp" ile "bekliyor" operatöre bambaşka şey söyler.
+	 */
+	Lost int
 }
 
 /*

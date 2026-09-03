@@ -51,7 +51,7 @@ func TestArchiveRetryBacksOffWithAttempts(t *testing.T) {
 
 	// Üç kez başarısız ol: attempts = 3, yani geri çekilme 8 dakika.
 	for range 3 {
-		if err := s.MarkArchiveFailed(ctx, "sess-backoff", "no such bucket", now); err != nil {
+		if err := s.MarkArchiveFailed(ctx, "sess-backoff", "no such bucket", false, now); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -69,5 +69,62 @@ func TestArchiveRetryBacksOffWithAttempts(t *testing.T) {
 		t.Fatal(err)
 	} else if len(got) != 1 {
 		t.Errorf("pencere geçtiği hâlde alınmadı: sıra kalıcı olarak tıkanmış (%d satır)", len(got))
+	}
+}
+
+/*
+ * ⚠️ KALICI HATA, SATIRI KUYRUKTAN ÇIKARMALI.
+ *
+ * ÖLÇÜLEN ARIZA: kaydı diskte olmayan bir satır (dosyası budanmış ya da
+ * elle silinmiş) her turda yeniden claim ediliyordu. attempts sonsuza
+ * kadar artıyor, ArchiveBacklog onu "bekliyor" sayıyor ve bir gün sonra
+ * "disk dolacak" alarmı KALICI olarak yanıyordu — oysa o kayıt için
+ * yapılabilecek bir şey yok.
+ *
+ * Arşivleyici geçici/kalıcı ayrımını zaten hesaplıyordu; artık satıra
+ * da yazılıyor (permanent). Bu test kalıcı işaretlenen satırın bir daha
+ * claim edilmediğini ve "bekliyor" değil "kayıp" sayıldığını ölçüyor.
+ */
+func TestPermanentFailureLeavesTheQueue(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	queuedSession(t, s, "sess-gone")
+
+	now := time.Now()
+	const retryAfter = time.Minute
+
+	got, err := s.ClaimArchives(ctx, 10, now, time.Hour, retryAfter)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("ilk claim = %d, %v", len(got), err)
+	}
+
+	// Dosya kayıp: KALICI hata.
+	if err := s.MarkArchiveFailed(ctx, "sess-gone", "recording file is gone", true, now); err != nil {
+		t.Fatal(err)
+	}
+
+	// ⚠️ ASIL İDDİA: geri çekilme süresi geçse bile bir daha
+	// üstlenilmemeli.
+	later := now.Add(24 * time.Hour)
+	if again, err := s.ClaimArchives(ctx, 10, later, time.Hour, retryAfter); err != nil {
+		t.Fatal(err)
+	} else if len(again) != 0 {
+		t.Errorf("kalıcı hatalı satır yeniden üstlenildi (%d) — kuyruk hiç "+
+			"bitmez ve 'disk dolacak' alarmı sönmez", len(again))
+	}
+
+	// Ve "bekliyor" değil "kayıp" sayılmalı.
+	b, err := s.ArchiveBacklog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Pending != 0 {
+		t.Errorf("Pending = %d, 0 bekleniyordu — kayıp kayıt hâlâ 'bekliyor' sayılıyor", b.Pending)
+	}
+	if b.Lost != 1 {
+		t.Errorf("Lost = %d, 1 bekleniyordu", b.Lost)
+	}
+	if !b.Oldest.IsZero() {
+		t.Errorf("Oldest kayıp satırdan hesaplandı: %v — 'disk dolacak' yaşı bundan çıkıyordu", b.Oldest)
 	}
 }

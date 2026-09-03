@@ -324,7 +324,10 @@ func (a *Archiver) fail(ctx context.Context, id string, log *slog.Logger, cause 
 		log.Error("recording archive failed and will not succeed without a change",
 			"error", cause)
 	}
-	if err := a.db.MarkArchiveFailed(context.WithoutCancel(ctx), id, cause.Error(), time.Now()); err != nil {
+	// ⚠️ transient DEĞİLSE KALICI: satır artık kuyruktan çıkıyor.
+	// Buradaki karar zaten hesaplanıyordu ama sadece log cümlesini
+	// seçiyordu; şimdi satıra da yazılıyor (bkz. store.MarkArchiveFailed).
+	if err := a.db.MarkArchiveFailed(context.WithoutCancel(ctx), id, cause.Error(), !transient, time.Now()); err != nil {
 		log.Error("could not record the archive failure", "error", err)
 	}
 }
@@ -396,7 +399,17 @@ func (a *Archiver) safePath(stored string) (string, error) {
  */
 func (a *Archiver) reportBacklog(ctx context.Context) {
 	b, err := a.db.ArchiveBacklog(ctx)
-	if err != nil || b.Pending == 0 {
+	if err != nil {
+		return
+	}
+	// ⚠️ KAYIP OLANLARI TEK BAŞINA DA SÖYLE. Bekleyen iş yokken bile
+	// dosyası kaybolmuş kayıtlar varsa, o sessiz durum görünmeli:
+	// erken dönüş yalnızca ikisi de sıfırken.
+	if b.Pending == 0 {
+		if b.Lost > 0 {
+			a.logger.Warn("recordings can never be archived (file missing); "+
+				"they are not waiting and not on disk to prune", "lost", b.Lost)
+		}
 		return
 	}
 	age := time.Since(b.Oldest).Round(time.Minute)
@@ -411,6 +424,12 @@ func (a *Archiver) reportBacklog(ctx context.Context) {
 	 */
 	if b.Failing > 0 {
 		fields = append(fields, "failing", b.Failing)
+	}
+	// ⚠️ KAYIP olanlar AYRI: dosyası olmayan kayıtlar "bekliyor"
+	// sayılmıyor (yoksa alarm sonsuza kadar yanardı), ama görülmeleri
+	// gerekiyor — onlar için yapılacak bir şey yok, olan bir şey var.
+	if b.Lost > 0 {
+		fields = append(fields, "lost", b.Lost)
 	}
 
 	// Bir günü aşan bekleme, disk baskısına dönüşmeden önce

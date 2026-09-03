@@ -88,6 +88,12 @@ func (s *Server) adminStorage(w http.ResponseWriter, r *http.Request) {
 	if b.Failing > 0 {
 		archive["failing"] = b.Failing
 	}
+	// ⚠️ KAYIP: dosyası olmadığı için hiç yüklenemeyecek kayıtlar.
+	// "bekliyor" değiller — panel bunu "disk dolacak" gibi değil,
+	// "kayıp" olarak göstermeli.
+	if b.Lost > 0 {
+		archive["lost"] = b.Lost
+	}
 	out["archive"] = archive
 
 	writeJSON(w, http.StatusOK, out)

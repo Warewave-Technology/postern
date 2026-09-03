@@ -166,7 +166,7 @@ recordings.
   query driven off it silently skips exactly the targets most likely to
   be broken.
 
-- **Run `postern db migrate`.** The schema is at 31. The bastion refuses
+- **Run `postern db migrate`.** The schema is at 32. The bastion refuses
   to start against an older one, so this is a failed start rather than a
   silent problem — but it is still a step your deploy has to take. If you
   script the upgrade, run migrate before starting the new binary.
@@ -189,6 +189,16 @@ recordings.
   used to. Keep it under your `TimeoutStopSec` (systemd's default is 90s).
 
 ### Added
+
+- **Recordings can no longer be silently stranded from the archive
+  queue.** A recording left open by an unclean exit (SIGKILL, OOM, power
+  loss) is now queued for archiving on the next restart, instead of being
+  closed but left out of the queue where it was never uploaded and never
+  counted as waiting. And a recording whose file is gone — pruned before
+  archiving was turned on, or deleted by hand — is now marked lost and
+  taken out of the queue, instead of being retried forever and keeping
+  the "disk will fill" warning stuck on. The panel and the logs report
+  those as *lost*, separately from *waiting*.
 
 - **Recording archive.** Finished recordings are copied to an
   S3-compatible bucket and only then may be pruned locally. The upload
