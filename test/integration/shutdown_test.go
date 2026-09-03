@@ -6,13 +6,17 @@ import (
 	"context"
 	"io"
 	"net"
+	"net/http"
+	"net/http/cookiejar"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/warewave/postern/internal/config"
+	"github.com/warewave/postern/internal/sshd"
 )
 
 /*
@@ -279,5 +283,168 @@ func TestShutdownGivesLiveSessionsTheirGraceAndTellsThemWhy(t *testing.T) {
 		t.Errorf("kapanış grace'ten %v sonra bitti (toplam %v); kesilen "+
 			"oturumlar kapandığı hâlde bir şey bekleniyor — operatör her "+
 			"yeniden başlatmada bu süreyi ödüyor", slack, shutdownTook)
+	}
+}
+
+// captureBastion, oobBastionOpts'un kurduğu sunucuyu teste verir.
+// tuneConfig ile aynı desen: bu testler paralel koşmuyor.
+var captureBastion func(*sshd.Server)
+
+/*
+ * ⚠️ KAPANIŞ, PANEL TERMİNALİ OTURUMLARINI DA DRAIN ETMELİ.
+ *
+ * Drain, `live` WaitGroup'unu bekliyordu ve o yalnızca SSH kapısının
+ * bağlantı goroutine'lerini sayıyor. Panel terminali oturumu HTTP
+ * sunucusunda yaşıyor ve o sayaca HİÇ girmiyor.
+ *
+ * ÖLÇÜLDÜ ve bedeli yanlış bir log satırından ağır: canlı bir panel
+ * terminali varken Serve 84 µs'de döndü, log "all sessions ended;
+ * shutting down" dedi, TerminateAll hiç çağrılmadı. Serve döndüğü an —
+ * süreçte main'in çıkmak üzere olduğu an — oturum hâlâ defterde,
+ * denetim satırı hâlâ "running", kayıt arşiv kuyruğuna hiç girmemişti.
+ *
+ * Yani bütün drain çalışmasının kapatmak için var olduğu arıza,
+ * ikinci kapıda aynen duruyordu. Bu testin ölçtüğü şey de tam olarak
+ * o üçlü: defter boşaldı mı, satır kapandı mı, kayıt kuyruğa girdi mi.
+ */
+func TestShutdownDrainsWebTerminalSessionsToo(t *testing.T) {
+	const grace = 3 * time.Second
+
+	var srv *sshd.Server
+	captureBastion = func(s *sshd.Server) { srv = s }
+	tuneConfig = func(c *config.Config) { c.Shutdown.DrainTimeout = grace }
+	t.Cleanup(func() { captureBastion, tuneConfig = nil, nil })
+
+	_, apiURL, _, db := oobBastionWithTerminal(t)
+	if srv == nil {
+		t.Fatal("koşum takımı sunucuyu vermedi")
+	}
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
+	browserSignIn(t, client, apiURL)
+
+	conn, _, err := dialTerminal(t, client, apiURL, "web01", apiURL)
+	if err != nil {
+		t.Fatalf("terminal WS açılamadı: %v", err)
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	wsCtx, wsCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer wsCancel()
+
+	// ⚠️ ÖNCE AKTIĞINI GÖSTER: bu olmadan test, oturum zaten ölüyken de
+	// geçerdi.
+	if err := conn.Write(wsCtx, websocket.MessageBinary, []byte("echo kanit\n")); err != nil {
+		t.Fatalf("girdi: %v", err)
+	}
+	var out strings.Builder
+	readDeadline := time.Now().Add(20 * time.Second)
+	for !strings.Contains(out.String(), "kanit") {
+		if time.Now().After(readDeadline) {
+			t.Fatalf("kabuk akmıyor; gelen: %q", out.String())
+		}
+		typ, data, rerr := conn.Read(wsCtx)
+		if rerr != nil {
+			t.Fatalf("okuma: %v", rerr)
+		}
+		if typ == websocket.MessageBinary {
+			out.Write(data)
+		}
+	}
+
+	id := waitForOpenSession(t, db)
+	if n := len(srv.LiveSessions().RunningIDs()); n != 1 {
+		t.Fatalf("defterde %d oturum var, 1 bekleniyordu", n)
+	}
+
+	/*
+	 * ⚠️ OKUMAYA DEVAM EDEN BİR İSTEMCİ ŞART — ölçülerek öğrenildi.
+	 *
+	 * Kapanış yolu kullanıcıya sebebi YAZIYOR ve o yazma websocket'e
+	 * gidiyor. Test okumayı bıraktığında yazma tıkanıyor, oturum
+	 * kapanamıyor ve defterden düşmüyor: ilk denemede tam olarak bu
+	 * oldu ve düzeltme çalışıyorken bile üç iddia birden düştü.
+	 *
+	 * Gerçek bir tarayıcı sekmesi okumaya devam eder; testin de
+	 * etmesi gerekiyor, yoksa ölçtüğü şey kendi kurgusu olur.
+	 */
+	saw := make(chan string, 1)
+	go func() {
+		var b strings.Builder
+		b.WriteString(out.String())
+		for {
+			typ, data, rerr := conn.Read(wsCtx)
+			if rerr != nil {
+				saw <- b.String()
+				return
+			}
+			if typ == websocket.MessageBinary {
+				b.Write(data)
+			}
+		}
+	}()
+
+	/*
+	 * ⚠️ TAZE BİR DİNLEYİCİ, KİMSE BAĞLANMIYOR. Üretimdeki durum bu:
+	 * SIGTERM, hiç SSH bağlantısı yokken ve bir panel terminali
+	 * akarken. `live` böylece kesinlikle boş ve kusurlu sürüm anında
+	 * "bitti" diyor.
+	 */
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+
+	sctx, scancel := context.WithCancel(context.Background())
+	served := make(chan error, 1)
+	go func() { served <- srv.Serve(sctx, l) }()
+	time.Sleep(200 * time.Millisecond)
+
+	start := time.Now()
+	scancel()
+	select {
+	case <-served:
+	case <-time.After(grace + 30*time.Second):
+		t.Fatal("Serve dönmedi")
+	}
+	elapsed := time.Since(start)
+
+	if elapsed < grace/2 {
+		t.Errorf("Serve %v'de döndü (grace %v) — panel terminali "+
+			"oturumu hiç beklenmedi", elapsed, grace)
+	}
+
+	// ⚠️ ÜÇ İDDİA DA DENETİMLE İLGİLİ ve asıl sebep bu: Serve döndüğü
+	// anda süreç ölmek üzere. O an bunlar olmadıysa hiç olmayacaklar.
+	if n := len(srv.LiveSessions().RunningIDs()); n != 0 {
+		t.Errorf("Serve döndü ama defterde %d oturum kaldı", n)
+	}
+	bg := context.Background()
+	s, err := db.Session(bg, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Open() {
+		t.Error("denetim satırı 'running' kaldı: panel onu süresiz akıyor gösterir")
+	}
+	if _, queued, aerr := db.ArchiveStateOf(bg, id); aerr != nil {
+		t.Fatalf("arşiv durumu okunamadı: %v", aerr)
+	} else if !queued {
+		t.Error("PANEL TERMİNALİ OTURUMU ARŞİV KUYRUĞUNA HİÇ GİRMEDİ: " +
+			"kaydı ne yüklenebilir ne budanabilir")
+	}
+
+	// ⚠️ SEBEP PANEL KULLANICISINA DA GİTMELİ. SSH tarafında ölçülen
+	// şeyin ikinci kapıdaki karşılığı: sessiz kopuş, ağ arızasından
+	// ayırt edilemez.
+	select {
+	case seen := <-saw:
+		if !strings.Contains(seen, "shutting down") {
+			t.Errorf("panel kullanıcısına sebep gitmedi; okuduğu: %q", seen)
+		}
+	case <-time.After(10 * time.Second):
+		t.Error("panel terminali akışı hiç kapanmadı")
 	}
 }

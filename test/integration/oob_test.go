@@ -104,6 +104,14 @@ func oobBastionOpts(t *testing.T, oobTimeout time.Duration, terminal bool, fresh
 	skipSeed := len(fresh) > 0 && fresh[0]
 	srv, pub, _, db := newBastionOpts(t, caKeyPath, skipSeed, tc)
 
+	// ⚠️ Kapanış testleri Serve'in ctx'ine sahip olmak zorunda: koşum
+	// takımı Serve'i kendi başlatıyor ve geriye yalnızca adresi
+	// veriyor. tuneConfig ile aynı desen, aynı sebeple güvenli — bu
+	// testler paralel koşmuyor.
+	if captureBastion != nil {
+		captureBastion(srv)
+	}
+
 	/*
 	 * ⚠️ HESAPLARIN KENDİLİĞİNDEN AÇILMASI AÇIK.
 	 *

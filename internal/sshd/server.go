@@ -400,10 +400,42 @@ func (s *Server) drain(ctx context.Context, live *sync.WaitGroup) {
 	}()
 
 	grace := s.cfg.Shutdown.DrainTimeoutOrDefault()
+	deadline := time.Now().Add(grace)
+
 	select {
 	case <-done:
-		s.logger.Info("all sessions ended; shutting down")
-		return
+		/*
+		 * ⚠️ İKİ KAPI VAR VE BURADA YALNIZCA BİRİ BEKLENİYORDU.
+		 *
+		 * `live` yalnızca SSH kapısının bağlantı goroutine'lerini
+		 * sayıyor. Panel terminali oturumu HTTP sunucusunda yaşıyor ve
+		 * bu WaitGroup'a HİÇ girmiyor — yani canlı oturumların hepsi
+		 * panelden açılmışsa sayaç anında sıfırlanıyor.
+		 *
+		 * ÖLÇÜLDÜ ve bedeli yanlış bir log satırından çok daha ağır:
+		 * 3 saniyelik grace'te akan bir panel terminali varken Serve
+		 * 84µs'de döndü, log "all sessions ended; shutting down" dedi
+		 * ve TerminateAll hiç çağrılmadı. Serve döndüğü anda —
+		 * süreçte bu, main'in çıkmak üzere olduğu an — oturum hâlâ
+		 * defterde, denetim satırı hâlâ "running" ve kayıt arşiv
+		 * kuyruğuna HİÇ girmemişti. Yani bütün drain çalışmasının
+		 * kapatmak için var olduğu arıza, ikinci kapıda aynen
+		 * duruyordu.
+		 *
+		 * Defter doğru sinyal: oturum oradan ancak Close çalıştıktan
+		 * sonra düşüyor. SSH-only bir kurulumda bedeli neredeyse her
+		 * zaman tek bir harita okuması — "neredeyse", çünkü Run kanal
+		 * goroutine'inde koşuyor ve o goroutine handleConn'un
+		 * live.Done()'undan sonra da yaşayabiliyor; bu bekleme oradaki
+		 * dar yarışı da kapatıyor.
+		 *
+		 * Süre deadline'dan hesaplanıyor: toplam bekleme yine
+		 * drain_timeout + closeGrace ile sınırlı.
+		 */
+		if s.waitForSessionsToClose(time.Until(deadline)) {
+			s.logger.Info("all sessions ended; shutting down")
+			return
+		}
 	case <-time.After(grace):
 	}
 
@@ -452,10 +484,13 @@ func (s *Server) drain(ctx context.Context, live *sync.WaitGroup) {
 // waitForSessionsToClose, akan oturum kalmayana kadar bekler.
 // Süre dolduysa false döner.
 //
-// Yoklama, defterin kendi sinyali olmadığı için: kapanış yolunda bir
-// kereye mahsus ve yapılacak iş milisaniyeler sürüyor. Defter'e bir
-// bildirim kanalı eklemek, oturum başına yaşayan bir maliyeti yalnızca
-// kapanışta işe yarayacak bir şey için ödemek olurdu.
+// Yoklama, defterin kendi sinyali olmadığı için. Kapanış yolunda İKİ
+// KEZ çağrılıyor (grace'i beklerken ve kesme sonrası) ve ilkinde
+// drain_timeout kadar sürebiliyor — varsayılan 30 saniyede 10 ms'lik
+// aralıkla ~3000 yoklama, ki hiçbir şey; ama yorum yaptığından azını
+// iddia etmemeli. Defter'e bir bildirim kanalı eklemek, oturum başına
+// yaşayan bir maliyeti yalnızca kapanışta işe yarayacak bir şey için
+// ödemek olurdu.
 func (s *Server) waitForSessionsToClose(grace time.Duration) bool {
 	deadline := time.Now().Add(grace)
 	for {
