@@ -95,6 +95,15 @@ func (s *Server) adminSetUserState(w http.ResponseWriter, r *http.Request) {
 		s.storeErr(w, "user.state", err)
 		return
 	}
+
+	// ⚠️ SİLİNDİYSE AÇIK SEKMESİ DE KAPANIYOR. accountStillOpen bunu
+	// bir sonraki istekte zaten yapıyor, ama o istek gelmeden hesap
+	// purge edilip ad yeniden kullanılırsa artık yapamıyor (bkz.
+	// adminPurgeUser). Burada düşürmek o pencereyi hiç açmıyor.
+	if in.State == store.StateDeleted {
+		s.webSessions.DestroyUser(name)
+	}
+
 	s.audit(r, "user.state", name, "set to "+in.State)
 	s.logger.Warn("account state changed", "actor", sessionUser(r),
 		"user", name, "state", in.State)
@@ -128,13 +137,33 @@ func (s *Server) adminPurgeUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	/*
+	 * ⚠️ AÇIK PANEL OTURUMLARI DA DÜŞÜYOR — VE BU ŞART.
+	 *
+	 * Oturum haritası kullanıcı adının METNİYLE anahtarlanıyor ve
+	 * purge tam olarak o adı serbest bırakıyor. Düşürülmezse, adı
+	 * yeniden kullanılan hesabın oturumu YENİ kişiye çözülür:
+	 * accountStillOpen her istekte RefuseIfDeleted çağırıyor ama ad
+	 * artık yeni satıra denk geldiği için nil dönüyor, yani kontrol
+	 * geçiliyor.
+	 *
+	 * Ayrılan kişinin uyuyan sekmesi, yeni işe girenin rolleriyle,
+	 * onun hedeflerinde ve onun adına denetim satırı yazarak
+	 * çalışmaya devam ederdi — kayıtlardan ayırt edilemez şekilde.
+	 *
+	 * accountStillOpen'ın kendi düşürmesi bu boşluğu kapatmıyor: o,
+	 * satırın GİTMİŞ olmasına bakıyor ve ad yeniden yaratıldıktan
+	 * sonra satır gitmiş değil.
+	 */
+	dropped := s.webSessions.DestroyUser(name)
+
 	// ⚠️ İZ ŞART: kim, ne zaman, neyi serbest bıraktı.
 	s.audit(r, "user.purge", name, fmt.Sprintf(
-		"username released on %s; %d key(s) and %d role(s) removed; "+
-			"the row is kept so audit entries naming %q stay readable",
-		res.At.Format("2006-01-02"), res.Keys, res.Roles, name))
+		"username released on %s; %d key(s), %d role(s) and %d panel session(s) "+
+			"removed; the row is kept so audit entries naming %q stay readable",
+		res.At.Format("2006-01-02"), res.Keys, res.Roles, dropped, name))
 	s.logger.Warn("account purged", "actor", sessionUser(r), "user", name,
-		"keys", res.Keys, "roles", res.Roles)
+		"keys", res.Keys, "roles", res.Roles, "sessions", dropped)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "keys_released": res.Keys, "roles_released": res.Roles,

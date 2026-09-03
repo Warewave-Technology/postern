@@ -447,6 +447,9 @@ func (s *Server) adminDeleteUser(w http.ResponseWriter, r *http.Request) {
 		s.storeErr(w, "user.delete", err)
 		return
 	}
+	// ⚠️ Satır gitti, açık panel oturumu gitmedi. Aynı ad yeniden
+	// yaratılırsa o oturum yeni kişiye çözülür (bkz. adminPurgeUser).
+	s.webSessions.DestroyUser(name)
 	s.audit(r, "user.delete", name, "")
 	ok(w)
 }
