@@ -73,6 +73,11 @@ type Server struct {
 	binds []string
 	// bindErr, 0 dışında ise bind reddediliyor.
 	bindErr uint8
+	// refuseDN dolu ise YALNIZCA o DN'in bind'i bindErr ile reddedilir;
+	// diğer bind'ler (ör. okuyucu bind'i) geçer. "Yanlış parola"yı
+	// gerçekçi kılmak için: arama bind'i başarılı, kullanıcı bind'i
+	// başarısız.
+	refuseDN string
 }
 
 // New, dinlemeye başlar ve adresi döner.
@@ -103,6 +108,17 @@ func (s *Server) Binds() []string {
 func (s *Server) RefuseBinds(code uint8) {
 	s.mu.Lock()
 	s.bindErr = code
+	s.refuseDN = ""
+	s.mu.Unlock()
+}
+
+// RefuseBindFor, YALNIZCA verilen DN'in bind'ini reddeder; başka DN'ler
+// geçer. Gerçek bir "yanlış parola" akışını taklit etmek için: okuyucu
+// bind'i başarılı, kullanıcı bind'i başarısız.
+func (s *Server) RefuseBindFor(dn string, code uint8) {
+	s.mu.Lock()
+	s.bindErr = code
+	s.refuseDN = dn
 	s.mu.Unlock()
 }
 
@@ -132,9 +148,14 @@ func (s *Server) serve(conn net.Conn) {
 		switch req.Tag {
 		case appBindRequest:
 			s.mu.Lock()
-			code := s.bindErr
+			var dn string
 			if len(req.Children) >= 2 {
-				s.binds = append(s.binds, readStr(req.Children[1]))
+				dn = readStr(req.Children[1])
+				s.binds = append(s.binds, dn)
+			}
+			code := s.bindErr
+			if s.refuseDN != "" && dn != s.refuseDN {
+				code = 0 // bu DN hedef değil: geç
 			}
 			s.mu.Unlock()
 			if err := write(conn, bindResponse(msgID, code)); err != nil {

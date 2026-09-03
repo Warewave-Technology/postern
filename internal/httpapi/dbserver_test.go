@@ -29,6 +29,22 @@ import (
  * geri kalanı için gerekmiyor — o yüzden yardımcı ayrı dosyada duruyor
  * ve yalnızca ona ihtiyaç duyan testler çağırıyor.
  */
+// migratedStore, göç edilmiş boş bir Store döner — üretim New yapıcısını
+// kendi kuran testler için.
+func migratedStore(t *testing.T) *store.Store {
+	t.Helper()
+	ctx := context.Background()
+	db, err := store.Open(ctx, testdb.DSN(t))
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatalf("store.Migrate: %v", err)
+	}
+	return db
+}
+
 func dbServer(t *testing.T) (*Server, *store.Store) {
 	s, db, _ := dbServerDSN(t)
 	return s, db

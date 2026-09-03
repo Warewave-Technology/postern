@@ -3,7 +3,9 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/warewave/postern/internal/auth"
@@ -47,6 +49,34 @@ func (s *Server) directoryLogin(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
+	/*
+	 * ⚠️ ARTAN GECİKMELİ BACKOFF — ve bu kapıda hiç yoktu.
+	 *
+	 * Yerel kapı, TOTP ve anahtar uçları guessBackoff kullanıyordu;
+	 * dizin kapısı kullanmıyordu. Oysa bu, İNSAN SEÇİMLİ bir parolayı
+	 * kabul eden TEK kapı: backoff.go'nun "gecikme yük içindir, güvenlik
+	 * değil" gerekçesi 128 bitlik makine üretimi sırra dayanıyordu ve
+	 * bir dizin parolası o önermeyi ortadan kaldırıyor.
+	 *
+	 * İki somut zarar ölçüldü: saatte 600 kurumsal parola tahmini (düz
+	 * localLimit her pencerede sıfırlanıyor), ve postern'in uzaktan
+	 * hesap kilitleme koluna dönüşmesi — her yanlış bind dizine gerçek
+	 * bir bind olarak gidiyor ve tipik bir AD kilitleme eşiğini
+	 * dakikalar içinde tetikliyor.
+	 *
+	 * Kontrol slot ediniminden ÖNCE (locallogin ile aynı gerekçe:
+	 * pahalı işten önce reddet). Anahtar (hesap, adres) çifti.
+	 */
+	bkey := backoffKey(username, s.clientKey(r))
+	if wait := s.guessBackoff.retryAfter(bkey); wait > 0 {
+		secs := int(wait.Seconds()) + 1
+		w.Header().Set("Retry-After", strconv.Itoa(secs))
+		log.Warn("directory login throttled", "seconds", secs)
+		writeErr(w, http.StatusTooManyRequests, fmt.Sprintf(
+			"too many failed attempts from here; try again in %d seconds", secs))
+		return
+	}
+
 	select {
 	case s.bindSlots <- struct{}{}:
 		defer func() { <-s.bindSlots }()
@@ -71,6 +101,7 @@ func (s *Server) directoryLogin(w http.ResponseWriter, r *http.Request,
 		// Kullanıcı adı ham yazılmıyor — hesabı hiç aramadık, yani
 		// bilinen bir ad olduğunu söyleyemeyiz.
 		log.Warn("directory login refused: empty password")
+		s.guessBackoff.fail(bkey)
 		if aerr := s.store.LogAdmin(r.Context(), store.AdminLogEntry{
 			Actor: "anonymous", Via: "local", Action: "auth.directory_denied",
 			Entity: "unknown account", Details: "empty password (would be an unauthenticated bind)",
@@ -116,6 +147,11 @@ func (s *Server) directoryLogin(w http.ResponseWriter, r *http.Request,
 		if res.Presence == ldap.PresencePresent {
 			entity = username
 		}
+		// ⚠️ İNSAN SEÇİMLİ PAROLADA fail KOŞULSUZ. Yerel kapıda
+		// cred.Chosen istisnası vardı (verilmiş makine sırrı); dizin
+		// parolası her zaman insan seçimli olduğu için o istisna burada
+		// geçerli değil.
+		s.guessBackoff.fail(bkey)
 		if aerr := s.store.LogAdmin(r.Context(), store.AdminLogEntry{
 			Actor: "anonymous", Via: "local", Action: "auth.directory_denied",
 			Entity: entity, Details: reason,
@@ -146,6 +182,11 @@ func (s *Server) directoryLogin(w http.ResponseWriter, r *http.Request,
 		writeErr(w, http.StatusUnauthorized, "wrong username or password")
 		return
 	}
+
+	// ⚠️ BİND BAŞARILI: parola tahmin sayacını sıfırla. Buradan sonraki
+	// retler (hesap yok, kimlik çakışması) parola tahmini DEĞİL —
+	// kişinin parolası doğruydu, dolayısıyla gecikmeyi tetiklememeli.
+	s.guessBackoff.succeed(bkey)
 
 	/*
 	 * ⚠️ EŞLEŞTİRME ÖNCE KARARLI KİMLİKLE, SONRA ADLA.
