@@ -118,21 +118,56 @@ func (b *Broker) finishSFTP() {
 }
 
 // sftpTap, veri yolunun üstüne takılan kopya alıcı.
-//
-// Her Write'ta önce GERÇEK hedefe yazıyor (kullanıcı ile hedef arasına
-// gecikme koymamak için), sonra kopyayı ilgili tarafa veriyor.
 type sftpTap struct {
 	dst io.Writer
 	// rec, SFTP AKTİF DEĞİLKEN yazılacak kayıt akışı; nil olabilir.
 	rec io.Writer
-	// feed, kopyayı çözümleyiciye veren yön (FromClient / FromTarget).
-	feed func(*sftpaudit.Session, []byte) error
+	// dir, hangi yönü taşıdığımız. Çözümleyiciyi besleme SIRASINI
+	// belirliyor — bkz. Write.
+	dir direction
 
 	b *Broker
 }
 
+// feed, kopyayı çözümleyiciye taşıdığımız yöne göre verir.
+func (t *sftpTap) feed(s *sftpaudit.Session, p []byte) error {
+	if t.dir == fromClient {
+		return s.FromClient(p)
+	}
+	return s.FromTarget(p)
+}
+
 /*
- * Write, baytı hedefe geçirir ve kopyasını yönlendirir.
+ * Write, baytı karşı uca geçirir ve kopyasını çözümleyiciye yönlendirir.
+ *
+ * ⚠️ İSTEMCİ YÖNÜNDE ÇÖZÜMLEYİCİ ÖNCE BESLENİYOR — SIRA BİR DENETİM
+ * KARARI, PERFORMANS KARARI DEĞİL.
+ *
+ * Eskiden her iki yönde de önce hedefe yazılıyordu ("araya gecikme
+ * koymamak için"). Bunun bedeli ölçüldü ve ağır: istek hedefe ulaşıp
+ * CEVABI GERİ GELEBİLİYOR, çözümleyici o isteği henüz görmeden. Cevap
+ * eşleşecek bekleyen istek bulamıyor ve sessizce atılıyor
+ * (sftpaudit: takePending).
+ *
+ * Görüntüsü, bir denetim aracı için en kötüsü: /etc/shadow açılıp
+ * okunuyor ve session_files'da TEK SATIR olmuyor; ya da satır oluşuyor
+ * ama `read=0` diyor — "açtı, hiçbir şey almadı". İkisi de dosya
+ * listesini eksiksiz sanan bir ekranda görünmüyor.
+ *
+ * ÖLÇÜLDÜ: anında cevap veren bir hedefle 20 koşuda 20 kayıp. Deponun
+ * kendi testleri de bu yarışı 300 koşuda 4-5 kez kaybediyordu — daha
+ * önce "koşumdaki gürültü" sanılan kararsızlığın sebebi buydu.
+ *
+ * ⚠️ HEDEF YÖNÜ ESKİSİ GİBİ: önce yaz, sonra besle. O yönde istek zaten
+ * kaydedilmiş oluyor (istemci yönü artık besleme-önce), ve cevabı
+ * kullanıcıya geciktirmemek doğru olan.
+ *
+ * ⚠️ İSTEMCİ YÖNÜNDE ARTIK FAIL-CLOSED: çözümleme hata verirse baytlar
+ * hedefe HİÇ GİTMİYOR. Bozuk bir akış yollayarak denetimi kapatıp işe
+ * devam etmek mümkün değil.
+ *
+ * Bedeli: yükleme yolunda çözümleme süresi baytların önüne geçiyor.
+ * Denetimin doğruluğu bunun karşılığı.
  *
  * ⚠️ SFTP AKTİFKEN KAYDA YAZILMIYOR. Yazılsaydı, bu kanalın
  * reddedilmesine sebep olan kusur aynen geri gelirdi: oynatılamayan,
@@ -143,11 +178,21 @@ type sftpTap struct {
  * denetlenemeyen bir kanal geçmez (bkz. lifecycle.go, Records.Create).
  */
 func (t *sftpTap) Write(p []byte) (int, error) {
+	s := t.b.sftp.Load()
+
+	if s != nil && t.dir == fromClient {
+		if err := t.feed(s, p); err != nil {
+			t.b.abortAudit(err)
+			return 0, err
+		}
+		return t.dst.Write(p)
+	}
+
 	n, err := t.dst.Write(p)
 	if err != nil {
 		return n, err
 	}
-	if s := t.b.sftp.Load(); s != nil {
+	if s != nil {
 		if err := t.feed(s, p[:n]); err != nil {
 			t.b.abortAudit(err)
 			return n, err
@@ -167,9 +212,6 @@ func (t *sftpTap) Write(p []byte) (int, error) {
 // atomic: subsystem isteği request goroutine'inden gelirken borular
 // zaten akıyor.
 type sftpState = atomic.Pointer[sftpaudit.Session]
-
-func feedFromClient(s *sftpaudit.Session, p []byte) error { return s.FromClient(p) }
-func feedFromTarget(s *sftpaudit.Session, p []byte) error { return s.FromTarget(p) }
 
 /*
  * abortAudit, denetim çöktüğünde oturumu KAPATIR.

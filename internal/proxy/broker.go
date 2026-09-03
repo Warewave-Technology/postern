@@ -10,7 +10,6 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/warewave/postern/internal/record"
-	"github.com/warewave/postern/internal/sftpaudit"
 )
 
 // requestSender, üzerine request gönderilebilen uç (ssh.Channel bunu sağlar).
@@ -115,7 +114,7 @@ func (b *Broker) WithSFTP(sink SFTPSink) *Broker {
 // outputSink returns where target→user bytes should be written: the user's
 // channel alone, or that channel tee'd into the recording.
 func (b *Broker) outputSink() io.Writer {
-	return b.idle.wrap(b.tap(b.down, b.recStream(true), feedFromTarget))
+	return b.idle.wrap(b.tap(b.down, b.recStream(true), fromTarget))
 }
 
 // inputSink is the same for user→target bytes, gated by recordInput.
@@ -124,7 +123,7 @@ func (b *Broker) inputSink() io.Writer {
 	if b.rec != nil && b.recordInput {
 		rec = b.rec.InputStream()
 	}
-	return b.idle.wrap(b.tap(b.up, rec, feedFromClient))
+	return b.idle.wrap(b.tap(b.up, rec, fromClient))
 }
 
 // errorSink returns where target→user bytes should be written: the user's
@@ -153,14 +152,14 @@ func (b *Broker) recStream(output bool) io.Writer {
 //
 // SFTP hiç kurulmamışsa (sftpSink nil) fazladan katman koymuyoruz:
 // varsayılan yol, bu özellik eklenmeden önceki yolla aynı kalıyor.
-func (b *Broker) tap(dst io.Writer, rec io.Writer, feed func(*sftpaudit.Session, []byte) error) io.Writer {
+func (b *Broker) tap(dst io.Writer, rec io.Writer, dir direction) io.Writer {
 	if b.sftpSink == nil {
 		if rec != nil {
 			return io.MultiWriter(dst, rec)
 		}
 		return dst
 	}
-	return &sftpTap{dst: dst, rec: rec, feed: feed, b: b}
+	return &sftpTap{dst: dst, rec: rec, dir: dir, b: b}
 }
 
 /*

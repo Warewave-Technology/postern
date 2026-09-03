@@ -79,6 +79,17 @@ type fakeChannel struct {
 	 * Reddin kendisi bu yüzden saf undoArm ile sınanıyor.
 	 */
 	failErr error
+
+	/*
+	 * onWrite, bu kanala yazılan her baytla ÇAĞRILAN kanca —
+	 * "hedef cevabı anında üretti" durumunu modellemek için.
+	 *
+	 * ⚠️ SENKRON, ve bu kasıtlı: gerçek bir sftp-server'ın
+	 * yapabileceği en hızlı şey isteği alır almaz cevaplamak, ve
+	 * çözümleyiciye besleme SIRASI tam olarak o anda belli oluyor.
+	 * Goroutine'e atmak testi zamanlamaya bağımlı yapardı.
+	 */
+	onWrite func([]byte)
 }
 
 func newFakeChannel() (ch *fakeChannel, feedData, feedStderr *io.PipeWriter) {
@@ -87,8 +98,26 @@ func newFakeChannel() (ch *fakeChannel, feedData, feedStderr *io.PipeWriter) {
 	return &fakeChannel{dataR: dr, dataW: &syncBuffer{}, errR: er, errW: &syncBuffer{}}, dw, ew
 }
 
-func (c *fakeChannel) Read(p []byte) (int, error)  { return c.dataR.Read(p) }
-func (c *fakeChannel) Write(p []byte) (int, error) { return c.dataW.Write(p) }
+func (c *fakeChannel) Read(p []byte) (int, error) { return c.dataR.Read(p) }
+
+func (c *fakeChannel) Write(p []byte) (int, error) {
+	n, err := c.dataW.Write(p)
+	c.mu.Lock()
+	hook := c.onWrite
+	c.mu.Unlock()
+	if hook != nil && err == nil {
+		hook(p[:n])
+	}
+	return n, err
+}
+
+// respondWith, bu kanala bir bayt ulaştığı ANDA verilen cevabı yazar.
+// Run'dan ÖNCE çağrılmalı.
+func (c *fakeChannel) respondWith(reply func([]byte)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.onWrite = reply
+}
 
 func (c *fakeChannel) Close() error {
 	c.mu.Lock()
@@ -938,4 +967,24 @@ func waitForEvent(t *testing.T, sink *memSink, op sftpaudit.Op) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatalf("%v olayı beklenen sürede üretilmedi; üretilenler: %+v", op, sink.all())
+}
+
+/*
+ * sendClient, istemciden bir paket gönderir ve HEDEFE ULAŞMASINI bekler.
+ *
+ * ⚠️ NEDENSELLİK: testler iki ayrı boruya yazıp cevabı hemen ardından
+ * koyuyordu, oysa gerçek bir hedef cevabı ancak isteği ALDIKTAN sonra
+ * üretebilir. İki yönü iki ayrı goroutine tükettiği için sıra
+ * bozulabiliyor ve cevap, isteğinden önce çözümleyiciye girebiliyordu —
+ * ölçüldü: 300 koşuda 4-5 kez, "transfer olayı üretilmedi" diye.
+ *
+ * Baytın hedef tamponunda görünmesi, çözümleyicinin isteği ÇOKTAN
+ * gördüğü anlamına geliyor: istemci yönünde besleme yazmadan önce
+ * yapılıyor (bkz. sftpTap.Write). Yani bu bekleme, aynı zamanda o
+ * sıranın hâlâ yerinde olduğunun ölçüsü.
+ */
+func sendClient(t *testing.T, feed *io.PipeWriter, up *fakeChannel, pkt []byte) {
+	t.Helper()
+	mustWrite(t, feed, string(pkt))
+	waitForContent(t, up.dataW, string(pkt))
 }

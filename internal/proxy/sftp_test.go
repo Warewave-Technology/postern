@@ -142,11 +142,11 @@ func TestSFTPBytesStayOutOfTheRecording(t *testing.T) {
 
 	// Gizli dosyanın içeriği hedeften kullanıcıya akıyor.
 	secret := strings.Repeat("KOKPIT-SIFRESI-", 200)
-	mustWrite(t, feedDown, string(sftpPkt(3, uint32(1), "/etc/shadow", uint32(1), uint32(0))))
+	sendClient(t, feedDown, up, sftpPkt(3, uint32(1), "/etc/shadow", uint32(1), uint32(0)))
 	mustWrite(t, feedUp, string(sftpPkt(102, uint32(1), "h1")))
-	mustWrite(t, feedDown, string(sftpPkt(5, uint32(2), "h1", uint64(0), uint32(len(secret)))))
+	sendClient(t, feedDown, up, sftpPkt(5, uint32(2), "h1", uint64(0), uint32(len(secret))))
 	mustWrite(t, feedUp, string(sftpPkt(103, uint32(2), secret)))
-	mustWrite(t, feedDown, string(sftpPkt(4, uint32(3), "h1")))
+	sendClient(t, feedDown, up, sftpPkt(4, uint32(3), "h1"))
 	mustWrite(t, feedUp, string(sftpPkt(101, uint32(3), uint32(0), "", "")))
 
 	// Baytlar hedefe/kullanıcıya AYNEN geçmiş olmalı: postern araya
@@ -249,9 +249,9 @@ func TestInterruptedSFTPTransferIsWrittenOnChannelClose(t *testing.T) {
 	waitForSFTP(t, b)
 
 	payload := strings.Repeat("v", 5000)
-	mustWrite(t, feedDown, string(sftpPkt(3, uint32(1), "/data/dump.sql", uint32(1), uint32(0))))
+	sendClient(t, feedDown, up, sftpPkt(3, uint32(1), "/data/dump.sql", uint32(1), uint32(0)))
 	mustWrite(t, feedUp, string(sftpPkt(102, uint32(1), "h1")))
-	mustWrite(t, feedDown, string(sftpPkt(5, uint32(2), "h1", uint64(0), uint32(len(payload)))))
+	sendClient(t, feedDown, up, sftpPkt(5, uint32(2), "h1", uint64(0), uint32(len(payload))))
 	mustWrite(t, feedUp, string(sftpPkt(103, uint32(2), payload)))
 	waitForContent(t, down.dataW, payload)
 
@@ -362,7 +362,7 @@ func TestPipelinedSFTPPacketsAreAudited(t *testing.T) {
 
 	// ⚠️ CEVAP HENÜZ YOLDA. Kusurlu sürümde b.sftp burada nil'di ve
 	// bu paket çözümleyiciye hiç uğramadan hedefe geçiyordu.
-	mustWrite(t, feedDown, string(sftpPkt(3, uint32(1), "/etc/shadow", uint32(1), uint32(0))))
+	sendClient(t, feedDown, up, sftpPkt(3, uint32(1), "/etc/shadow", uint32(1), uint32(0)))
 
 	release()
 
@@ -370,9 +370,9 @@ func TestPipelinedSFTPPacketsAreAudited(t *testing.T) {
 	// okunuyor, kapanıyor.
 	secret := strings.Repeat("KOKPIT-SIFRESI-", 20)
 	mustWrite(t, feedUp, string(sftpPkt(102, uint32(1), "h1")))
-	mustWrite(t, feedDown, string(sftpPkt(5, uint32(2), "h1", uint64(0), uint32(len(secret)))))
+	sendClient(t, feedDown, up, sftpPkt(5, uint32(2), "h1", uint64(0), uint32(len(secret))))
 	mustWrite(t, feedUp, string(sftpPkt(103, uint32(2), secret)))
-	mustWrite(t, feedDown, string(sftpPkt(4, uint32(3), "h1")))
+	sendClient(t, feedDown, up, sftpPkt(4, uint32(3), "h1"))
 	mustWrite(t, feedUp, string(sftpPkt(101, uint32(3), uint32(0), "", "")))
 
 	// ⚠️ ÇIKTI BAYTINI DEĞİL, OLAYI BEKLİYORUZ. İçerik CLOSE
@@ -487,11 +487,11 @@ func TestSFTPWithoutReplyIsStillAudited(t *testing.T) {
 	waitForSFTP(t, b)
 
 	secret := strings.Repeat("KOKPIT-SIFRESI-", 20)
-	mustWrite(t, feedDown, string(sftpPkt(3, uint32(1), "/etc/shadow", uint32(1), uint32(0))))
+	sendClient(t, feedDown, up, sftpPkt(3, uint32(1), "/etc/shadow", uint32(1), uint32(0)))
 	mustWrite(t, feedUp, string(sftpPkt(102, uint32(1), "h1")))
-	mustWrite(t, feedDown, string(sftpPkt(5, uint32(2), "h1", uint64(0), uint32(len(secret)))))
+	sendClient(t, feedDown, up, sftpPkt(5, uint32(2), "h1", uint64(0), uint32(len(secret))))
 	mustWrite(t, feedUp, string(sftpPkt(103, uint32(2), secret)))
-	mustWrite(t, feedDown, string(sftpPkt(4, uint32(3), "h1")))
+	sendClient(t, feedDown, up, sftpPkt(4, uint32(3), "h1"))
 	mustWrite(t, feedUp, string(sftpPkt(101, uint32(3), uint32(0), "", "")))
 
 	// ⚠️ ÇIKTI BAYTINI DEĞİL, OLAYI BEKLİYORUZ. İçerik CLOSE
@@ -572,5 +572,78 @@ func TestUndoArmNeedsAnActualRefusal(t *testing.T) {
 					c.wantReply, c.res, c.err, got, c.want, c.why)
 			}
 		})
+	}
+}
+
+/*
+ * ⚠️ ANINDA CEVAP VEREN HEDEF, DENETİMİ ATLATMAMALI.
+ *
+ * tap her iki yönde de ÖNCE karşı uca yazıp SONRA çözümleyiciye
+ * veriyordu. İstemci yönünde bunun bedeli ölçüldü ve ağır: istek hedefe
+ * ulaşıp cevabı geri gelebiliyor, çözümleyici o isteği HENÜZ GÖRMEDEN.
+ * Cevap eşleşecek bekleyen istek bulamıyor ve sessizce atılıyor
+ * (sftpaudit.takePending).
+ *
+ * Sonucu bir denetim aracı için en kötüsü: /etc/shadow açılıp okunuyor
+ * ve session_files'da tek satır olmuyor. Ekran ise dosya listesini
+ * eksiksiz sanıyor — kendi çekincesi yalnızca kabuk ve scp için.
+ *
+ * ⚠️ TEST DETERMİNİSTİK, "bazen yakalar" değil. Hedef cevabı, isteğin
+ * kendisine yazıldığı çağrının İÇİNDEN veriyor: kusurlu sürümde cevap
+ * her seferinde isteğinden önce çözümleyiciye giriyor.
+ */
+func TestInstantTargetReplyDoesNotLoseTheAuditRow(t *testing.T) {
+	down, feedDown, _ := newFakeChannel()
+	up, feedUp, _ := newFakeChannel()
+	downR := make(chan *ssh.Request)
+	upR := make(chan *ssh.Request)
+
+	files := &memSink{}
+
+	// Hedef: OPEN'ı alır almaz HANDLE ile cevaplıyor. Gecikme yok,
+	// uyku yok — gerçek bir sftp-server'ın yapabileceği en hızlısı.
+	var once sync.Once
+	up.respondWith(func(p []byte) {
+		if len(p) > 4 && p[4] == 3 { // SSH_FXP_OPEN
+			once.Do(func() {
+				mustWrite(t, feedUp, string(sftpPkt(102, uint32(1), "h1")))
+			})
+		}
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	b := New(down, downR, up, upR, nil, false, RequestPolicy{AllowSFTP: true}, testLogger()).
+		WithSFTP(files)
+	done := make(chan error, 1)
+	go func() { done <- b.Run(ctx) }()
+
+	downR <- &ssh.Request{Type: "subsystem", Payload: sshString("sftp")}
+	waitForSFTP(t, b)
+
+	mustWrite(t, feedDown, string(sftpPkt(3, uint32(1), "/etc/shadow", uint32(1), uint32(0))))
+	waitForEvent(t, files, sftpaudit.OpOpen)
+
+	var open *sftpaudit.Event
+	all := files.all()
+	for i, e := range all {
+		if e.Op == sftpaudit.OpOpen {
+			open = &all[i]
+		}
+	}
+	if open == nil {
+		t.Fatalf("HEDEF ANINDA CEVAP VERDİĞİ İÇİN AÇILIŞ DENETİME GİRMEDİ; "+
+			"üretilen olaylar: %+v", all)
+	}
+	if open.Path != "/etc/shadow" {
+		t.Errorf("yol = %q", open.Path)
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run dönmedi")
 	}
 }
