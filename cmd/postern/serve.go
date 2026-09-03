@@ -526,24 +526,33 @@ func newServeCmd() *cobra.Command {
 			}
 
 			pruner := record.NewPruner(cfg.Recording.Dir, keepFor, logger)
-			if archiver != nil {
-				pruner = pruner.WithArchive(archiver, func(c context.Context, ids []string) {
-					// ⚠️ SİLİNEN KANIT DENETİM DEFTERİNE DE YAZILIYOR.
-					// Panel, kayıp bir kaydın sebebini "admin log
-					// söyler" diye anlatıyor; budayıcı oraya hiç
-					// yazmadığı için o cümle bugüne kadar doğru
-					// değildi.
-					for _, id := range ids {
-						if lerr := db.LogAdmin(c, store.AdminLogEntry{
-							Actor: "system", Via: "system",
-							Action: "recording.prune", Entity: id,
-							Details: "deleted by retention after " + keepFor.String(),
-						}); lerr != nil {
-							logger.Error("could not log a retention deletion",
-								"session_id", id, "error", lerr)
-						}
+
+			// ⚠️ SİLİNEN KANIT DENETİM DEFTERİNE YAZILIYOR — ARŞİVLEME
+			// AÇIK OLSUN OLMASIN. Bu geri çağrı eskiden yalnızca
+			// WithArchive ile takılıyordu; arşivleme varsayılan kapalı
+			// olduğu için sıradan kurulumda budayıcı kanıt siliyor ve
+			// admin_log'a hiçbir şey yazmıyordu — oysa panel kayıp bir
+			// kaydın sebebini "admin log söyler" diye anlatıyor.
+			pruner = pruner.WithAuditLog(func(c context.Context, ids []string) {
+				for _, id := range ids {
+					if lerr := db.LogAdmin(c, store.AdminLogEntry{
+						Actor: "system", Via: "system",
+						Action: "recording.prune", Entity: id,
+						Details: "deleted by retention after " + keepFor.String(),
+					}); lerr != nil {
+						logger.Error("could not log a retention deletion",
+							"session_id", id, "error", lerr)
 					}
-				})
+				}
+			})
+
+			// ⚠️ AÇIK OTURUMUN KAYDI SİLİNMESİN. Boşta ama hâlâ açık bir
+			// oturumun mtime'ı eskir; onu canlı oturum defteri koruyor,
+			// mtime değil (bkz. record.Prune).
+			pruner = pruner.WithOpenSessions(s.LiveSessions().RunningIDs)
+
+			if archiver != nil {
+				pruner = pruner.WithArchive(archiver)
 				go archiver.Start(ctx)
 			}
 			go pruner.Start(ctx)

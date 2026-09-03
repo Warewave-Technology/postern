@@ -37,6 +37,12 @@ type Pruner struct {
 	// deleted, silinen her oturum için çağrılıyor: kanıtın kaybolması
 	// da denetim defterine düşmesi gereken bir olay.
 	deleted func(ctx context.Context, sessionIDs []string)
+
+	// openIDs, o an AÇIK oturumların kümesini döner (canlı oturum
+	// defterinden). Prune bunları atlıyor: boşta ama hâlâ açık bir
+	// oturumun kaydı, eski mtime'ı yüzünden silinmemeli. nil ise
+	// koruma yok (davranış eskisiyle aynı).
+	openIDs func() map[string]bool
 }
 
 // NewPruner, kapalıysa nil döner — çağıranın ayrıca kontrol etmesi
@@ -57,13 +63,46 @@ func NewPruner(dir string, keepFor time.Duration, logger *slog.Logger) *Pruner {
  * ⚠️ Bunu takmadan arşivleme açmak, henüz yüklenmemiş kayıtların
  * silinmesi demek. serve.go ikisini BİRLİKTE kuruyor; ayrı ayrı
  * yapılandırılabilir olsalardı biri unutulabilirdi.
+ *
+ * ⚠️ SİLME KAYDINA DOKUNMUYOR: o artık WithAuditLog ile, arşivlemeden
+ * BAĞIMSIZ olarak takılıyor. Denetim yazımını bu kapıya bağlamak, tam
+ * da arşivleme kapalıyken (varsayılan) sessizce kanıt silinmesine yol
+ * açıyordu.
  */
-func (p *Pruner) WithArchive(a Archived, onDeleted func(context.Context, []string)) *Pruner {
+func (p *Pruner) WithArchive(a Archived) *Pruner {
 	if p == nil {
 		return nil
 	}
 	p.archived = a
+	return p
+}
+
+/*
+ * WithAuditLog, silinen kayıtların denetim defterine yazılmasını sağlar
+ * — arşivleme AÇIK OLMASA DA.
+ *
+ * ⚠️ NEDEN AYRI: silme geri çağrısı eskiden yalnızca WithArchive ile,
+ * yani arşivleyici varsa takılıyordu. Arşivleme varsayılan KAPALI
+ * olduğu için sıradan kurulumda budayıcı kanıt siliyor ve admin_log'a
+ * hiçbir şey yazmıyordu — panel ise kayıp bir kaydın sebebini "admin
+ * log söyler" diye anlatıyor. Denetim yazımı arşivlemeden bağımsız
+ * olmalı.
+ */
+func (p *Pruner) WithAuditLog(onDeleted func(context.Context, []string)) *Pruner {
+	if p == nil {
+		return nil
+	}
 	p.deleted = onDeleted
+	return p
+}
+
+// WithOpenSessions, açık oturumları veren kaynağı takar (canlı oturum
+// defteri). Prune bu kümedeki kayıtları silmiyor.
+func (p *Pruner) WithOpenSessions(open func() map[string]bool) *Pruner {
+	if p == nil {
+		return nil
+	}
+	p.openIDs = open
 	return p
 }
 
@@ -97,7 +136,11 @@ func (p *Pruner) Start(ctx context.Context) {
 
 // RunOnce, tek bir budama koşusu.
 func (p *Pruner) RunOnce(ctx context.Context) PruneResult {
-	res, err := Prune(ctx, p.dir, p.keepFor, p.now(), p.archived)
+	var open map[string]bool
+	if p.openIDs != nil {
+		open = p.openIDs()
+	}
+	res, err := Prune(ctx, p.dir, p.keepFor, p.now(), p.archived, open)
 	if err != nil {
 		p.logger.Error("recording prune failed", "error", err)
 		return res

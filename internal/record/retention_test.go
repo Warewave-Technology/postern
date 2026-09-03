@@ -43,7 +43,7 @@ func TestPruneUsesModTimeNotDirectoryName(t *testing.T) {
 	// Aynı dizinde gerçekten eski bir dosya: gitmeli.
 	old := write(t, dir, "2020-01-01", "eski.cast", 200*24*time.Hour, 100)
 
-	res, err := Prune(context.Background(), dir, 90*24*time.Hour, time.Now(), nil)
+	res, err := Prune(context.Background(), dir, 90*24*time.Hour, time.Now(), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestPruneWithZeroKeepsEverything(t *testing.T) {
 	p := write(t, dir, "2020-01-01", "a.cast", 10000*time.Hour, 10)
 
 	for _, d := range []time.Duration{0, -time.Hour} {
-		res, err := Prune(context.Background(), dir, d, time.Now(), nil)
+		res, err := Prune(context.Background(), dir, d, time.Now(), nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -92,7 +92,7 @@ func TestPruneRemovesOnlyEmptiedDays(t *testing.T) {
 	write(t, dir, "2020-01-02", "a.cast", 200*24*time.Hour, 1)
 	write(t, dir, "2020-01-02", "b.cast", time.Minute, 1)
 
-	res, err := Prune(context.Background(), dir, 90*24*time.Hour, time.Now(), nil)
+	res, err := Prune(context.Background(), dir, 90*24*time.Hour, time.Now(), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,5 +228,39 @@ func TestUsageReportsWhatItCouldNotRead(t *testing.T) {
 	}
 	if skipped == 0 {
 		t.Error("okunamayan alt ağaç sessizce yutuldu: toplam eksik ama 'tam' diye dönüyor")
+	}
+}
+
+/*
+ * ⚠️ HÂLÂ AÇIK BİR OTURUMUN KAYDI, YAŞLI OLSA DA SİLİNMEZ.
+ *
+ * ÖLÇÜLEN ARIZA: değiştirilme zamanı yalnızca AKTİF YAZILAN bir dosyayı
+ * koruyor. Çıktı üretmeyen boşta bir kabuk (açık ama sessiz) eski bir
+ * mtime taşıyor ve oturum HÂLÂ açıkken kaydı siliniyordu. Kayıt dosyası
+ * "<id>.cast" ve id, canlı oturum defterindeki id ile aynı.
+ */
+func TestPruneSkipsOpenSessions(t *testing.T) {
+	dir := t.TempDir()
+
+	// İkisi de yaşlı. Biri açık bir oturuma ait, biri kapalı.
+	openRec := write(t, dir, "2020-01-01", "acikoturum.cast", 200*24*time.Hour, 50)
+	closedRec := write(t, dir, "2020-01-01", "kapalioturum.cast", 200*24*time.Hour, 70)
+
+	open := map[string]bool{"acikoturum": true}
+
+	res, err := Prune(context.Background(), dir, 90*24*time.Hour, time.Now(), nil, open)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(openRec); err != nil {
+		t.Errorf("AÇIK oturumun kaydı silindi: %v — boşta bir kabuk, "+
+			"kapanışta kaydını kaybeder", err)
+	}
+	if _, err := os.Stat(closedRec); !os.IsNotExist(err) {
+		t.Errorf("kapalı oturumun yaşlı kaydı silinmeliydi; stat = %v", err)
+	}
+	if res.Files != 1 {
+		t.Errorf("silinen dosya = %d, 1 bekleniyordu", res.Files)
 	}
 }

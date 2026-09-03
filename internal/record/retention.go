@@ -110,8 +110,12 @@ type PruneResult struct {
  *
  * ⚠️ DEĞİŞTİRİLME ZAMANINA BAKIYOR, dizin adına değil. Dizin adı
  * (2026-08-31) kaydın AÇILDIĞI günü söylüyor; uzun süren bir oturum
- * ertesi güne sarkabiliyor ve hâlâ yazılıyor olabilir. Ada bakan bir
- * budayıcı, o dosyayı yazılırken silerdi.
+ * ertesi güne sarkabiliyor. Ada bakan bir budayıcı, ertesi gün hâlâ
+ * yazılan o dosyayı yaşlı sanıp silerdi.
+ *
+ * ⚠️ AMA mtime YALNIZCA AKTİF YAZILANI KORUR. Çıktı üretmeyen boşta
+ * bir oturumun mtime'ı da eskir; onu openIDs (açık oturum kümesi)
+ * koruyor, mtime değil.
  *
  * ⚠️ SIFIR SÜRE HİÇBİR ŞEY SİLMİYOR. Bu fonksiyonun yanlış çağrılması
  * bütün denetim kaydını silmek demek; "ayar verilmemiş" hâlinin
@@ -150,7 +154,7 @@ type Archived interface {
  * bedel denetim kanıtının yok olması.
  */
 func Prune(ctx context.Context, dir string, keepFor time.Duration, now time.Time,
-	archived Archived) (PruneResult, error) {
+	archived Archived, openIDs map[string]bool) (PruneResult, error) {
 
 	var res PruneResult
 	if keepFor <= 0 {
@@ -216,6 +220,28 @@ func Prune(ctx context.Context, dir string, keepFor time.Duration, now time.Time
 			if !info.ModTime().Before(cutoff) {
 				remaining++
 				continue
+			}
+
+			/*
+			 * ⚠️ HÂLÂ AÇIK BİR OTURUMUN KAYDI SİLİNMEZ.
+			 *
+			 * ÖLÇÜLEN ARIZA: değiştirilme zamanı yalnızca AKTİF YAZILAN
+			 * bir dosyayı koruyor. Çıktı üretmeyen boşta bir kabuk
+			 * (açık ama sessiz) 25 saat sonra eski bir mtime taşıyor ve
+			 * oturum HÂLÂ açıkken kaydı siliniyordu — unlink'lenen
+			 * inode'a yazma devam ettiği için oturum yolunda kimse fark
+			 * etmiyor, ama kapanışta kayıt yok oluyor.
+			 *
+			 * openIDs, o an açık oturumların kümesi (canlı oturum
+			 * defterinden). Kayıt dosyasının adı oturum kimliği ve ikisi
+			 * aynı (lifecycle.go: record.NewSessionID hem dosyaya hem
+			 * satıra gidiyor).
+			 */
+			if len(openIDs) > 0 {
+				if id, ok := sessionIDOf(e.Name()); ok && openIDs[id] {
+					remaining++
+					continue
+				}
 			}
 
 			if archived != nil {
