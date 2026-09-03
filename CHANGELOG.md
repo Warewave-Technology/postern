@@ -286,6 +286,10 @@ recordings.
 
 ### Added
 
+- **A security policy** (`SECURITY.md`, and in the release archive).
+  Private vulnerability reporting through GitHub, what is in scope and
+  what is not, and a schedule we can keep rather than a flattering one.
+
 - **Recordings can no longer be silently stranded from the archive
   queue.** A recording left open by an unclean exit (SIGKILL, OOM, power
   loss) is now queued for archiving on the next restart, instead of being
@@ -414,6 +418,31 @@ recordings.
   workflow — there is no signing key to store or rotate. The release is
   left as a draft for a human to publish. Verification steps are in the
   release notes and in the install documentation.
+
+- **The import path is `github.com/Warewave-Technology/postern`.** It
+  was `github.com/warewave/postern`, which is not a namespace we hold —
+  and a module path is a claim on one. Nothing outside this repository
+  could have depended on it, since it never resolved to anywhere. Three
+  things it quietly broke: `go install` could not find the module; the
+  Makefile's `-X` flag named a package path that no longer existed, and
+  a `-X` whose path does not match does nothing and says nothing, so the
+  version stamp would have stopped landing; and the cosign identity
+  below pinned the old organisation.
+
+- **The published verification command changed with it.** The
+  `--certificate-identity-regexp` in the install documentation must name
+  the repository that ran the workflow. If you copied the command from
+  the documentation site before this release, take it again from the
+  release notes — the old one rejects a genuine signature, which is the
+  worst way for a verification step to fail.
+
+- **The release workflow pins its actions to commit SHAs, and one of
+  them never resolved at all.** `sigstore/cosign-installer@v4` does not
+  exist — that project publishes full versions only — so the first tag
+  would have run the entire test suite and then failed at the signing
+  step. Pinning is the wider fix: this is the job that mints the signed
+  binary, so a hijacked tag there means a substituted binary reaching
+  everyone with a valid signature.
 
 ### Legal
 
