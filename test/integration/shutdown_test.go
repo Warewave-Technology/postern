@@ -4,6 +4,7 @@ package integration
 
 import (
 	"context"
+	"database/sql"
 	"io"
 	"net"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/warewave/postern/internal/config"
 	"github.com/warewave/postern/internal/sshd"
+	"github.com/warewave/postern/internal/store"
 )
 
 /*
@@ -447,4 +449,167 @@ func TestShutdownDrainsWebTerminalSessionsToo(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Error("panel terminali akışı hiç kapanmadı")
 	}
+}
+
+/*
+ * ⚠️ SERVE DÖNDÜĞÜNDE Close BİTMİŞ OLMALI — DEFTERİN BOŞALMASI YETMİYOR.
+ *
+ * drain'in son beklemesi canlı oturum defterine bakıyor. Oturum
+ * defterden Run'ın defer'inde düşüyor (lifecycle.go), Session.Close ise
+ * ÇAĞIRANIN defer'inde — yani Run döndükten SONRA (channel.go). İkisi
+ * arasında defter boş ama Close hâlâ çalışıyor: EndSession yazılmamış,
+ * QueueArchive çağrılmamış olabiliyor.
+ *
+ * Süreçte Serve'in dönmesi main'in çıkması demek ve serve.go hemen
+ * ardından veritabanını kapatıyor. Yani o pencerede kalan oturumların
+ * kaydı arşiv kuyruğuna HİÇ girmiyor — "arşivlenmemiş hiçbir şey
+ * budanmaz" kuralı gereği diskte kalıyor, yüklenemiyor, ve operatöre
+ * bunu söyleyen tek satır o çoktan okumayı bıraktıktan sonra düşüyor.
+ *
+ * Tek oturumla pencere görünmüyor; test bu yüzden birkaç oturumu
+ * birden açıyor.
+ */
+/*
+ * ⚠️ SERVE DÖNDÜĞÜNDE Close BİTMİŞ OLMALI — DEFTERİN BOŞALMASI YETMİYOR.
+ *
+ * Oturum canlı defterden Run'ın defer'inde düşüyordu; Session.Close ise
+ * ÇAĞIRANIN defer'inde, yani Run'dan SONRA (sshd/channel.go ve
+ * httpapi/terminal.go, ikisi de aynı desende). Aradaki pencerede defter
+ * BOŞ ama Close hâlâ çalışıyor: denetim satırı kapatılmamış, kayıt
+ * arşiv kuyruğuna yazılmamış olabiliyor.
+ *
+ * Kapanış tam olarak o deftere "her şey bitti mi" diye soruyor. Süreçte
+ * Serve'in dönmesi main'in çıkıp veritabanını kapatması demek, yani o
+ * pencerede yarım kalan yazma düşüyor ve kayıt hiç yüklenmiyor.
+ *
+ * ⚠️ TEST İSTATİSTİK DEĞİL, DETERMİNİSTİK — ve ilk iki denemem
+ * istatistikti, pencereyi 6 koşuda bir kez bile göstermedi (Close'un iki
+ * yazması yoklama aralığından hızlı bitiyor). Burada Close, EndSession'ın
+ * güncelleyeceği satır TEST TARAFINDAN KİLİTLENEREK açık tutuluyor:
+ * yavaş bir veritabanının yaptığı şeyin aynısı, ama zamanlamaya bağlı
+ * değil.
+ *
+ * Düzeltme yerindeyse Serve, kilit boyunca DÖNEMEZ (defter dolu kalır).
+ * Yerinde değilse defter Close'dan önce boşalır ve Serve hemen döner.
+ */
+func TestShutdownFinishesEverySessionsCloseBeforeReturning(t *testing.T) {
+	const grace = 500 * time.Millisecond
+
+	caKeyPath, caAuthorizedKey := newTestCA(t)
+	tgt := startCertTarget(t, caAuthorizedKey)
+	tc := tgt.target()
+	tc.Name = "web01"
+
+	tuneConfig = func(c *config.Config) { c.Shutdown.DrainTimeout = grace }
+	t.Cleanup(func() { tuneConfig = nil })
+
+	srv, hostPub, signer, db := newBastion(t, caKeyPath, tc)
+	dsn := lastDSN
+
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	served := make(chan error, 1)
+	go func() { served <- srv.Serve(ctx, l) }()
+
+	client, err := ssh.Dial("tcp", l.Addr().String(), &ssh.ClientConfig{
+		User:            "yigit:web01",
+		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
+		HostKeyCallback: ssh.FixedHostKey(hostPub),
+		Timeout:         15 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("bağlanılamadı: %v", err)
+	}
+	defer client.Close()
+
+	sess, err := client.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sess.Start("sleep 300"); err != nil {
+		t.Fatalf("komut başlatılamadı: %v", err)
+	}
+
+	bg := context.Background()
+	id := waitForOpenSession(t, db)
+
+	// ⚠️ SATIR KİLİTLENİYOR: Close'un EndSession'ı bu satırı
+	// güncelleyecek ve kilit bırakılana kadar bekleyecek.
+	locker, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer locker.Close()
+	tx, err := locker.BeginTx(bg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(bg,
+		`SELECT id FROM sessions WHERE id=$1 FOR UPDATE;`, id); err != nil {
+		t.Fatal(err)
+	}
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			_ = tx.Rollback()
+		}
+	}
+	defer release()
+
+	start := time.Now()
+	cancel()
+
+	// Kilit tutulurken Serve DÖNMEMELİ.
+	select {
+	case <-served:
+		t.Fatalf("Serve %v'de döndü; Close hâlâ EndSession'ı bekliyordu — "+
+			"defter Close bitmeden boşalıyor, yani süreçte veritabanı "+
+			"kapanırken kayıt arşiv kuyruğuna hiç girmez", time.Since(start))
+	case <-time.After(grace + 2*time.Second):
+	}
+
+	release()
+
+	select {
+	case <-served:
+	case <-time.After(30 * time.Second):
+		t.Fatal("kilit bırakıldıktan sonra Serve dönmedi")
+	}
+
+	// Ve kayıt gerçekten kuyruğa girmiş olmalı.
+	if _, queued, aerr := db.ArchiveStateOf(bg, id); aerr != nil {
+		t.Fatal(aerr)
+	} else if !queued {
+		t.Error("kayıt arşiv kuyruğuna girmedi")
+	}
+}
+
+// waitForOpenSessions, n adet açık oturum satırı belirene kadar bekler.
+func waitForOpenSessions(t *testing.T, db *store.Store, n int) []string {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		rows, err := db.Sessions(context.Background(), "", 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ids []string
+		for _, r := range rows {
+			if r.Open() {
+				ids = append(ids, r.ID)
+			}
+		}
+		if len(ids) >= n {
+			return ids
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("%d açık oturum belirmedi", n)
+	return nil
 }

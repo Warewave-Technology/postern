@@ -70,6 +70,26 @@ func newBastion(t *testing.T, caKeyPath string, targets ...model.Target) (srv *s
 // yeterli.
 var tuneConfig func(*config.Config)
 
+/*
+ * lastDSN, son kurulan düzeneğin veritabanı adresi.
+ *
+ * ⚠️ Var olma sebebi: kapanış testleri SÜREÇTEKİ SIRAYI modellemek
+ * zorunda — Serve döner, main veritabanını kapatır, süreç ölür. O
+ * pencerede yarım kalan bir Session.Close'un bedeli ancak TAZE bir
+ * bağlantıyla okunduğunda görünüyor; aynı bağlantıdan okumak, okuma
+ * gecikmesi boyunca Close'un yetişmesine izin veriyor ve arıza
+ * kaçıyor (ölçüldü: 6 koşuda 0 kez göründü).
+ *
+ * tuneConfig ile aynı desen ve aynı sebeple güvenli: bu testler
+ * paralel koşmuyor.
+ */
+var lastDSN string
+
+func captureDSN(dsn string) string {
+	lastDSN = dsn
+	return dsn
+}
+
 // withConfig, verilen ayarla bir sunucu kurar ve dinlemeye başlar.
 func withConfig(t *testing.T, caKeyPath string, tune func(*config.Config), targets ...model.Target) (addr string, hostPub ssh.PublicKey, clientSigner ssh.Signer) {
 	t.Helper()
@@ -117,7 +137,7 @@ func newBastionOpts(t *testing.T, caKeyPath string, skipSeed bool, targets ...mo
 		Listen:    config.ListenConfig{Addr: "127.0.0.1:0"},
 		HostKey:   hostKeyPath,
 		CA:        config.CAConfig{KeyFile: caKeyPath},
-		Database:  config.DatabaseConfig{DSN: testdb.DSN(t)},
+		Database:  config.DatabaseConfig{DSN: captureDSN(testdb.DSN(t))},
 		Recording: config.RecordingConfig{Dir: filepath.Join(t.TempDir(), "recordings")},
 	}
 

@@ -569,7 +569,32 @@ func (s *Session) Run(ctx context.Context, down ssh.Channel, downR <-chan *ssh.R
 	ctx, terminate := context.WithCancelCause(ctx)
 	defer terminate(nil)
 	s.deps.Live.add(s.ID, terminate)
-	defer s.deps.Live.remove(s.ID)
+
+	/*
+	 * ⚠️ DEFTERDEN DÜŞME BURADA DEĞİL, Close'DA — ÇÜNKÜ DEFTER KAPANIŞIN
+	 * "BİTTİ Mİ" SİNYALİ.
+	 *
+	 * Burada `defer s.deps.Live.remove(s.ID)` vardı ve Run döner dönmez
+	 * çalışıyordu. Close ise ÇAĞIRANIN defer'inde, yani Run'dan SONRA
+	 * (sshd/channel.go ve httpapi/terminal.go, ikisi de aynı desende).
+	 * Aradaki pencerede defter BOŞ ama Close hâlâ çalışıyor: denetim
+	 * satırı kapatılmamış, kayıt arşiv kuyruğuna yazılmamış olabiliyor.
+	 *
+	 * Kapanış tam olarak o defteri "her şey bitti mi" diye sorguluyor
+	 * (sshd: waitForSessionsToClose). Süreçte Serve'in dönmesi main'in
+	 * çıkması ve veritabanının kapanması demek — o pencerede yarım
+	 * kalan yazma "sql: database is closed" ile düşüyor ve kayıt hiç
+	 * yüklenmiyor, "arşivlenmemiş budanmaz" kuralı gereği diskte
+	 * kalıyor.
+	 *
+	 * Kayıt Close'a taşındığında defter girdisi Close'u DA kapsıyor ve
+	 * soru doğru cevabı veriyor.
+	 *
+	 * ⚠️ SÖZLEŞME: Run'ı çağıran Close'u da çağırmak ZORUNDA. İki kapı
+	 * da Close'u Run'dan ÖNCE defer ediyor, yani sıra yapısal olarak
+	 * garanti. Yeni bir kapı eklenirse aynı deseni izlemeli, yoksa
+	 * oturum defterde sonsuza kadar "akıyor" görünür.
+	 */
 
 	// ⚠️ KAYIT BOZULURSA OTURUM BİTER.
 	//
@@ -708,6 +733,11 @@ func (s *Session) Close(ctx context.Context) {
 		return
 	}
 	s.closed = true
+
+	// ⚠️ DEFTERDEN DÜŞME EN SONDA (bkz. Run'daki not): girdi, denetim
+	// satırı kapanıp kayıt arşiv kuyruğuna yazılana kadar durmalı.
+	// Kapanış "her şey bitti mi" sorusunu o deftere soruyor.
+	defer s.deps.Live.remove(s.ID)
 
 	// Kayıt önce: Err() ancak Close'dan SONRA anlamlıdır — yapışkan hata
 	// oturum boyunca birikir ve adaptörler kayıt arızasını yutup oturumu
