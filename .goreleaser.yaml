@@ -46,7 +46,22 @@ builds:
       # devam ediyor, ki bir açık duyurulduğunda ikilinin bağımlılık
       # sürümlerini okumanın yolu o.
       - -s -w
-      - -X github.com/warewave/postern/internal/version.version={{ .Tag }}
+      # ⚠️ SNAPSHOT'A SÜRÜM BASILMIYOR — ÖLÇÜLDÜ.
+      #
+      # Koşulsuz `{{ .Tag }}` yazıyordu ve snapshot'ta o, SON ETİKET
+      # oluyor: `make release-snapshot` ikilisi `postern v0.0.0` diyordu
+      # (etiket yokken), v1.0.0 atıldıktan sonra ise kendini tam olarak
+      # `v1.0.0` ilan edecekti — hem de "not a tagged build" uyarısı
+      # OLMADAN, yani gerçek sürüm ikilisinden ayırt edilemez halde.
+      #
+      # Oysa o ikili yayınlanmamalı: goreleaser'ı çalıştıran `go run`
+      # araç zincirini yükseltiyor, yani go.mod'un sürümüyle
+      # derlenmiyor (ölçümde go1.27.1'e karşı go.mod 1.26.6). RELEASING.md
+      # bunu düzyazıyla söylüyordu; ikilinin KENDİSİ söylemiyordu.
+      #
+      # Boş bırakılınca version paketi "dev" diyor ve etiketsizliği
+      # cümleyle yazıyor — zaten tam bunun için ayrı bir alanı var.
+      - -X github.com/warewave/postern/internal/version.version={{ if .IsSnapshot }}{{ else }}{{ .Tag }}{{ end }}
 
     # ⚠️ HEDEFLER: bastion Linux'ta çalışıyor. macOS ikilileri CLI için
     # var — `postern log`, `postern user ...` gibi komutlar bastion

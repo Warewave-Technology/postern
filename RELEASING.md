@@ -23,6 +23,10 @@ hand gets them wrong on the release where it matters.
    want to be un-doing. It skips signing, which needs an OIDC identity
    that only CI has.
 
+   `release-check` needs a git remote — without one it stops at
+   `no remote configured to list refs from`, which is a statement about
+   the clone and not about the file. `release-snapshot` works either way.
+
    **Do not ship what it produces.** `go run` upgrades the Go toolchain
    to satisfy goreleaser itself, so a snapshot binary is built with a
    different Go than the one in `go.mod`. The real release is built in
