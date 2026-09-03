@@ -132,6 +132,15 @@ func oobBastionOpts(t *testing.T, oobTimeout time.Duration, terminal bool, fresh
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	webAPI := httpapi.New(holder, logins, db, logger)
+
+	// ⚠️ Ters vekil arkasındaki davranışı ölçen testler için: liste
+	// boşken (varsayılan) hiçbir şey değişmiyor. tuneConfig ile aynı
+	// desen ve aynı sebeple güvenli — bu testler paralel koşmuyor.
+	if len(trustedProxies) > 0 {
+		if err := webAPI.SetTrustedProxies(trustedProxies); err != nil {
+			t.Fatalf("SetTrustedProxies: %v", err)
+		}
+	}
 	// Kayıt izleme uçları: sshd ile AYNI depo (serve.go'daki bağlamanın
 	// aynısı) — kayıtların yazıldığı yer ile okunduğu yer ayrışamaz.
 	webAPI.UseRecordings(srv.Records())

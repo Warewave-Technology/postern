@@ -97,6 +97,26 @@ recordings.
 
 ### Needs action when upgrading a pre-release build
 
+- **Browser terminal sessions record the user's address, not the
+  proxy's — `trusted_proxies` is now an audit setting.** A panel-opened
+  session took its source address straight from the connection, so
+  behind a TLS terminator every one of them was filed under the proxy,
+  and two people behind it could not be told apart afterwards. SSH
+  sessions in that same column always carried the real address, which
+  is what made the mismatch easy to miss.
+
+  If `trusted_proxies` is empty — the default — nothing changes. If it
+  lists your terminator, `src_ip` for web sessions starts showing the
+  browser instead: **rows written before the upgrade say the proxy and
+  rows after say the user, with nothing in the schema marking the
+  boundary**, so note your deploy time if you query that column
+  historically. The same value flows into the SFTP file history, the
+  target page, and the log line written when a session is closed.
+
+  Read the setting's own note before widening it: a range listed there
+  is a range whose members can now choose what a permanent audit row
+  says about them.
+
 - **SHA-1 and DSA no longer authenticate at the front door — check for
   DSA keys before upgrading.** The transport already refused SHA-1, but
   the signature on the identity proof is negotiated separately and had

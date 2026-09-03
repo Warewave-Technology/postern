@@ -208,7 +208,12 @@ type HTTPConfig struct {
 	//
 	// ⚠️ YALNIZCA GERÇEKTEN ÖNÜNDEKİ VEKİLİ YAZ. Buraya geniş bir
 	// aralık yazmak, o aralıktaki herkese kendi hız sınırı anahtarını
-	// seçtirmek olur.
+	// VE denetim satırına yazılacak adresi seçtirmek olur.
+	//
+	// ⚠️ ARTIK BİR DENETİM AYARI DA. Panel terminali oturumu açarken
+	// kaynak adresi buradan çözüyor; ayarlanmadığında sessions.src_ip'ye
+	// vekilin adresi yazılıyor ve "bu kabuk nereden açıldı" sorusu
+	// panelden açılan her oturum için aynı cevabı veriyor.
 	TrustedProxies []string `yaml:"trusted_proxies"`
 
 	// TerminalEnabled, tarayıcıdaki web terminalini açar. VARSAYILAN

@@ -9,7 +9,6 @@ package httpapi
 import (
 	"context"
 	"errors"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -22,7 +21,7 @@ import (
 
 // handleTerminal, tarayıcıya hedefte bir kabuk açar.
 func (s *Server) handleTerminal(w http.ResponseWriter, r *http.Request) {
-	log := s.logger.With("remote", r.RemoteAddr, "user", sessionUser(r))
+	log := s.logger.With("remote", s.clientKey(r), "user", sessionUser(r))
 
 	// 1. ORIGIN — her şeyden önce.
 	//
@@ -48,10 +47,32 @@ func (s *Server) handleTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
+	/*
+	 * ⚠️ DENETİME YAZILAN ADRES clientKey'DEN GELİYOR, r.RemoteAddr'DAN
+	 * DEĞİL.
+	 *
+	 * ÖLÇÜLDÜ: TLS'i sonlandıran bir ters vekilin arkasında bu satır
+	 * sessions.src_ip'ye VEKİLİN adresini yazıyordu (src_ip =
+	 * "127.0.0.1"), kullanıcınınkini değil — üstelik trusted_proxies
+	 * doğru yapılandırılmışken, yani postern gerçek adresi biliyor ve
+	 * atıyordu.
+	 *
+	 * Aynı sütuna SSH kapısı (sshd/channel.go) doğrudan bağlantının
+	 * adresini yazıyor. Yani tek sütun iki ayrı anlam taşıyordu ve
+	 * "bu kabuk nereden açıldı" sorusu, panelden açılan her oturum için
+	 * aynı cevabı veriyordu: vekilin adresi. İki kullanıcı ayırt
+	 * edilemiyordu.
+	 *
+	 * clientKey aynı sorunun hız sınırı tarafındaki cevabı ve kuralı
+	 * burada da doğru: X-Forwarded-For YALNIZCA istek
+	 * http.trusted_proxies'teki bir adresten geliyorsa okunuyor.
+	 * Liste boşken — varsayılan — dönen değer bugünküyle bit bit aynı.
+	 *
+	 * ⚠️ BEDELİ: trusted_proxies artık bir DENETİM ayarı da. Geniş
+	 * yazılan bir liste, o aralıktaki herkese kalıcı denetim satırına
+	 * yazılacak adresi seçtirir.
+	 */
+	host := s.clientKey(r)
 
 	/*
 	 * 2. OTURUMU AÇ.

@@ -445,6 +445,8 @@ $ ssh yigit:web-01@bastion -p 2222
 </pre>
       <div class="stop"><b>List the proxy, not the network</b><p>Empty is the default and means the header is never read — correct for a directly exposed bastion, because otherwise any client could pick its own rate-limit bucket. Listing a broad range hands that choice to everyone inside it. A malformed entry stops startup rather than leaving you thinking you configured something you didn't.</p></div>
 
+      <div class="warn"><b>It is an audit setting too, not only a rate-limit one</b><p>A browser terminal session records its source address the same way, so without <code>trusted_proxies</code> every panel-opened session is filed under the proxy's address and two people behind it cannot be told apart afterwards — in the audit list, on the target page, in the SFTP file history, and in the log line written when someone closes a session. SSH sessions in that same column always carry the real client address, which is what makes the mismatch easy to miss. The flip side is that a range listed here is a range whose members can choose what a permanent audit row says about them.</p></div>
+
       <div class="warn"><b>Put TLS in front of it either way</b><p>postern serves the panel over plain HTTP. Terminate TLS at a reverse proxy, or bind <code>addr</code> to localhost and reach it over an SSH tunnel. Session cookies are <code>HttpOnly</code> and <code>SameSite</code>, but a plaintext hop is a plaintext hop.</p></div>
     </section>
 
