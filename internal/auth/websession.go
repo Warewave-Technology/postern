@@ -200,28 +200,24 @@ func (w *WebSessions) DestroyAccount(accountID string) int {
 	return n
 }
 
-// Resolve, token'ı kullanıcı ADINA çevirir. Tanınmayan ya da süresi
-// dolmuş token için ErrNoSession.
-//
-// Karşılaştırma map anahtarıyla; sabit-zaman gerekmez — token rastgele
-// 43 karakter, map lookup'ının zamanlaması içerik sızdırmaz (güvenlik
-// kodundaki durum farklıydı: orada iki KISA, tahmin edilebilir değer
-// yan yana geliyordu).
-func (w *WebSessions) Resolve(token string) (string, error) {
-	name, _, err := w.ResolveSession(token)
-	return name, err
-}
-
-// ResolveSession, adın yanında oturumun KÖKENİNİ de döner: belirteci
-// yerel parola kapısı mı üretti?
-func (w *WebSessions) ResolveSession(token string) (username string, viaLocal bool, err error) {
-	name, _, local, err := w.resolve(token)
-	return name, local, err
-}
-
-// ResolveSessionFull, adın ve kökenin yanında oturumun bağlı olduğu
-// hesap KİMLİĞİNİ de döner. accountStillOpen bunu kullanıyor: kontrol
-// ada değil kimliğe bakmak zorunda (bkz. webSession.accountID).
+/*
+ * ResolveSessionFull, belirteci çözer: ad, oturumun bağlı olduğu hesap
+ * KİMLİĞİ, ve belirteci yerel parola kapısının üretip üretmediği.
+ * Tanınmayan ya da süresi dolmuş belirteç için ErrNoSession.
+ *
+ * Karşılaştırma map anahtarıyla; sabit-zaman gerekmez — belirteç
+ * rastgele 43 karakter, map lookup'ının zamanlaması içerik sızdırmaz
+ * (güvenlik kodundaki durum farklıydı: orada iki KISA, tahmin
+ * edilebilir değer yan yana geliyordu).
+ *
+ * ⚠️ TEK AÇIK ÇÖZÜCÜ BU. Yanında Resolve (yalnızca ad) ve
+ * ResolveSession (ad + köken) duruyordu; oturum ara katmanı buraya
+ * geçtiğinden beri ikisinin de test dışında çağıranı kalmamıştı.
+ * Yazılıp çağrılmayan kod bu depoda bir kusur, ve bir oturum
+ * çözücüsünde ayrıca tehlikeli: hesap kimliğini DÖNDÜRMEYEN bir
+ * sarmalayıcı, bir sonraki çağıranı ada bakmaya davet ediyor — adın
+ * güvenli bir tutamak olmadığını bu dosyanın kendisi anlatırken.
+ */
 func (w *WebSessions) ResolveSessionFull(token string) (username, accountID string, viaLocal bool, err error) {
 	return w.resolve(token)
 }

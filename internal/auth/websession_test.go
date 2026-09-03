@@ -29,7 +29,7 @@ func TestWebSessionRoundTrip(t *testing.T) {
 		t.Fatal("iki oturum aynı token'ı aldı")
 	}
 
-	name, err := w.Resolve(tok)
+	name, err := resolveName(w, tok)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestWebSessionRoundTrip(t *testing.T) {
 
 func TestWebSessionUnknownToken(t *testing.T) {
 	w := NewWebSessions()
-	if _, err := w.Resolve("hic-var-olmadi"); !errors.Is(err, ErrNoSession) {
+	if _, err := resolveName(w, "hic-var-olmadi"); !errors.Is(err, ErrNoSession) {
 		t.Fatalf("hata = %v, beklenen ErrNoSession", err)
 	}
 }
@@ -54,7 +54,7 @@ func TestWebSessionDestroy(t *testing.T) {
 	}
 
 	w.Destroy(tok)
-	if _, err := w.Resolve(tok); !errors.Is(err, ErrNoSession) {
+	if _, err := resolveName(w, tok); !errors.Is(err, ErrNoSession) {
 		t.Fatalf("logout sonrası Resolve = %v, beklenen ErrNoSession", err)
 	}
 
@@ -76,13 +76,13 @@ func TestWebSessionExpiry(t *testing.T) {
 
 	// Süre MUTLAK: son saniyede hâlâ geçerli...
 	current = current.Add(webSessionTTL - time.Second)
-	if _, err := w.Resolve(tok); err != nil {
+	if _, err := resolveName(w, tok); err != nil {
 		t.Fatalf("süre dolmadan reddedildi: %v", err)
 	}
 
 	// ...bir saniye sonrasında değil.
 	current = current.Add(2 * time.Second)
-	if _, err := w.Resolve(tok); !errors.Is(err, ErrNoSession) {
+	if _, err := resolveName(w, tok); !errors.Is(err, ErrNoSession) {
 		t.Fatalf("süresi dolmuş token kabul edildi: %v", err)
 	}
 
@@ -93,11 +93,11 @@ func TestWebSessionExpiry(t *testing.T) {
 		t.Fatal(err)
 	}
 	current = current.Add(webSessionTTL / 2)
-	if _, err := w.Resolve(tok2); err != nil {
+	if _, err := resolveName(w, tok2); err != nil {
 		t.Fatal(err)
 	}
 	current = current.Add(webSessionTTL/2 + time.Second)
-	if _, err := w.Resolve(tok2); !errors.Is(err, ErrNoSession) {
+	if _, err := resolveName(w, tok2); !errors.Is(err, ErrNoSession) {
 		t.Fatal("dokunulan oturumun süresi uzamış — kayan pencere istenmiyordu")
 	}
 }
@@ -184,7 +184,7 @@ func TestDestroyUserMatchesTheWayTheDatabaseDoes(t *testing.T) {
 			"veritabanı bu adı aynı hesap sayıyor; oturum ayakta kalırsa "+
 			"aynı adı alan yeni kişi onu devralır", "YIGIT", n)
 	}
-	if _, err := w.Resolve(tok); err == nil {
+	if _, err := resolveName(w, tok); err == nil {
 		t.Error("oturum hâlâ çözülüyor")
 	}
 }
@@ -204,7 +204,15 @@ func TestDestroyUserLeavesOtherAccountsAlone(t *testing.T) {
 	if n := w.DestroyUser("YIGIT"); n != 1 {
 		t.Fatalf("düşen oturum = %d, 1 bekleniyordu", n)
 	}
-	if _, err := w.Resolve(keep); err != nil {
+	if _, err := resolveName(w, keep); err != nil {
 		t.Errorf("ilgisiz hesabın oturumu da düştü: %v", err)
 	}
+}
+
+// resolveName, kaldırılan Resolve sarmalayıcısının test karşılığı:
+// bu testler adın çözülmesini ölçüyor, üretimde ise her çağıran hesap
+// kimliğini de almak zorunda (bkz. ResolveSessionFull'un notu).
+func resolveName(w *WebSessions, token string) (string, error) {
+	name, _, _, err := w.ResolveSessionFull(token)
+	return name, err
 }
