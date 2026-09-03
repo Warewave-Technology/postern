@@ -576,3 +576,66 @@ func TestPutSuccessWithoutTheObjectIsNotArchived(t *testing.T) {
 		t.Errorf("hata doğrulama adımını göstermiyor: %q", st.LastError)
 	}
 }
+
+/*
+ * ⚠️ 403, KAYDI KUYRUKTAN ÇIKARMAMALI.
+ *
+ * `permanent` bayrağı bir süre "geçici değilse kalıcı" diye
+ * hesaplanıyordu. objstore 4xx'i ErrPermanent sayıyor — 403 yanlış
+ * kimlik, 404 yanlış kova adı — ve kendi yorumu "operatörün müdahalesi
+ * gerekir" diyor. Yani operatör onu DÜZELTECEK.
+ *
+ * O satırları kuyruktan çıkarmak, kimlik düzeltildikten sonra kuyruğun
+ * bir daha hiç boşalmaması demekti: CHANGELOG'un "hiçbir şey kalıcı ölü
+ * işaretlenmiyor, kovayı düzeltmek kuyruğu boşaltıyor" sözünün tersi.
+ *
+ * Kalıcı olan tek şey kaydın KENDİSİNİN yok olması.
+ */
+func TestAccessDeniedDoesNotAbandonTheRecording(t *testing.T) {
+	db := newDB(t)
+	dir := t.TempDir()
+
+	const id = "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1"
+	seedFinishedSession(t, db, dir, id, "{\"version\":2}\n")
+
+	// Yanlış kimlik: her isteğe 403. objstore bunu ErrPermanent sayıyor.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	client, err := objstore.New(objstore.Config{
+		Endpoint: srv.URL, Bucket: "kova", Region: "us-east-1",
+		Credentials: objstore.Credentials{AccessKeyID: "yanlis", SecretAccessKey: "yanlis"},
+		Timeout:     5 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := fixedArchiver(db, client, Config{RecordingsDir: dir, Bucket: "kova"},
+		slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	a.RunOnce(context.Background())
+
+	ctx := context.Background()
+	st, _, err := db.ArchiveStateOf(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Archived {
+		t.Fatal("403 alan kayıt arşivlenmiş sayıldı")
+	}
+
+	// ⚠️ ASIL İDDİA: satır kuyrukta KALMALI — operatör kimliği
+	// düzeltince yeniden denenebilsin.
+	b, berr := db.ArchiveBacklog(ctx)
+	if berr != nil {
+		t.Fatal(berr)
+	}
+	if b.Lost != 0 {
+		t.Errorf("Lost = %d: düzeltilebilir bir yetki hatası 'kayıp' sayıldı — "+
+			"kimlik düzeltilse bile kuyruk bir daha boşalmaz", b.Lost)
+	}
+	if b.Pending != 1 {
+		t.Errorf("Pending = %d, 1 bekleniyordu — satır kuyruktan çıkmış", b.Pending)
+	}
+}

@@ -128,3 +128,56 @@ func TestPermanentFailureLeavesTheQueue(t *testing.T) {
 		t.Errorf("Oldest kayıp satırdan hesaplandı: %v — 'disk dolacak' yaşı bundan çıkıyordu", b.Oldest)
 	}
 }
+
+/*
+ * ⚠️ DÜZELTİLEBİLİR BİR HATA KUYRUKTAN ÇIKARILMAMALI.
+ *
+ * `permanent`, "hiçbir koşulda yüklenemez" demek — dosyanın kaybolması
+ * gibi. Yapılandırma ve yetki hataları (403 yanlış kimlik, 404 yanlış
+ * kova adı) BUNA GİRMİYOR: operatör onları düzeltiyor ve düzeltince
+ * kuyruk kendiliğinden boşalmalı. CHANGELOG'un sözü de bu: "hiçbir şey
+ * kalıcı ölü işaretlenmiyor, kovayı düzeltmek kuyruğu boşaltıyor".
+ *
+ * Bu test o sözü koruyor: kalıcı OLMAYAN bir hatadan sonra satır, geri
+ * çekilme süresi geçince yeniden üstlenilebilmeli.
+ */
+func TestRecoverableFailureStaysInTheQueue(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	queuedSession(t, s, "sess-403")
+
+	now := time.Now()
+	const retryAfter = time.Minute
+
+	if got, err := s.ClaimArchives(ctx, 10, now, time.Hour, retryAfter); err != nil || len(got) != 1 {
+		t.Fatalf("ilk claim = %d, %v", len(got), err)
+	}
+
+	// Yanlış kimlik / yanlış kova: kalıcı DEĞİL, düzeltilebilir.
+	if err := s.MarkArchiveFailed(ctx, "sess-403",
+		"AccessDenied (403)", false, now); err != nil {
+		t.Fatal(err)
+	}
+
+	// Geri çekilme geçtikten sonra YENİDEN üstlenilmeli.
+	later := now.Add(24 * time.Hour)
+	again, err := s.ClaimArchives(ctx, 10, later, time.Hour, retryAfter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again) != 1 {
+		t.Errorf("düzeltilebilir hatadan sonra satır yeniden üstlenilmedi (%d) — "+
+			"operatör kimliği düzeltse bile kuyruk boşalmaz", len(again))
+	}
+
+	b, err := s.ArchiveBacklog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Lost != 0 {
+		t.Errorf("Lost = %d, 0 bekleniyordu — düzeltilebilir hata 'kayıp' sayıldı", b.Lost)
+	}
+	if b.Pending != 1 {
+		t.Errorf("Pending = %d, 1 bekleniyordu", b.Pending)
+	}
+}

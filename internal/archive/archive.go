@@ -248,8 +248,9 @@ func (a *Archiver) archiveOne(ctx context.Context, client *objstore.Client, p st
 
 	path, err := a.safePath(p.RecordingPath)
 	if err != nil {
-		// Kalıcı: yolun kendisi kabul edilebilir değil.
-		a.fail(ctx, p.SessionID, log, err, false)
+		// Kalıcı: yolun kendisi kabul edilebilir değil — düzeltilecek
+		// bir yapılandırma yok, kayıt bu satırla hiç eşleşmiyor.
+		a.fail(ctx, p.SessionID, log, err, false, true)
 		return
 	}
 
@@ -264,17 +265,17 @@ func (a *Archiver) archiveOne(ctx context.Context, client *objstore.Client, p st
 			 * dönüşmesi ve gerçek arızayı gizlemesi demekti.
 			 */
 			a.fail(ctx, p.SessionID, log,
-				fmt.Errorf("recording file is gone: %s", path), false)
+				fmt.Errorf("recording file is gone: %s", path), false, true)
 			return
 		}
-		a.fail(ctx, p.SessionID, log, err, true)
+		a.fail(ctx, p.SessionID, log, err, true, false)
 		return
 	}
 	defer f.Close()
 
 	info, err := f.Stat()
 	if err != nil {
-		a.fail(ctx, p.SessionID, log, err, true)
+		a.fail(ctx, p.SessionID, log, err, true, false)
 		return
 	}
 
@@ -282,7 +283,9 @@ func (a *Archiver) archiveOne(ctx context.Context, client *objstore.Client, p st
 
 	sum, err := client.Put(ctx, key, f, info.Size())
 	if err != nil {
-		a.fail(ctx, p.SessionID, log, err, errors.Is(err, objstore.ErrTransient))
+		// ⚠️ gone=false: 403/404 gibi yapılandırma hataları kuyruktan
+		// ÇIKMIYOR — operatör düzeltince kuyruk boşalmalı.
+		a.fail(ctx, p.SessionID, log, err, errors.Is(err, objstore.ErrTransient), false)
 		return
 	}
 
@@ -295,12 +298,12 @@ func (a *Archiver) archiveOne(ctx context.Context, client *objstore.Client, p st
 	size, err := client.Head(ctx, key)
 	if err != nil {
 		a.fail(ctx, p.SessionID, log, fmt.Errorf("verify: %w", err),
-			errors.Is(err, objstore.ErrTransient))
+			errors.Is(err, objstore.ErrTransient), false)
 		return
 	}
 	if size >= 0 && size != info.Size() {
 		a.fail(ctx, p.SessionID, log,
-			fmt.Errorf("verify: stored %d bytes, sent %d", size, info.Size()), true)
+			fmt.Errorf("verify: stored %d bytes, sent %d", size, info.Size()), true, false)
 		return
 	}
 
@@ -314,8 +317,26 @@ func (a *Archiver) archiveOne(ctx context.Context, client *objstore.Client, p st
 	log.Info("recording archived", "object_key", key, "bytes", info.Size())
 }
 
-// fail, denemeyi kaydeder ve sebebini söyler.
-func (a *Archiver) fail(ctx context.Context, id string, log *slog.Logger, cause error, transient bool) {
+/*
+ * fail, denemeyi kaydeder ve sebebini söyler.
+ *
+ * ⚠️ İKİ AYRI KAVRAM, VE BİR SÜRE BİRLEŞTİRİLMİŞLERDİ.
+ *
+ * transient: log satırı Warn mı Error mı olacak — "yeniden denenecek"
+ * ile "bir şeyi düzeltmen gerekiyor" farkı.
+ *
+ * gone: kayıt HİÇBİR koşulda yüklenemez (dosya yok, yol kabul edilemez).
+ * Yalnızca bu satırı kuyruktan çıkarıyor.
+ *
+ * İkisini "permanent = !transient" diye birleştirmek ÖLÇÜLEBİLİR bir
+ * regresyondu: objstore 4xx'i ErrPermanent sayıyor (403 yanlış kimlik,
+ * 404 yanlış kova adı) ve kendi yorumu "operatörün müdahalesi gerekir"
+ * diyor — yani operatör düzeltecek. O satırları kuyruktan çıkarmak,
+ * kimlik düzeltildikten sonra kuyruğun BİR DAHA HİÇ boşalmaması
+ * demekti; CHANGELOG'un "hiçbir şey kalıcı ölü işaretlenmiyor, kovayı
+ * düzeltmek kuyruğu boşaltıyor" sözünün tam tersi.
+ */
+func (a *Archiver) fail(ctx context.Context, id string, log *slog.Logger, cause error, transient, gone bool) {
 	// ⚠️ Hata metni ASLA Authorization taşımıyor: objstore yalnızca
 	// durum kodunu ve S3'ün XML gövdesini döndürüyor (bkz. classify).
 	if transient {
@@ -324,10 +345,10 @@ func (a *Archiver) fail(ctx context.Context, id string, log *slog.Logger, cause 
 		log.Error("recording archive failed and will not succeed without a change",
 			"error", cause)
 	}
-	// ⚠️ transient DEĞİLSE KALICI: satır artık kuyruktan çıkıyor.
-	// Buradaki karar zaten hesaplanıyordu ama sadece log cümlesini
-	// seçiyordu; şimdi satıra da yazılıyor (bkz. store.MarkArchiveFailed).
-	if err := a.db.MarkArchiveFailed(context.WithoutCancel(ctx), id, cause.Error(), !transient, time.Now()); err != nil {
+	// gone ise satır kuyruktan çıkıyor (bkz. store.MarkArchiveFailed).
+	// Yapılandırma/yetki hataları çıkmıyor: onlar düzeltilebilir ve
+	// düzeltildiğinde kuyruk kendiliğinden boşalmalı.
+	if err := a.db.MarkArchiveFailed(context.WithoutCancel(ctx), id, cause.Error(), gone, time.Now()); err != nil {
 		log.Error("could not record the archive failure", "error", err)
 	}
 }
