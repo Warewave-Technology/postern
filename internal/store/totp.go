@@ -5,7 +5,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"time"
 )
@@ -154,16 +153,20 @@ func (s *Store) DisableTOTP(ctx context.Context, username string) error {
 	return nil
 }
 
-// userID, kullanıcı adını kimliğe çevirir.
+/*
+ * userID, kullanıcı adını kimliğe çevirir.
+ *
+ * ⚠️ ORTAK rowID'YE DEVREDİYOR — kendi sorgusunu yazıyordu ve o sorgu
+ * `username = $1` idi, yani HARF DUYARLI. users.username 019'dan beri
+ * harf duyarsız tekil ve ciColumns'ta yazılı; rowID o tabloyu görünce
+ * ciEq'e geçiyor. Bu dosyanın OKUMA yolu (TOTP) zaten ciEq kullanıyordu,
+ * dört YAZMA yolu kullanmıyordu.
+ *
+ * Bugün bunu sömüren bir yüzey ölçülemedi. Ama ortak yardımcının
+ * dayattığı bir kuralı kopyalayıp düşüren bir fonksiyon, tam olarak
+ * ciColumns'ın var olma sebebini ortadan kaldırıyor: kural tek yerde
+ * yazılı olmalı, yoksa bir sonraki çağıran onu tekrar kaybediyor.
+ */
 func (s *Store) userID(ctx context.Context, username string) (string, error) {
-	var id string
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id FROM users WHERE username = $1;`, username).Scan(&id)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return "", fmt.Errorf("store: no such user %q: %w", username, ErrNotFound)
-		}
-		return "", translateErr("store.userID", err)
-	}
-	return id, nil
+	return s.rowID(ctx, "store.userID", "users", "username", username)
 }

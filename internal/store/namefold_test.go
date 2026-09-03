@@ -62,3 +62,45 @@ func TestLookupsAgreeOnLetterCase(t *testing.T) {
 		t.Errorf("olmayan hesap için hata = %v, ErrNotFound bekleniyordu", err)
 	}
 }
+
+/*
+ * ⚠️ TOTP'NİN YAZMA YOLLARI DA ADI KATLAMALI.
+ *
+ * Okuma yolu (Store.TOTP) ciEq kullanıyordu; dört yazma yolu ise
+ * totp.go'nun kendi userID'sinden geçiyordu ve o `username = $1`
+ * yazıyordu — harf duyarlı. Yani aynı hesap, adının yazımına göre
+ * okumada bulunuyor yazmada bulunmuyordu.
+ *
+ * ciColumns'ın var olma sebebi kuralın TEK yerde yazılı olması; ortak
+ * rowID'yi kopyalayıp fold'u düşüren bir fonksiyon o sebebi ortadan
+ * kaldırıyor.
+ */
+func TestTOTPWritePathFoldsTheUsername(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	if _, err := s.CreateUser(ctx, "Ayse", "ayse@warewave.io", "ayse"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Yazma yolları, adın BAŞKA yazımlarıyla çağrılıyor.
+	if err := s.BeginTOTP(ctx, "ayse", "GEZDANBOLQ2GEZDA"); err != nil {
+		t.Fatalf("BeginTOTP başka bir yazımla düştü (%v) — hesap okumada "+
+			"bulunuyor, yazmada bulunmuyor", err)
+	}
+	if err := s.ConfirmTOTP(ctx, "AYSE", 12345); err != nil {
+		t.Fatalf("ConfirmTOTP başka bir yazımla düştü: %v", err)
+	}
+
+	c, err := s.TOTP(ctx, "aYsE")
+	if err != nil {
+		t.Fatalf("TOTP: %v", err)
+	}
+	if !c.Confirmed {
+		t.Error("onay yazılmadı — okuma ve yazma aynı satırı görmüyor")
+	}
+
+	if err := s.DisableTOTP(ctx, "AySe"); err != nil {
+		t.Errorf("DisableTOTP başka bir yazımla düştü: %v", err)
+	}
+}
