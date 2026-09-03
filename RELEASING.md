@@ -55,8 +55,9 @@ annotated tags, and the message is where the tag itself says what it is.
    panel's tests. A tag pointing at a broken commit stops here.
 2. goreleaser builds four static binaries (`linux` and `darwin`,
    `amd64` and `arm64`) with the version stamped from the tag, archives
-   them with `LICENSE`, `README.md`, `CHANGELOG.md` and the systemd
-   unit, and writes `checksums.txt`.
+   them with `LICENSE`, `README.md`, `CHANGELOG.md`, `SECURITY.md`, the
+   systemd unit, `deploy/README.md` and the Ansible role, and writes
+   `checksums.txt`.
 3. cosign signs `checksums.txt` with a keyless signature bound to this
    repository and this workflow. There is no signing key to store, lose
    or rotate — which is the same reasoning that keeps the CA key off the
