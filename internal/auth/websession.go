@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"strings"
 	"sync"
 	"time"
 )
@@ -124,6 +125,19 @@ func (w *WebSessions) create(username string, viaLocal bool) (string, error) {
  *
  * Dönen sayı düşen oturum sayısı: denetim kaydına yazılıyor, çünkü
  * "kaç oturum kapandı" operatörün soracağı ilk soru.
+ *
+ * ⚠️ EŞLEŞME HARF DUYARSIZ — VERİTABANI DA ÖYLE.
+ *
+ * ÖLÇÜLEN ARIZA: burada tam eşleşme aranıyordu, oysa store kullanıcı
+ * adını harf duyarsız çözüyor (dialect.go: users.username). Yani
+ * `DELETE /api/admin/users/YIGIT` satırı gerçekten siliyor ama
+ * "yigit" ile açılmış oturumlar ayakta kalıyordu; aynı ad yeniden
+ * yaratıldığında o oturum YENİ kişiye çözülüyordu — üretildi.
+ *
+ * Fazladan bir hesabı düşürme riski yok: iki hesap yalnızca harf
+ * yazımıyla ayrışamıyor, çünkü benzersizlik kısıtı da aynı harf
+ * duyarsızlığı kullanıyor. İki kapı aynı adı aynı şekilde çözmezse,
+ * arada geçen her şey sessizce kaçıyor.
  */
 func (w *WebSessions) DestroyUser(username string) int {
 	w.mu.Lock()
@@ -131,7 +145,7 @@ func (w *WebSessions) DestroyUser(username string) int {
 
 	n := 0
 	for token, sess := range w.byToken {
-		if sess.username == username {
+		if strings.EqualFold(sess.username, username) {
 			delete(w.byToken, token)
 			n++
 		}

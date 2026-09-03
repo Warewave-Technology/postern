@@ -159,3 +159,52 @@ func TestUnknownTokenHasNoAge(t *testing.T) {
 		t.Fatalf("bilinmeyen belirteç için yaş döndü: %v", err)
 	}
 }
+
+/*
+ * ⚠️ KULLANICI ADI, İKİ KAPIDA AYNI ŞEKİLDE ÇÖZÜLMELİ.
+ *
+ * ÖLÇÜLEN ARIZA: DestroyUser tam eşleşme arıyordu, veritabanı ise
+ * kullanıcı adını harf duyarsız çözüyor (store/dialect.go). Yani
+ * `DELETE /api/admin/users/YIGIT` satırı siliyor ama "yigit" ile
+ * açılmış oturum ayakta kalıyordu; aynı ad yeniden yaratıldığında o
+ * oturum YENİ kişiye çözülüyordu.
+ *
+ * İki kapı aynı adı aynı şekilde çözmediğinde, arada geçen her şey
+ * sessizce kaçıyor.
+ */
+func TestDestroyUserMatchesTheWayTheDatabaseDoes(t *testing.T) {
+	w := NewWebSessions()
+	tok, err := w.Create("yigit")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if n := w.DestroyUser("YIGIT"); n != 1 {
+		t.Errorf("DestroyUser(%q) = %d oturum düşürdü, 1 bekleniyordu — "+
+			"veritabanı bu adı aynı hesap sayıyor; oturum ayakta kalırsa "+
+			"aynı adı alan yeni kişi onu devralır", "YIGIT", n)
+	}
+	if _, err := w.Resolve(tok); err == nil {
+		t.Error("oturum hâlâ çözülüyor")
+	}
+}
+
+// Ve BAŞKA bir hesabı düşürmemeli: harf duyarsızlık bir eşleşme
+// kuralı, bir toplu silme değil.
+func TestDestroyUserLeavesOtherAccountsAlone(t *testing.T) {
+	w := NewWebSessions()
+	keep, err := w.Create("ayse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Create("yigit"); err != nil {
+		t.Fatal(err)
+	}
+
+	if n := w.DestroyUser("YIGIT"); n != 1 {
+		t.Fatalf("düşen oturum = %d, 1 bekleniyordu", n)
+	}
+	if _, err := w.Resolve(keep); err != nil {
+		t.Errorf("ilgisiz hesabın oturumu da düştü: %v", err)
+	}
+}
