@@ -425,12 +425,47 @@ func (s *Server) drain(ctx context.Context, live *sync.WaitGroup) {
 	 * hemen dönseydik süreç, kayıtları kapanmadan ve arşiv satırları
 	 * yazılmadan ölürdü — yani düzeltmenin asıl amacı kaçırılırdı.
 	 * Bu ikinci bekleme kısa: yapılacak iş yalnızca kapanış.
+	 *
+	 * ⚠️ OTURUMLARI BEKLİYORUZ, BAĞLANTILARI DEĞİL — ve burada
+	 * `live.Wait()` bekleniyordu. `live` bağlantı goroutine'lerini
+	 * sayıyor; onlar ise oturum kapandıktan sonra da yaşıyor (kendi
+	 * Close'umuz kendi okumamızı uyandırmıyor — Serve'deki nota bakın),
+	 * yani kesilen istemci TCP'yi açık tuttuğu sürece bu bekleme HİÇ
+	 * bitmiyordu.
+	 *
+	 * ÖLÇÜLDÜ: deponun kendi iki kapanış testinde %100 tekrarlanıyordu
+	 * — her kapanış 5 saniye fazladan sürüyor ve "recordings may be
+	 * incomplete" HATASI yazılıyordu. Hem yalan (aynı testler kaydın
+	 * kapandığını ve arşive girdiğini doğruluyor) hem de en kötü
+	 * yerde: operatörün yeniden başlatma sonrası ilk baktığı satır.
+	 *
+	 * Doğru sinyal kayıt defterinin boşalması: bir oturum defterden
+	 * ancak Close çalıştıktan SONRA düşüyor (lifecycle.go'daki defer),
+	 * yani "kapandı mı" sorusunun cevabı tam olarak orada.
 	 */
-	select {
-	case <-done:
-	case <-time.After(closeGrace):
+	if !s.waitForSessionsToClose(closeGrace) {
 		s.logger.Error("sessions did not finish closing; recordings may be incomplete",
-			"grace", closeGrace)
+			"grace", closeGrace, "sessions", len(s.live.RunningIDs()))
+	}
+}
+
+// waitForSessionsToClose, akan oturum kalmayana kadar bekler.
+// Süre dolduysa false döner.
+//
+// Yoklama, defterin kendi sinyali olmadığı için: kapanış yolunda bir
+// kereye mahsus ve yapılacak iş milisaniyeler sürüyor. Defter'e bir
+// bildirim kanalı eklemek, oturum başına yaşayan bir maliyeti yalnızca
+// kapanışta işe yarayacak bir şey için ödemek olurdu.
+func (s *Server) waitForSessionsToClose(grace time.Duration) bool {
+	deadline := time.Now().Add(grace)
+	for {
+		if len(s.live.RunningIDs()) == 0 {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

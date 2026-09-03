@@ -259,4 +259,25 @@ func TestShutdownGivesLiveSessionsTheirGraceAndTellsThemWhy(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		t.Fatal("Serve dönmedi: drain takıldı")
 	}
+	shutdownTook := time.Since(start)
+
+	/*
+	 * ⚠️ KESTİKTEN SONRAKİ BEKLEME, OTURUM KAPANINCA BİTMELİ.
+	 *
+	 * ÖLÇÜLEN ARIZA: o bekleme `live.Wait()` idi ve `live` bağlantı
+	 * goroutine'lerini sayıyor. Oturum kesildikten sonra bağlantı
+	 * yaşamaya devam ettiği için bekleme hiç bitmiyor, her kapanış
+	 * closeGrace kadar (5 sn) fazladan sürüyor ve sonunda "recordings
+	 * may be incomplete" HATASI yazılıyordu — üstelik yalan: aynı
+	 * testler kaydın kapandığını ve arşive girdiğini doğruluyor.
+	 *
+	 * Süreyle ölçülüyor çünkü ölçülebilir olan bu: log satırını
+	 * yakalamak paylaşılan koşum takımını değiştirmeyi gerektirirdi,
+	 * gecikme ise doğrudan operatörün beklediği süre.
+	 */
+	if slack := shutdownTook - grace; slack > 2*time.Second {
+		t.Errorf("kapanış grace'ten %v sonra bitti (toplam %v); kesilen "+
+			"oturumlar kapandığı hâlde bir şey bekleniyor — operatör her "+
+			"yeniden başlatmada bu süreyi ödüyor", slack, shutdownTook)
+	}
 }
