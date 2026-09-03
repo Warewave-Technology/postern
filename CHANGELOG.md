@@ -60,6 +60,31 @@ recordings.
   account could sign in with its key during any lookup failure. It now
   refuses.
 
+- **SFTP auditing no longer starts a round trip late.** The audit was
+  armed only after the `subsystem sftp` request had been forwarded and
+  answered, so a client that sent its first packets without waiting for
+  the reply could open and read a file before anything was watching. The
+  operations ran on the target and left no row, and — because the parser
+  reads a length-prefixed stream with no handshake state — the rest
+  parsed cleanly and the file list presented itself as complete. If you
+  have relied on file history from a pre-release build, treat it as a
+  floor rather than a full account for sessions from scripted clients.
+
+- **Purging a username now drops that name's panel sessions.** Purging
+  releases the name for reuse; the sessions held against it were left
+  alone. Once the name was given to somebody new, the previous holder's
+  open tab resolved to the new account — their roles, their targets, and
+  audit rows written under their name. Deleting an account and setting
+  one to `deleted` drop sessions too now, rather than waiting for the
+  account's next request.
+
+- **A target that stops responding mid-handshake can no longer hold a
+  session open.** The handshake had no time limit — the one that was
+  configured applies only to the TCP connect — so a target that accepted
+  the connection and then went silent kept a goroutine, a socket and a
+  channel slot for as long as the user stayed connected, repeatable per
+  channel. It is now bounded at 20 seconds.
+
 - **The bulk-revocation ceilings can no longer be raised from the
   panel.** See *Needs action* below.
 
