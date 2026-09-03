@@ -287,3 +287,59 @@ func TestUserStateBringsADeletedAccountBack(t *testing.T) {
 		t.Errorf("çıktı geçici olabileceğini söylemiyor:\n%s", out)
 	}
 }
+
+/*
+ * ⚠️ BOOTSTRAP'IN KENDİ TAVSİYESİ YÜRÜMÜYORDU.
+ *
+ * Başarıyla açılan bir yönetici hesabı şunu basıyordu: "If you lose it,
+ * run `postern admin revoke` and bootstrap a new account." O yol bir
+ * çıkmaz sokak — revoke hesabı BIRAKIYOR, bootstrap var olan hesabı
+ * reddediyor. Üstelik bu tavsiyeyi yalnızca ZATEN kilitlenmiş bir
+ * operatör okuyor: sırrını kaybetmiş, panele giremiyor, ve elindeki tek
+ * kâğıt onu yürümeyen bir komuta gönderiyor.
+ *
+ * Aynı dosyanın bootstrap hatası bu çıkmazı zaten anlatıyordu; basılan
+ * tavsiye onunla çelişiyordu.
+ *
+ * Test tavsiyeyi OKUYUP KOŞUYOR: çıktıdan komutları çıkarmıyor ama
+ * anlattığı iki adımı gerçekten yürüyor ve sonunda çalışan bir sırla
+ * çıkıyor.
+ */
+func TestBootstrapAdviceForALostSecretActuallyWorks(t *testing.T) {
+	e := newEnv(t)
+
+	out, err := e.run(t, newAdminCmd(), "bootstrap")
+	if err != nil {
+		t.Fatalf("bootstrap: %v\n%s", err, out)
+	}
+
+	// Tavsiye, çıkmaz sokağa göndermemeli.
+	if strings.Contains(out, "bootstrap a new account") {
+		t.Errorf("bootstrap hâlâ 'revoke edip yeniden bootstrap et' diyor — "+
+			"bootstrap var olan hesabı reddediyor, yani kilitlenmiş "+
+			"operatör iki komut arasında sıkışıyor; çıktı:\n%s", out)
+	}
+	for _, want := range []string{"admin revoke --name", "admin issue --name"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("tavsiye %q içermiyor; çıktı:\n%s", want, out)
+		}
+	}
+
+	// ⚠️ VE TAVSİYE GERÇEKTEN YÜRÜYOR. Önce sırasız hâli: issue tek
+	// başına reddediyor — belgelerin eskiden söylediği şey buydu.
+	if _, ierr := e.run(t, newAdminCmd(), "issue", "--name", "admin"); ierr == nil {
+		t.Error("var olan sırrın üzerine issue sessizce yazdı — " +
+			"sır bu yoldan da sessizce değişmemeli")
+	}
+
+	if rout, rerr := e.run(t, newAdminCmd(), "revoke", "--name", "admin"); rerr != nil {
+		t.Fatalf("tavsiyenin ilk adımı düştü: %v\n%s", rerr, rout)
+	}
+	iout, ierr := e.run(t, newAdminCmd(), "issue", "--name", "admin")
+	if ierr != nil {
+		t.Fatalf("tavsiyenin ikinci adımı düştü: %v\n%s", ierr, iout)
+	}
+	if !strings.Contains(iout, "sign-in secret") {
+		t.Errorf("issue taze bir sır basmadı; çıktı:\n%s", iout)
+	}
+}

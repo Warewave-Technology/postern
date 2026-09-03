@@ -8,6 +8,11 @@
 - name: Trust the postern CA on every target
   hosts: postern_targets
   become: true
+  # ⚠️ FACT TOPLAMA KAPALI: rolün hiçbir fact'e ihtiyacı yok ve
+  # toplamak, doğrulama çalışmadan ÖNCE her hedefe bağlanıp yetkili bir
+  # modül koşturmak demek. README "rol dokunmadan önce doğruluyor"
+  # diyor; fact toplama o cümleyi yanlış yapıyordu.
+  gather_facts: false
   roles:
     - role: postern_target
       vars:
@@ -16,15 +21,15 @@
         # koşum gibi görünür ve öyle değildir.
         # ⚠️ BURAYA GERÇEK BİR ANAHTAR YAZILI GELMİYOR ve bu bilinçli:
         # örneği olduğu gibi çalıştıran biri, başkasının CA'sını bütün
-        # filosuna kurmuş olurdu. Boş bırakıldığında rol açık bir
+        # filosuna kurmuş olurdu. CHANGE_ME assert'ten geçmiyor
+        # (anahtar "ssh-"/"ecdsa-" ile başlamalı), yani rol açık bir
         # mesajla DURUYOR — sessizce "başarılı" görünmüyor.
-        postern_ca_pubkey: ""
+        postern_ca_pubkey: "CHANGE_ME"
 
         # Hangi OS hesabı hangi principal'ı kabul etsin.
         #
         # ⚠️ postern principal olarak kullanıcının os_user'ını
-        # imzalıyor. Demodaki suleyman.idinak'ın os_user'ı "sidinak",
-        # dolayısıyla hedefte o hesabın var olması ve kendi adını
-        # kabul etmesi gerekiyor.
+        # imzalıyor. os_user'ı "deploy" olan bir kullanıcı için hedefte
+        # o hesabın VAR OLMASI ve kendi adını kabul etmesi gerekiyor.
         postern_principals:
-          sidinak: [sidinak]
+          deploy: [deploy]

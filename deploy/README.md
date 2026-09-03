@@ -71,18 +71,28 @@ runnable file, and is what the certificate tests run against.
 ## A worked example
 
 `example/inventory.ini` and `example/targets.yml` are a two-host run of the
-role, ready to fill in. Two values are deliberately left as `CHANGE_ME`: the
-account Ansible connects as (it needs sudo — it is not the account postern
-opens on the target), and the CA public key from `postern ca init` on the
-bastion.
+role, ready to fill in. Everything you must supply is left as `CHANGE_ME`: the
+host addresses, the account Ansible connects as (it needs sudo — it is not the
+account postern opens on the target), and the CA public key from `postern ca
+init` on the bastion. Nothing here points at a real machine, because this file
+ships inside the release archive.
 
 ```bash
 ansible-playbook -i example/inventory.ini example/targets.yml --check
 ```
 
-Run it with `--check` first. The role asserts before it touches anything, so a
-forgotten `CHANGE_ME` stops the play at `ok=0` rather than leaving a host that
-trusts no CA — which looks like a successful run and is not.
+Run from `deploy/ansible/` — the `ansible.cfg` there is what points Ansible at
+`roles/`, since Ansible resolves roles against the playbook's directory and the
+example playbook lives one level down.
+
+Run it with `--check` first. The role's first task is an assert and the play
+gathers no facts, so a forgotten `CHANGE_ME` stops the play at `ok=0 failed=1`
+without connecting to anything — rather than leaving a host that trusts no CA,
+which looks like a successful run and is not. Measured on the shipped files:
+
+```
+target-01  : ok=0  changed=0  unreachable=0  failed=1
+```
 
 `postern_principals` maps an OS account to the principals it will accept.
 postern signs the user's `os_user` as the principal, so an account whose

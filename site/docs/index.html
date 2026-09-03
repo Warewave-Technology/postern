@@ -710,9 +710,9 @@ $ postern sync status --config postern.yaml
         identity provider. Switching the panel to LDAP or OIDC does not remove
         it. An IdP outage is an inconvenience, not a lockout.
       </p>
-<pre>$ postern admin list --config postern.yaml           <span class="c"># who holds a local secret</span>
-$ postern admin issue --name admin --config postern.yaml
-$ postern admin revoke --name someone --config postern.yaml
+<pre>$ postern admin list --config postern.yaml            <span class="c"># who holds a local secret</span>
+$ postern admin revoke --name admin --config postern.yaml   <span class="c"># issue refuses over an existing secret</span>
+$ postern admin issue  --name admin --config postern.yaml
 </pre>
       <div class="stop"><b>Administrator is not a panel button</b><p><code>is_admin</code> comes from the CLI on the host, or from a directory group you nominate. It cannot be granted from inside the panel — a compromised panel session must not be able to promote itself.</p></div>
       <p>
@@ -846,7 +846,7 @@ recording:
   dir: /var/lib/postern/recordings
   record_input: false
   retain: 90d
-  min_free: 5GB
+  min_free: 5GiB
 session:
   idle_timeout: 30m
   max_lifetime: 12h
@@ -854,7 +854,7 @@ session:
       <table>
         <tr><th>Setting</th><th>Effect</th></tr>
         <tr><td><code>recording.retain</code></td><td>how long recordings are kept before pruning</td></tr>
-        <tr><td><code>recording.min_free</code></td><td>free space below which postern stops rather than filling the disk</td></tr>
+        <tr><td><code>recording.min_free</code></td><td>free space below which postern stops rather than filling the disk — binary suffixes only (<code>KiB</code>, <code>MiB</code>, <code>GiB</code>, <code>TiB</code>) or a plain number of bytes; <code>5GB</code> is refused at startup</td></tr>
         <tr><td><code>recording.record_input</code></td><td>record keystrokes as well as output — off by default, and it will capture anything typed, including things typed by mistake</td></tr>
         <tr><td><code>session.idle_timeout</code></td><td>close a session that has gone quiet</td></tr>
         <tr><td><code>session.max_lifetime</code></td><td>close a session no matter how busy</td></tr>
@@ -963,7 +963,7 @@ session:
 recording:
   dir: /var/lib/postern/recordings
   retain: 90d
-  min_free: 5GB
+  min_free: 5GiB
 
 target_probe:
   # Default false, and left false here on purpose: switching this on
@@ -1152,7 +1152,11 @@ type the account name to confirm: ayse
       <div class="stop"><b>Only when the directory really did re-create them</b><p>Between detaching and their next sign-in, the account is claimable by whatever directory identity signs in with that username. That is why the command lives on the host and not in the panel, and why it writes to the admin log: it is the one command that opens an existing account to a different identity. Confirm who you are helping before running it.</p></div>
 
       <h3>Locked out of the panel</h3>
-      <p>Go to the host. <code>postern admin issue --name &lt;user&gt;</code> prints a fresh secret. This is why the local administrator is never removed.</p>
+      <p>Go to the host. <code>postern admin issue --name &lt;user&gt;</code> prints a fresh secret. If that account already holds one, <code>issue</code> refuses rather than overwriting it silently — revoke first, then issue:</p>
+<pre>$ postern admin revoke --name admin --config postern.yaml
+$ postern admin issue  --name admin --config postern.yaml
+</pre>
+      <p>This is why the local administrator is never removed.</p>
     </section>
 
     <section id="limits">

@@ -150,8 +150,16 @@ func newAdminBootstrapCmd() *cobra.Command {
 			fmt.Fprintf(out, "  sign-in secret:  %s\n\n", secret)
 			fmt.Fprint(out, "This is the only time it is shown. postern stores a verifier, "+
 				"not the secret,\nand cannot print it again. Put it in a password manager now.\n\n")
-			fmt.Fprint(out, "If you lose it, run `postern admin revoke` and bootstrap a new "+
-				"account.\n\n")
+			/*
+			 * ⚠️ BU CÜMLE BİR ÇIKMAZ SOKAK GÖSTERİYORDU — ve aynı
+			 * dosyanın 108. satırındaki hata metni o çıkmazı zaten
+			 * anlatıyor. "revoke edip yeniden bootstrap et" işlemiyor:
+			 * revoke hesabı BIRAKIYOR, bootstrap var olan hesabı
+			 * reddediyor. Üstelik bu yolu yalnızca ZATEN kilitlenmiş
+			 * bir operatör yürüyor.
+			 */
+			fmt.Fprintf(out, "If you lose it, run `postern admin revoke --name %s` "+
+				"then `postern admin issue --name %s`.\n\n", name, name)
 			/*
 			 * ⚠️ HESABIN NE OLDUĞU BURADA YAZMALI.
 			 *
