@@ -60,15 +60,22 @@ recordings.
   account could sign in with its key during any lookup failure. It now
   refuses.
 
-- **SFTP auditing no longer starts a round trip late.** The audit was
-  armed only after the `subsystem sftp` request had been forwarded and
-  answered, so a client that sent its first packets without waiting for
-  the reply could open and read a file before anything was watching. The
-  operations ran on the target and left no row, and — because the parser
-  reads a length-prefixed stream with no handshake state — the rest
-  parsed cleanly and the file list presented itself as complete. If you
-  have relied on file history from a pre-release build, treat it as a
-  floor rather than a full account for sessions from scripted clients.
+- **SFTP auditing starts earlier, though not yet at the first possible
+  byte.** It used to be armed only after the `subsystem sftp` request had
+  been forwarded to the target and answered, so a client that sent its
+  first packets without waiting for the reply could open and read a file
+  before anything was watching. Those operations ran on the target and
+  left no row, and — because the parser reads a length-prefixed stream
+  with no handshake state — everything after them parsed cleanly and the
+  file list presented itself as complete.
+
+  Auditing is now armed before the request is forwarded. One gap is
+  measured and remains: arming happens when the bastion picks the request
+  off its queue, so a client that sends another request first (an
+  ordinary `env` will do) still has a window while that one is answered.
+  If you have relied on file history from a pre-release build, treat it
+  as a floor rather than a full account for sessions from scripted
+  clients.
 
 - **Purging a username now drops that name's panel sessions.** Purging
   releases the name for reuse; the sessions held against it were left
