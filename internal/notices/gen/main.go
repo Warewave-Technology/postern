@@ -18,8 +18,12 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	// #nosec G306 -- 0644 BİLEREK: bu dosya sürüm arşivine giriyor ve
+	// lisans bildirimlerinin okunabilir olması gerekiyor; 0600 onu
+	// paketleyen kullanıcıdan başkasına kapatırdı. Gizli bir şey
+	// içermiyor — girdisi `go list`in verdiği modül listesi.
 	if err := os.WriteFile("THIRD-PARTY-NOTICES.md",
-		[]byte(notices.Render(mods)), 0o644); err != nil { // #nosec G306 -- yayınlanan belge
+		[]byte(notices.Render(mods)), 0o644); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

@@ -49,6 +49,10 @@ var licenseNames = []string{
  * bildirim, taşımadığımız kod için telif iddiası taşır.
  */
 func Collect(dir, pkg string) ([]Module, error) {
+	// #nosec G204 -- argümanlar sabit; pkg'yi veren tek çağıran
+	// internal/notices/gen ve orada "./cmd/postern" yazılı. Bu paket
+	// ÜRÜNE GİRMİYOR: yalnızca `make notices` için var, cmd/postern onu
+	// import etmiyor.
 	cmd := exec.Command("go", "list", "-deps", "-json", pkg)
 	cmd.Dir = dir
 	out, err := cmd.Output()
