@@ -83,7 +83,16 @@ func (s *Server) publicKeyCallback(conn ssh.ConnMetadata, key ssh.PublicKey) (*s
 	 * kalıyor — satır az önce silindi, ya da veritabanına
 	 * ulaşılamıyor — ve ikisinde de doğru cevap reddetmek.
 	 */
-	state, _, serr := s.db.AccountState(context.Background(), u.Name)
+	/*
+	 * ⚠️ SORGULARIN SÜRESİ VAR. Buradaki iki okuma el sıkışmanın
+	 * İÇİNDE koşuyor; sınırsız bir bağlam, asılı bir veritabanında
+	 * goroutine'i süresiz tutardı. Süre dolarsa aşağıdaki dallar zaten
+	 * REDDEDİYOR — bu dosyanın "soramadıysak geçirmiyoruz" kuralı.
+	 */
+	qctx, qcancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer qcancel()
+
+	state, _, serr := s.db.AccountState(qctx, u.Name)
 	if serr != nil {
 		s.logger.Error("public key rejected: account state could not be read",
 			"user", u.Name, "error", serr, "remote", conn.RemoteAddr().String())
@@ -119,7 +128,7 @@ func (s *Server) publicKeyCallback(conn ssh.ConnMetadata, key ssh.PublicKey) (*s
 	 * burada — el sıkışmada, bir kez — çözüp bağlantıya iliştiriyoruz;
 	 * proxy.Open her kanalda onu doğruluyor.
 	 */
-	id, ierr := s.db.AccountID(context.Background(), u.Name)
+	id, ierr := s.db.AccountID(qctx, u.Name)
 	if ierr != nil {
 		s.logger.Error("public key rejected: account id could not be read",
 			"user", u.Name, "error", ierr, "remote", conn.RemoteAddr().String())
@@ -310,9 +319,20 @@ func (s *Server) keyboardInteractive(nConn deadlineSetter, conn ssh.ConnMetadata
 		return nil, fmt.Errorf("auth.keyboardInteractiveCallback[%s]: %w", conn.RemoteAddr(), err)
 	}
 
-	// Anahtar kapısıyla AYNI şekil: iki giriş yolu da bağlantıya hesap
-	// kimliğini iliştiriyor (gerekçe publicKeyCallback'te).
-	accountID, ierr := s.db.AccountID(qctx, u.Name)
+	/*
+	 * Anahtar kapısıyla AYNI şekil: iki giriş yolu da bağlantıya hesap
+	 * kimliğini iliştiriyor (gerekçe publicKeyCallback'te).
+	 *
+	 * ⚠️ KENDİ SÜRESİ VAR, qctx'i PAYLAŞMIYOR. qctx'in 10 saniyesi
+	 * resolveIdentity için biçilmişti ve o dizine gidiyor; bütçeyi
+	 * paylaşsaydık yavaş bir dizin çözümü, TAM OLARAK BAŞARILI OLMUŞ
+	 * bir girişi son adımda reddeder hâle gelirdi. Aynı gerekçe qctx'in
+	 * kendisi için de yazılı: her adıma taze, kısa bir süre.
+	 */
+	idCtx, idCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer idCancel()
+
+	accountID, ierr := s.db.AccountID(idCtx, u.Name)
 	if ierr != nil {
 		return nil, fmt.Errorf(
 			"auth.keyboardInteractiveCallback[%s]: account id for %s could not be read: "+
