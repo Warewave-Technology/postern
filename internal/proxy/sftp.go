@@ -55,6 +55,21 @@ type SFTPSink interface {
  *
  * Artık kurulum iletimden önce; hedef subsystem'i reddederse çağıran
  * cancelSFTP ile geri alıyor.
+ *
+ * ⚠️ PENCERE DARALDI, KAPANMADI — ve bu ölçüldü, tahmin değil.
+ *
+ * Kurulum, isteği İSTEMCİ YÖNÜNDEKİ TEK relay goroutine'i sıradan
+ * ALDIĞI an oluyor; kanalın açıldığı an değil. İstemci `subsystem
+ * sftp`'den önce geçerli başka bir istek koyarsa (örneğin
+ * `env LANG=C`, varsayılan listede kabul ediliyor), kurulum o isteğin
+ * hedef gidiş-dönüşü kadar gecikiyor ve aradaki baytlar yine
+ * denetimsiz geçiyor. Ölçüldü: hedef ilk isteği 500 ms tuttuğunda,
+ * boru hattıyla gelen OPEN hedefte çalıştı ve tek olay üretmedi.
+ *
+ * Kalıcı çözüm kurulumu KANAL AÇILIŞINA bağlamak olurdu (subsystem
+ * beklemeden), ama o, SFTP olmayan her kanala da çözümleyici takmak
+ * demek. Kararı vermeden önce ölçmek gerekiyor; şimdilik bilinen ve
+ * yazılı bir sınır.
  */
 func (b *Broker) beginSFTP(req *ssh.Request) bool {
 	if b.sftpSink == nil || req.Type != "subsystem" {

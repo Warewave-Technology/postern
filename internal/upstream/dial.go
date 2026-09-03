@@ -186,6 +186,16 @@ func dialer(ctx context.Context, t model.Target, user string, signer ssh.Signer)
 	 * yetişmiyor: gelen bağlantının el sıkışma süresi çoktan
 	 * kaldırılmış, idle/lifetime koruyucuları ise Session.Run'a kadar
 	 * kurulmuyor.
+	 *
+	 * ⚠️ SINIR YALNIZCA EL SIKIŞMAYI KAPSIYOR — ÖLÇÜLDÜ.
+	 *
+	 * El sıkışmayı bitirip sonra susan bir hedef aynı zararı bir
+	 * protokol adımı sonra üretiyor: Conn.OpenSession → OpenChannel
+	 * ne context alıyor ne de süresi var, ve süre burada zaten
+	 * kaldırılmış oluyor. İstemci gittiğinde bağlantı context'i iptal
+	 * ediliyor ama aşağıdaki AfterFunc başarı yolunda söküldüğü için
+	 * hedef soketini kapatan bir şey kalmıyor. Bu satırın kapattığı
+	 * şey el sıkışma; kanal açılışı hâlâ açık bir sınır.
 	 */
 	if err := nc.SetDeadline(time.Now().Add(dialTimeout)); err != nil {
 		nc.Close()
