@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/warewave/postern/internal/model"
+	"github.com/Warewave-Technology/postern/internal/model"
 )
 
 func seedTarget(t *testing.T, s *Store, name string) {

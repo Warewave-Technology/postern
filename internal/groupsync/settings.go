@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/warewave/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/store"
 )
 
 /*

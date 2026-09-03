@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/warewave/postern/internal/auth"
+	"github.com/Warewave-Technology/postern/internal/auth"
 )
 
 /*

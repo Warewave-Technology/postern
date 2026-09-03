@@ -7,7 +7,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"fmt"
-	"github.com/warewave/postern/internal/sshalg"
+	"github.com/Warewave-Technology/postern/internal/sshalg"
 	"net"
 	"strconv"
 	"strings"
@@ -16,8 +16,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/warewave/postern/internal/ca"
-	"github.com/warewave/postern/internal/model"
+	"github.com/Warewave-Technology/postern/internal/ca"
+	"github.com/Warewave-Technology/postern/internal/model"
 )
 
 // Conn is an established SSH connection to a target.

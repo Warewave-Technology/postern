@@ -5,7 +5,7 @@ package policy
 import (
 	"slices"
 
-	"github.com/warewave/postern/internal/model"
+	"github.com/Warewave-Technology/postern/internal/model"
 )
 
 // osUserNamePatternRegex, hedefte hesap adı olarak kabul ettiğimiz biçim.

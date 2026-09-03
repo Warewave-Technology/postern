@@ -16,8 +16,8 @@ import (
 	"github.com/coder/websocket"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/warewave/postern/internal/config"
-	"github.com/warewave/postern/internal/sshd"
+	"github.com/Warewave-Technology/postern/internal/config"
+	"github.com/Warewave-Technology/postern/internal/sshd"
 )
 
 /*

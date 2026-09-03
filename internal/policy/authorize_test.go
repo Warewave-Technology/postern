@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/warewave/postern/internal/model"
+	"github.com/Warewave-Technology/postern/internal/model"
 )
 
 // --- test verisi ---

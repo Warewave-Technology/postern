@@ -10,7 +10,7 @@ import (
 
 	"github.com/goccy/go-yaml"
 
-	"github.com/warewave/postern/internal/config"
+	"github.com/Warewave-Technology/postern/internal/config"
 )
 
 /*

@@ -10,7 +10,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/warewave/postern/internal/record"
+	"github.com/Warewave-Technology/postern/internal/record"
 )
 
 // Bu dosyadaki hedefler "panik atmıyor" DEMİYOR. Her biri bir ÖZELLİK

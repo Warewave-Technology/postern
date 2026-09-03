@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/warewave/postern/internal/model"
+	"github.com/Warewave-Technology/postern/internal/model"
 )
 
 // startFileSession, dosya olayları bağlanacak bir oturum açar.

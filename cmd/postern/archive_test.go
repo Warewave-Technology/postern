@@ -13,7 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/warewave/postern/internal/objstore"
+	"github.com/Warewave-Technology/postern/internal/objstore"
 )
 
 func codeErr(code string, status int, base error) error {

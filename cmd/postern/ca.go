@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 
+	"github.com/Warewave-Technology/postern/internal/ca"
 	"github.com/spf13/cobra"
-	"github.com/warewave/postern/internal/ca"
 )
 
 // defaultCAKeyPath, --key verilmediğinde kullanılacak yol.

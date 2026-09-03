@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/warewave/postern/internal/store"
-	"github.com/warewave/postern/internal/testdb"
+	"github.com/Warewave-Technology/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/testdb"
 )
 
 func syncStore(t *testing.T) *store.Store {

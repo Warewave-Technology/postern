@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Warewave-Technology/postern/internal/store"
 	"github.com/coder/websocket"
-	"github.com/warewave/postern/internal/store"
 )
 
 /*

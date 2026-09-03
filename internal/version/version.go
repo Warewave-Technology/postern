@@ -33,7 +33,7 @@ import (
 
 // version, derlemede basılan sürüm etiketi. Boşsa "dev".
 //
-// Makefile: -ldflags "-X github.com/warewave/postern/internal/version.version=$(VERSION)"
+// Makefile: -ldflags "-X github.com/Warewave-Technology/postern/internal/version.version=$(VERSION)"
 var version = ""
 
 // Info, çalışan ikili hakkında bilinen her şey.

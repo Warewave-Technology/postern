@@ -12,9 +12,9 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/warewave/postern/internal/config"
-	"github.com/warewave/postern/internal/sshalg"
-	"github.com/warewave/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/config"
+	"github.com/Warewave-Technology/postern/internal/sshalg"
+	"github.com/Warewave-Technology/postern/internal/store"
 )
 
 // newUserCmd, kullanıcı yönetimi.

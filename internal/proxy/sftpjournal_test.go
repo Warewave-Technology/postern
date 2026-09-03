@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/warewave/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/store"
 )
 
 /*

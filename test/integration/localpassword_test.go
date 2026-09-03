@@ -24,8 +24,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/warewave/postern/internal/auth"
-	"github.com/warewave/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/auth"
+	"github.com/Warewave-Technology/postern/internal/store"
 )
 
 // localSignIn, /auth/local'e POST atar ve HTTP kodunu döner.

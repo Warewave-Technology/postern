@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/warewave/postern/internal/record"
+	"github.com/Warewave-Technology/postern/internal/record"
 )
 
 /*

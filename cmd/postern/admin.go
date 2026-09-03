@@ -9,9 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/warewave/postern/internal/auth"
-	"github.com/warewave/postern/internal/config"
-	"github.com/warewave/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/auth"
+	"github.com/Warewave-Technology/postern/internal/config"
+	"github.com/Warewave-Technology/postern/internal/store"
 )
 
 /*

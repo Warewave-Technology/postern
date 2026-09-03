@@ -3,12 +3,12 @@ package httpapi
 import (
 	"testing"
 
-	"github.com/warewave/postern/internal/ldap"
+	"github.com/Warewave-Technology/postern/internal/ldap"
 
-	"github.com/warewave/postern/internal/archive"
-	"github.com/warewave/postern/internal/auth"
+	"github.com/Warewave-Technology/postern/internal/archive"
+	"github.com/Warewave-Technology/postern/internal/auth"
 
-	"github.com/warewave/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/store"
 )
 
 /*

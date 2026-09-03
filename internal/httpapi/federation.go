@@ -14,11 +14,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/warewave/postern/internal/auth"
-	"github.com/warewave/postern/internal/groupsync"
-	"github.com/warewave/postern/internal/ldap"
-	"github.com/warewave/postern/internal/model"
-	"github.com/warewave/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/auth"
+	"github.com/Warewave-Technology/postern/internal/groupsync"
+	"github.com/Warewave-Technology/postern/internal/ldap"
+	"github.com/Warewave-Technology/postern/internal/model"
+	"github.com/Warewave-Technology/postern/internal/store"
 )
 
 func (s *Server) registerFederationRoutes(mux *http.ServeMux) {

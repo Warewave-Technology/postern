@@ -6,7 +6,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/warewave/postern/web"
+	"github.com/Warewave-Technology/postern/web"
 )
 
 // spaHandler, gömülü frontend'i sunar.

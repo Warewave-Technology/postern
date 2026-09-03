@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/warewave/postern/internal/auth"
-	"github.com/warewave/postern/internal/events"
-	"github.com/warewave/postern/internal/model"
-	"github.com/warewave/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/auth"
+	"github.com/Warewave-Technology/postern/internal/events"
+	"github.com/Warewave-Technology/postern/internal/model"
+	"github.com/Warewave-Technology/postern/internal/store"
 	"golang.org/x/crypto/ssh"
 )
 

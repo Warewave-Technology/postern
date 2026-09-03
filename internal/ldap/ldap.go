@@ -24,7 +24,7 @@ import (
 
 	goldap "github.com/go-ldap/ldap/v3"
 
-	"github.com/warewave/postern/internal/auth"
+	"github.com/Warewave-Technology/postern/internal/auth"
 )
 
 // dialTimeout, dizin erişilemezken girişin ne kadar bekleyeceği.

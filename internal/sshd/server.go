@@ -6,7 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/warewave/postern/internal/sshalg"
+	"github.com/Warewave-Technology/postern/internal/sshalg"
 	"log/slog"
 	"net"
 	"os"
@@ -16,13 +16,13 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/warewave/postern/internal/auth"
-	"github.com/warewave/postern/internal/ca"
-	"github.com/warewave/postern/internal/config"
-	"github.com/warewave/postern/internal/events"
-	"github.com/warewave/postern/internal/proxy"
-	"github.com/warewave/postern/internal/record"
-	"github.com/warewave/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/auth"
+	"github.com/Warewave-Technology/postern/internal/ca"
+	"github.com/Warewave-Technology/postern/internal/config"
+	"github.com/Warewave-Technology/postern/internal/events"
+	"github.com/Warewave-Technology/postern/internal/proxy"
+	"github.com/Warewave-Technology/postern/internal/record"
+	"github.com/Warewave-Technology/postern/internal/store"
 )
 
 // oobTimeout, tarayıcı onayı için üst sınır. Çok kısa olursa insan

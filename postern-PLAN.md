@@ -6,7 +6,7 @@
 Sertifika tabanlı, OIDC kimlik doğrulamalı, oturum kaydeden SSH bastion.
 "Çok sade Teleport" — tek protokol, tek node, tek binary.
 
-**Lisans:** Apache-2.0 · **Dil:** Go · **Repo:** `github.com/warewave/postern`
+**Lisans:** Apache-2.0 · **Dil:** Go · **Repo:** `github.com/Warewave-Technology/postern`
 
 ---
 

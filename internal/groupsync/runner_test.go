@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/warewave/postern/internal/auth"
-	"github.com/warewave/postern/internal/ldap"
+	"github.com/Warewave-Technology/postern/internal/auth"
+	"github.com/Warewave-Technology/postern/internal/ldap"
 )
 
 func testLogger() *slog.Logger {

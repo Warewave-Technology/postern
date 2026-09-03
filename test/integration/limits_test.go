@@ -11,7 +11,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/warewave/postern/internal/config"
+	"github.com/Warewave-Technology/postern/internal/config"
 )
 
 // Tarayıcı girişi, handshake süresi ONDAN KISA olsa bile tamamlanmalı.

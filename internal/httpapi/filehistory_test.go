@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/warewave/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/store"
 )
 
 func quietServer() *Server {

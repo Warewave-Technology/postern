@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/warewave/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/store"
 )
 
 // browserSignIn, login yolculuğunun tamamını yürütür: /auth/login →

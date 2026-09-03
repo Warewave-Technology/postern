@@ -8,9 +8,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/warewave/postern/internal/auth"
-	"github.com/warewave/postern/internal/ldap"
-	"github.com/warewave/postern/internal/ldap/ldaptest"
+	"github.com/Warewave-Technology/postern/internal/auth"
+	"github.com/Warewave-Technology/postern/internal/ldap"
+	"github.com/Warewave-Technology/postern/internal/ldap/ldaptest"
 )
 
 /*

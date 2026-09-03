@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/warewave/postern/internal/config"
+	"github.com/Warewave-Technology/postern/internal/config"
 
-	"github.com/warewave/postern/internal/archive"
-	"github.com/warewave/postern/internal/groupsync"
+	"github.com/Warewave-Technology/postern/internal/archive"
+	"github.com/Warewave-Technology/postern/internal/groupsync"
 )
 
 /*

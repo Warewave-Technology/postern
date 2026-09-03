@@ -19,8 +19,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/warewave/postern/internal/proxy"
-	"github.com/warewave/postern/web"
+	"github.com/Warewave-Technology/postern/internal/proxy"
+	"github.com/Warewave-Technology/postern/web"
 )
 
 // --- 1. handleControl -------------------------------------------------

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/warewave/postern/internal/auth"
-	"github.com/warewave/postern/internal/ldap/ldaptest"
+	"github.com/Warewave-Technology/postern/internal/auth"
+	"github.com/Warewave-Technology/postern/internal/ldap/ldaptest"
 )
 
 /*

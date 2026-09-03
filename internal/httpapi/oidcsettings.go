@@ -13,8 +13,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/warewave/postern/internal/auth"
-	"github.com/warewave/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/auth"
+	"github.com/Warewave-Technology/postern/internal/store"
 )
 
 func (s *Server) registerOIDCRoutes(mux *http.ServeMux) {

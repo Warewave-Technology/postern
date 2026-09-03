@@ -11,13 +11,13 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/warewave/postern/internal/auth"
-	"github.com/warewave/postern/internal/config"
-	"github.com/warewave/postern/internal/events"
-	"github.com/warewave/postern/internal/groupsync"
-	"github.com/warewave/postern/internal/proxy"
-	"github.com/warewave/postern/internal/record"
-	"github.com/warewave/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/auth"
+	"github.com/Warewave-Technology/postern/internal/config"
+	"github.com/Warewave-Technology/postern/internal/events"
+	"github.com/Warewave-Technology/postern/internal/groupsync"
+	"github.com/Warewave-Technology/postern/internal/proxy"
+	"github.com/Warewave-Technology/postern/internal/record"
+	"github.com/Warewave-Technology/postern/internal/store"
 )
 
 // Server, HTTP uçlarını taşır. TLS/dinleme çağıranın işi (serve kuruyor);

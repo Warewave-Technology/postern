@@ -11,7 +11,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/warewave/postern/internal/upstream"
+	"github.com/Warewave-Technology/postern/internal/upstream"
 )
 
 // S1.5 istasyon 2: hedefte ham session kanalı açılıyor ve o kanal üzerinden

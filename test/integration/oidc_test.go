@@ -31,7 +31,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"github.com/warewave/postern/internal/auth"
+	"github.com/Warewave-Technology/postern/internal/auth"
 )
 
 const (

@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/warewave/postern/internal/model"
-	"github.com/warewave/postern/internal/secret"
+	"github.com/Warewave-Technology/postern/internal/model"
+	"github.com/Warewave-Technology/postern/internal/secret"
 )
 
 var (

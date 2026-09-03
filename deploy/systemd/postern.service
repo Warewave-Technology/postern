@@ -12,7 +12,7 @@
 
 [Unit]
 Description=postern SSH bastion
-Documentation=https://github.com/warewave/postern
+Documentation=https://github.com/Warewave-Technology/postern
 After=network-online.target
 Wants=network-online.target
 # Veritabanı aynı makinedeyse: postern onsuz açılmıyor.

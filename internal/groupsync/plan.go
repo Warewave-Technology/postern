@@ -13,7 +13,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/warewave/postern/internal/ldap"
+	"github.com/Warewave-Technology/postern/internal/ldap"
 )
 
 // Observation, tek bir kullanıcı hakkında dizinden öğrenilenler.

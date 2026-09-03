@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/warewave/postern/internal/config"
-	"github.com/warewave/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/config"
+	"github.com/Warewave-Technology/postern/internal/store"
 )
 
 // newRoleCmd, rol yönetimi. Yetki modeli için user.go'daki nota bak.

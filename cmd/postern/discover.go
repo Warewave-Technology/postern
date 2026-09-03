@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/warewave/postern/internal/discover"
+	"github.com/Warewave-Technology/postern/internal/discover"
 )
 
 /*

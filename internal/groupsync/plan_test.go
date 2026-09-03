@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/warewave/postern/internal/ldap"
+	"github.com/Warewave-Technology/postern/internal/ldap"
 )
 
 var now = time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)

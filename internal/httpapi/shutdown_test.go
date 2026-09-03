@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/warewave/postern/internal/events"
+	"github.com/Warewave-Technology/postern/internal/events"
 )
 
 /*

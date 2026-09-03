@@ -20,9 +20,9 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"github.com/warewave/postern/internal/auth"
-	"github.com/warewave/postern/internal/ldap"
-	"github.com/warewave/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/auth"
+	"github.com/Warewave-Technology/postern/internal/ldap"
+	"github.com/Warewave-Technology/postern/internal/store"
 )
 
 const (

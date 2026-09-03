@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/warewave/postern/internal/events"
+	"github.com/Warewave-Technology/postern/internal/events"
 )
 
 // heartbeatEvery, akışta hiçbir olay yokken gönderilen yorum satırının

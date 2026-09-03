@@ -29,7 +29,7 @@ import (
 	"github.com/coder/websocket"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/warewave/postern/internal/proxy"
+	"github.com/Warewave-Technology/postern/internal/proxy"
 )
 
 // wsChannel, ssh.Channel arayüzünü WebSocket üzerinde karşılar.

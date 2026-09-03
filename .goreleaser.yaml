@@ -61,7 +61,7 @@ builds:
       #
       # Boş bırakılınca version paketi "dev" diyor ve etiketsizliği
       # cümleyle yazıyor — zaten tam bunun için ayrı bir alanı var.
-      - -X github.com/warewave/postern/internal/version.version={{ if .IsSnapshot }}{{ else }}{{ .Tag }}{{ end }}
+      - -X github.com/Warewave-Technology/postern/internal/version.version={{ if .IsSnapshot }}{{ else }}{{ .Tag }}{{ end }}
 
     # ⚠️ HEDEFLER: bastion Linux'ta çalışıyor. macOS ikilileri CLI için
     # var — `postern log`, `postern user ...` gibi komutlar bastion
@@ -155,7 +155,7 @@ release:
     cosign verify-blob checksums.txt \
       --signature checksums.txt.sig \
       --certificate checksums.txt.pem \
-      --certificate-identity-regexp '^https://github\.com/warewave/postern/\.github/workflows/release\.yml@' \
+      --certificate-identity-regexp '^https://github\.com/Warewave-Technology/postern/\.github/workflows/release\.yml@' \
       --certificate-oidc-issuer https://token.actions.githubusercontent.com
     ```
 

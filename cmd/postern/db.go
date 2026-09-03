@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/Warewave-Technology/postern/internal/config"
+	"github.com/Warewave-Technology/postern/internal/store"
 	"github.com/spf13/cobra"
-	"github.com/warewave/postern/internal/config"
-	"github.com/warewave/postern/internal/store"
 )
 
 // newDBCmd, veritabanı bakım komutları.

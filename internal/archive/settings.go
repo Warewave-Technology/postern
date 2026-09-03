@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/warewave/postern/internal/objstore"
-	"github.com/warewave/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/objstore"
+	"github.com/Warewave-Technology/postern/internal/store"
 )
 
 /*

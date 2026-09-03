@@ -11,9 +11,9 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/warewave/postern/internal/model"
-	"github.com/warewave/postern/internal/store"
-	"github.com/warewave/postern/internal/testdb"
+	"github.com/Warewave-Technology/postern/internal/model"
+	"github.com/Warewave-Technology/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/testdb"
 )
 
 // fakeSSH, host anahtarı taranabilen bir dinleyici açar.

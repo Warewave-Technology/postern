@@ -11,8 +11,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/warewave/postern/internal/record"
-	"github.com/warewave/postern/internal/sftpaudit"
+	"github.com/Warewave-Technology/postern/internal/record"
+	"github.com/Warewave-Technology/postern/internal/sftpaudit"
 )
 
 // --- yardımcılar ------------------------------------------------------

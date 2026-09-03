@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/warewave/postern/internal/model"
+	"github.com/Warewave-Technology/postern/internal/model"
 )
 
 /*

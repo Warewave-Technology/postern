@@ -13,8 +13,8 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/warewave/postern/internal/store"
-	"github.com/warewave/postern/internal/testdb"
+	"github.com/Warewave-Technology/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/testdb"
 )
 
 /*

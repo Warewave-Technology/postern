@@ -34,7 +34,7 @@ func TestVersionStampSurvivesTheBuild(t *testing.T) {
 	const tag = "v9.9.9-stamptest"
 
 	build := exec.Command(goBin, "build",
-		"-ldflags", "-X github.com/warewave/postern/internal/version.version="+tag,
+		"-ldflags", "-X github.com/Warewave-Technology/postern/internal/version.version="+tag,
 		"-o", bin, "./cmd/postern")
 	build.Dir = repoRoot(t)
 	if out, err := build.CombinedOutput(); err != nil {

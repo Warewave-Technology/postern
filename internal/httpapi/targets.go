@@ -10,10 +10,10 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/warewave/postern/internal/model"
-	"github.com/warewave/postern/internal/sshalg"
-	"github.com/warewave/postern/internal/store"
-	"github.com/warewave/postern/internal/upstream"
+	"github.com/Warewave-Technology/postern/internal/model"
+	"github.com/Warewave-Technology/postern/internal/sshalg"
+	"github.com/Warewave-Technology/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/upstream"
 )
 
 // registerTargetRoutes, hedeflerle ilgili iki ucu bağlar.

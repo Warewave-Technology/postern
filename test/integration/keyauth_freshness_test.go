@@ -12,12 +12,12 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/warewave/postern/internal/auth"
-	"github.com/warewave/postern/internal/model"
-	"github.com/warewave/postern/internal/proxy"
-	"github.com/warewave/postern/internal/record"
-	"github.com/warewave/postern/internal/store"
-	"github.com/warewave/postern/internal/testdb"
+	"github.com/Warewave-Technology/postern/internal/auth"
+	"github.com/Warewave-Technology/postern/internal/model"
+	"github.com/Warewave-Technology/postern/internal/proxy"
+	"github.com/Warewave-Technology/postern/internal/record"
+	"github.com/Warewave-Technology/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/testdb"
 )
 
 /*

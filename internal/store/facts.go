@@ -6,7 +6,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/warewave/postern/internal/model"
+	"github.com/Warewave-Technology/postern/internal/model"
 )
 
 // RecordTargetSeen, başarılı bir bağlantıdan sonra öğrenilenleri yazar.

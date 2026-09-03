@@ -26,8 +26,8 @@ import (
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/warewave/postern/internal/config"
-	"github.com/warewave/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/config"
+	"github.com/Warewave-Technology/postern/internal/store"
 )
 
 // sftpBastion, SFTP'si AÇIK bir bastion ve ona bağlı bir istemci kurar.

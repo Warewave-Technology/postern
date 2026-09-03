@@ -4,7 +4,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/warewave/postern/internal/proxy"
+	"github.com/Warewave-Technology/postern/internal/proxy"
 )
 
 // Oturum çerezinin Secure bayrağı DIŞ ADRESİN şemasından türemeli,

@@ -14,7 +14,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/warewave/postern/internal/config"
+	"github.com/Warewave-Technology/postern/internal/config"
 )
 
 // serveOn, verilen config ile bir sunucuyu geçici bir portta çalıştırır.

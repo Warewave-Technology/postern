@@ -9,7 +9,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/warewave/postern/internal/record"
+	"github.com/Warewave-Technology/postern/internal/record"
 )
 
 // requestSender, üzerine request gönderilebilen uç (ssh.Channel bunu sağlar).

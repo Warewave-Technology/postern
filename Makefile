@@ -18,7 +18,7 @@ GO ?= go
 # Kendini sürüm sanan bir geliştirme derlemesi, "yamalı mıyım" sorusuna
 # verilebilecek en kötü cevap.
 VERSION ?= $(shell git describe --tags --dirty 2>/dev/null)
-LDFLAGS := -X github.com/warewave/postern/internal/version.version=$(VERSION)
+LDFLAGS := -X github.com/Warewave-Technology/postern/internal/version.version=$(VERSION)
 
 
 # Araç sürümleri sabitlenmiş: "@latest" ile koşan bir CI, aracın yeni bir

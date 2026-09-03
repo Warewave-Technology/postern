@@ -9,10 +9,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/warewave/postern/internal/config"
-	"github.com/warewave/postern/internal/groupsync"
-	"github.com/warewave/postern/internal/ldap"
-	"github.com/warewave/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/config"
+	"github.com/Warewave-Technology/postern/internal/groupsync"
+	"github.com/Warewave-Technology/postern/internal/ldap"
+	"github.com/Warewave-Technology/postern/internal/store"
 )
 
 // postern sync — dizin senkronizasyonunun durumu ve elle koşturma.

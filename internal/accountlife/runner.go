@@ -14,8 +14,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/warewave/postern/internal/auth"
-	"github.com/warewave/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/auth"
+	"github.com/Warewave-Technology/postern/internal/store"
 )
 
 // Runner, periyodik yaşam döngüsü işi.

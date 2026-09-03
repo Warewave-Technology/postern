@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/warewave/postern/internal/proxy"
-	"github.com/warewave/postern/internal/upstream"
+	"github.com/Warewave-Technology/postern/internal/proxy"
+	"github.com/Warewave-Technology/postern/internal/upstream"
 )
 
 /*

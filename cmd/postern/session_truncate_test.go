@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/warewave/postern/internal/model"
-	"github.com/warewave/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/model"
+	"github.com/Warewave-Technology/postern/internal/store"
 )
 
 /*

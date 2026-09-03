@@ -10,7 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/warewave/postern/internal/secret"
+	"github.com/Warewave-Technology/postern/internal/secret"
 	"net/http"
 	"net/http/cookiejar"
 	"path/filepath"

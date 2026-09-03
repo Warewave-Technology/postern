@@ -11,12 +11,12 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/warewave/postern/internal/auth"
-	"github.com/warewave/postern/internal/config"
-	"github.com/warewave/postern/internal/ldap"
-	"github.com/warewave/postern/internal/model"
-	"github.com/warewave/postern/internal/secret"
-	"github.com/warewave/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/auth"
+	"github.com/Warewave-Technology/postern/internal/config"
+	"github.com/Warewave-Technology/postern/internal/ldap"
+	"github.com/Warewave-Technology/postern/internal/model"
+	"github.com/Warewave-Technology/postern/internal/secret"
+	"github.com/Warewave-Technology/postern/internal/store"
 )
 
 // newSecretCmd, sır anahtarı yönetimi.
