@@ -30,8 +30,21 @@ func TestGoodbyeDoesNotFakeAnSFTPAuditFailure(t *testing.T) {
 	down, _, _ := newFakeChannel()
 	up, _, _ := newFakeChannel()
 
+	/*
+	 * ⚠️ WithSFTP ŞART — YOKSA BU TESTİN ASIL İDDİASI ÖLÜ.
+	 *
+	 * tap(), sftpSink nil olduğunda sftpTap'i HİÇ takmıyor (broker.go:
+	 * "varsayılan yol, bu özellik eklenmeden önceki yolla aynı kalıyor").
+	 * Sink bağlanmadan yazılan veda cümlesi çözümleyiciye hiç uğramıyor,
+	 * yani tarif edilen sahte denetim arızası bu kurulumda OLUŞAMIYOR ve
+	 * aşağıdaki `<-b.aborted` iddiası düzeltme kaldırılsa bile geçiyordu.
+	 *
+	 * Ölçüldü: sink bağlanmadan, sayGoodbye'daki SFTP koruması
+	 * kaldırıldığında test yine yeşil kalıyor.
+	 */
 	b := New(down, make(chan *ssh.Request), up, make(chan *ssh.Request),
-		nil, false, RequestPolicy{}, testLogger())
+		nil, false, RequestPolicy{}, testLogger()).
+		WithSFTP(&memSink{})
 
 	// Akan bir SFTP oturumu: gerçek kodda beginSFTP bunu kuruyor ve
 	// finishSFTP onu TEMİZLEMİYOR.
