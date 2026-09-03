@@ -87,6 +87,52 @@ var HostKeyAlgorithms = []string{
 }
 
 /*
+ * HostKeyAlgorithmsFor, PİNLENMİŞ bir anahtarın türünden o anahtarla
+ * müzakere edilebilecek imza algoritmalarını üretir — TERCİH SIRASINDA.
+ *
+ * ⚠️ ANAHTARIN TEL FORMATI, MÜZAKERE ADI DEĞİL. RSA'da ikisi ayrışıyor:
+ * anahtar tel üzerinde her zaman "ssh-rsa" diye duruyor (RFC 8332 imza
+ * algoritmasını değiştirdi, anahtar formatını değil) ama imza
+ * algoritması rsa-sha2-512 / rsa-sha2-256 olabiliyor.
+ *
+ * ÖLÇÜLEN ARIZA: pin'in tel formatı doğrudan müzakere listesi olarak
+ * kullanılıyordu ve RSA host key'i pinlenmiş HER hedef erişilemez
+ * oluyordu — OpenSSH 8.8 ssh-rsa'yı varsayılanda kapattı:
+ *
+ *     ssh: no common algorithm for host key;
+ *     we offered: ["ssh-rsa"], peer offered: ["rsa-sha2-256" "rsa-sha2-512"]
+ *
+ * Aynı kusur eski bir hedefte SESSİZ kalıyordu: el sıkışma tamamlanıyor
+ * ama SHA-1 ile (ölçüldü: müzakere edilen host key algoritması
+ * "ssh-rsa"). Operatörün pin'i "rsa-sha2-512 AAAA..." diye yazıp
+ * kaçması da mümkün değil — ParseAuthorizedKey onu reddediyor.
+ *
+ * ⚠️ ssh-rsa (SHA-1) listeye KASTEN GERİ KONMUYOR. RFC 8332 öncesi bir
+ * hedef (OpenSSH < 7.2) bu akışa zaten giremiyor: tarama da aynı
+ * listeyi sunuyor ve orada da ssh-rsa yok. Kaybedilen tek şey ELLE
+ * pinlenmiş böyle bir hedef, ve onu SHA-1'de tutmak, SHA-1'i her
+ * yerden çıkarmış bir taşıma katmanının tek istisnası olurdu.
+ *
+ * Pin'in ANLAMI değişmiyor: tel formatı aynı kaldığı için doğrulama
+ * hâlâ birebir aynı anahtar blob'unu karşılaştırıyor.
+ *
+ * ⚠️ BOŞ LİSTE DÖNMEK TEHLİKELİ, o yüzden bilinmeyen tür kendi adına
+ * düşüyor: x/crypto boş ClientConfig.HostKeyAlgorithms'i "varsayılanı
+ * kullan" diye okuyor ve o varsayılan ssh-rsa ile ssh-dss içeriyor —
+ * yani sessizce AÇILIRDI.
+ */
+func HostKeyAlgorithmsFor(keyType string) []string {
+	switch keyType {
+	case ssh.KeyAlgoRSA:
+		// Sıra HostKeyAlgorithms ile aynı: tarama neyi tercih
+		// ediyorsa bağlantı da onu tercih etmeli.
+		return []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256}
+	default:
+		return []string{keyType}
+	}
+}
+
+/*
  * HostKeyFile, bir anahtar türünün hedefteki DOSYA ADI.
  *
  * ⚠️ Tür adından türetilemiyor. İlk hâlde "ssh-" öneki kırpılıyordu ve

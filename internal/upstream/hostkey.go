@@ -6,6 +6,8 @@ import (
 	"net"
 
 	"golang.org/x/crypto/ssh"
+
+	"github.com/warewave/postern/internal/sshalg"
 )
 
 /*
@@ -66,7 +68,11 @@ func hostKeyCallback(expected string) (ssh.HostKeyCallback, []string, error) {
 		return nil, nil, fmt.Errorf("upstream.hostKeyCallback: %w", err)
 	}
 
-	return pinnedHostKey(publicKey), []string{publicKey.Type()}, nil
+	// ⚠️ TÜRÜN KENDİSİ DEĞİL, O TÜRLE MÜZAKERE EDİLEBİLECEK
+	// ALGORİTMALAR. RSA'da ikisi ayrı ve doğrudan tür verildiğinde
+	// OpenSSH 8.8+ her hedef erişilemez oluyordu (bkz.
+	// sshalg.HostKeyAlgorithmsFor).
+	return pinnedHostKey(publicKey), sshalg.HostKeyAlgorithmsFor(publicKey.Type()), nil
 }
 
 /*
