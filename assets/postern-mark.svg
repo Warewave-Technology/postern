@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="postern">
+  <title>postern</title>
+  <!--
+    ⚠️ BU, LOGONUN KÜÇÜK BOYUT İÇİN İNDİRGENMİŞ HÂLİ — assets/postern-logo.png
+    YERİNE GEÇMİYOR, ONUN YANINDA DURUYOR.
+    Gerekçe ölçüldü: gerçek logo 16 pikselde okunmuyor. Üç iç içe kemer ve
+    ok, tarayıcı sekmesi boyutunda tek bir koyu lekeye dönüşüyor (beyaz,
+    #0d1117 ve site kremi üzerinde ayrı ayrı çizilip bakıldı); 32'de kalkan
+    seçiliyor ama içi belirsiz, 48'den sonra mükemmel çalışıyor.
+    Bu yüzden iş bölümü şöyle:
+      • 48px ve üstü (README, sosyal önizleme)  -> assets/postern-logo.png
+      • 32px ve altı (favicon, site başlığı)    -> bu dosya
+    İndirgeme, logonun İKİ taşıyıcı öğesini koruyor: kalkan silueti ve
+    sivri kemer. Atılanlar 16 pikselde zaten görünmeyenler: iç içe geçen
+    ikinci/üçüncü kemer, yükselen ok, eğim ve doku. Renkler logodan
+    örneklendi (#2a2320 gövde, #8a6a48 bronz kenar, #e8e0cc krem).
+  -->
+  <path d="M32 3.5 L57 12 V31 C57 45.5 46 56.5 32 60.5 C18 56.5 7 45.5 7 31 V12 Z"
+        fill="#2a2320" stroke="#8a6a48" stroke-width="3.5"/>
+  <path d="M22 46 V31 L32 21 L42 31 V46" fill="none" stroke="#e8e0cc" stroke-width="5.5"/>
+</svg>

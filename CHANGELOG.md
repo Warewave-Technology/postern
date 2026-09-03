@@ -24,12 +24,11 @@ refuses to start against a schema it does not match rather than writing
 audit rows into a shape it does not understand.
 
 <!--
-  There is no "Unreleased" section yet: 1.0.0 is not out, so everything
-  below is unreleased. Open one above the 1.0.0 heading on the first
-  commit after the tag.
+  Open an "## Unreleased" section above the 1.0.0 heading on the first
+  commit after the tag — RELEASING.md says the same thing at the end.
 -->
 
-## 1.0.0 — unreleased
+## 1.0.0 — 2026-09-04
 
 The first release. postern is an SSH bastion that mints a short-lived
 certificate per session and records what happens: targets hold no

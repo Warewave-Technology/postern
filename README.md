@@ -1,7 +1,11 @@
+<img src="assets/postern-logo.png" alt="" width="88" align="left" hspace="20" vspace="4">
+
 # postern
 
 > *A postern is the small, guarded side gate in a castle wall — not the main
 > gate; the one a few people pass through, under watch.*
+
+<br clear="left">
 
 Certificate-based, session-recording SSH bastion in a single Go binary. A
 deliberately minimal take on the Teleport idea: one protocol, one node, one
