@@ -18,6 +18,7 @@ import (
 
 	"github.com/warewave/postern/internal/auth"
 	"github.com/warewave/postern/internal/model"
+	"github.com/warewave/postern/internal/sshalg"
 	"github.com/warewave/postern/internal/store"
 )
 
@@ -239,6 +240,15 @@ func parseAuthorizedKey(w http.ResponseWriter, line string) (ssh.PublicKey, stri
 	pub, comment, _, _, err := ssh.ParseAuthorizedKey([]byte(line))
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "not a valid public key")
+		return nil, "", false
+	}
+
+	// ⚠️ HİÇ ÇALIŞAMAYACAK BİR ANAHTAR KABUL EDİLMİYOR. Geçerli olması
+	// kullanılabilir olması demek değil: DSA kapıda reddediliyor ve
+	// hedef anahtarı olarak da hiç sunulmuyor, yani eklenirse sahibi
+	// bastion'ı arızalı sanır (bkz. sshalg.UnusableKeyType).
+	if why := sshalg.UnusableKeyType(pub.Type()); why != "" {
+		writeErr(w, http.StatusBadRequest, why)
 		return nil, "", false
 	}
 	return pub, comment, true

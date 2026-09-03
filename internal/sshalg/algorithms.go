@@ -62,6 +62,69 @@ var MACs = []string{
 }
 
 /*
+ * PublicKeyAuths, GELEN kimlik doğrulamasında kabul edilen İSTEMCİ imza
+ * algoritmaları (ssh.ServerConfig.PublicKeyAuthAlgorithms).
+ *
+ * ⚠️ TAŞIMADAN AYRI BİR PAZARLIK — ve ayarlanmadığı için kaçmıştı.
+ * Yukarıdaki listeler taşıma katmanını ayarlıyor; kimlik kanıtının
+ * imzası (SSH_MSG_USERAUTH_REQUEST) ayrı pazarlanıyor ve boş
+ * bırakılınca x/crypto kendi varsayılanına düşüyor. O varsayılan
+ * ssh-rsa (SHA-1) ve ssh-dss taşıyor.
+ *
+ * ÖLÇÜLDÜ, gerçek bastion'a karşı: liste yokken ssh-rsa (SHA-1) ile de
+ * ssh-dss ile de kimlik doğrulandı (err=<nil>). Yani taşımada SHA-1'i
+ * reddeden sunucu, kapıda kabul ediyordu.
+ *
+ * ⚠️ RSA ANAHTARLAR KAYBOLMUYOR: aynı anahtar rsa-sha2-256/512 ile
+ * imzalanıyor ve geçiyor (ölçüldü). Tamamen düşen tek tür ssh-dss —
+ * DSA'nın SHA-2 varyantı yok.
+ *
+ * Sertifika türleri BİLEREK yok: x/crypto sertifikayı ALTTAKİ imza
+ * algoritmasıyla karşılaştırıyor, listeye *-cert-v01@openssh.com
+ * koymak NewServerConn'u hataya düşürürdü.
+ *
+ * ⚠️ ELLE YAZILDI, ssh.SupportedAlgorithms()'den türetilmedi — bugün
+ * birebir aynı olsalar bile. Bu dosyanın varlık sebebi kabul edilen
+ * kümenin denetlenebilir bir yerde YAZILI olması; bağımlılığın bir
+ * sürümde listeye bir şey eklemesi, buradaki kararı sessizce
+ * değiştirmemeli.
+ */
+var PublicKeyAuths = []string{
+	ssh.KeyAlgoED25519,
+	ssh.KeyAlgoSKED25519,
+	ssh.KeyAlgoSKECDSA256,
+	ssh.KeyAlgoECDSA256,
+	ssh.KeyAlgoECDSA384,
+	ssh.KeyAlgoECDSA521,
+	ssh.KeyAlgoRSASHA256,
+	ssh.KeyAlgoRSASHA512,
+}
+
+/*
+ * UnusableKeyType, bu türde bir anahtarın postern'de HİÇBİR işe
+ * yaramayacağını söyler — yarayacaksa boş dize döner.
+ *
+ * ⚠️ NEDEN VAR: PublicKeyAuths ssh-dss'i kapıda reddediyor ve
+ * HostKeyAlgorithms zaten hiç sunmuyor. Kontrol olmasaydı bir DSA
+ * anahtarı sorunsuzca EKLENEBİLİYOR, sonra hiçbir koşulda kimlik
+ * doğrulayamıyordu — bu depodaki tekrar eden sınıfın kullanıcıya bakan
+ * hâli: kabul edilen ve hiç çalışamayan bir kayıt. Sahibi de anahtarını
+ * suçlamak yerine bastion'ı arızalı sanardı.
+ *
+ * ⚠️ ssh-rsa BURADA YOK, ve olmaması bilinçli: anahtarın TEL FORMATI
+ * ssh-rsa olsa da imzası rsa-sha2-256/512 olabiliyor (RFC 8332). RSA
+ * anahtarları çalışmaya devam ediyor; düşen tek tür DSA, çünkü onun
+ * bir SHA-2 varyantı yok.
+ */
+func UnusableKeyType(keyType string) string {
+	if keyType == ssh.InsecureKeyAlgoDSA {
+		return "DSA keys are not accepted: the algorithm has no SHA-2 " +
+			"variant, so this key could never authenticate"
+	}
+	return ""
+}
+
+/*
  * HostKeyAlgorithms, hedefin host key'ini TARARKEN istediğimiz türler,
  * TERCİH SIRASINDA.
  *

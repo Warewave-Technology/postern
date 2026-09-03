@@ -146,3 +146,55 @@ func TestHostKeyAlgorithmsForRSA(t *testing.T) {
 			got, want)
 	}
 }
+
+/*
+ * ⚠️ KAPININ KABUL ETTİĞİ İMZALARDA SHA-1 VE DSA OLMAMALI.
+ *
+ * Bu liste boş bırakılırsa x/crypto kendi varsayılanına düşüyor ve o
+ * varsayılan ssh-rsa (SHA-1) ile ssh-dss taşıyor — ölçüldü, gerçek
+ * bastion ikisiyle de kimlik doğruladı. Taşımadan SHA-1'i çıkarmış bir
+ * sunucunun kimlik kanıtını SHA-1 ile kabul etmesi, kilidi değiştirip
+ * eski anahtarı kapının altında bırakmak.
+ */
+func TestPublicKeyAuthsHasNoWeakAlgorithms(t *testing.T) {
+	if len(PublicKeyAuths) == 0 {
+		// Boş liste x/crypto'da "varsayılanı kullan" demek, yani
+		// sessizce AÇILIR.
+		t.Fatal("PublicKeyAuths boş — x/crypto varsayılanına düşer ve o SHA-1 taşıyor")
+	}
+	for _, a := range PublicKeyAuths {
+		if a == ssh.KeyAlgoRSA || a == ssh.InsecureKeyAlgoDSA {
+			t.Errorf("%q kabul ediliyor — SHA-1/DSA kapıdan giriyor", a)
+		}
+	}
+	// RSA anahtarlar kaybolmamalı: SHA-2 varyantları listede olmalı.
+	if !slices.Contains(PublicKeyAuths, ssh.KeyAlgoRSASHA256) ||
+		!slices.Contains(PublicKeyAuths, ssh.KeyAlgoRSASHA512) {
+		t.Error("RSA'nın SHA-2 varyantları yok — mevcut RSA anahtarları düşer")
+	}
+}
+
+/*
+ * ⚠️ HİÇ ÇALIŞAMAYACAK BİR ANAHTAR EKLENEBİLMEMELİ.
+ *
+ * DSA kapıda reddediliyor ve hedef anahtarı olarak da hiç sunulmuyor.
+ * Kabul edilirse sahibi anahtarını değil bastion'ı suçlar — kabul
+ * edilmiş ve hiç çalışamayan bir kayıt, bu depodaki tekrar eden
+ * sınıfın kullanıcıya bakan hâli.
+ */
+func TestUnusableKeyType(t *testing.T) {
+	if why := UnusableKeyType(ssh.InsecureKeyAlgoDSA); why == "" {
+		t.Error("ssh-dss kullanılabilir sayılıyor — eklenen anahtar hiç çalışmaz")
+	}
+	// ⚠️ ssh-rsa KULLANILABİLİR: tel formatı ssh-rsa olsa da imza
+	// rsa-sha2-* olabiliyor. Burayı yanlış anlamak, bütün RSA
+	// kullanıcılarını anahtarlarından ederdi.
+	for _, ok := range []string{
+		ssh.KeyAlgoRSA, ssh.KeyAlgoED25519,
+		ssh.KeyAlgoECDSA256, ssh.KeyAlgoECDSA384, ssh.KeyAlgoECDSA521,
+	} {
+		if why := UnusableKeyType(ok); why != "" {
+			t.Errorf("UnusableKeyType(%q) = %q — çalışan bir anahtar reddediliyor", ok, why)
+		}
+	}
+}

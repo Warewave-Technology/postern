@@ -97,6 +97,49 @@ recordings.
 
 ### Needs action when upgrading a pre-release build
 
+- **SHA-1 and DSA no longer authenticate at the front door — check for
+  DSA keys before upgrading.** The transport already refused SHA-1, but
+  the signature on the identity proof is negotiated separately and had
+  been left at the library default, which accepts `ssh-rsa` (SHA-1) and
+  `ssh-dss`. Measured: the bastion authenticated with both.
+
+  **RSA keys are not affected** — the same key signs with
+  `rsa-sha2-256`/`rsa-sha2-512` and still works. DSA keys stop working
+  outright; the algorithm has no SHA-2 variant, so there is nothing to
+  fall back to. Find them before you restart:
+
+  ```sql
+  SELECT u.username, k.comment
+  FROM user_public_keys k JOIN users u ON u.id = k.user_id
+  WHERE k.key_blob LIKE 'AAAAB3NzaC1kc3M%';
+  ```
+
+  Every row is an account that will be locked out. Have those people
+  add an ed25519 key first. New DSA keys are now refused at the point
+  they are added, with the reason, rather than accepted and silently
+  useless.
+
+  A client that can only sign `ssh-rsa` also stops working. Modern
+  OpenSSH says so itself (`corresponding algorithm not supported by
+  server`); older automation clients may only report "permission
+  denied", so check anything that has not been updated in a while.
+
+- **Targets pinned with an RSA host key are reachable again**, and no
+  longer verified over SHA-1. No action needed unless a target's sshd
+  offers *only* `ssh-rsa` for its host key — OpenSSH older than 7.2, or
+  one configured that way by hand. Those are now refused with a stated
+  reason instead of connecting over SHA-1. To find them:
+
+  ```sql
+  SELECT t.name, t.host, f.server_version
+  FROM targets t JOIN target_facts f ON f.target_id = t.id
+  WHERE f.host_key_type = 'ssh-rsa';
+  ```
+
+  A row here is a target that *has* an RSA host key; only the ones on
+  pre-7.2 sshd are at risk, and the `server_version` column tells you
+  which.
+
 - **Run `postern db migrate`.** The schema is at 31. The bastion refuses
   to start against an older one, so this is a failed start rather than a
   silent problem — but it is still a step your deploy has to take. If you

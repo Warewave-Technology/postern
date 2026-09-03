@@ -662,6 +662,12 @@ func (s *Server) serverConfig(nConn deadlineSetter) (*ssh.ServerConfig, error) {
 		// bekleme daha demek.
 		MaxAuthTries: s.maxAuthTries,
 
+		// ⚠️ GELEN ANAHTARIN İMZA ALGORİTMALARI. Taşımadan AYRI
+		// pazarlanıyor ve boş bırakılınca x/crypto varsayılanı ssh-rsa
+		// (SHA-1) ile ssh-dss'i kabul ediyordu — ölçüldü, ikisiyle de
+		// kimlik doğrulandı (bkz. algorithms.go).
+		PublicKeyAuthAlgorithms: sshalg.PublicKeyAuths,
+
 		// Taşıma algoritmaları açıkça: varsayılanlar SHA-1 taşıyor
 		// (bkz. algorithms.go).
 		Config: ssh.Config{
