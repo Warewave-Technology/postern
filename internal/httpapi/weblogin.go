@@ -540,7 +540,12 @@ func (s *Server) createLocalWebSession(ctx context.Context, name string) (string
 	return s.webSessions.CreateLocal(name, id)
 }
 
-const ctxUser ctxKey = 0
+const (
+	ctxUser ctxKey = 0
+	// ctxAccountID: oturumun bağlı olduğu users.id. Web terminali bunu
+	// proxy.Open'a taşıyor — ad kalıcı bir tutamak değil, kimlik kalıcı.
+	ctxAccountID ctxKey = 1
+)
 
 // requireSession, oturum isteyen uçları saran middleware: cookie →
 // kullanıcı adı → context. 401 gövdesi JSON — SPA yakalayıp login'e
@@ -552,9 +557,15 @@ const ctxUser ctxKey = 0
  * EDİYORDU. Kanıt bir entegrasyon koşumuydu: hesap silindikten sonra
  * /api/me hâlâ 200 ve hedef listesiyle dönüyor, /api/terminal/web01
  * gerçekten açılıyor ve hedefin karşılama afişi geliyordu. Yani
- * yönetici "sil"e basıyor, SSH kapısının gürültüyle kapandığını
- * görüyor ve erişimin bittiğini sanıyor — oysa açık sekmesi olan kişi
- * kabuk açmaya devam ediyor.
+ * yönetici "sil"e basıyor ve erişimin bittiğini sanıyor — oysa açık
+ * sekmesi olan kişi kabuk açmaya devam ediyor.
+ *
+ * ⚠️ BU YORUM BİR ARA "SSH KAPISI ÇARPIYOR" DİYORDU VE O YANLIŞTI.
+ * Ölçüldü: SSH tarafında da yalnızca EL SIKIŞMA denetleniyordu, yani
+ * kurulu bir bağlantı silinmiş hesap için de yeni kanal açmaya devam
+ * ediyordu. Panelin bu kontrolü, deliğin küçük yarısını kapatıyordu ve
+ * gerekçesi büyük yarısı hakkında yanlış bir cümleye dayanıyordu.
+ * Büyük yarısı proxy.Open'da kapandı (bkz. oradaki not).
  *
  * Sebep: sshd/auth.go:70 durumu okuyor, oturum ara katmanı okumuyordu.
  * Panel oturumu BELLEKTE çözülüyor (webSessions) ve o harita hesabın
@@ -654,7 +665,9 @@ func (s *Server) requireSession(next http.Handler) http.Handler {
 			return
 		}
 
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxUser, username)))
+		ctx := context.WithValue(r.Context(), ctxUser, username)
+		ctx = context.WithValue(ctx, ctxAccountID, accountID)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -747,6 +760,14 @@ func (s *Server) passwordChangeDone(w http.ResponseWriter, r *http.Request,
 func sessionUser(r *http.Request) string {
 	name, _ := r.Context().Value(ctxUser).(string)
 	return name
+}
+
+// sessionAccountID, oturumun bağlı olduğu hesap kimliği. sessionUser
+// ile aynı sözleşme: middleware'siz çağrılırsa boş döner ve boş kimlik
+// proxy.Open'da REDDEDİLİYOR — sessizce ada düşmüyor.
+func sessionAccountID(r *http.Request) string {
+	id, _ := r.Context().Value(ctxAccountID).(string)
+	return id
 }
 
 // resolveIdentity, doğrulanmış OIDC kimliğini postern kullanıcısına

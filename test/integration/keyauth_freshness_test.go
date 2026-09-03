@@ -176,7 +176,17 @@ func openWithDirectory(t *testing.T, res auth.GroupResult) error {
 		},
 	}
 
-	_, oerr := proxy.Open(ctx, deps, proxy.Request{Username: "yigit", TargetName: "web01"})
+	// Kimlik kapıda çözülüyor; burada onun yerine geçiyoruz. Boş
+	// bırakmak proxy.Open'da ret demek ve bu testin ölçtüğü şeyi
+	// gizlerdi — hepsi "erişim reddedildi" dönerdi.
+	accountID, aerr := db.AccountID(ctx, "yigit")
+	if aerr != nil {
+		t.Fatalf("AccountID: %v", aerr)
+	}
+
+	_, oerr := proxy.Open(ctx, deps, proxy.Request{
+		Username: "yigit", AccountID: accountID, TargetName: "web01",
+	})
 	return oerr
 }
 

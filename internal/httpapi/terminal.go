@@ -102,6 +102,7 @@ func (s *Server) handleTerminal(w http.ResponseWriter, r *http.Request) {
 	 */
 	sess, err := proxy.Open(r.Context(), *s.proxyDeps, proxy.Request{
 		Username:   sessionUser(r),
+		AccountID:  sessionAccountID(r),
 		TargetName: r.PathValue("target"),
 		SrcIP:      host,
 	})

@@ -109,9 +109,29 @@ func (s *Server) publicKeyCallback(conn ssh.ConnMetadata, key ssh.PublicKey) (*s
 			conn.RemoteAddr(), u.Name)
 	}
 
+	/*
+	 * ⚠️ AD YETMİYOR: BAĞLANTI HESAP KİMLİĞİNİ DE TAŞIYOR.
+	 *
+	 * Ad yeniden kullanılabiliyor. Bağlantı yalnızca adı taşıdığında,
+	 * purge adı bıraktıktan sonra o metin başka birinin satırına
+	 * çözülüyordu ve ayrılan kişinin açık bağlantısı yeni sahibin
+	 * yetkileriyle çalışıp denetime onun adına yazılıyordu. Kimliği
+	 * burada — el sıkışmada, bir kez — çözüp bağlantıya iliştiriyoruz;
+	 * proxy.Open her kanalda onu doğruluyor.
+	 */
+	id, ierr := s.db.AccountID(context.Background(), u.Name)
+	if ierr != nil {
+		s.logger.Error("public key rejected: account id could not be read",
+			"user", u.Name, "error", ierr, "remote", conn.RemoteAddr().String())
+		return nil, fmt.Errorf(
+			"auth.publicKeyCallback[%s]: account id for %s could not be read: "+
+				"access denied", conn.RemoteAddr(), u.Name)
+	}
+
 	return &ssh.Permissions{
 		Extensions: map[string]string{
-			"postern-user": u.Name,
+			"postern-user":    u.Name,
+			"postern-account": id,
 		},
 	}, nil
 }
@@ -290,9 +310,19 @@ func (s *Server) keyboardInteractive(nConn deadlineSetter, conn ssh.ConnMetadata
 		return nil, fmt.Errorf("auth.keyboardInteractiveCallback[%s]: %w", conn.RemoteAddr(), err)
 	}
 
+	// Anahtar kapısıyla AYNI şekil: iki giriş yolu da bağlantıya hesap
+	// kimliğini iliştiriyor (gerekçe publicKeyCallback'te).
+	accountID, ierr := s.db.AccountID(qctx, u.Name)
+	if ierr != nil {
+		return nil, fmt.Errorf(
+			"auth.keyboardInteractiveCallback[%s]: account id for %s could not be read: "+
+				"access denied", conn.RemoteAddr(), u.Name)
+	}
+
 	return &ssh.Permissions{
 		Extensions: map[string]string{
-			"postern-user": u.Name,
+			"postern-user":    u.Name,
+			"postern-account": accountID,
 		},
 	}, nil
 }

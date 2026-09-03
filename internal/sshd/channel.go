@@ -85,7 +85,10 @@ func (s *Server) handleChannel(ctx context.Context, sshConn *ssh.ServerConn, new
 	// Yetki, bağlantı, kayıt ve denetim satırı: hepsi proxy.Open'da.
 	// Web terminali AYNI çağrıyı yapıyor — iki kapı, tek akış.
 	sess, err := proxy.Open(ctx, s.ProxyDeps(), proxy.Request{
-		Username:   posternUser,
+		Username: posternUser,
+		// Kapıda çözülen hesap kimliği: proxy.Open bunu her kanalda
+		// doğruluyor, çünkü ad kalıcı bir tutamak değil.
+		AccountID:  sshConn.Permissions.Extensions["postern-account"],
 		TargetName: route.Target,
 		SrcIP:      host,
 	})

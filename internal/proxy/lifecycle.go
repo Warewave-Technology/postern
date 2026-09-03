@@ -226,7 +226,18 @@ type Request struct {
 	// Username, DOĞRULANMIŞ postern kullanıcı adıdır — istemcinin iddia
 	// ettiği değil. SSH tarafında Permissions'tan, web tarafında oturum
 	// kaydından gelir; ikisi de kimliği kendi kapısında doğrulamış olur.
-	Username   string
+	Username string
+
+	/*
+	 * AccountID, bağlantının bağlı olduğu users.id.
+	 *
+	 * ⚠️ AD DEĞİL KİMLİK, VE BOŞ GEÇİLEMİYOR. Ad yeniden
+	 * kullanılabiliyor (purge onu serbest bırakıyor), kimlik kalıcı.
+	 * Bunu kapıda çözüp buraya taşımak, kanal açılırken "bu bağlantı
+	 * HÂLÂ o kişiye mi ait" sorusunun sorulabilmesinin tek yolu.
+	 */
+	AccountID string
+
 	TargetName string
 	SrcIP      string
 }
@@ -288,6 +299,59 @@ func (s *Session) publish(kind events.Kind, detail string) {
 // gerek yoktur.
 func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 	log := deps.Logger.With("user", req.Username, "target", req.TargetName)
+
+	/*
+	 * ⚠️ BAĞLANTI HER KANALDA YENİDEN SORULUYOR — VE SORULMADIĞI HÂLİ
+	 * ÖLÇÜLDÜ.
+	 *
+	 * Kimlik yalnızca el sıkışmada denetleniyordu. Bir kez kurulmuş SSH
+	 * bağlantısı (bir `ssh -N`, ya da pek çok kurumsal ssh_config'de
+	 * varsayılan olan ControlMaster) süresiz açık kalabiliyor ve her
+	 * yeni kanal buraya geliyor. İki ölçülmüş sonuç:
+	 *
+	 *  1. HESABI KAPATMAK SSH'I KAPATMIYORDU. `state = deleted` —
+	 *     kayıtlı oturumu olan gerçek bir kullanıcı için TEK işten
+	 *     çıkarma kolu, çünkü DeleteUser onları reddediyor — kurulu
+	 *     bağlantıyı hiç etkilemiyordu: silinmiş hesap her kanalda
+	 *     yeni imzalı sertifika almaya devam ediyordu.
+	 *
+	 *  2. AD SERBEST BIRAKILINCA BAĞLANTI YENİ SAHİBE ÇÖZÜLÜYORDU.
+	 *     Bağlantı yalnızca AD taşıyordu; purge adı bıraktıktan sonra
+	 *     aynı metin başka bir gerçek insanın satırına çözülüyor,
+	 *     ayrılan kişinin bağlantısı yeni kişinin os_user'ı ve
+	 *     rolleriyle çalışıyor ve açtığı her oturum denetim defterine
+	 *     ONUN adına yazılıyordu. Denetim önceliği olan bir üründe
+	 *     yanlış insana yazılmış bir kayıt, eksik olandan daha kötü:
+	 *     yüzeyinde şüpheli olduğunu gösteren hiçbir şey yok.
+	 *
+	 * Kimliğe bakan tek bir sorgu ikisini birden kapatıyor: purge, adı
+	 * ancak ZATEN 'deleted' olan bir satırdan bırakabiliyor
+	 * (PurgeAccount o koşulu dayatıyor), yani "bağlı olduğum satır
+	 * silinmiş mi" sorusu hem kapatmayı hem ad devrini görüyor.
+	 *
+	 * ⚠️ 'inactive' BURADA REDDEDİLMİYOR — anahtar kapısının aksine.
+	 * Orası el sıkışma: hesabın o an doğrulanmış olmasını istemek
+	 * doğru. Burası kurulmuş bir oturumun içi ve pasifleşme "kaynak
+	 * bir süredir doğrulamadı" demek; onunla canlı bir oturumu düşürmek
+	 * durgunluk taramasını oturum katiline çevirirdi. Panelin
+	 * accountStillOpen'ı da aynı çizgiyi çekiyor.
+	 */
+	if req.AccountID == "" {
+		// Kapılardan biri kimliği bağlamayı unutmuş: bu bir programlama
+		// hatası ve doğru cevap reddetmek — ada düşmek, yukarıdaki iki
+		// arızayı geri getirirdi.
+		log.Error("session refused: request is not bound to an account id")
+		return nil, fmt.Errorf("proxy.Open: %w", ErrAccessDenied)
+	}
+	if err := deps.Store.RefuseIfDeletedByID(ctx, req.AccountID); err != nil {
+		if errors.Is(err, store.ErrAccessDenied) || errors.Is(err, store.ErrNotFound) {
+			log.Warn("session refused: the account this connection belongs to is gone",
+				"account_id", req.AccountID)
+			return nil, fmt.Errorf("proxy.Open: %w", ErrAccessDenied)
+		}
+		log.Error("account state lookup failed", "error", err)
+		return nil, fmt.Errorf("proxy.Open: %w", ErrUnavailable)
+	}
 
 	target, err := deps.Store.Target(ctx, req.TargetName)
 	if err != nil {
