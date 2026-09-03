@@ -4,7 +4,9 @@ package integration
 
 import (
 	"context"
+	"io"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -132,5 +134,129 @@ func TestShutdownClosesLiveSessionsAndQueuesTheirRecordings(t *testing.T) {
 	case <-done:
 	case <-time.After(10 * time.Second):
 		t.Error("oturum istemci tarafında bitmedi")
+	}
+}
+
+/*
+ * ⚠️ DRAIN GERÇEKTEN BEKLEMELİ — ve beklemiyordu.
+ *
+ * Yukarıdaki test kapanışın Session.Close'u çalıştırdığını ölçüyor ve
+ * o kadarını doğru ölçüyor. Ölçmediği şey, düzeltmenin ASIL iddiası:
+ * "açık oturumlar drain_timeout kadar devam eder, süre dolunca
+ * sebebiyle kapatılır". O yarısı çalışmıyordu ve test üstünden geçiyordu.
+ *
+ * Sebep: bağlantı context'i kapanış sinyalinin ta kendisinden
+ * türüyordu, yani SIGTERM her oturumu ANINDA iptal ediyordu (ölçüldü:
+ * 5 saniyelik grace'te 253µs). drain sonra boşalmış bir kayıt
+ * defterini bekliyor, TerminateAll sıfır oturum kesiyor, kullanıcı
+ * hiçbir şey görmüyordu.
+ *
+ * Bu test iki şeyi birden ölçüyor, çünkü ikisi de aynı kopuşa bağlı:
+ * oturum grace boyunca YAŞIYOR mu, ve süre dolunca kullanıcı SEBEBİ
+ * görüyor mu.
+ */
+func TestShutdownGivesLiveSessionsTheirGraceAndTellsThemWhy(t *testing.T) {
+	caKeyPath, caAuthorizedKey := newTestCA(t)
+	tgt := startCertTarget(t, caAuthorizedKey)
+	tc := tgt.target()
+	tc.Name = "web01"
+
+	// Ölçülebilir bir grace: t+0'da ölmekle süreyi beklemek arasındaki
+	// farkın gürültüden büyük olması gerekiyor.
+	const grace = 3 * time.Second
+	tuneConfig = func(c *config.Config) { c.Shutdown.DrainTimeout = grace }
+	t.Cleanup(func() { tuneConfig = nil })
+
+	srv, hostPub, signer, db := newBastion(t, caKeyPath, tc)
+
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	served := make(chan error, 1)
+	go func() { served <- srv.Serve(ctx, l) }()
+
+	client, err := ssh.Dial("tcp", l.Addr().String(), &ssh.ClientConfig{
+		User:            "yigit:web01",
+		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
+		HostKeyCallback: ssh.FixedHostKey(hostPub),
+		Timeout:         15 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("bağlanılamadı: %v", err)
+	}
+	defer client.Close()
+
+	sess, err := client.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := sess.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	said := make(chan string, 1)
+	go func() {
+		b, _ := io.ReadAll(stdout)
+		said <- string(b)
+	}()
+
+	if err := sess.Start("sleep 300"); err != nil {
+		t.Fatalf("uzun komut başlatılamadı: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- sess.Wait() }()
+
+	waitForOpenSession(t, db)
+
+	// ⚠️ ÖNCE AKTIĞINI GÖSTER: bu olmadan test, oturum zaten ölüyken de
+	// geçerdi.
+	select {
+	case err := <-done:
+		t.Fatalf("kapanıştan önce oturum bitmiş: %v", err)
+	case <-time.After(500 * time.Millisecond):
+	}
+
+	start := time.Now()
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(grace + 20*time.Second):
+		t.Fatal("oturum hiç bitmedi")
+	}
+	lived := time.Since(start)
+
+	/*
+	 * ⚠️ ASIL İDDİA. Kusurlu sürümde bu süre mikrosaniyelerdi.
+	 * Yarısı, saatin gürültüsünden rahatça büyük ve "grace'i bekledi"
+	 * demek için yeterli — tam eşitlik beklemek testi zamanlamaya
+	 * bağımlı yapardı.
+	 */
+	if lived < grace/2 {
+		t.Errorf("oturum kapanış sinyaliyle birlikte %v içinde öldü; "+
+			"drain_timeout %v idi — açık oturumlara verilen süre uygulanmıyor",
+			lived, grace)
+	}
+
+	// ⚠️ SESSİZ KOPUŞ, AĞ ARIZASINDAN AYIRT EDİLEMEZ. Kullanıcı
+	// bastion'ın kapandığını görmeli, yoksa yeniden bağlanıp aynı işi
+	// dener.
+	select {
+	case out := <-said:
+		if !strings.Contains(out, "shutting down") {
+			t.Errorf("kullanıcıya sebep gitmedi; okuduğu: %q", out)
+		}
+	case <-time.After(10 * time.Second):
+		t.Error("istemcinin çıktı akışı hiç kapanmadı")
+	}
+
+	select {
+	case <-served:
+	case <-time.After(30 * time.Second):
+		t.Fatal("Serve dönmedi: drain takıldı")
 	}
 }

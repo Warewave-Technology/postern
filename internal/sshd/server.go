@@ -293,6 +293,31 @@ func (s *Server) Serve(ctx context.Context, l net.Listener) error {
 	var live sync.WaitGroup
 	defer s.drain(ctx, &live)
 
+	/*
+	 * ⚠️ OTURUMLAR KAPANIŞ SİNYALİNDEN KOPARILIYOR — YOKSA DRAIN'İN
+	 * BEKLEYECEĞİ HİÇBİR ŞEY KALMIYOR.
+	 *
+	 * ÖLÇÜLEN ARIZA: bağlantı context'i doğrudan ctx'ten türüyordu
+	 * (handleConn → WithCancelCause → proxy). ctx ise kapanış
+	 * sinyalinin ta kendisi. SIGTERM geldiği anda her oturum iptal
+	 * oluyordu — 5 saniyelik bir grace ile ölçüldüğünde oturum
+	 * cancel'dan 253µs sonra ölüyor, kullanıcı hiçbir şey görmüyor,
+	 * drain ise boşalmış bir kayıt defterini bekliyordu.
+	 *
+	 * Sonucu üç katmanlıydı: drain_timeout hiçbir işe yaramıyordu,
+	 * TerminateAll her seferinde sıfır oturum kesiyordu (yani
+	 * ErrShuttingDown ve sayGoodbye'daki karşılığı üretimde ölü
+	 * koddu — bu depodaki tekrar eden sınıf), ve kapanış yine de
+	 * grace kadar gecikiyordu çünkü el sıkışmasını bitirememiş
+	 * bağlantılar WaitGroup'u tutuyordu.
+	 *
+	 * Artık oturumları bitiren tek şey drain: süre dolunca
+	 * TerminateAll onları SEBEBİYLE kapatıyor. Süreç ölene kadar
+	 * kaçacakları bir yer yok — Serve bu goroutine'leri bekliyor ve
+	 * drain'in kendi üst sınırları var.
+	 */
+	sessCtx := context.WithoutCancel(ctx)
+
 	// backoff, geçici Accept hatalarından sonraki bekleme. Sıfırdan
 	// başlar, her hatada ikiye katlanır, başarıda sıfırlanır.
 	var backoff time.Duration
@@ -345,7 +370,7 @@ func (s *Server) Serve(ctx context.Context, l net.Listener) error {
 		live.Add(1)
 		go func() {
 			defer live.Done()
-			s.handleConn(ctx, conn, release)
+			s.handleConn(sessCtx, conn, release)
 		}()
 	}
 }
