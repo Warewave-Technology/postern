@@ -1277,7 +1277,23 @@ type the account name to confirm: ayse
    * (visibilityState "hidden", innerHeight 0).
    */
   document.addEventListener("visibilitychange", function () {
-    if (!document.hidden) update();
+    if (document.hidden) return;
+    /*
+     * ⚠️ queued SIFIRLANMALI, yoksa işaretleme BİR DAHA HİÇ
+     * güncellenmiyor.
+     *
+     * ÖLÇÜLDÜ: gizli bir sekmede istenen kare hiç çalışmıyor, yani
+     * onu bekleyen queued=true olarak kalıyor. Kare "kaydırmayı
+     * işledim" diyen tek yer olduğu için, sekme geri geldiğinde her
+     * kaydırma olayı ilk satırdan geri dönüyor ve liste sayfa
+     * yenilenene kadar donuyor.
+     *
+     * Pencere dar (kaydırmadan sonraki bir kare) ama okuyucunun
+     * sekme değiştirmesi bunun için yeterli — ve arızanın görüntüsü
+     * "bazen çalışmıyor" olurdu.
+     */
+    queued = false;
+    update();
   });
 
   update();
