@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -400,7 +401,7 @@ func TestPipelinedSFTPPacketsAreAudited(t *testing.T) {
 }
 
 /*
- * ⚠️ HEDEF SUBSYSTEM'İ REDDEDERSE DENETİM GERİ ALINMALI.
+ * ⚠️ SUBSYSTEM HEDEFE GEÇMEZSE DENETİM GERİ ALINMALI.
  *
  * Kurulum artık cevaptan ÖNCE olduğu için, "hayır" cevabından sonra
  * kanal SFTP sanılmaya devam ederdi. Bedeli iki taraflı: sayGoodbye
@@ -414,7 +415,7 @@ func TestRefusedSFTPSubsystemLeavesNoAuditArmed(t *testing.T) {
 	downR := make(chan *ssh.Request)
 	upR := make(chan *ssh.Request)
 
-	up.refuseRequests()
+	up.failRequests(errors.New("target has no sftp-server"))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -442,5 +443,126 @@ func TestRefusedSFTPSubsystemLeavesNoAuditArmed(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run dönmedi")
+	}
+}
+
+/*
+ * ⚠️ CEVAP İSTEMEYEN BİR SUBSYSTEM İSTEĞİ DENETİMİ KAPATAMAMALI.
+ *
+ * ÖLÇÜLEN ARIZA — VE BU DEPONUN KENDİ AÇTIĞI BİR ARIZAYDI. Denetimi
+ * iletimden önce kurma düzeltmesi, "hedef reddederse geri al"
+ * koşulunu yalnızca `!res` diye yazmıştı. x/crypto'da SendRequest,
+ * cevap istenmediğinde hedefte ne olursa olsun `false, nil` dönüyor
+ * (ssh/channel.go). Yani `subsystem sftp`'yi want_reply=0 ile
+ * gönderen bir istemcide geri alma HER SEFERİNDE çalışıyor, istek
+ * hedefe gidiyor ve tek bir denetim satırı yazılmıyordu.
+ *
+ * Gerçek OpenSSH want_reply=0'ı onurlandırıp sftp-server'ı başlatıyor,
+ * yani atlatma kullanıcının seçebileceği bir şeydi: denetlenen tarafın
+ * denetlenip denetlenmeyeceğine karar vermesi — SFTP denetiminin var
+ * olma sebebinin tam tersi.
+ */
+func TestSFTPWithoutReplyIsStillAudited(t *testing.T) {
+	down, feedDown, _ := newFakeChannel()
+	up, feedUp, _ := newFakeChannel()
+	downR := make(chan *ssh.Request)
+	upR := make(chan *ssh.Request)
+
+	files := &memSink{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	b := New(down, downR, up, upR, nil, false, RequestPolicy{AllowSFTP: true}, testLogger()).
+		WithSFTP(files)
+	done := make(chan error, 1)
+	go func() { done <- b.Run(ctx) }()
+
+	// ⚠️ WantReply YOK. Tek fark bu.
+	downR <- &ssh.Request{Type: "subsystem", Payload: sshString("sftp")}
+	waitForSFTP(t, b)
+
+	secret := strings.Repeat("KOKPIT-SIFRESI-", 20)
+	mustWrite(t, feedDown, string(sftpPkt(3, uint32(1), "/etc/shadow", uint32(1), uint32(0))))
+	mustWrite(t, feedUp, string(sftpPkt(102, uint32(1), "h1")))
+	mustWrite(t, feedDown, string(sftpPkt(5, uint32(2), "h1", uint64(0), uint32(len(secret)))))
+	mustWrite(t, feedUp, string(sftpPkt(103, uint32(2), secret)))
+	mustWrite(t, feedDown, string(sftpPkt(4, uint32(3), "h1")))
+	mustWrite(t, feedUp, string(sftpPkt(101, uint32(3), uint32(0), "", "")))
+
+	waitForContent(t, down.dataW, secret)
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run dönmedi")
+	}
+
+	var transfer *sftpaudit.Event
+	all := files.all()
+	for i, e := range all {
+		if e.Op == sftpaudit.OpTransfer {
+			transfer = &all[i]
+		}
+	}
+	if transfer == nil {
+		t.Fatalf("CEVAP İSTEMEYEN SUBSYSTEM İSTEĞİ DENETİMİ KAPATTI: "+
+			"kullanıcı tek bir bayrağı düşürerek denetimsiz dosya taşıyabilir; "+
+			"üretilen olaylar: %+v", all)
+	}
+	if transfer.Path != "/etc/shadow" {
+		t.Errorf("yol = %q", transfer.Path)
+	}
+}
+
+/*
+ * ⚠️ GERİ ALMA KARARININ DÖRT HÂLİ.
+ *
+ * Bu tablo, denetimi kapatan tek satırın doğrudan ölçümü. Köprünün
+ * sahte kanalıyla "hedef hayır dedi" hâli kurulamıyor (o yolda broker
+ * req.Reply çağırıyor ve o gerçek bir bağlantı istiyor), dolayısıyla
+ * karar saf bir fonksiyona alındı ve dördü de burada sınanıyor.
+ *
+ * İkinci satır, üretime çıkmış bir denetim atlatmasının ta kendisi.
+ */
+func TestUndoArmNeedsAnActualRefusal(t *testing.T) {
+	boom := errors.New("iletilemedi")
+	for _, c := range []struct {
+		name      string
+		wantReply bool
+		res       bool
+		err       error
+		want      bool
+		why       string
+	}{
+		{
+			name: "cevap istendi ve hedef reddetti", wantReply: true, res: false,
+			want: true,
+			why:  "hedef açıkça hayır dedi: kurduğumuz denetim geri alınmalı",
+		},
+		{
+			name: "cevap İSTENMEDİ", wantReply: false, res: false,
+			want: false,
+			why: "x/crypto cevap istenmediğinde her zaman false dönüyor; " +
+				"bunu ret saymak, istemciye denetimi kapatma düğmesi verir",
+		},
+		{
+			name: "cevap istendi ve hedef kabul etti", wantReply: true, res: true,
+			want: false,
+			why:  "kabul edilen subsystem denetlenmeye devam etmeli",
+		},
+		{
+			name: "iletim hata verdi", wantReply: false, res: false, err: boom,
+			want: true,
+			why:  "istek hedefe hiç ulaşmadı: denetlenecek bir akış yok",
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := undoArm(c.wantReply, c.res, c.err); got != c.want {
+				t.Errorf("undoArm(%v,%v,%v) = %v, %v bekleniyordu — %s",
+					c.wantReply, c.res, c.err, got, c.want, c.why)
+			}
+		})
 	}
 }

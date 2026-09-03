@@ -487,7 +487,7 @@ func (b *Broker) relayOne(dst ssh.Channel, req *ssh.Request, dir direction, obse
 	}
 
 	// Hedef subsystem'i kabul etmediyse kurduğumuzu geri alıyoruz.
-	if armed && (err != nil || !res) {
+	if armed && undoArm(req.WantReply, res, err) {
 		b.cancelSFTP()
 	}
 
@@ -506,6 +506,35 @@ func (b *Broker) relayOne(dst ssh.Channel, req *ssh.Request, dir direction, obse
 			)
 		}
 	}
+}
+
+/*
+ * undoArm, kurulan SFTP denetiminin geri alınıp alınmayacağını söyler.
+ *
+ * ⚠️ AYRI BİR FONKSİYON, ÇÜNKÜ BURADAKİ BİR HATA DENETİMİ KAPATIYOR —
+ * ve kapattı. Koşul relayOne'ın içinde yalnızca `!res` diye yazılmıştı;
+ * o hâliyle `subsystem sftp` isteğini want_reply=0 ile gönderen bir
+ * istemcide denetim kuruluyor ve HEMEN geri alınıyor, istek ise hedefe
+ * gidiyordu. Yani denetlenen taraf, tek bir tel bitini düşürerek
+ * denetlenmemeyi seçebiliyordu — SFTP denetiminin var olma sebebinin
+ * tam tersi. Ölçüldü: gerçek OpenSSH want_reply=0'ı onurlandırıp
+ * sftp-server'ı başlatıyor.
+ *
+ * ⚠️ res, CEVAP İSTEMEDİĞİMİZDE BİLGİ TAŞIMIYOR. x/crypto'da
+ * SendRequest, wantReply=false iken hedefte ne olursa olsun
+ * `false, nil` ile bitiyor (ssh/channel.go). Sormadığımız sorunun
+ * cevabını "hayır" saymak, tam olarak yukarıdaki arızayı üretiyor.
+ *
+ * Saf ve dışa kapalı olması bilinçli: dört kombinasyonun dördü de
+ * doğrudan sınanabiliyor. Köprünün sahte kanalıyla `req.Reply`
+ * çağrılamadığı için (gerçek bir bağlantı istiyor) "hedef hayır dedi"
+ * hâli uçtan uca kurulamıyor; karar burada olunca ölçülebiliyor.
+ */
+func undoArm(wantReply, res bool, err error) bool {
+	if err != nil {
+		return true
+	}
+	return wantReply && !res
 }
 
 // forwardRequest sends req to dst verbatim and reports dst's answer.

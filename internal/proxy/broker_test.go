@@ -68,9 +68,16 @@ type fakeChannel struct {
 	gate    chan struct{}
 	entered chan struct{}
 
-	// refuse, SendRequest'in "hayır" demesi. Hedefin bir isteği
-	// reddetmesi, kabul etmesi kadar olağan bir cevap.
-	refuse bool
+	/*
+	 * failErr, SendRequest'in iletememesi.
+	 *
+	 * ⚠️ "HEDEF HAYIR DEDİ" DEĞİL, "İLETEMEDİM". Aradaki fark burada
+	 * modellenebilir olanı belirliyor: hedefin reddi ancak cevap
+	 * İSTENDİĞİNDE anlamlı ve o yolda broker req.Reply çağırıyor —
+	 * o da gerçek bir bağlantı istiyor, sahte kanalla çağrılamıyor.
+	 * Reddin kendisi bu yüzden saf undoArm ile sınanıyor.
+	 */
+	failErr error
 }
 
 func newFakeChannel() (ch *fakeChannel, feedData, feedStderr *io.PipeWriter) {
@@ -127,15 +134,36 @@ func (c *fakeChannel) SendRequest(name string, wantReply bool, payload []byte) (
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.sent = append(c.sent, sentReq{name: name, wantReply: wantReply, payload: payload})
-	return !c.refuse, nil
+
+	/*
+	 * ⚠️ CEVAP İSTENMEDİYSE false — GERÇEK KANAL DA ÖYLE YAPIYOR.
+	 *
+	 * x/crypto/ssh channel.go'da SendRequest, wantReply=false iken
+	 * hedefte ne olduğuna bakmadan `false, nil` ile bitiyor: dönen
+	 * değer "hedef reddetti" demek değil, "sormadık" demek.
+	 *
+	 * Sahte kanal bunu yansıtmıyor ve her zaman true dönüyordu. O
+	 * yalan yüzünden broker'daki "hedef reddettiyse SFTP denetimini
+	 * geri al" koşulu testlerde hiç yanlış tarafa düşmedi; üretimde
+	 * ise want_reply=0 gönderen bir istemcide her seferinde düşüyor
+	 * ve denetimi kapatıyordu. Sahte uç, taklit ettiği şeyin
+	 * SÖZLEŞMESİNİ bozarsa test onu koruduğunu sanır.
+	 */
+	if c.failErr != nil {
+		return false, c.failErr
+	}
+	if !wantReply {
+		return false, nil
+	}
+	return true, nil
 }
 
-// refuseRequests, hedefin bundan sonraki her isteğe "hayır" demesini
-// sağlar. Run'dan ÖNCE çağrılmalı.
-func (c *fakeChannel) refuseRequests() {
+// failRequests, hedefe iletimin başarısız olmasını sağlar.
+// Run'dan ÖNCE çağrılmalı.
+func (c *fakeChannel) failRequests(err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.refuse = true
+	c.failErr = err
 }
 
 // holdRequests, bu kanala gelen request'leri release çağrılana kadar
@@ -437,9 +465,24 @@ func TestForwardRequest(t *testing.T) {
 	cases := []struct {
 		name string
 		req  ssh.Request
+		// wantOK, forwardRequest'in dönmesi gereken değer.
+		//
+		// ⚠️ CEVAP İSTENMEDİĞİNDE false — VE BU BİR HATA DEĞİL.
+		// x/crypto'da SendRequest, wantReply=false iken hedefte ne
+		// olursa olsun `false, nil` dönüyor: dönen değer "hedef
+		// reddetti" değil, "sormadık" demek.
+		//
+		// Bu test eskiden iki durumda da true bekliyordu ve sahte
+		// kanal da öyle davranıyordu. O yalan, broker'daki "hedef
+		// reddettiyse SFTP denetimini geri al" koşulunun yanlış
+		// yazılmasını GİZLEDİ: üretimde want_reply=0 gönderen bir
+		// istemcide koşul her seferinde doğru oluyor ve denetimi
+		// kapatıyordu.
+		wantOK bool
 	}{
 		{
-			name: "pty-req wantReply true",
+			wantOK: true,
+			name:   "pty-req wantReply true",
 			req: ssh.Request{
 				Type:      "pty-req",
 				WantReply: true,
@@ -452,7 +495,8 @@ func TestForwardRequest(t *testing.T) {
 			},
 		},
 		{
-			name: "window-change wantReply false",
+			wantOK: false,
+			name:   "window-change wantReply false",
 			req: ssh.Request{
 				Type:      "window-change",
 				WantReply: false,
@@ -472,8 +516,9 @@ func TestForwardRequest(t *testing.T) {
 			if err != nil {
 				t.Fatalf("beklenmeyen hata: %v", err)
 			}
-			if !ok {
-				t.Fatal("hedef kabul etti, forwardRequest false dönmemeli")
+			if ok != tc.wantOK {
+				t.Fatalf("forwardRequest = %v, %v bekleniyordu "+
+					"(wantReply=%v)", ok, tc.wantOK, tc.req.WantReply)
 			}
 
 			sent := dst.sentRequests()
