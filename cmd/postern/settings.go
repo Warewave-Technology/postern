@@ -190,6 +190,36 @@ func newSettingsSetCmd() *cobra.Command {
 				return err
 			}
 
+			/*
+			 * ⚠️ DEFTERE YAZILIYOR — VE YAZILMIYORDU.
+			 *
+			 * audit.go'nun başındaki gerekçe ("CLI'dan yapılan hiçbir
+			 * değişiklik admin_log'a düşmüyordu ... en ayrıcalıklı olanı
+			 * denetlenmiyordu") user/role/target'a ulaşıp burada durmuş.
+			 * Oysa bu komut, CLI'ın YÖNETİCİ VERME/ALMA kolu:
+			 * ldap.admin_group değişince eski gruptan gelen bütün
+			 * yetkiler düşüyor, yenisinin üyeleri bir sonraki girişte
+			 * yönetici oluyor.
+			 *
+			 * ÖLÇÜLDÜ: meşru yöneticiyi düşürüp saldırganın grubunu
+			 * yönetici yapan ve sonra ayarı geri alan zincir, hiçbir yerde
+			 * tek satır iz bırakmıyordu — üstelik `postern log` ardından
+			 * "the audit trail is empty" diyor. settings tablosundaki
+			 * updated_by yalnızca ŞU ANKİ değeri taşıyor; geri alma onu
+			 * da üzerine yazıyor.
+			 *
+			 * ⚠️ DEĞER YAZILMIYOR, ANAHTAR YAZILIYOR. Sırlar bu komuttan
+			 * geçiyor ve defter panelde okunuyor: değeri deftere koymak,
+			 * şifrelenmiş tutulan şeyi düz metne çevirmek olurdu.
+			 */
+			details := "value changed"
+			if isSecret {
+				details = "secret value changed (not recorded)"
+			}
+			if err := auditCLI(ctx, db, "setting.set", key, details); err != nil {
+				return err
+			}
+
 			if isSecret {
 				fmt.Fprintf(cmd.OutOrStdout(), "%s set (encrypted, not shown again)\n", key)
 			} else {
@@ -227,6 +257,26 @@ func newSettingsSetCmd() *cobra.Command {
 					fmt.Fprintf(cmd.OutOrStdout(),
 						"%d account(s) lost administrator granted by the previous group: %s\n",
 						len(revoked), strings.Join(revoked, ", "))
+				}
+
+				/*
+				 * ⚠️ KİMİN YETKİSİNİN DÜŞTÜĞÜ DEFTERE YAZILIYOR.
+				 *
+				 * Yukarıdaki setting.set satırı "ayar değişti" diyor;
+				 * bu satır KİMİN yöneticiliğini kaybettiğini söylüyor ve
+				 * ikisi ayrı sorular. Liste yalnızca stdout'a yazılıyordu
+				 * — yani komutu koşan kişinin terminalinde kalıyor,
+				 * altı ay sonra bakan kimse göremiyordu.
+				 *
+				 * Boş liste de yazılıyor: "grup değişti ve kimse
+				 * etkilenmedi" ile "bakmadım" ayrı şeyler.
+				 */
+				lost := "no account held administrator from the previous group"
+				if len(revoked) > 0 {
+					lost = "administrator revoked from " + strings.Join(revoked, ", ")
+				}
+				if err := auditCLI(ctx, db, "admin_group.set", value, lost); err != nil {
+					return err
 				}
 				if value != "" {
 					fmt.Fprintln(cmd.OutOrStdout(),

@@ -65,6 +65,25 @@ func newMappingAddCmd() *cobra.Command {
 				}
 				return err
 			}
+			/*
+			 * ⚠️ DEFTERE YAZILIYOR — VE YAZILMIYORDU.
+			 *
+			 * Bir eşleme, KOCA BİR IdP GRUBUNA rol vermek demek.
+			 * Panelden yapıldığında deftere düşüyor
+			 * (httpapi/federation.go: mapping.create); CLI'dan
+			 * yapıldığında hiçbir iz kalmıyordu.
+			 *
+			 * Ekleme için group_mappings.created_by artık bir kalıntı
+			 * bırakıyor; KALDIRMA satırı sildiği için orada o da yok.
+			 * İki ucu birden yazmak, defteri "ne verildi / ne alındı"
+			 * sorusuna cevap verebilir hâlde tutuyor.
+			 *
+			 * Eylem adları panelinkiyle AYNI: iki defter yan yana
+			 * okunacak.
+			 */
+			if err := auditCLI(ctx, db, "mapping.create", group, "role "+role); err != nil {
+				return err
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "group %q mapped to role %q\n", group, role)
 			return nil
 		},
@@ -96,6 +115,12 @@ func newMappingRemoveCmd() *cobra.Command {
 				if errors.Is(err, store.ErrNotFound) {
 					return fmt.Errorf("no mapping from %q to %q", group, role)
 				}
+				return err
+			}
+			// ⚠️ KALDIRMA, EKLEMEDEN DAHA ÖNEMLİ: satır silindiği için
+			// created_by kalıntısı da yok oluyor. Defter yazılmazsa
+			// eşlemenin var olduğuna dair hiçbir kayıt kalmıyor.
+			if err := auditCLI(ctx, db, "mapping.delete", group, "role "+role); err != nil {
 				return err
 			}
 			// Etki alanını açıkça söyle: mevcut oturumlar ve atamalar
