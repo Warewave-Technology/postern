@@ -849,3 +849,69 @@ func TestUnansweredCloseHoldsTwoGoroutines(t *testing.T) {
 	t.Errorf("istemci cevap verdikten sonra da serbest kalmadılar: "+
 		"önce=%d sonra=%d — sızıntı sınırsız olurdu", before, runtime.NumGoroutine())
 }
+
+/*
+ * ⚠️ SINIR EŞZAMANLI KANALI SAYIYOR, TOPLAMI DEĞİL.
+ *
+ * Yukarıdaki not "sınırsız değil: bağlantı başına en fazla
+ * max_channels_per_conn" diyordu. Ölçüldüğünde tutmuyor:
+ * sshd/server.go'daki sayaç kanal kapanınca AZALIYOR, yani aynı
+ * bağlantı üzerinde sırayla açılıp kapanan kanalların sayısına bir
+ * sınır yok. Her biten kanal, cevap vermeyen bir istemcide iki
+ * goroutine bırakıyor ve onlar birikiyor.
+ *
+ * Bu test o birikmeyi ölçüyor. Amacı davranışı değiştirmek değil —
+ * düzeltmek en kritik veri yolunu yeniden kurmayı gerektirir — ama
+ * yorumdaki sayının doğru olanla değişmesini sağlamak: sınır
+ * max_conns × (bağlantı ömrü boyunca açılan kanal), ve ikinci çarpan
+ * istemcinin elinde.
+ */
+func TestSequentialChannelsAccumulateHeldGoroutines(t *testing.T) {
+	const rounds = 8
+
+	before := runtime.NumGoroutine()
+
+	// Her tur, bağlantı boyunca açılıp kapanan bir kanal: sınır
+	// eşzamanlıyı saydığı için hiçbiri sayacı doldurmuyor.
+	deaf := make([]*deafChannel, 0, rounds)
+	for range rounds {
+		down := newDeafChannel()
+		up, _, _ := newFakeChannel()
+		downR := make(chan *ssh.Request)
+		upR := make(chan *ssh.Request)
+		deaf = append(deaf, down)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() {
+			done <- New(down, downR, up, upR, nil, false, RequestPolicy{}, testLogger()).Run(ctx)
+		}()
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("Run dönmedi")
+		}
+		// ⚠️ downR/upR KAPATILMIYOR: gerçek hayatta bunlar istemci
+		// cevap verene kadar açık kalıyor ve tutulan goroutine'lerin
+		// sebebi tam olarak bu.
+	}
+
+	time.Sleep(300 * time.Millisecond)
+	during := runtime.NumGoroutine()
+	if during <= before {
+		t.Skip("goroutine sayısı ölçülemedi (koşumdaki gürültü)")
+	}
+
+	// Sekiz kanalın bıraktığı, tek kanalın bıraktığından belirgin
+	// biçimde fazla olmalı: birikiyorlar.
+	if during-before < rounds {
+		t.Errorf("%d kanaldan sonra fazladan goroutine = %d; birikme "+
+			"ölçülemedi — testin kurgusu yanlış olabilir",
+			rounds, during-before)
+	}
+
+	for _, d := range deaf {
+		d.answer(make(chan *ssh.Request), make(chan *ssh.Request))
+	}
+}

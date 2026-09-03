@@ -260,10 +260,21 @@ func (b *Broker) Run(ctx context.Context) error {
 	 * ALINDIĞINDA çalışıyor). Yani bu ikisi, istemci close'a cevap
 	 * verene ya da TCP ölene kadar yaşıyor.
 	 *
-	 * Sınırsız DEĞİL: bağlantı başına en fazla max_channels_per_conn,
-	 * toplamda max_conns ile çarpımı kadar. Düzeltmek ürünün en
-	 * kritik veri yolunu yeniden kurmayı gerektirirdi; sınırı bilmek
-	 * ve yazmak doğru karşılık. Ölçüm:
+	 * ⚠️ SINIR max_channels_per_conn DEĞİL — ve burada öyle yazıyordu.
+	 * O ayar EŞZAMANLI kanalı sayıyor ve sayaç kanal kapanınca azalıyor
+	 * (sshd/server.go), yani aynı bağlantı üzerinde SIRAYLA açılıp
+	 * kapanan kanalların sayısına bir sınır yok. Biten her kanal, cevap
+	 * vermeyen bir istemcide bu iki goroutine'i bırakıyor ve
+	 * birikiyorlar — ölçüldü: TestSequentialChannelsAccumulateHeldGoroutines.
+	 *
+	 * Gerçek sınır: max_conns × (bağlantı ömrü boyunca açılan kanal
+	 * sayısı), ve ikinci çarpan istemcinin elinde. Bağlantı ölünce
+	 * hepsi serbest kalıyor, yani kalıcı bir sızıntı değil; ama
+	 * "sınırsız değil" demek için fazla iyimser.
+	 *
+	 * Düzeltmek ürünün en kritik veri yolunu yeniden kurmayı
+	 * gerektirirdi (cevapsız close'da okuyucuyu uyandırmak); sınırı
+	 * DOĞRU bilmek ve yazmak şimdilik doğru karşılık. İkinci ölçüm:
 	 * TestUnansweredCloseHoldsTwoGoroutines.
 	 */
 	go func() {
