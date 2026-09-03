@@ -31,28 +31,62 @@ type SFTPSink interface {
 }
 
 /*
- * beginSFTP, `subsystem sftp` hedefe geçtikten sonra denetimi başlatır.
+ * beginSFTP, `subsystem sftp` isteği HEDEFE İLETİLMEDEN ÖNCE denetimi
+ * kurar. Kurduysa true döner (bkz. cancelSFTP).
  *
- * Sıra önemli: istek hedefe İLETİLDİKTEN sonra kuruluyor. SSH'ta veri
- * ancak subsystem kabul edildikten sonra akmaya başladığı için ilk SFTP
- * paketi (INIT) bu noktadan sonra gelir — yani hiçbir bayt denetimsiz
- * geçmiyor.
+ * ⚠️ SIRA TERSİNEYDİ VE DENETİMDE DELİK AÇIYORDU.
+ *
+ * Denetim, istek iletildikten SONRA kuruluyordu ve gerekçesi şu
+ * protokol iddiasıydı: "SSH'ta veri ancak subsystem kabul edildikten
+ * sonra akmaya başlar". RFC 4254 böyle bir sıra dayatmıyor — kanal
+ * açıldığı anda istemcinin bir penceresi var ve CHANNEL_DATA'yı
+ * istediği zaman, subsystem cevabını beklemeden gönderebiliyor.
+ * OpenSSH bu baytları tamponlayıp sftp-server başlayınca stdin'ine
+ * veriyor.
+ *
+ * Pencere en az bir hedef gidiş-dönüşü kadar genişti: forwardRequest
+ * hedefin cevabını beklerken down→up borusu çoktan akıyor ve tap,
+ * `b.sftp` hâlâ nil olduğu için baytları çözümleyiciye HİÇ vermiyordu.
+ * Çözümleyici bunu fark edemiyor: framer saf uzunluk-önekli bir
+ * tarayıcı, akış herhangi bir paket sınırından başlarsa temiz
+ * ayrışıyor ve öncesini sessizce atlıyor. Yani boru hattı yapan bir
+ * istemcinin ilk OPEN/READ'i hedefte çalışıyor, session_files'a hiç
+ * yazılmıyor ve dosya listesi kendini eksiksiz sanıyordu.
+ *
+ * Artık kurulum iletimden önce; hedef subsystem'i reddederse çağıran
+ * cancelSFTP ile geri alıyor.
  */
-func (b *Broker) beginSFTP(req *ssh.Request) {
+func (b *Broker) beginSFTP(req *ssh.Request) bool {
 	if b.sftpSink == nil || req.Type != "subsystem" {
-		return
+		return false
 	}
 	if subsystemName(req.Payload) != "sftp" {
-		return
+		return false
 	}
 	if b.sftp.Load() != nil {
 		// Aynı kanalda ikinci bir subsystem olmaz; olduysa ilkini
 		// bozmuyoruz ve durumu görünür kılıyoruz.
 		b.logger.Warn("second sftp subsystem on one channel ignored")
-		return
+		return false
 	}
 	b.sftp.Store(sftpaudit.NewSession(b.sftpSink.Emit))
 	b.logger.Info("sftp session audited")
+	return true
+}
+
+/*
+ * cancelSFTP, hedef subsystem'i reddettiğinde kurulan denetimi geri alır.
+ *
+ * ⚠️ GERİ ALMAK ŞART, çünkü kurulum artık cevaptan önce oluyor.
+ * Bırakılsaydı iki şey bozulurdu: kanal SFTP sanılacağı için
+ * sayGoodbye kullanıcıya sebebi yazmaktan vazgeçerdi, ve aynı kanalda
+ * açılan bir kabuğun baytları çözümleyiciye SFTP diye girip denetimi
+ * çökertirdi — yani hedefin "hayır"ı, oturumu kesen bir arızaya
+ * dönüşürdü.
+ */
+func (b *Broker) cancelSFTP() {
+	b.sftp.Store(nil)
+	b.logger.Warn("sftp subsystem refused by target; audit not started")
 }
 
 /*

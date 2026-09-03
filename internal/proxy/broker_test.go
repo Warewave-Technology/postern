@@ -67,6 +67,10 @@ type fakeChannel struct {
 	// Aradaki pencere, gerçekte hedefin cevabını beklediğimiz an.
 	gate    chan struct{}
 	entered chan struct{}
+
+	// refuse, SendRequest'in "hayır" demesi. Hedefin bir isteği
+	// reddetmesi, kabul etmesi kadar olağan bir cevap.
+	refuse bool
 }
 
 func newFakeChannel() (ch *fakeChannel, feedData, feedStderr *io.PipeWriter) {
@@ -123,7 +127,15 @@ func (c *fakeChannel) SendRequest(name string, wantReply bool, payload []byte) (
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.sent = append(c.sent, sentReq{name: name, wantReply: wantReply, payload: payload})
-	return true, nil
+	return !c.refuse, nil
+}
+
+// refuseRequests, hedefin bundan sonraki her isteğe "hayır" demesini
+// sağlar. Run'dan ÖNCE çağrılmalı.
+func (c *fakeChannel) refuseRequests() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.refuse = true
 }
 
 // holdRequests, bu kanala gelen request'leri release çağrılana kadar

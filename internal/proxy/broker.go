@@ -464,6 +464,19 @@ func (b *Broker) relayOne(dst ssh.Channel, req *ssh.Request, dir direction, obse
 		return
 	}
 
+	/*
+	 * ⚠️ DENETİM İLETİMDEN ÖNCE KURULUYOR (bkz. beginSFTP).
+	 *
+	 * Aşağıdaki forwardRequest hedefin cevabını bekliyor ve o sürede
+	 * istemcinin baytları çoktan akıyor. Kurulum cevaptan sonra
+	 * yapıldığında, boru hattı yapan bir istemcinin ilk SFTP paketleri
+	 * denetimsiz geçiyordu.
+	 */
+	armed := false
+	if observe {
+		armed = b.beginSFTP(req)
+	}
+
 	res, err := forwardRequest(dst, req)
 	if err != nil {
 		b.logger.Debug("request forward failed",
@@ -473,10 +486,14 @@ func (b *Broker) relayOne(dst ssh.Channel, req *ssh.Request, dir direction, obse
 		)
 	}
 
+	// Hedef subsystem'i kabul etmediyse kurduğumuzu geri alıyoruz.
+	if armed && (err != nil || !res) {
+		b.cancelSFTP()
+	}
+
 	if observe {
 		b.recordResize(req)
 		b.recordIntent(req)
-		b.beginSFTP(req)
 	}
 
 	if req.WantReply {

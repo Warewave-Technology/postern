@@ -314,3 +314,133 @@ func TestNonSFTPSessionStillTeesToTheRecording(t *testing.T) {
 			"denetim, kullanılmayan bir özellik yüzünden kaybolmuş")
 	}
 }
+
+/*
+ * ⚠️ CEVAP BEKLEMEYEN İSTEMCİNİN İLK PAKETLERİ DE DENETLENMELİ.
+ *
+ * Denetim, `subsystem sftp` isteği hedefe İLETİLDİKTEN sonra
+ * kuruluyordu ve gerekçesi bir protokol iddiasıydı: "veri ancak
+ * subsystem kabul edildikten sonra akar". Öyle değil — kanal
+ * açıldığında istemcinin penceresi var ve paketleri cevabı beklemeden
+ * gönderebiliyor. Aradaki pencere bir hedef gidiş-dönüşü kadar geniş.
+ *
+ * Kaybın görünmemesi arızanın en kötü tarafı: framer saf uzunluk-önekli
+ * bir tarayıcı, akış herhangi bir paket sınırından başlarsa temiz
+ * ayrışıyor. Yani ilk OPEN hedefte çalışıyor, denetime hiç girmiyor ve
+ * dosya listesi kendini eksiksiz sanıyordu.
+ *
+ * ⚠️ BU TEST waitForSFTP KULLANMIYOR — bilerek. Paketten önce onu
+ * çağıran diğer testler, üretim kodunun maruz kaldığı pencereyi tam
+ * olarak senkronize edip yok ediyor.
+ */
+func TestPipelinedSFTPPacketsAreAudited(t *testing.T) {
+	down, feedDown, _ := newFakeChannel()
+	up, feedUp, _ := newFakeChannel()
+	downR := make(chan *ssh.Request)
+	upR := make(chan *ssh.Request)
+
+	files := &memSink{}
+
+	// Hedef subsystem'i hemen cevaplamıyor: gerçek bir gidiş-dönüş.
+	entered, release := up.holdRequests()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	b := New(down, downR, up, upR, nil, false, RequestPolicy{AllowSFTP: true}, testLogger()).
+		WithSFTP(files)
+	done := make(chan error, 1)
+	go func() { done <- b.Run(ctx) }()
+
+	downR <- &ssh.Request{Type: "subsystem", Payload: sshString("sftp")}
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("subsystem isteği hedefe iletilmedi")
+	}
+
+	// ⚠️ CEVAP HENÜZ YOLDA. Kusurlu sürümde b.sftp burada nil'di ve
+	// bu paket çözümleyiciye hiç uğramadan hedefe geçiyordu.
+	mustWrite(t, feedDown, string(sftpPkt(3, uint32(1), "/etc/shadow", uint32(1), uint32(0))))
+
+	release()
+
+	// Kalan alışveriş normal sırada: hedef tanıtıcıyı veriyor, dosya
+	// okunuyor, kapanıyor.
+	secret := strings.Repeat("KOKPIT-SIFRESI-", 20)
+	mustWrite(t, feedUp, string(sftpPkt(102, uint32(1), "h1")))
+	mustWrite(t, feedDown, string(sftpPkt(5, uint32(2), "h1", uint64(0), uint32(len(secret)))))
+	mustWrite(t, feedUp, string(sftpPkt(103, uint32(2), secret)))
+	mustWrite(t, feedDown, string(sftpPkt(4, uint32(3), "h1")))
+	mustWrite(t, feedUp, string(sftpPkt(101, uint32(3), uint32(0), "", "")))
+
+	waitForContent(t, down.dataW, secret)
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run dönmedi")
+	}
+
+	var transfer *sftpaudit.Event
+	all := files.all()
+	for i, e := range all {
+		if e.Op == sftpaudit.OpTransfer {
+			transfer = &all[i]
+		}
+	}
+	if transfer == nil {
+		t.Fatalf("BORU HATTI YAPAN İSTEMCİNİN AÇTIĞI DOSYA DENETİME HİÇ GİRMEDİ; "+
+			"üretilen olaylar: %+v", all)
+	}
+	if transfer.Path != "/etc/shadow" {
+		t.Errorf("yol = %q, /etc/shadow bekleniyordu", transfer.Path)
+	}
+}
+
+/*
+ * ⚠️ HEDEF SUBSYSTEM'İ REDDEDERSE DENETİM GERİ ALINMALI.
+ *
+ * Kurulum artık cevaptan ÖNCE olduğu için, "hayır" cevabından sonra
+ * kanal SFTP sanılmaya devam ederdi. Bedeli iki taraflı: sayGoodbye
+ * kullanıcıya sebebi yazmaktan vazgeçer, ve aynı kanalda açılan bir
+ * kabuğun baytları çözümleyiciye SFTP diye girip denetimi çökertir —
+ * yani hedefin reddi, oturumu kesen bir arızaya dönüşürdü.
+ */
+func TestRefusedSFTPSubsystemLeavesNoAuditArmed(t *testing.T) {
+	down, _, _ := newFakeChannel()
+	up, _, _ := newFakeChannel()
+	downR := make(chan *ssh.Request)
+	upR := make(chan *ssh.Request)
+
+	up.refuseRequests()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	b := New(down, downR, up, upR, nil, false, RequestPolicy{AllowSFTP: true}, testLogger()).
+		WithSFTP(&memSink{})
+	done := make(chan error, 1)
+	go func() { done <- b.Run(ctx) }()
+
+	downR <- &ssh.Request{Type: "subsystem", Payload: sshString("sftp")}
+
+	// İkinci bir istek, birincisinin işlenmiş olduğunu garanti ediyor:
+	// request akışı sıralı, yani bu okunduğunda öncekinin cevabı
+	// verilmiş demek.
+	downR <- &ssh.Request{Type: "env", Payload: sshString("TERM")}
+
+	if s := b.sftp.Load(); s != nil {
+		t.Error("hedef subsystem'i reddetti ama denetim kurulu kaldı: " +
+			"kanal SFTP sanılır, kullanıcıya kapanış sebebi yazılmaz " +
+			"ve kabuk baytları çözümleyiciyi çökertir")
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run dönmedi")
+	}
+}
