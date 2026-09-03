@@ -89,7 +89,7 @@ func (s *Store) TOTP(ctx context.Context, username string) (TOTPCredential, erro
 		SELECT t.secret, t.confirmed_at, t.created_at, t.last_used_at
 		FROM totp_credentials t
 		JOIN users u ON u.id = t.user_id
-		WHERE u.username = $1;`, username).
+		WHERE `+ciEq("u.username", "$1")+`;`, username).
 		Scan(&c.Secret, &confirmed, &created, &lastUsed)
 	if err != nil {
 		return TOTPCredential{}, translateErr("store.TOTP", err)

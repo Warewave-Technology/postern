@@ -229,7 +229,7 @@ func (s *Store) User(ctx context.Context, username string) (model.User, error) {
 		LEFT JOIN roles        r  ON r.id       = ur.role_id
 		LEFT JOIN role_targets rt ON rt.role_id = r.id
 		LEFT JOIN targets      t  ON t.id       = rt.target_id
-		WHERE u.username = $2
+		WHERE ` + ciEq("u.username", "$2") + `
 		ORDER BY r.name, ` + ciOrder("t.name") + `;
 	`
 
@@ -1005,7 +1005,7 @@ func (s *Store) AllowIdentityBind(ctx context.Context, username string, at time.
 func (s *Store) hasIdPIdentity(ctx context.Context, username string) (bool, error) {
 	var subject sql.NullString
 	err := s.db.QueryRowContext(ctx,
-		`SELECT idp_subject FROM users WHERE username = $1;`, username).Scan(&subject)
+		`SELECT idp_subject FROM users WHERE `+ciEq("username", "$1")+`;`, username).Scan(&subject)
 	if err != nil {
 		return false, translateErr("store.hasIdPIdentity", err)
 	}

@@ -49,7 +49,7 @@ func (s *Store) ConfirmAccount(ctx context.Context, username string, at time.Tim
 func (s *Store) AccountState(ctx context.Context, username string) (state string, confirmed time.Time, err error) {
 	var at sql.NullInt64
 	qerr := s.db.QueryRowContext(ctx,
-		`SELECT state, last_confirmed_at FROM users WHERE username = $1;`,
+		`SELECT state, last_confirmed_at FROM users WHERE `+ciEq("username", "$1")+`;`,
 		username).Scan(&state, &at)
 	if qerr != nil {
 		return "", time.Time{}, translateErr("store.AccountState", qerr)

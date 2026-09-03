@@ -131,7 +131,7 @@ func (s *Store) LocalCredential(ctx context.Context, username string) (Credentia
 		SELECT c.verifier, c.chosen_at, c.must_change
 		FROM local_credentials c
 		JOIN users u ON u.id = c.user_id
-		WHERE u.username = $1;`, username).Scan(&c.Verifier, &chosen, &c.MustChange)
+		WHERE `+ciEq("u.username", "$1")+`;`, username).Scan(&c.Verifier, &chosen, &c.MustChange)
 	if err != nil {
 		return Credential{}, translateErr("store.LocalCredential", err)
 	}
