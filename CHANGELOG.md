@@ -147,6 +147,17 @@ recordings.
   archive queue — where, since nothing unarchived is pruned, it then sat
   on disk unable to be uploaded or removed.
 
+- **A command that ran no longer reaches the user as a dropped
+  connection.** On a session that ended the instant its command did —
+  `ssh host echo hello`, and the scripted checks built on that shape —
+  the bastion could close the user's channel while the reply to their
+  own request was still on the way. The command had run and its output
+  was already written; what the user saw was an unexplained
+  disconnection, so retrying was the natural response. Rare in
+  practice and never reproduced by running it, but it needed a
+  recording write and a log line to land in the window, which is to
+  say: more likely on a busy bastion than on an idle one.
+
 - **Screens no longer report a failed query as an empty result.** Six of
   them did: two target pages, two CLI listings, the session count on the
   overview, and the recordings-on-disk figure. An audit tool that answers
