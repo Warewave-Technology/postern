@@ -345,7 +345,7 @@ func TestPrunerKeepsUnarchivedAndDeletesArchived(t *testing.T) {
 		}
 	}
 
-	res, err := record.Prune(context.Background(), dir, 24*time.Hour, time.Now(), a)
+	res, err := record.Prune(context.Background(), dir, 24*time.Hour, time.Now(), a, nil)
 	if err != nil {
 		t.Fatalf("Prune: %v", err)
 	}
@@ -383,7 +383,7 @@ func TestPruneDeletesNothingWhenTheGateCannotAnswer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := record.Prune(context.Background(), dir, 24*time.Hour, time.Now(), brokenGate{})
+	_, err := record.Prune(context.Background(), dir, 24*time.Hour, time.Now(), brokenGate{}, nil)
 	if err == nil {
 		t.Fatal("kapı cevap veremezken Prune hata döndürmedi")
 	}
