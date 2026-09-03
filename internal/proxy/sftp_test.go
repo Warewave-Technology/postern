@@ -375,7 +375,11 @@ func TestPipelinedSFTPPacketsAreAudited(t *testing.T) {
 	mustWrite(t, feedDown, string(sftpPkt(4, uint32(3), "h1")))
 	mustWrite(t, feedUp, string(sftpPkt(101, uint32(3), uint32(0), "", "")))
 
+	// ⚠️ ÇIKTI BAYTINI DEĞİL, OLAYI BEKLİYORUZ. İçerik CLOSE
+	// alışverişinden önce geliyor; onu beklemek, kapatma paketleri
+	// hâlâ yoldayken cancel'a izin verirdi.
 	waitForContent(t, down.dataW, secret)
+	waitForEvent(t, files, sftpaudit.OpTransfer)
 
 	cancel()
 	select {
@@ -490,7 +494,11 @@ func TestSFTPWithoutReplyIsStillAudited(t *testing.T) {
 	mustWrite(t, feedDown, string(sftpPkt(4, uint32(3), "h1")))
 	mustWrite(t, feedUp, string(sftpPkt(101, uint32(3), uint32(0), "", "")))
 
+	// ⚠️ ÇIKTI BAYTINI DEĞİL, OLAYI BEKLİYORUZ. İçerik CLOSE
+	// alışverişinden önce geliyor; onu beklemek, kapatma paketleri
+	// hâlâ yoldayken cancel'a izin verirdi.
 	waitForContent(t, down.dataW, secret)
+	waitForEvent(t, files, sftpaudit.OpTransfer)
 
 	cancel()
 	select {

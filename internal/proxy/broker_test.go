@@ -15,6 +15,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/warewave/postern/internal/record"
+	"github.com/warewave/postern/internal/sftpaudit"
 )
 
 // --- test yardımcıları: sahte ssh.Channel ---
@@ -914,4 +915,27 @@ func TestSequentialChannelsAccumulateHeldGoroutines(t *testing.T) {
 	for _, d := range deaf {
 		d.answer(make(chan *ssh.Request), make(chan *ssh.Request))
 	}
+}
+
+/*
+ * waitForEvent, denetim havuzunda verilen işlemin görünmesini bekler.
+ *
+ * ⚠️ ÇIKTI BAYTINI BEKLEMEK YETMİYOR. SFTP testleri kapanışı
+ * tetiklemeden önce `waitForContent` ile dosya İÇERİĞİNİ bekliyordu,
+ * ama içerik CLOSE alışverişinden ÖNCE geliyor: o satır dönerken
+ * kapatma paketleri hâlâ yolda olabiliyor ve cancel onlarla yarışıyor.
+ * Beklenen olayın kendisini beklemek o yarışı tamamen kaldırıyor.
+ */
+func waitForEvent(t *testing.T, sink *memSink, op sftpaudit.Op) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, e := range sink.all() {
+			if e.Op == op {
+				return
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("%v olayı beklenen sürede üretilmedi; üretilenler: %+v", op, sink.all())
 }
