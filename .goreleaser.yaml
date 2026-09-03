@@ -84,6 +84,10 @@ archives:
       - LICENSE
       - README.md
       - CHANGELOG.md
+      # ⚠️ AÇIK BİLDİRİM YOLU DA ARŞİVDE. Aynı gerekçe: tarball'dan
+      # kurmuş biri, bir şey bulduğunda nereye söyleyeceğini bulmak için
+      # depoyu açmak zorunda kalmamalı — çoğu zaman hiç açmıyor.
+      - SECURITY.md
       - deploy/systemd/postern.service
       - deploy/README.md
       # ⚠️ deploy/README.md hem systemd'yi hem ansible'ı ANLATIYOR;
