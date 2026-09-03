@@ -147,6 +147,11 @@ type ProbePolicy struct {
  * komutlar, kullanıcının hesabında. Bunun izini bırakmamak kabul
  * edilemez olurdu.
  */
+// probeWriteTimeout, yoklamanın denetim ve gözlem yazmalarının üst
+// sınırı. Yoklamanın kendi süresinden BAĞIMSIZ: yazmalar veritabanına
+// gidiyor, hedefe değil.
+const probeWriteTimeout = 10 * time.Second
+
 func maybeProbe(ctx context.Context, deps Deps, log *slog.Logger, conn *upstream.Conn, targetName, byUser string) {
 	if !deps.Probe.Enabled {
 		return
@@ -165,29 +170,64 @@ func maybeProbe(ctx context.Context, deps Deps, log *slog.Logger, conn *upstream
 	}
 
 	go func() {
-		ctx, cancel := context.WithTimeout(ctx, deps.Probe.Timeout)
+		/*
+		 * ⚠️ YOKLAMANIN SÜRESİ YAZMALARI KAPSAMIYOR — VE KAPSADIĞI HÂLİ
+		 * ÖLÇÜLDÜ.
+		 *
+		 * Tek bir bağlam hepsini sarıyordu. Süre dolduğunda Probe'un
+		 * düşmesi zaten beklenen şey; ama AYNI bağlam denetim yazmasına
+		 * da geçtiği için satır da yazılamıyordu. Yani "yoklama zaman
+		 * aşımına uğradı" durumu, tam olarak kaydedilmesi gereken durum
+		 * olduğu hâlde, kendi kaydını da imkânsız kılıyordu.
+		 *
+		 * Dış bağlam zaten iptal edilemez (WithoutCancel); yazmalar
+		 * kendi kısa süreleriyle ondan türüyor.
+		 */
+		probeCtx, cancel := context.WithTimeout(ctx, deps.Probe.Timeout)
 		defer cancel()
 
-		p, err := conn.Probe(ctx)
-		if err != nil {
-			log.Warn("target probe failed", "error", err)
-			return
-		}
-		if err := deps.Store.RecordTargetProbe(ctx, targetName, p); err != nil {
-			log.Warn("target probe not recorded", "error", err)
-			return
-		}
+		p, perr := conn.Probe(probeCtx)
 
-		// Denetim satırı: kimin bağlantısında, hangi hedefte, ne
-		// çalıştırıldı. Komut listesi de yazılıyor — "hangi komutlar"
-		// sorusunun cevabı kaynağa bakmayı gerektirmemeli.
-		if err := deps.Store.LogAdmin(ctx, store.AdminLogEntry{
+		/*
+		 * ⚠️ DENETİM SATIRI DENEMEYE YAZILIYOR, BAŞARIYA DEĞİL — VE
+		 * TERSİ ÖLÇÜLDÜ.
+		 *
+		 * Satır eskiden Probe ve RecordTargetProbe'un ikisi de
+		 * başarılı olduktan SONRA yazılıyordu. Komutlar ise
+		 * bağlantının kendisinde, kullanıcının kimliğiyle ZATEN
+		 * çalışmış oluyordu: hedefin kendi günlüklerinde o kişinin
+		 * hesabı altında görünüyorlar.
+		 *
+		 * Yani kullanıcının yazmadığı komutlar hedefte koşuyor ve
+		 * kullanılabilir çıktı üretmeyen her koşuda denetim yüzeyi
+		 * "hiçbir şey olmadı" diyordu. README'nin operatöre güvenmesini
+		 * söylediği `via = probe` süzgeci, tam da ALIŞILMADIK davranan
+		 * makineleri — yani bir araştırmacının arayacağı makineleri —
+		 * eksik raporluyordu. Özelliğin bu çizgiyi geçme gerekçesi,
+		 * kodun tutmadığı bir denetim sözüydü.
+		 */
+		detail := fmt.Sprintf("ran on this user's connection: %s",
+			strings.Join(upstream.ProbeCommands, "; "))
+		if perr != nil {
+			detail += "; target answered nothing: " + perr.Error()
+		}
+		writeCtx, wcancel := context.WithTimeout(ctx, probeWriteTimeout)
+		defer wcancel()
+
+		if err := deps.Store.LogAdmin(writeCtx, store.AdminLogEntry{
 			Actor: byUser, Via: "probe", Action: "target.probe",
-			Entity: targetName,
-			Details: fmt.Sprintf("ran on this user's connection: %s",
-				strings.Join(upstream.ProbeCommands, "; ")),
+			Entity: targetName, Details: detail,
 		}); err != nil {
 			log.Warn("target probe not audited", "error", err)
+		}
+
+		if perr != nil {
+			log.Warn("target probe failed", "error", perr)
+			return
+		}
+		if err := deps.Store.RecordTargetProbe(writeCtx, targetName, p); err != nil {
+			log.Warn("target probe not recorded", "error", err)
+			return
 		}
 		log.Info("target probed", "os", p.OSName, "kernel", p.Kernel)
 	}()

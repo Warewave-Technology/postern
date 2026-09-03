@@ -348,3 +348,85 @@ func TestRunStillSkipsUnreachableNewMachines(t *testing.T) {
 		t.Fatal("anahtarsız hedef kaydedildi")
 	}
 }
+
+/*
+ * ⚠️ VERİLEN ERİŞİM DEFTERE YAZILMALI — YAZILMADIĞI HÂLİ ÖLÇÜLDÜ.
+ *
+ * `postern discover --apply`, hedefe erişim dağıtan TEK yol olarak
+ * denetim defterinde iz bırakmıyordu. Rol ve hedef OLUŞTURMA
+ * denetleniyordu; erişimi asıl veren GrantTarget denetlenmiyordu.
+ *
+ * Kaçırdığı durum, grant'ın her turda çalışmasının SEBEBİ olan durum:
+ * etiketi değişen bir makine ikinci koşuda yeni rolüne bağlanıyor. Orada
+ * ne rol ne hedef yaratılıyor — yani var olan iki denetim satırının
+ * ikisi de yazılmıyor ve defter tamamen sessiz kalıyor.
+ *
+ * Test bu ikinci koşuyu ölçüyor, ilkini değil: ilk koşuda satırın
+ * gelmesi, oluşturma denetimlerinin gölgesinde olabilirdi.
+ */
+func TestRetaggingAMachineWritesTheGrantToTheLedger(t *testing.T) {
+	ctx := context.Background()
+	db := newStore(t)
+	host, port := fakeSSH(t)
+
+	p := Planner{DB: db, TagKey: "role", Port: port, Actor: "yigit"}
+
+	// İlk koşu: hedef ve "ops" rolü doğuyor.
+	if _, err := p.Run(ctx, []Machine{
+		{Name: "web-01", Host: host, Tags: []string{"role=ops"}, Running: true, Ref: "qemu/101@n1"},
+	}, true); err != nil {
+		t.Fatal(err)
+	}
+
+	before := grantRows(t, db)
+
+	// İkinci koşu: AYNI makine yeni etiketle. Ne rol ne hedef yaratılıyor
+	// — "dba" rolü yaratılıyor ama hedef zaten var ve asıl olay grant.
+	if _, err := p.Run(ctx, []Machine{
+		{Name: "web-01", Host: host, Tags: []string{"role=dba"}, Running: true, Ref: "qemu/101@n1"},
+	}, true); err != nil {
+		t.Fatal(err)
+	}
+
+	after := grantRows(t, db)
+	if len(after) <= len(before) {
+		t.Fatalf("role.grant satırı %d → %d; keşif erişim verdi ama defterde "+
+			"iz yok — \"prod erişimini web01'e kim verdi?\" sorusu cevapsız",
+			len(before), len(after))
+	}
+
+	last := after[0]
+	if last.Actor != "yigit" {
+		t.Errorf("actor = %q, komutu koşan kişi bekleniyordu", last.Actor)
+	}
+	if !strings.Contains(last.Details, "web-01") {
+		t.Errorf("details = %q; hangi hedefin verildiğini söylemiyor", last.Details)
+	}
+
+	// ⚠️ Değişmeyen bir koşu defteri ŞİŞİRMEMELİ: aynı etiketle üçüncü
+	// kez koşmak yeni bir erişim doğurmuyor.
+	if _, err := p.Run(ctx, []Machine{
+		{Name: "web-01", Host: host, Tags: []string{"role=dba"}, Running: true, Ref: "qemu/101@n1"},
+	}, true); err != nil {
+		t.Fatal(err)
+	}
+	if again := grantRows(t, db); len(again) != len(after) {
+		t.Errorf("değişmeyen koşu %d yeni satır yazdı — her tarama defteri "+
+			"aynı cümleyle doldurur", len(again)-len(after))
+	}
+}
+
+func grantRows(t *testing.T, db *store.Store) []store.AdminLogEntry {
+	t.Helper()
+	all, err := db.AdminLog(context.Background(), 200)
+	if err != nil {
+		t.Fatalf("AdminLog: %v", err)
+	}
+	var out []store.AdminLogEntry
+	for _, e := range all {
+		if e.Action == "role.grant" {
+			out = append(out, e)
+		}
+	}
+	return out
+}

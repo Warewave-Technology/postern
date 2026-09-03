@@ -57,8 +57,17 @@ func (p Planner) Run(ctx context.Context, machines []Machine, apply bool) ([]Out
 		return nil, err
 	}
 	haveRole := make(map[string]bool, len(roles))
+	// haveGrant, KOŞU BAŞLARKEN var olan (rol, hedef) bağları. Denetim
+	// satırının yalnızca YENİ bir erişim doğduğunda yazılması için:
+	// GrantTarget ON CONFLICT DO NOTHING kullanıyor ve "zaten vardı"yı
+	// çağırana söylemiyor, o yüzden fark buradan okunuyor. Ek sorgu yok
+	// — roller zaten hedefleriyle geldi.
+	haveGrant := map[string]bool{}
 	for _, r := range roles {
 		haveRole[r.Name] = true
+		for _, tn := range r.Targets {
+			haveGrant[grantKey(r.Name, tn)] = true
+		}
 	}
 
 	out := make([]Outcome, 0, len(machines))
@@ -184,9 +193,34 @@ func (p Planner) Run(ctx context.Context, machines []Machine, apply bool) ([]Out
 			 * ESKİ ROLDEN DÜŞÜRMÜYOR: erişim kaldırmak bilinçli bir
 			 * karar ve toplu bir tarama onu veremez.
 			 */
+			/*
+			 * ⚠️ VE DEFTERE YAZILIYOR — YAZILMADIĞI HÂLİ ÖLÇÜLDÜ.
+			 *
+			 * Yukarıdaki iki yazma (rol ve hedef oluşturma) denetleniyor,
+			 * bu denetlenmiyordu. Kaçırdığı durum tam da yorumun bir üstte
+			 * anlattığı durum: etiketi değişen bir makine ikinci koşuda
+			 * yeni rolüne bağlanıyor — ne rol ne hedef yaratılıyor, yani
+			 * iki satırın ikisi de yazılmıyor ve `postern discover
+			 * --apply`, hedefe erişim dağıtan TEK yol olarak defterde hiç
+			 * iz bırakmıyordu. "prod erişimini web01'e kim verdi?"
+			 * sorusuna `postern log` sessizlikle cevap veriyordu.
+			 *
+			 * Komut bunu operatörün terminaline basıyor, ama bu depo
+			 * terminali yeterli SAYMAMAYA zaten karar verdi (yönetici
+			 * grubu kolunda aynı gerekçe).
+			 *
+			 * ErrConflict yazılmıyor: o "zaten vardı" demek, yani yeni
+			 * bir erişim doğmadı ve deftere her koşuda aynı satırı
+			 * eklemek defteri gürültüye boğardı.
+			 */
 			if gerr := p.DB.GrantTarget(ctx, o.Role, m.Name); gerr != nil &&
 				!errors.Is(gerr, store.ErrConflict) {
 				return out, fmt.Errorf("grant %q to %q: %w", m.Name, o.Role, gerr)
+			}
+			if k := grantKey(o.Role, m.Name); !haveGrant[k] {
+				haveGrant[k] = true
+				p.audit(ctx, "role.grant", o.Role,
+					"target "+m.Name+" (from tag "+p.TagKey+")")
 			}
 			o.Granted = true
 		}
@@ -196,6 +230,12 @@ func (p Planner) Run(ctx context.Context, machines []Machine, apply bool) ([]Out
 
 	SortOutcomes(out)
 	return out, nil
+}
+
+// grantKey, (rol, hedef) çiftinin anahtarı. Hedef adları harf duyarsız
+// tekil (ciColumns), o yüzden karşılaştırma da öyle.
+func grantKey(role, target string) string {
+	return strings.ToLower(role) + "\x00" + strings.ToLower(target)
 }
 
 func (p Planner) audit(ctx context.Context, action, entity, details string) {
