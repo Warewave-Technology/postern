@@ -80,17 +80,17 @@ func (s *Store) AddLocalCredential(ctx context.Context, username, verifier, by s
 /*
  * UserByNameFold, adı HARF DUYARSIZ arar ve bulunan gerçek adı döner.
  *
- * ⚠️ postern'de kullanıcı adları harf DUYARLI ve bu doğru: "Ops" ile
- * "ops" meşru biçimde iki ayrı hesap olabilir. Bu sorgu o modeli
- * değiştirmiyor; yalnızca BOOTSTRAP'ın sorduğu farklı bir soruya cevap
- * veriyor.
+ * ⚠️ KULLANICI ADLARI 019'DAN BERİ HARF DUYARSIZ BENZERSİZ. Eski yorum
+ * bunun tersini söylüyordu ("Ops ile ops iki ayrı hesap olabilir") ve
+ * o artık yanlış: göç 019 lower(username) üzerinde tekil bir indeks
+ * kurdu, tam da bir harf farkıyla ikinci bir yönetici ve ikinci bir
+ * canlı sır yaratılmasını önlemek için.
  *
- * Oradaki tehlike somut: adı bir harf farkıyla yeniden yazan operatör,
- * ikinci bir yönetici ve İKİNCİ BİR CANLI SIR yaratır. İkisi de
- * çalışır, biri unutulur. Fark edilmesi zor, düzeltilmesi zor.
+ * Bu fonksiyon o tekilliğin okuma tarafı: bootstrap, adı ne yazımla
+ * yazılmış olursa olsun tek hesabı bulmalı.
  *
- * İndeks yok — users.username ciColumns'ta değil. Sorun değil: bu
- * yalnızca kurulum anında, tek satır için çalışıyor.
+ * lower() indeksi VAR (019) ve users.username ciColumns'ta — sorgu bir
+ * tablo taraması yapmıyor. Eski yorum "indeks yok" diyordu; o da yanlış.
  */
 func (s *Store) UserByNameFold(ctx context.Context, name string) (string, error) {
 	var found string
