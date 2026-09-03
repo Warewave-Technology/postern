@@ -747,9 +747,16 @@ postern's own tests expect.
 
 ## Setting up
 
-Generate the certificate authority:
+The fuller version, with a worked config, is the
+[install documentation](https://postern.warewave.tech/docs/#install). This is
+the short one.
+
+Generate the bastion's own SSH host key and its certificate authority. They
+are different keys and both are required — postern refuses to start without a
+host key, and the CA is what it signs session certificates with:
 
 ```bash
+ssh-keygen -t ed25519 -N "" -f host_ed25519
 postern ca init --key ca_ed25519
 ```
 
@@ -789,15 +796,47 @@ postern uses `verify-full`: libpq's own default silently falls back to
 plaintext when TLS is unavailable, which is not a trade a bastion should
 make on your behalf.
 
-Create the schema, then start the server:
+A minimal `postern.yaml` naming those keys and the database:
+
+```yaml
+listen:
+  addr: ":2222"
+host_key: host_ed25519
+secret_key_file: secret.key
+ca:
+  key_file: ca_ed25519
+database:
+  dsn: postgres://postern:choose-one@localhost:5432/postern?sslmode=disable
+recording:
+  dir: recordings
+```
+
+`sslmode=disable` is for a database on the same host; drop it and postern uses
+`verify-full`, which is what you want across a network.
+
+Then, in this order — each step needs the one before it:
+
+```bash
+postern secret init --config postern.yaml
+```
 
 ```bash
 postern db migrate --config postern.yaml
 ```
 
 ```bash
+postern admin bootstrap --config postern.yaml
+```
+
+```bash
 postern serve --config postern.yaml
 ```
+
+`secret init` writes the key named by `secret_key_file`; it is what encrypts
+settings kept in the database — the archive credential and the directory bind
+password among them — so the panel cannot store those without it.
+`admin bootstrap` prints a sign-in secret once and never again; without it the
+panel has nobody to let in.
 
 `db migrate` takes a PostgreSQL advisory lock, so running it from two
 places at once is safe: the second waits and then finds nothing to do.

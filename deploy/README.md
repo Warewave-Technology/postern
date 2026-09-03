@@ -11,6 +11,13 @@ filesystem except the recordings directory, no capabilities at all, and
 a syscall filter.
 
 ```bash
+# The unit runs /usr/local/bin/postern — put the binary there first.
+# Nothing else in the documentation does this step, and without it
+# systemd reports status=203/EXEC, which reads like a permissions
+# problem rather than a missing file.
+tar xzf postern_1.0.0_linux_amd64.tar.gz
+install -o root -g root -m 0755 postern /usr/local/bin/postern
+
 useradd --system --home /var/lib/postern --shell /usr/sbin/nologin postern
 install -d -o postern -g postern -m 0700 /var/lib/postern/recordings
 install -d -o root -g postern -m 0750 /etc/postern
@@ -19,6 +26,12 @@ install -o root -g root -m 0644 systemd/postern.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now postern
 ```
+
+The unit expects `/etc/postern/postern.yaml` and the keys it names to
+exist already — `ssh-keygen` for the host key, `postern ca init`,
+`postern secret init`, and `postern db migrate` against the database.
+[Setting up](../README.md#setting-up) is that list; run it as `postern`
+so the files it writes are owned by the account the unit runs as.
 
 The database password goes in `/etc/postern/postern.env` (owned by
 `postern`, mode `0600`) rather than on the command line, where every user

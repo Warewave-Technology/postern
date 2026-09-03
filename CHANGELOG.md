@@ -258,10 +258,12 @@ recordings.
 - **Recordings marked permanently lost by a pre-release build stay
   marked.** The fix above stops new ones being written off, but it does
   not revisit rows already flagged. If you ran a pre-release build with
-  a wrong archive credential, bucket or region, check
-  `postern archive status`: a non-zero *lost* count there — which the
-  panel's storage tile now shows as well — is recordings that are still
-  on disk and will not upload on their own.
+  a wrong archive credential, bucket or region, look at the panel's
+  Overview: the storage tile now names recordings that will never be
+  archived. A non-zero count there is recordings still sitting on disk
+  that will not upload on their own. There is no CLI command that
+  reports it and no command that clears the flag; the rows are in
+  `session_archives` with `permanent = true`.
 
 - **`recording.min_free` takes binary suffixes only.** The documented
   example said `5GB`, which the parser refuses, so an install that
