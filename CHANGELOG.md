@@ -94,6 +94,59 @@ recordings.
   channel slot for as long as the user stayed connected, repeatable per
   channel. It is now bounded at 20 seconds.
 
+- **An established SSH connection is now re-checked on every channel.**
+  Identity was verified only during the handshake, and an SSH connection
+  can stay open indefinitely — `ssh -N`, or ControlMaster, which many
+  corporate ssh_configs turn on by default. Two consequences, both
+  measured against a real client and a real target. Setting an account
+  to `deleted` — the only offboarding lever for anyone with recorded
+  sessions, since deletion refuses those — did not end SSH: the same
+  connection kept opening channels and getting freshly signed
+  certificates. And once `postern user purge` released a username, the
+  departed person's connection resolved to whoever took the name next,
+  running with their OS account and roles and writing sessions into the
+  ledger under their name. The connection now carries the account id and
+  proxy.Open verifies it per channel. If you offboarded anyone on a
+  pre-release build, their SSH connections were not closed by it.
+
+- **The guessing delay is no longer reset by changing the letter case
+  of a username.** Every lookup behind it folds case, but the delay was
+  keyed on the raw string the caller typed, so one account owned as many
+  independent ladders as its name has spellings. Measured: rotating the
+  spelling took a fixed-spelling run of 10 password checks per ten
+  minutes to 100, and put 10 wrong binds against one directory account
+  where 4 had got through before — above a typical AD lockout threshold,
+  which is the remote lockout lever this control exists to remove.
+
+- **Recordings are no longer written off for a fixable archive error.**
+  A wrong secret, a mistyped bucket or the wrong region made the upload
+  fail permanently rather than transiently, and those rows were taken
+  out of the queue for good: fixing the configuration drained nothing,
+  and the panel reported nothing waiting. Only a recording whose file is
+  actually gone is abandoned now. See *Needs action* below.
+
+- **Targets created through the panel or API are checked against the
+  same host-key rules as the CLI.** A host *certificate* line or an
+  `sk-*` line was accepted with 200 and audited as created, and the
+  target was then permanently undialable — every session to it failed
+  before a TCP attempt. Existing targets are not re-validated; if one
+  has never connected, this is worth checking.
+
+- **The target probe is audited for every run, not only successful
+  ones.** With `target_probe.enabled`, postern runs commands on the
+  target under the connecting person's identity, and the feature's
+  justification for that is that every run is recorded. Runs that
+  produced no usable output wrote no row at all, so the `via = probe`
+  filter under-reported exactly the machines that behaved unusually. A
+  timed-out probe could not even record its own timeout, because the
+  audit write shared the probe's deadline.
+
+- **`postern discover --apply` writes its grants to the audit ledger.**
+  It is the one path that hands out target access, and re-tagging a
+  machine — the case the grant re-runs for — left no row at all, so
+  "who gave prod access to web01?" had no answer. Re-running an
+  unchanged discovery still writes nothing.
+
 - **The bulk-revocation ceilings can no longer be raised from the
   panel.** See *Needs action* below.
 
@@ -183,6 +236,41 @@ recordings.
   It is not ignored silently — the sync loop logs each one it found and
   where the real setting lives — but the ceiling in force until you move
   it is the default, not what you chose.
+
+- **Re-install `deploy/systemd/postern.service`.** The restart limit was
+  written in `[Service]`, and systemd has kept that counter on the unit
+  since v229 — it did not recognise the keys and ignored them. Measured
+  on the shipped file with `systemd-analyze verify` (Debian 12, systemd
+  252): *Unknown key 'StartLimitIntervalSec' in section [Service],
+  ignoring*. The effect is the opposite of what the file says: a bastion
+  that cannot start — a bad DSN, a rejected `min_free`, a schema behind
+  — restarted every five seconds forever instead of going to `failed`,
+  so `systemctl status` showed `activating` and a monitor watching for
+  failed units saw nothing. Copy the new unit and
+  `systemctl daemon-reload`.
+
+- **Recordings marked permanently lost by a pre-release build stay
+  marked.** The fix above stops new ones being written off, but it does
+  not revisit rows already flagged. If you ran a pre-release build with
+  a wrong archive credential, bucket or region, check
+  `postern archive status`: a non-zero *lost* count there — which the
+  panel's storage tile now shows as well — is recordings that are still
+  on disk and will not upload on their own.
+
+- **`recording.min_free` takes binary suffixes only.** The documented
+  example said `5GB`, which the parser refuses, so an install that
+  followed the page ended with a bastion that would not start at the
+  last step. Write `5GiB` (or `MiB`, `TiB`, or a plain number of bytes).
+  Nothing changed in the parser; the documentation was wrong.
+
+- **An untagged build says so again.** On a tree with no reachable tag,
+  the version fallback accepted Go's pseudo-version as a release, so
+  `postern version` and the startup log printed something like
+  `v0.0.0-20260903172313-67c66c03fa77` with no warning —
+  indistinguishable at a glance from a release binary. If you are
+  answering "which build is this, is it patched" from a pre-release
+  binary, re-check it: the warning line is the one that tells you it did
+  not come from a tag.
 
 - **`shutdown.drain_timeout` is new**, defaulting to 30 seconds. No
   action needed unless your sessions are long-lived and your init system
