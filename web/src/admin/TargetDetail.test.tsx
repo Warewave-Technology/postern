@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import TargetDetail from "./TargetDetail";
 import { api, type TargetDetail as Detail } from "../api";
 
@@ -44,4 +44,43 @@ it("gerçekten boşken hâlâ 'hiç oturum açılmamış' diyor", async () => {
   await waitFor(() =>
     expect(screen.getByText(/No session has been opened/i)).toBeTruthy(),
   );
+});
+
+/*
+ * ⚠️ KESİLMİŞ TARAMA, "HİÇ OTURUM YOK" DEĞİL.
+ *
+ * Sunucu tüm hedeflerin son N oturumunu tarayıp bu hedefe göre
+ * süzüyor. Gürültülü bir kurulumda pencere bu hedefi hiç
+ * içermeyebiliyor ve liste boş dönüyor — ölçüldü. Ekran o boşluğu
+ * "hiç bağlanılmamış" diye okunacak bir cümleye çevirirse, bir denetim
+ * aracı olmayan bir olguyu bildirmiş olur.
+ */
+describe("tarama penceresi dolduğunda", () => {
+  it("bosluga 'hic yok' demez, pencereyi soyler", async () => {
+    vi.spyOn(api, "targetDetail").mockResolvedValue(
+      detail({ recent_sessions: [], recent_partial: true, recent_scanned: 200 }),
+    );
+    render(<TargetDetail name="web-01" onBack={() => {}} />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/among the last 200 recorded/i)).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByText(/^No session has been opened to this host\.$/),
+    ).toBeNull();
+  });
+
+  // Karşı taraf: pencere dolmadıysa düz cümle kalmalı. Her boş listeyi
+  // nitelemek, niteliğin kendisini anlamsız yapardı.
+  it("pencere dolmadiysa duz cumleyi yazar", async () => {
+    vi.spyOn(api, "targetDetail").mockResolvedValue(detail({ recent_sessions: [] }));
+    render(<TargetDetail name="web-01" onBack={() => {}} />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/No session has been opened to this host/i),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/among the last/i)).toBeNull();
+  });
 });

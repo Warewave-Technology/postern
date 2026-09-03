@@ -341,8 +341,16 @@ export default function TargetDetail({
                 not a statement that nobody has connected to it.
               </p>
             ) : t.recent_sessions.length === 0 ? (
+              /* ⚠️ PENCERE DOLDUYSA "HİÇ" DEMİYORUZ.
+                 Tarama tüm hedeflerin son N oturumuna bakıp süzüyor;
+                 gürültülü bir kurulumda o pencere bu hedefi hiç
+                 içermeyebiliyor. Ölçüldü: bağlanılmış bir hedef için
+                 boş liste dönüyor ve ekran "hiç bağlanılmamış"
+                 yazıyordu. */
               <p className="no-match">
-                No session has been opened to this host.
+                {t.recent_partial
+                  ? `No session to this host among the last ${t.recent_scanned ?? 200} recorded across all hosts — older ones may exist.`
+                  : "No session has been opened to this host."}
               </p>
             ) : (
               <div className="table-wrap">

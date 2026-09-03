@@ -262,6 +262,18 @@ export type TargetDetail = {
    *  açılmamış" ile "bakamadık" farklı şeyler ve ikincisi bir denetim
    *  ekranında araştırılması gereken bir şey. */
   recent_error?: boolean;
+
+  /*
+   * recent_partial: tarama penceresi doldu.
+   *
+   * ⚠️ Sunucuda "şu hedefin oturumları" sorgusu yok; tüm hedeflerin
+   * son N oturumu taranıp süzülüyor. Gürültülü bir kurulumda o pencere
+   * tek bir hedefin oturumlarını hiç içermeyebiliyor — ve bu bayrak
+   * olmadan ekran, bağlanılmış bir hedef için "hiç bağlanılmamış"
+   * yazıyordu.
+   */
+  recent_partial?: boolean;
+  recent_scanned?: number;
 };
 
 export type Mapping = { group: string; role: string; created_by: string };

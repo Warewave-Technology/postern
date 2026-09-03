@@ -188,6 +188,7 @@ func (s *Server) adminTargetDetail(w http.ResponseWriter, r *http.Request) {
 	 * de sayfa düşmüyor, ama boşluğun ne anlama GELMEDİĞİ yazılıyor.
 	 */
 	recentErr := false
+	recentPartial := false
 	// Boş kullanıcı adı = "hepsi" (bkz. store.Sessions).
 	sessions, serr := s.store.Sessions(r.Context(), "", sessionScanLimit)
 	if serr != nil {
@@ -211,6 +212,30 @@ func (s *Server) adminTargetDetail(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
+
+		/*
+		 * ⚠️ PENCERENİN DIBINE VURDUK MU?
+		 *
+		 * Tarama TÜM hedeflerin son N oturumuna bakıyor ve sonra bu
+		 * hedefe göre süzüyor. Gürültülü bir kurulumda o pencere tek
+		 * bir hedefin oturumlarını hiç içermeyebiliyor ve sonuç boş
+		 * liste oluyor — panel de "No session has been opened to this
+		 * host." yazıyordu.
+		 *
+		 * ÖLÇÜLDÜ, gerçek PostgreSQL ile: web01'de 1 gerçek oturum,
+		 * başka bir hedefte 200 daha yeni oturum → cevap
+		 * `recent_sessions: []`, hiçbir hata alanı yok. Yani "hiç
+		 * bağlanılmamış" diye okunan bir cümle, bağlanılmış bir hedef
+		 * için yazılıyordu.
+		 *
+		 * Sınırın "panelde yazılı" olduğunu söyleyen yorum da yanlıştı:
+		 * ekranda buna dair tek kelime yoktu (grep'lendi).
+		 *
+		 * Bayrak yalnızca pencere DOLDUĞUNDA anlamlı: daha az satır
+		 * döndüyse gerçekten hepsini gördük ve nitelemek, uyarıyı
+		 * okunmaz yapardı.
+		 */
+		recentPartial = len(sessions) >= sessionScanLimit
 	}
 
 	writeJSON(w, http.StatusOK, struct {
@@ -225,16 +250,26 @@ func (s *Server) adminTargetDetail(w http.ResponseWriter, r *http.Request) {
 		// recent_error: liste okunamadı. Boş listeyle karıştırılmamalı
 		// — "dokunulmadı" ile "bakamadık" farklı şeyler.
 		RecentErr bool `json:"recent_error,omitempty"`
+		// recent_partial: tarama penceresi doldu, yani bu hedefin daha
+		// eski oturumları pencerenin dışında kalmış olabilir. Boş bir
+		// liste bu bayrakla birlikte "hiç yok" DEMİYOR.
+		RecentPartial bool `json:"recent_partial,omitempty"`
+		// recent_scanned: pencerenin büyüklüğü. Ekranın cümlesi somut
+		// bir sayı söyleyebilsin diye gidiyor — "son 200 kayıt içinde"
+		// ile "hiç" arasındaki fark operatörün kararını değiştiriyor.
+		RecentScanned int `json:"recent_scanned,omitempty"`
 	}{
-		Name:        t.Name,
-		Host:        t.Host,
-		Port:        t.Port,
-		Fingerprint: fingerprintOf(t),
-		Labels:      labels,
-		Facts:       toFactsOut(facts),
-		GrantedBy:   granting,
-		Recent:      recent,
-		RecentErr:   recentErr,
+		Name:          t.Name,
+		Host:          t.Host,
+		Port:          t.Port,
+		Fingerprint:   fingerprintOf(t),
+		Labels:        labels,
+		Facts:         toFactsOut(facts),
+		GrantedBy:     granting,
+		Recent:        recent,
+		RecentErr:     recentErr,
+		RecentPartial: recentPartial,
+		RecentScanned: sessionScanLimit,
 	})
 }
 
@@ -242,8 +277,12 @@ func (s *Server) adminTargetDetail(w http.ResponseWriter, r *http.Request) {
 //
 // Sunucuda "şu hedefin oturumları" diye bir sorgu yok ve eklemek yeni
 // bir indeks + yeni bir uç demekti; şimdilik son N oturum taranıp
-// süzülüyor. ⚠️ Sınır PANELDE YAZILI: sessizce kırpılmış bir denetim
-// listesi, operatöre "olan biten bu kadar" dedirtir.
+// süzülüyor.
+//
+// ⚠️ SINIR CEVAPTA TAŞINIYOR (recent_partial / recent_scanned) ve panel
+// onu YAZIYOR. Bu yorum eskiden "sınır panelde yazılı" diyordu ve
+// yazmıyordu: ekranda buna dair tek kelime yoktu. Sessizce kırpılmış
+// bir denetim listesi, operatöre "olan biten bu kadar" dedirtir.
 const sessionScanLimit = 200
 
 // targetSessionRows, hedef sayfasında gösterilen oturum sayısı.

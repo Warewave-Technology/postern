@@ -172,3 +172,89 @@ func seedFileEvents(t *testing.T, db *store.Store, path string, n int) {
 		}
 	}
 }
+
+/*
+ * ⚠️ KESİLMİŞ BİR TARAMA "HİÇ OTURUM YOK" DEMEK DEĞİL.
+ *
+ * Sunucuda "şu hedefin oturumları" diye bir sorgu yok: TÜM hedeflerin
+ * en yeni sessionScanLimit satırı taranıp bu hedefe göre süzülüyor.
+ * Gürültülü bir kurulumda o pencere tek bir hedefin oturumlarını hiç
+ * içermeyebiliyor.
+ *
+ * ÖLÇÜLDÜ: web01'de bir gerçek oturum, başka bir hedefte pencereyi
+ * dolduracak kadar daha yeni oturum → cevap `recent_sessions: []` ve
+ * hiçbir hata alanı yok. Panel de bunu "No session has been opened to
+ * this host." diye çiziyordu; yani bağlanılmış bir hedef için, bir
+ * denetim ekranında, olumlu ve yanlış bir cümle.
+ */
+func TestTargetDetailSaysWhenTheScanWindowWasFull(t *testing.T) {
+	s, db, _ := dbServerDSN(t)
+
+	seedTargets(t, db, "web01", "noisy")
+
+	// web01'e BİR oturum, ve onu pencereden dışarı itecek kadar yeni
+	// oturum başka bir hedefte.
+	base := time.Now().Add(-48 * time.Hour)
+	startSession(t, db, "old-web01", "web01", base)
+	for i := range sessionScanLimit {
+		startSession(t, db, fmt.Sprintf("noisy-%03d", i), "noisy",
+			base.Add(time.Duration(i+1)*time.Minute))
+	}
+
+	body := decode(t, callTarget(t, s, "web01"))
+
+	if got := body["recent_sessions"]; got != nil && len(got.([]any)) != 0 {
+		t.Fatalf("kurgu tutmadı: web01 oturumu pencereye girmiş (%v)", got)
+	}
+	if body["recent_partial"] != true {
+		t.Errorf("recent_partial = %v, true bekleniyordu — pencere doldu "+
+			"ve bu hedefin oturumu dışarıda kaldı; ekran \"hiç bağlanılmamış\" "+
+			"diye okunan bir cümle yazar", body["recent_partial"])
+	}
+
+	// Karşı taraf: pencere dolmadıysa bayrak KONMAMALI. Her zaman
+	// nitelemek, uyarıyı okunmaz yapardı.
+	s2, db2, _ := dbServerDSN(t)
+	seedTargets(t, db2, "web01")
+	startSession(t, db2, "only-one", "web01", base)
+	body2 := decode(t, callTarget(t, s2, "web01"))
+	if body2["recent_partial"] == true {
+		t.Error("pencere dolmadığı hâlde kısmi işaretlendi")
+	}
+}
+
+// callTarget, hedef detay ucunu çağırır.
+func callTarget(t *testing.T, s *Server, name string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/targets/"+name, nil)
+	req.SetPathValue("name", name)
+	rec := httptest.NewRecorder()
+	s.adminTargetDetail(rec, req)
+	return rec
+}
+
+func seedTargets(t *testing.T, db *store.Store, names ...string) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := db.CreateUser(ctx, "ayse", "ayse@warewave.io", "ayse"); err != nil {
+		t.Fatal(err)
+	}
+	for i, n := range names {
+		if _, err := db.CreateTarget(ctx, model.Target{
+			Name: n, Host: fmt.Sprintf("10.0.0.%d", i+5), Port: 22,
+			HostKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIcLUQM0UcoZdJVh2EokribDvFZyyNyAVURM/LrCugFM",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func startSession(t *testing.T, db *store.Store, id, target string, at time.Time) {
+	t.Helper()
+	if err := db.StartSession(context.Background(), store.SessionStart{
+		ID: id, Username: "ayse", TargetName: target, OSUser: "root",
+		SrcIP: "10.0.0.2", StartedAt: at,
+	}); err != nil {
+		t.Fatalf("StartSession(%s): %v", id, err)
+	}
+}
