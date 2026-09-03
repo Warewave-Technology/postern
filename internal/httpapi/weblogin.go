@@ -582,16 +582,33 @@ func (s *Server) accountStillOpen(w http.ResponseWriter, r *http.Request, userna
 	 * Kimliğe bakmak oturumun bağlı olduğu satırı görüyor: purge o satırı
 	 * deleted yapıyor, yani ret kalıcı.
 	 *
-	 * Eski oturumların accountID'si boş olabilir (yükseltmeden önce
-	 * açılmış): o durumda ada geri düşüyoruz — yükseltme herkesi
-	 * çıkarmasın; yeni oturumlar zaten kimliğe bağlı.
+	 * ⚠️ ADA GERİ DÜŞÜŞ YOK — VE BİR SÜRE VARDI, GEREKÇESİ YANLIŞTI.
+	 *
+	 * "Yükseltmeden önce açılmış oturumların kimliği boş olabilir,
+	 * onları ada göre kontrol edelim ki yükseltme herkesi çıkarmasın"
+	 * diye yazılmıştı. Oturumlar YALNIZCA BELLEKTE (byToken haritası;
+	 * kalıcılık yok, tablo yok), yani yükseltme süreci yeniden
+	 * başlatıyor ve haritayı zaten boşaltıyor: kimliği boş bir oturum
+	 * yükseltmeden SONRA var olamaz.
+	 *
+	 * Yani o dal ulaşılamazdı ve ZAYIF olandı — CLI purge sızıntısının
+	 * geçtiği yol tam olarak o kontroldü. Ulaşılamayan bir gevşek yolu
+	 * yanlış bir gerekçeyle tutmak, bir gün başka bir sebeple
+	 * erişilebilir hâle geldiğinde sessizce açık kalması demek.
+	 *
+	 * Kimlik beklenmedik şekilde boşsa REDDEDİYORUZ: oturumu hangi
+	 * hesaba ait olduğunu bilmeden geçirmek, bu fonksiyonun var olma
+	 * sebebine aykırı.
 	 */
-	var err error
-	if accountID != "" {
-		err = s.store.RefuseIfDeletedByID(r.Context(), accountID)
-	} else {
-		err = s.store.RefuseIfDeleted(r.Context(), username)
+	if accountID == "" {
+		s.webSessions.DestroyUser(username)
+		s.clearSessionCookie(w)
+		s.logger.Warn("session refused: not bound to an account id", "user", username)
+		writeErr(w, http.StatusUnauthorized, "unauthenticated")
+		return false
 	}
+
+	err := s.store.RefuseIfDeletedByID(r.Context(), accountID)
 	switch {
 	case err == nil:
 		return true

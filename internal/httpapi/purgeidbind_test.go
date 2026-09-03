@@ -78,3 +78,48 @@ func TestCLIStylePurgeInvalidatesOldPanelSession(t *testing.T) {
 			"kişinin hesabında çalışıyor", code)
 	}
 }
+
+/*
+ * ⚠️ HESAP KİMLİĞİNE BAĞLI OLMAYAN OTURUM REDDEDİLİYOR.
+ *
+ * Kontrolde bir süre "kimlik boşsa ada göre bak" dalı vardı ve gerekçesi
+ * şuydu: "yükseltmeden önce açılmış oturumlar herkesi çıkarmasın".
+ * Gerekçe yanlıştı — panel oturumları yalnızca bellekte (byToken;
+ * kalıcılık yok, tablo yok), yani yükseltme süreci yeniden başlatıp
+ * haritayı zaten boşaltıyor ve kimliği boş bir oturum yükseltmeden
+ * SONRA var olamaz.
+ *
+ * O dal hem ulaşılamaz hem de ZAYIF olandı: CLI purge sızıntısı tam
+ * olarak ada bakan kontrolden geçiyordu. Bu test, kimliği olmayan bir
+ * oturumun artık geçmediğini ölçüyor — fail-closed.
+ */
+func TestSessionWithoutAccountIDIsRefused(t *testing.T) {
+	ctx := context.Background()
+	db := migratedStore(t)
+
+	if _, err := db.CreateUser(ctx, "ayse", "ayse@warewave.io", "ayse"); err != nil {
+		t.Fatal(err)
+	}
+
+	s := New(auth.NewOIDCHolder(), auth.NewLogins(auth.NewOIDCHolder()), db,
+		slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	// ⚠️ KİMLİK BOŞ: üretim yolları bunu üretmiyor (createWebSession
+	// kimliği okuyup hata döndürüyor), o yüzden doğrudan kuruyoruz.
+	// Ölçülen şey, böyle bir oturumun yine de geçmemesi.
+	token, err := s.webSessions.Create("ayse", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	r := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, r)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("kimliğe bağlı olmayan oturum geçti (/api/me = %d) — "+
+			"oturumun hangi hesaba ait olduğu bilinmeden kabul ediliyor",
+			w.Code)
+	}
+}
