@@ -13,6 +13,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/warewave/postern/internal/config"
+	"github.com/warewave/postern/internal/sshalg"
 	"github.com/warewave/postern/internal/store"
 )
 
@@ -277,6 +278,14 @@ func newUserAddCmd() *cobra.Command {
 				pub, comment, _, _, err := ssh.ParseAuthorizedKey(data)
 				if err != nil {
 					return fmt.Errorf("key file %s: not a valid public key: %w", path, err)
+				}
+				// ⚠️ HİÇ ÇALIŞAMAYACAK ANAHTAR EKLENMİYOR — HTTP uçlarındaki
+				// kapının aynısı (bkz. sshalg.UnusableKeyType). DSA kapıda
+				// reddediliyor ve hedef anahtarı olarak da sunulmuyor;
+				// CLI'da kabul etmek, "yazılmış ve hiç çalışmayan" bir kayıt
+				// yaratmak olurdu — sahibi bastion'ı suçlar.
+				if why := sshalg.UnusableKeyType(pub.Type()); why != "" {
+					return fmt.Errorf("key file %s: %s", path, why)
 				}
 				keys = append(keys, parsedKey{blob: pub.Marshal(), comment: comment, path: path})
 			}

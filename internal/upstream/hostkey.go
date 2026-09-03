@@ -121,10 +121,15 @@ func hostKeyCallback(expected string) (ssh.HostKeyCallback, []string, error) {
 	}
 
 	// ⚠️ TÜRÜN KENDİSİ DEĞİL, O TÜRLE MÜZAKERE EDİLEBİLECEK
-	// ALGORİTMALAR. RSA'da ikisi ayrı ve doğrudan tür verildiğinde
-	// OpenSSH 8.8+ her hedef erişilemez oluyordu (bkz.
-	// sshalg.HostKeyAlgorithmsFor).
-	return pinnedHostKey(publicKey), sshalg.HostKeyAlgorithmsFor(publicKey.Type()), nil
+	// ALGORİTMALAR. RSA'da ikisi ayrı; ssh-dss gibi kabul edilmeyen bir
+	// tür ise pin geçersiz sayılıyor ve buradan hata dönüyor — SHA-1'li
+	// bir host key el sıkışmasına izin vermek yerine bağlantı reddediliyor
+	// (bkz. sshalg.HostKeyAlgorithmsFor).
+	algos, err := sshalg.HostKeyAlgorithmsFor(publicKey.Type())
+	if err != nil {
+		return nil, nil, fmt.Errorf("upstream.hostKeyCallback: %w", err)
+	}
+	return pinnedHostKey(publicKey), algos, nil
 }
 
 /*

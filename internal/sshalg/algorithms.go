@@ -8,6 +8,8 @@
 package sshalg
 
 import (
+	"fmt"
+	"slices"
 	"strings"
 
 	"golang.org/x/crypto/ssh"
@@ -184,14 +186,32 @@ var HostKeyAlgorithms = []string{
  * kullan" diye okuyor ve o varsayılan ssh-rsa ile ssh-dss içeriyor —
  * yani sessizce AÇILIRDI.
  */
-func HostKeyAlgorithmsFor(keyType string) []string {
+func HostKeyAlgorithmsFor(keyType string) ([]string, error) {
 	switch keyType {
 	case ssh.KeyAlgoRSA:
 		// Sıra HostKeyAlgorithms ile aynı: tarama neyi tercih
 		// ediyorsa bağlantı da onu tercih etmeli.
-		return []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256}
+		return []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256}, nil
 	default:
-		return []string{keyType}
+		/*
+		 * ⚠️ KAPALI KÜME: yalnızca taramanın kabul ettiği türler geçer.
+		 *
+		 * Eskiden default dalı `[]string{keyType}` döndürüyordu — YANİ
+		 * NE PİNLENMİŞSE. Elle ssh-dss pinlenmiş bir hedef, SHA-1'li bir
+		 * host key el sıkışmasını tamamlıyordu; tarama o türü hiç
+		 * sunmasa da doğrudan pinden geçiyordu. Artık tür,
+		 * HostKeyAlgorithms'te (taramanın kabul ettiği küme) yoksa
+		 * kullanılamaz sayılıyor ve çağıran bunu bir redde çeviriyor
+		 * (upstream.hostKeyCallback) ya da açılışı düşürüyor (sshd.New).
+		 *
+		 * Boş dilim DÖNMÜYORUZ: x/crypto onu "varsayılanı kullan" diye
+		 * okuyor ve o varsayılan SHA-1 taşıyor — sessizce açardı.
+		 */
+		if slices.Contains(HostKeyAlgorithms, keyType) {
+			return []string{keyType}, nil
+		}
+		return nil, fmt.Errorf("sshalg: host key type %q is not accepted "+
+			"(no SHA-2 variant / not in the offered set)", keyType)
 	}
 }
 

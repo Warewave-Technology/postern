@@ -212,6 +212,35 @@ func New(cfg *config.Config, db *store.Store, logger *slog.Logger) (*Server, err
 		return nil, fmt.Errorf("sshd.New: %w", err)
 	}
 
+	/*
+	 * ⚠️ HOST ANAHTARININ İMZA ALGORİTMALARI KISITLANIYOR — ve tek
+	 * kısıtlanmayan müzakere buydu.
+	 *
+	 * ssh.ServerConfig'de host key algoritma listesi yok; x/crypto,
+	 * anahtarın tel türünden üretilen varsayılanı sunuyor ve RSA için
+	 * o varsayılan ssh-rsa'yı (SHA-1) İÇERİYOR. Ölçüldü: yalnızca
+	 * ssh-rsa sunan bir istemciyle el sıkışma tamamlanıyor, yani
+	 * sunucu değişim özetini SHA-1 ile imzalıyordu — gelen anahtar
+	 * doğrulaması ve giden host key doğrulaması SHA-1'i çıkarmışken bu
+	 * yol açık kalmıştı.
+	 *
+	 * İmzalayıcı, türüne göre izin verilen algoritmalarla sarılıyor
+	 * (sshalg.HostKeyAlgorithmsFor: RSA → sha2-512/256, diğerleri
+	 * kendi tek algoritması). Sarılamayan bir tür AÇILIŞTA düşüyor —
+	 * her bağlantıda ayrı ayrı değil.
+	 */
+	if as, ok := signer.(ssh.AlgorithmSigner); ok {
+		algos, aerr := sshalg.HostKeyAlgorithmsFor(signer.PublicKey().Type())
+		if aerr != nil {
+			return nil, fmt.Errorf("sshd.New: host key: %w", aerr)
+		}
+		restricted, werr := ssh.NewSignerWithAlgorithms(as, algos)
+		if werr != nil {
+			return nil, fmt.Errorf("sshd.New: host key algorithms: %w", werr)
+		}
+		signer = restricted
+	}
+
 	recStore, err := record.NewStore(cfg.Recording.Dir)
 	if err != nil {
 		return nil, fmt.Errorf("sshd.New: %w", err)

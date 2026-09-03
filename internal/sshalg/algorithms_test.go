@@ -105,7 +105,11 @@ func TestPinnedAlgorithmsMatchTheScanList(t *testing.T) {
 	covered := map[string]bool{}
 
 	for _, f := range formats {
-		got := HostKeyAlgorithmsFor(f)
+		got, err := HostKeyAlgorithmsFor(f)
+		if err != nil {
+			t.Errorf("HostKeyAlgorithmsFor(%q): %v — kabul edilen bir tür reddedildi", f, err)
+			continue
+		}
 		if len(got) == 0 {
 			// ⚠️ Süs değil: x/crypto boş listeyi "varsayılanı kullan"
 			// diye okuyor ve o varsayılan ssh-rsa ile ssh-dss taşıyor.
@@ -138,12 +142,29 @@ func TestPinnedAlgorithmsMatchTheScanList(t *testing.T) {
  * Yani politikayı ayakta tutan şey bu eşitlik iddiası.
  */
 func TestHostKeyAlgorithmsForRSA(t *testing.T) {
-	got := HostKeyAlgorithmsFor(ssh.KeyAlgoRSA)
+	got, err := HostKeyAlgorithmsFor(ssh.KeyAlgoRSA)
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256}
 	if !slices.Equal(got, want) {
 		t.Fatalf("HostKeyAlgorithmsFor(ssh-rsa) = %v, beklenen %v — "+
 			"SHA-1 geri gelirse taşımadan çıkarılmış olmasının anlamı kalmaz",
 			got, want)
+	}
+}
+
+/*
+ * ⚠️ KABUL EDİLMEYEN TÜR PİN OLARAK REDDEDİLİYOR — SESSİZCE GEÇMİYOR.
+ *
+ * default dalı eskiden ne pinlenmişse onu döndürüyordu. Elle ssh-dss
+ * pinlenmiş bir hedef, tarama o türü hiç sunmasa da SHA-1'li bir host
+ * key el sıkışması tamamlıyordu. Artık kabul edilmeyen tür hata dönüyor
+ * ve çağıran bunu bir redde çeviriyor.
+ */
+func TestHostKeyAlgorithmsForRejectsDSS(t *testing.T) {
+	if _, err := HostKeyAlgorithmsFor(ssh.KeyAlgoDSA); err == nil {
+		t.Error("ssh-dss pin kabul edildi — SHA-1'li host key el sıkışmasına açık")
 	}
 }
 

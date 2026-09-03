@@ -14,6 +14,7 @@ import (
 
 	"github.com/warewave/postern/internal/config"
 	"github.com/warewave/postern/internal/model"
+	"github.com/warewave/postern/internal/sshalg"
 	"github.com/warewave/postern/internal/store"
 )
 
@@ -57,6 +58,13 @@ func newTargetAddCmd() *cobra.Command {
 			pub, _, _, _, err := ssh.ParseAuthorizedKey(data)
 			if err != nil {
 				return fmt.Errorf("host key file %s: not a valid public key: %w", hostKeyFile, err)
+			}
+			// ⚠️ MÜZAKERE EDİLEMEYECEK HOST ANAHTARI PİNLENMİYOR. ssh-dss
+			// gibi kabul edilmeyen bir tür, saklanırsa hedef hiç
+			// bağlanamaz (dial reddeder); burada baştan reddetmek, tarama
+			// yolunun (ScanHostKey) zaten yaptığının CLI karşılığı.
+			if _, herr := sshalg.HostKeyAlgorithmsFor(pub.Type()); herr != nil {
+				return fmt.Errorf("host key file %s: %w", hostKeyFile, herr)
 			}
 			// Kanonik satır saklanır (yorumsuz): aynı anahtarın iki farklı
 			// metni iki farklı değer gibi görünmesin. hostKeyCallback'in
