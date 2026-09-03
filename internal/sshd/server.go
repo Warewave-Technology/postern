@@ -291,7 +291,7 @@ func (s *Server) Serve(ctx context.Context, l net.Listener) error {
 
 	// live, akan bağlantıları sayar. Kapanışta beklenecek olan bu.
 	var live sync.WaitGroup
-	defer s.drain(ctx, &live)
+	defer s.drain(&live)
 
 	/*
 	 * ⚠️ OTURUMLAR KAPANIŞ SİNYALİNDEN KOPARILIYOR — YOKSA DRAIN'İN
@@ -378,9 +378,20 @@ func (s *Server) Serve(ctx context.Context, l net.Listener) error {
 /*
  * drain, açık oturumların bitmesini bekler ve kalanları kapatır.
  *
- * ⚠️ YALNIZCA KAPANIŞTA. Serve başka bir sebeple dönerse (kalıcı bir
- * Accept hatası) bekleyecek bir şey yok: bağlantılar zaten kendi
- * yollarına devam ediyor ve süreç ölmüyor.
+ * ⚠️ SERVE'İN HER ÇIKIŞ YOLUNDA — ve öyle değildi.
+ *
+ * Başında `if ctx.Err() == nil { return }` vardı ve gerekçesi "kalıcı
+ * bir Accept hatasında bağlantılar kendi yollarına devam ediyor ve
+ * süreç ölmüyor" diyordu. İkisi de yanlıştı: hata ListenAndServe →
+ * RunE → Execute zincirinden geçip main'de os.Exit(1)'e gidiyor, yani
+ * süreç TAM OLARAK ölüyor — ve o yolda drain hiç çalışmadığı için akan
+ * oturumların denetim satırı açık, kaydı yarım kalıyordu.
+ *
+ * ÖLÇÜLDÜ: bozuk bir dinleyicide, açık bir bağlantı varken Serve
+ * mikrosaniyeler içinde döndü ve drain tek satır loglamadı.
+ *
+ * Koruma için doğru kalan bir durum yok: Serve'den çıkılan her yol,
+ * bir şeylerin hâlâ akıyor olabileceği bir yol.
  *
  * ⚠️ SINIRSIZ BEKLEME YOK. Tek bir uzun oturum yeniden başlatmayı
  * süresiz bloklardı ve init sistemi sonunda SIGKILL gönderip
@@ -388,11 +399,7 @@ func (s *Server) Serve(ctx context.Context, l net.Listener) error {
  * oturumlar normal kapanış yolundan geçiyor: kullanıcı sebebini
  * görüyor, kayıt kapanıyor, Close arşivi kuyruğa yazıyor.
  */
-func (s *Server) drain(ctx context.Context, live *sync.WaitGroup) {
-	if ctx.Err() == nil {
-		return
-	}
-
+func (s *Server) drain(live *sync.WaitGroup) {
 	done := make(chan struct{})
 	go func() {
 		live.Wait()
