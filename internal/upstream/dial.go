@@ -151,10 +151,11 @@ func dialer(ctx context.Context, t model.Target, user string, signer ssh.Signer)
 			MACs:         sshalg.MACs,
 		},
 
-		// ⚠️ Hedef el sıkışması için üst sınır. Yoksa asılı ya da
-		// düşmanca bir hedef, oturum goroutine'ini süresiz tutar —
-		// oturum daha kurulmadığı için session.idle_timeout da
-		// devreye giremez.
+		// ⚠️ YALNIZCA TCP BAĞLANMASINI SINIRLIYOR, EL SIKIŞMAYI DEĞİL —
+		// ve burada TCP'yi biz açtığımız için pratikte hiç kullanılmıyor.
+		// x/crypto bu alanı sadece ssh.Dial'ın içindeki bağlanmada
+		// okuyor; ssh.NewClientConn ona hiç bakmıyor. El sıkışmanın
+		// sınırı aşağıda, soketin kendi süresiyle konuyor.
 		Timeout: dialTimeout,
 	}
 
@@ -169,6 +170,28 @@ func dialer(ctx context.Context, t model.Target, user string, signer ssh.Signer)
 	stop := context.AfterFunc(ctx, func() { nc.Close() })
 	defer stop()
 
+	/*
+	 * ⚠️ EL SIKIŞMANIN ÜST SINIRI SOKETİN KENDİ SÜRESİYLE KONUYOR.
+	 *
+	 * ÖLÇÜLEN ARIZA: ccfg.Timeout bunu yapıyor sanılıyordu, yapmıyor —
+	 * x/crypto o alanı yalnızca ssh.Dial'ın içindeki TCP bağlanmasında
+	 * okuyor ve biz TCP'yi kendimiz açıp NewClientConn'a veriyoruz.
+	 * Yani el sıkışmanın hiçbir sınırı yoktu.
+	 *
+	 * Bedeli kimliği doğrulanmış bir kullanıcının elindeydi: TCP'yi
+	 * kabul edip sonra susan bir hedef (çökmüş sshd, karadelik yapan
+	 * bir ara cihaz, ya da kasten sessiz bir makine) oturum
+	 * goroutine'ini, soketi ve kanal yerini süresiz tutuyordu. Kanal
+	 * başına bir kez tekrarlanabiliyor. Diğer sınırların hiçbiri
+	 * yetişmiyor: gelen bağlantının el sıkışma süresi çoktan
+	 * kaldırılmış, idle/lifetime koruyucuları ise Session.Run'a kadar
+	 * kurulmuyor.
+	 */
+	if err := nc.SetDeadline(time.Now().Add(dialTimeout)); err != nil {
+		nc.Close()
+		return nil, fmt.Errorf("target %s: %w", t.Name, err)
+	}
+
 	start := time.Now()
 	c, chans, reqs, err := ssh.NewClientConn(nc, addr, ccfg)
 	if err != nil {
@@ -177,6 +200,19 @@ func dialer(ctx context.Context, t model.Target, user string, signer ssh.Signer)
 		// hedefin kimliğidir ya da bizi kabul etmemesidir, ve ikisi
 		// operatöre farklı şeyler söylüyor (hostkey.go).
 		return nil, fmt.Errorf("target %s: %w", t.Name, classifyHandshake(err))
+	}
+
+	/*
+	 * ⚠️ SÜRE HEMEN KALDIRILIYOR — YOKSA OTURUMUN KENDİSİ ÖLÜR.
+	 *
+	 * Soket süresi tek seferlik değil, KALICI: kaldırılmasaydı
+	 * kullanıcının kabuğu, el sıkışma bittikten dialTimeout saniye
+	 * sonra sessizce kopardı. Yani asılı hedefi kesen düzeltme, çalışan
+	 * her oturuma yirmi saniyelik bir ömür koyardı.
+	 */
+	if err := nc.SetDeadline(time.Time{}); err != nil {
+		nc.Close()
+		return nil, fmt.Errorf("target %s: %w", t.Name, err)
 	}
 
 	client := ssh.NewClient(c, chans, reqs)
@@ -197,4 +233,9 @@ func dialer(ctx context.Context, t model.Target, user string, signer ssh.Signer)
 //
 // 20 saniye: yavaş bir ağdaki meşru bir hedefe yetecek kadar uzun,
 // asılı kalanı tutmayacak kadar kısa.
-const dialTimeout = 20 * time.Second
+//
+// ⚠️ const DEĞİL var: testin sınırı gerçekten uyguladığımızı ölçebilmesi
+// için kısaltılabilmesi gerekiyor. Yirmi saniye bekleyen bir test ya
+// yazılmaz ya da atlanır — ve o sınır tam olarak yazılmadığı için
+// kaçmıştı.
+var dialTimeout = 20 * time.Second
