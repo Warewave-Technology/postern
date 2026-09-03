@@ -256,6 +256,21 @@ func terminalRefusal(err error) (int, string) {
 		return closeUnavailable,
 			"The target refused this bastion's certificate — it needs to trust the CA."
 
+	case errors.Is(err, upstream.ErrHandshake):
+		/*
+		 * ⚠️ RET DEĞİL — VE AYRI CÜMLE OLMASI BUNUN İÇİN.
+		 *
+		 * Buraya düşen her şey ("no common algorithm", susan hedef,
+		 * SSH konuşmayan port) eskiden ret sayılıyordu ve operatör
+		 * hedefteki TrustedUserCAKeys'e bakmaya gönderiliyordu. Ölçüldü:
+		 * sekiz arıza biçiminden altısı bu yanlış cümleyi alıyordu.
+		 *
+		 * Cümle bir tahmin YAPMIYOR: postern hangisi olduğunu bilmiyor
+		 * ve uydurmak, yanlış cümlenin daha kibar hâli olurdu.
+		 */
+		return closeUnavailable,
+			"The bastion reached this target but could not complete the SSH handshake."
+
 	case errors.Is(err, upstream.ErrUnreachable):
 		return closeUnavailable, "The bastion could not reach this target."
 

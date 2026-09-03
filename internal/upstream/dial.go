@@ -11,6 +11,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -135,10 +136,14 @@ func dialer(ctx context.Context, t model.Target, user string, signer ssh.Signer)
 		return nil, fmt.Errorf("target %s: %w", t.Name, err)
 	}
 
+	// offered, hedefin host anahtarını sunduğunu işaretler —
+	// sınıflandırmanın sinyali (bkz. classifyHandshake).
+	var offered atomic.Bool
+
 	ccfg := &ssh.ClientConfig{
 		User:              user,
 		Auth:              []ssh.AuthMethod{ssh.PublicKeys(signer)},
-		HostKeyCallback:   cb,
+		HostKeyCallback:   sawHostKey(cb, &offered),
 		HostKeyAlgorithms: algos,
 
 		// Taşıma algoritmaları GELEN yönle aynı: x/crypto'nun
@@ -206,10 +211,11 @@ func dialer(ctx context.Context, t model.Target, user string, signer ssh.Signer)
 	c, chans, reqs, err := ssh.NewClientConn(nc, addr, ccfg)
 	if err != nil {
 		nc.Close()
-		// Sınıflandırma burada: taşıma kurulduktan sonraki hata ya
-		// hedefin kimliğidir ya da bizi kabul etmemesidir, ve ikisi
-		// operatöre farklı şeyler söylüyor (hostkey.go).
-		return nil, fmt.Errorf("target %s: %w", t.Name, classifyHandshake(err))
+		// Sınıflandırma burada. `offered`, hedefin host anahtarını
+		// sunup sunmadığını söylüyor: sunmadıysa kimliğimiz hiç
+		// konuşulmamış, yani bu bir RET DEĞİL (hostkey.go).
+		return nil, fmt.Errorf("target %s: %w", t.Name,
+			classifyHandshake(err, offered.Load()))
 	}
 
 	/*
