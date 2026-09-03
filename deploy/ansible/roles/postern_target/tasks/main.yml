@@ -68,3 +68,54 @@
 - name: Check that sshd will accept the whole configuration
   ansible.builtin.command: sshd -t
   changed_when: false
+
+# ⚠️ DROP-IN'İN OKUNDUĞUNU DOĞRULA — OKUNMADIĞI HÂLİ ÖLÇÜLDÜ.
+#
+# sshd_config.d ancak ana dosyada bir `Include` satırı varsa okunuyor ve
+# o satır OpenSSH 8.2 ile geldi. RHEL 8 türevlerinde (Alma/Rocky/Oracle)
+# ve Amazon Linux 2'de stok sshd_config'de Include YOK — ölçüldü,
+# `grep -c '^[[:space:]]*Include' /etc/ssh/sshd_config` -> 0.
+#
+# O hâlde rol dosyayı yazıyor, `sshd -t -f dosya` geçiyor, `sshd -t`
+# geçiyor ve oynatma kitabı "changed, failed=0" diyor — ama sshd o
+# dosyayı hiç okumuyor: `sshd -T` çıktısında trustedusercakeys none.
+# Yani hedef hiçbir CA'ya güvenmiyor ve ilk bağlanan kişi "Permission
+# denied (publickey)" alıyor. deploy/README.md'nin rolün ENGELLEDİĞİNİ
+# söylediği arızanın kendisi: "başarılı bir koşum gibi görünür ve
+# öyle değildir".
+- name: Find out whether sshd actually reads the drop-in
+  ansible.builtin.shell: >-
+    set -o pipefail && sshd -T 2>/dev/null | grep -qi '^trustedusercakeys'
+  args:
+    executable: /bin/bash
+  register: postern_dropin_effective
+  changed_when: false
+  failed_when: false
+
+# Include satırı EN ÜSTE giriyor: OpenSSH çoğu anahtar için İLK değeri
+# alıyor, dolayısıyla altta duran bir Include drop-in'i etkisiz bırakır.
+- name: Make sshd read sshd_config.d on OpenSSH older than 8.2
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    line: "Include /etc/ssh/sshd_config.d/*.conf"
+    insertbefore: BOF
+    firstmatch: true
+    owner: root
+    group: root
+    mode: "0600"
+    # Aynı kural: geçmeyen bir yapılandırma ANA dosyaya da yazılmıyor.
+    validate: "sshd -t -f %s"
+  when: postern_dropin_effective.rc != 0
+  notify: Reload sshd
+
+# ⚠️ SON SÖZÜ sshd'nin KENDİSİ SÖYLÜYOR. Yukarıdaki adımların hepsi
+# "yazdım" diyor; bu adım "sshd okuyor" diyor. Aradaki fark, bu rolün
+# sessizce hiçbir şey yapmadığı hâlin tamamı.
+- name: Confirm sshd is really trusting the postern CA
+  ansible.builtin.shell: >-
+    set -o pipefail && sshd -T 2>/dev/null | grep -i '^trustedusercakeys'
+  args:
+    executable: /bin/bash
+  register: postern_ca_effective
+  changed_when: false
+  failed_when: postern_ca_path not in postern_ca_effective.stdout

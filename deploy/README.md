@@ -81,6 +81,18 @@ a target's configuration was updated.
 `test/integration/testdata/certtarget/Dockerfile` is the same setup as a
 runnable file, and is what the certificate tests run against.
 
+**On OpenSSH older than 8.2 the role adds the `Include` line itself.**
+`sshd_config.d` is only read when the main file includes it, and that
+line arrived in 8.2 — RHEL 8 derivatives (Alma, Rocky, Oracle) and
+Amazon Linux 2 ship without it. Measured on `almalinux:8`: writing the
+drop-in alone passes `sshd -t -f <file>` and `sshd -t`, the play reports
+`changed, failed=0`, and `sshd -T` still says `trustedusercakeys none` —
+the host trusts nothing and the first person to connect is refused. The
+role now asks sshd itself whether the drop-in took effect, adds a
+validated `Include` at the top of `sshd_config` when it did not, and
+fails the play if `sshd -T` still does not name the CA. Nothing is
+written to the main file on hosts that already include the directory.
+
 ## A worked example
 
 `example/inventory.ini` and `example/targets.yml` are a two-host run of the
