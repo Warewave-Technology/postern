@@ -159,12 +159,12 @@ func newTargetAddCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
-	cmd.Flags().StringVar(&name, "name", "", "hedef adı (zorunlu)")
-	cmd.Flags().StringVar(&host, "host", "", "adres (zorunlu)")
-	cmd.Flags().IntVar(&port, "port", 22, "SSH portu")
-	cmd.Flags().StringVar(&hostKeyFile, "host-key-file", "", "hedefin host public key dosyası (zorunlu)")
-	cmd.Flags().StringArrayVar(&grantRoles, "grant-role", nil, "bu role eriştir (tekrarlanabilir)")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
+	cmd.Flags().StringVar(&name, "name", "", "target name (required)")
+	cmd.Flags().StringVar(&host, "host", "", "address (required)")
+	cmd.Flags().IntVar(&port, "port", 22, "SSH port")
+	cmd.Flags().StringVar(&hostKeyFile, "host-key-file", "", "file holding the target's host public key (required)")
+	cmd.Flags().StringArrayVar(&grantRoles, "grant-role", nil, "grant this target to a role (repeatable)")
 	_ = cmd.MarkFlagRequired("name")
 	_ = cmd.MarkFlagRequired("host")
 	_ = cmd.MarkFlagRequired("host-key-file")
@@ -219,7 +219,7 @@ func newTargetListCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
 	return cmd
 }
 
@@ -281,10 +281,10 @@ func newTargetLabelSetCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
-	cmd.Flags().StringVar(&target, "target", "", "hedef adı (zorunlu)")
-	cmd.Flags().StringVar(&key, "key", "", "etiket anahtarı (zorunlu)")
-	cmd.Flags().StringVar(&value, "value", "", "etiket değeri")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
+	cmd.Flags().StringVar(&target, "target", "", "target name (required)")
+	cmd.Flags().StringVar(&key, "key", "", "label key (required)")
+	cmd.Flags().StringVar(&value, "value", "", "label value")
 	_ = cmd.MarkFlagRequired("target")
 	_ = cmd.MarkFlagRequired("key")
 	return cmd
@@ -316,9 +316,9 @@ func newTargetLabelRemoveCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
-	cmd.Flags().StringVar(&target, "target", "", "hedef adı (zorunlu)")
-	cmd.Flags().StringVar(&key, "key", "", "etiket anahtarı (zorunlu)")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
+	cmd.Flags().StringVar(&target, "target", "", "target name (required)")
+	cmd.Flags().StringVar(&key, "key", "", "label key (required)")
 	_ = cmd.MarkFlagRequired("target")
 	_ = cmd.MarkFlagRequired("key")
 	return cmd

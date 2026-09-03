@@ -86,9 +86,9 @@ func newSessionListCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
-	cmd.Flags().StringVar(&user, "user", "", "yalnızca bu kullanıcının oturumları")
-	cmd.Flags().IntVar(&limit, "limit", 50, "en fazla kaç oturum (0 = sınırsız)")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
+	cmd.Flags().StringVar(&user, "user", "", "only this user's sessions")
+	cmd.Flags().IntVar(&limit, "limit", 50, "maximum sessions to show (0 = no limit)")
 	return cmd
 }
 
@@ -208,6 +208,6 @@ func newSessionShowCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
 	return cmd
 }

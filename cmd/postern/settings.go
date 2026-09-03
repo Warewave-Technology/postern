@@ -58,7 +58,7 @@ func newSecretInitCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
 	return cmd
 }
 
@@ -298,10 +298,10 @@ func newSettingsSetCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
-	cmd.Flags().StringVar(&key, "key", "", "ayar adı, örn. ldap.url (zorunlu)")
-	cmd.Flags().StringVar(&value, "value", "", "değer; sırlar için boş bırak, terminalden sorulur")
-	cmd.Flags().BoolVar(&isSecret, "secret", false, "değeri şifreleyerek sakla (--secret=true)")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
+	cmd.Flags().StringVar(&key, "key", "", "setting name, e.g. ldap.url (required)")
+	cmd.Flags().StringVar(&value, "value", "", "value; leave it empty for a secret and you will be prompted")
+	cmd.Flags().BoolVar(&isSecret, "secret", false, "store the value encrypted (--secret=true)")
 	_ = cmd.MarkFlagRequired("key")
 	return cmd
 }
@@ -339,7 +339,7 @@ func newSettingsListCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
 	return cmd
 }
 
@@ -416,8 +416,8 @@ func newSettingsTestLDAPCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
-	cmd.Flags().StringVar(&username, "user", "", "bu kullanıcının gruplarını da sorgula")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
+	cmd.Flags().StringVar(&username, "user", "", "also query this user's groups")
 	return cmd
 }
 

@@ -142,7 +142,7 @@ func newArchiveCheckCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
 	return cmd
 }
 

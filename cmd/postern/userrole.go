@@ -149,8 +149,8 @@ func newUserGrantRoleCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
-	cmd.Flags().StringVar(&name, "name", "", "postern kullanıcı adı (zorunlu)")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
+	cmd.Flags().StringVar(&name, "name", "", "postern username (required)")
 	cmd.Flags().StringArrayVar(&roles, "role", nil, "verilecek rol (tekrarlanabilir, zorunlu)")
 	_ = cmd.MarkFlagRequired("name")
 	_ = cmd.MarkFlagRequired("role")
@@ -256,9 +256,9 @@ func newUserRevokeRoleCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
-	cmd.Flags().StringVar(&name, "name", "", "postern kullanıcı adı (zorunlu)")
-	cmd.Flags().StringArrayVar(&roles, "role", nil, "alınacak rol (tekrarlanabilir, zorunlu)")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
+	cmd.Flags().StringVar(&name, "name", "", "postern username (required)")
+	cmd.Flags().StringArrayVar(&roles, "role", nil, "role to remove (repeatable, required)")
 	_ = cmd.MarkFlagRequired("name")
 	_ = cmd.MarkFlagRequired("role")
 	return cmd

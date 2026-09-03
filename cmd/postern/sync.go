@@ -87,7 +87,7 @@ func newSyncStatusCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().IntVar(&limit, "limit", 20, "how many runs to show")
-	cmd.Flags().String("config", "postern.yaml", "config dosyası yolu")
+	cmd.Flags().String("config", "postern.yaml", "path to the config file")
 	return cmd
 }
 
@@ -152,7 +152,7 @@ func newSyncRunCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "compute and report, write nothing")
-	cmd.Flags().String("config", "postern.yaml", "config dosyası yolu")
+	cmd.Flags().String("config", "postern.yaml", "path to the config file")
 	return cmd
 }
 

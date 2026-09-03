@@ -177,7 +177,7 @@ func newAdminBootstrapCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
 	cmd.Flags().StringVar(&name, "name", "",
 		"postern username for the administrator (defaults to \"admin\")")
 	cmd.Flags().StringVar(&osUser, "os-user", "", "account name on targets (defaults to --name)")
@@ -272,7 +272,7 @@ func newAdminIssueCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
 	cmd.Flags().StringVar(&name, "name", "", "postern username")
 	return cmd
 }
@@ -343,7 +343,7 @@ func newAdminListCmd() *cobra.Command {
 			return w.Flush()
 		},
 	}
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
 	return cmd
 }
 
@@ -386,7 +386,7 @@ func newAdminRevokeCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
 	cmd.Flags().StringVar(&name, "name", "", "postern username")
 	return cmd
 }

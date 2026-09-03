@@ -147,11 +147,11 @@ func newLogCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
-	cmd.Flags().IntVar(&limit, "limit", 50, "en fazla kaç satır (0 = sınırsız)")
-	cmd.Flags().StringVar(&actor, "actor", "", "yalnızca bu kişinin yaptıkları")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
+	cmd.Flags().IntVar(&limit, "limit", 50, "maximum rows to show (0 = no limit)")
+	cmd.Flags().StringVar(&actor, "actor", "", "only what this person did")
 	cmd.Flags().StringVar(&action, "action", "", "eylem öneki, ör. user. ya da session.terminate")
-	cmd.Flags().StringVar(&entity, "entity", "", "yalnızca bu varlık")
+	cmd.Flags().StringVar(&entity, "entity", "", "only this entity")
 	return cmd
 }
 

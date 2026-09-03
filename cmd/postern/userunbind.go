@@ -108,8 +108,8 @@ func newUserUnbindDirectoryCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
-	cmd.Flags().StringVar(&name, "name", "", "hesap adı (zorunlu)")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
+	cmd.Flags().StringVar(&name, "name", "", "account name (required)")
 	cmd.Flags().BoolVar(&assumeYes, "yes", false, "onay sorma")
 	_ = cmd.MarkFlagRequired("name")
 	return cmd

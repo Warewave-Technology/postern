@@ -86,9 +86,9 @@ func newRoleAddCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
-	cmd.Flags().StringVar(&name, "name", "", "rol adı (zorunlu)")
-	cmd.Flags().StringArrayVar(&targets, "target", nil, "eriştirilecek hedef (tekrarlanabilir)")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
+	cmd.Flags().StringVar(&name, "name", "", "role name (required)")
+	cmd.Flags().StringArrayVar(&targets, "target", nil, "target to grant (repeatable)")
 	_ = cmd.MarkFlagRequired("name")
 	return cmd
 }

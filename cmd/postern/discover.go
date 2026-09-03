@@ -112,17 +112,17 @@ func newDiscoverVSphereCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
-	cmd.Flags().StringVar(&url, "url", "", "vCenter adresi, https:// (zorunlu)")
-	cmd.Flags().StringVar(&username, "username", "", "vCenter kullanıcısı (zorunlu, YALNIZCA OKUMA yetkili olmalı)")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
+	cmd.Flags().StringVar(&url, "url", "", "vCenter address, https:// (required)")
+	cmd.Flags().StringVar(&username, "username", "", "vCenter user (required; must be READ-ONLY)")
 	cmd.Flags().StringVar(&password, "password", "",
-		"vCenter parolası; tercihen POSTERN_VSPHERE_PASSWORD ortam değişkeni")
-	cmd.Flags().StringVar(&caFile, "ca-file", "", "vCenter sertifikasını doğrulayacak kök")
-	cmd.Flags().BoolVar(&insecure, "insecure", false, "TLS doğrulamasını kapat (önerilmez)")
-	cmd.Flags().StringVar(&tagKey, "tag-key", "", "rolü taşıyan etiket KATEGORİSİ, ör. role (zorunlu)")
-	cmd.Flags().IntVar(&port, "port", 22, "hedeflerin SSH portu")
-	cmd.Flags().BoolVar(&apply, "apply", false, "gerçekten yaz (varsayılan: yalnızca göster)")
-	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "API isteği zaman aşımı")
+		"vCenter password; prefer the POSTERN_VSPHERE_PASSWORD environment variable")
+	cmd.Flags().StringVar(&caFile, "ca-file", "", "root certificate that verifies vCenter")
+	cmd.Flags().BoolVar(&insecure, "insecure", false, "skip TLS verification (not recommended)")
+	cmd.Flags().StringVar(&tagKey, "tag-key", "", "tag CATEGORY that carries the role, e.g. role (required)")
+	cmd.Flags().IntVar(&port, "port", 22, "SSH port on the discovered targets")
+	cmd.Flags().BoolVar(&apply, "apply", false, "actually write the changes (default: preview only)")
+	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "timeout for API requests")
 	return cmd
 }
 
@@ -213,19 +213,19 @@ func newDiscoverProxmoxCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
-	cmd.Flags().StringVar(&url, "url", "", "Proxmox adresi, https:// (zorunlu)")
-	cmd.Flags().StringVar(&tokenID, "token-id", "", "API jeton kimliği, user@pam!name (zorunlu)")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
+	cmd.Flags().StringVar(&url, "url", "", "Proxmox address, https:// (required)")
+	cmd.Flags().StringVar(&tokenID, "token-id", "", "API token id, user@pam!name (required)")
 	cmd.Flags().StringVar(&tokenSecret, "token-secret", "",
-		"API jeton sırrı; tercihen POSTERN_PROXMOX_TOKEN_SECRET ortam değişkeni")
-	cmd.Flags().StringVar(&caFile, "ca-file", "", "hipervizörün sertifikasını doğrulayacak kök")
-	cmd.Flags().BoolVar(&insecure, "insecure", false, "TLS doğrulamasını kapat (önerilmez)")
-	cmd.Flags().StringVar(&node, "node", "", "yalnızca bu düğüm")
+		"API token secret; prefer the POSTERN_PROXMOX_TOKEN_SECRET environment variable")
+	cmd.Flags().StringVar(&caFile, "ca-file", "", "root certificate that verifies the hypervisor")
+	cmd.Flags().BoolVar(&insecure, "insecure", false, "skip TLS verification (not recommended)")
+	cmd.Flags().StringVar(&node, "node", "", "only this node")
 	cmd.Flags().StringVar(&tagKey, "tag-key", "",
-		"rolü taşıyan etiket anahtarı; etiket <anahtar>_<rol> biçiminde, ör. role-name (zorunlu)")
-	cmd.Flags().IntVar(&port, "port", 22, "hedeflerin SSH portu")
-	cmd.Flags().BoolVar(&apply, "apply", false, "gerçekten yaz (varsayılan: yalnızca göster)")
-	cmd.Flags().DurationVar(&timeout, "timeout", 20*time.Second, "API isteği zaman aşımı")
+		"tag key that carries the role; tags look like <key>_<role>, e.g. role-name (required)")
+	cmd.Flags().IntVar(&port, "port", 22, "SSH port on the discovered targets")
+	cmd.Flags().BoolVar(&apply, "apply", false, "actually write the changes (default: preview only)")
+	cmd.Flags().DurationVar(&timeout, "timeout", 20*time.Second, "timeout for API requests")
 	return cmd
 }
 

@@ -116,7 +116,7 @@ func newUserStateCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
 	cmd.Flags().StringVar(&name, "name", "", "postern username")
 	cmd.Flags().StringVar(&state, "set", "", "active, inactive or deleted")
 	return cmd
@@ -161,8 +161,8 @@ func newUserPurgeCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
-	cmd.Flags().StringVar(&name, "name", "", "hesap adı (zorunlu)")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
+	cmd.Flags().StringVar(&name, "name", "", "account name (required)")
 	_ = cmd.MarkFlagRequired("name")
 	return cmd
 }
@@ -230,8 +230,8 @@ func newUserAllowBindCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
-	cmd.Flags().StringVar(&name, "name", "", "hesap adı (zorunlu)")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
+	cmd.Flags().StringVar(&name, "name", "", "account name (required)")
 	_ = cmd.MarkFlagRequired("name")
 	return cmd
 }
@@ -362,12 +362,12 @@ func newUserAddCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
-	cmd.Flags().StringVar(&name, "name", "", "postern kullanıcı adı (zorunlu)")
-	cmd.Flags().StringVar(&osUser, "os-user", "", "hedeflerdeki hesap (zorunlu)")
-	cmd.Flags().StringVar(&email, "email", "", "OIDC eşleşmesi için e-posta")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
+	cmd.Flags().StringVar(&name, "name", "", "postern username (required)")
+	cmd.Flags().StringVar(&osUser, "os-user", "", "account this person lands as on the targets (required)")
+	cmd.Flags().StringVar(&email, "email", "", "email used to match an OIDC identity")
 	cmd.Flags().StringArrayVar(&roles, "role", nil, "verilecek rol (tekrarlanabilir)")
-	cmd.Flags().StringArrayVar(&keyFiles, "key", nil, "public key dosyası (tekrarlanabilir)")
+	cmd.Flags().StringArrayVar(&keyFiles, "key", nil, "public key file (repeatable)")
 	_ = cmd.MarkFlagRequired("name")
 	_ = cmd.MarkFlagRequired("os-user")
 	return cmd
@@ -434,7 +434,7 @@ func newUserListCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
 	return cmd
 }
 
@@ -546,13 +546,13 @@ func newUserModifyCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
-	cmd.Flags().StringVar(&name, "name", "", "postern kullanıcı adı (zorunlu)")
-	cmd.Flags().StringVar(&email, "email", "", "yeni e-posta (boş = sil)")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
+	cmd.Flags().StringVar(&name, "name", "", "postern username (required)")
+	cmd.Flags().StringVar(&email, "email", "", "new email (empty clears it)")
 	cmd.Flags().StringVar(&osUser, "os-user", "", "hedeflerdeki yeni hesap")
-	cmd.Flags().BoolVar(&admin, "admin", false, "uygulama yönetim yetkisi — eşittirle yaz: --admin=true / --admin=false")
+	cmd.Flags().BoolVar(&admin, "admin", false, "administrator rights — write it with an equals sign: --admin=true / --admin=false")
 	cmd.Flags().BoolVar(&ssoOnly, "sso-only", false,
-		"erişim yalnızca IdP üzerinden — eşittirle yaz: --sso-only=true / --sso-only=false")
+		"access only through the identity provider — write it with an equals sign: --sso-only=true / --sso-only=false")
 	_ = cmd.MarkFlagRequired("name")
 	return cmd
 }

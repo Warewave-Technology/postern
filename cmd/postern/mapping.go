@@ -89,9 +89,9 @@ func newMappingAddCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
-	cmd.Flags().StringVar(&group, "group", "", "IdP/LDAP grup adı (zorunlu)")
-	cmd.Flags().StringVar(&role, "role", "", "postern rolü (zorunlu)")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
+	cmd.Flags().StringVar(&group, "group", "", "IdP or LDAP group name (required)")
+	cmd.Flags().StringVar(&role, "role", "", "postern role (required)")
 	_ = cmd.MarkFlagRequired("group")
 	_ = cmd.MarkFlagRequired("role")
 	return cmd
@@ -131,9 +131,9 @@ func newMappingRemoveCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
-	cmd.Flags().StringVar(&group, "group", "", "IdP/LDAP grup adı (zorunlu)")
-	cmd.Flags().StringVar(&role, "role", "", "postern rolü (zorunlu)")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
+	cmd.Flags().StringVar(&group, "group", "", "IdP or LDAP group name (required)")
+	cmd.Flags().StringVar(&role, "role", "", "postern role (required)")
 	_ = cmd.MarkFlagRequired("group")
 	_ = cmd.MarkFlagRequired("role")
 	return cmd
@@ -172,7 +172,7 @@ func newMappingListCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
 	return cmd
 }
 
@@ -216,7 +216,7 @@ func newMappingUnmappedCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "config dosyası yolu")
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
 	return cmd
 }
 

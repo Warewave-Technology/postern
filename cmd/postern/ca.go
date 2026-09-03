@@ -21,7 +21,7 @@ func newCACmd() *cobra.Command {
 	}
 
 	var keyPath string
-	cmd.PersistentFlags().StringVar(&keyPath, "key", defaultCAKeyPath, "CA özel anahtar dosyası")
+	cmd.PersistentFlags().StringVar(&keyPath, "key", defaultCAKeyPath, "CA private key file")
 
 	cmd.AddCommand(newCAInitCmd(&keyPath))
 	cmd.AddCommand(newCAShowCmd(&keyPath))
@@ -32,9 +32,9 @@ func newCAInitCmd(keyPath *string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "init",
 		Short: "Generate a new CA key",
-		Long: "Yeni bir CA anahtar çifti üretir. Var olan bir anahtarın üzerine\n" +
-			"YAZMAZ: o anahtarı kaybetmek, dağıtılmış bütün hedeflerdeki\n" +
-			"TrustedUserCAKeys satırını geçersiz kılar.",
+		Long: "Generates a new CA key pair. It will NOT overwrite an existing\n" +
+			"key: losing that key invalidates the TrustedUserCAKeys line on\n" +
+			"every target you have already configured.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			authority, err := ca.Init(*keyPath)
 			if err != nil {
