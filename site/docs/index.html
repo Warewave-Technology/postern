@@ -1226,8 +1226,25 @@ type the account name to confirm: ayse
      */
     var box = item.link.parentElement;
     if (!box || box.scrollHeight <= box.clientHeight) return;
-    var top = item.link.offsetTop - box.offsetTop;
-    var bottom = top + item.link.offsetHeight;
+
+    /*
+     * ⚠️ KONUM KUTUYA GÖRE, getBoundingClientRect ÜZERİNDEN.
+     *
+     * Burada `link.offsetTop - box.offsetTop` yazıyordu ve ÖLÇÜLEN
+     * ARIZA şuydu: kenar listesi `position: sticky`, bu da onu
+     * offsetParent yapıyor — yani link.offsetTop (932) ZATEN kutuya
+     * göreydi. Üstüne kutunun sayfa içindeki yeri (24562) çıkarılınca
+     * top = -23630 oluyor, ilk dal her zaman kazanıyor ve liste her
+     * işaretlemede tepeye yapışıyordu. İşaretlenen satır görünmüyorsa
+     * işaretlemenin faydası yok, yani özellik sessizce çalışmıyordu.
+     *
+     * Dar ekranda kendini göstermiyordu: orada liste sticky değil,
+     * offsetParent BODY oluyor ve çıkarma tesadüfen doğru sonucu
+     * veriyor. Rect'ler her iki yerleşimde de aynı cevabı veriyor.
+     */
+    var lr = item.link.getBoundingClientRect();
+    var top = lr.top - box.getBoundingClientRect().top + box.scrollTop;
+    var bottom = top + lr.height;
     if (top < box.scrollTop) box.scrollTop = top - 8;
     else if (bottom > box.scrollTop + box.clientHeight)
       box.scrollTop = bottom - box.clientHeight + 8;
