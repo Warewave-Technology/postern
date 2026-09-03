@@ -112,6 +112,20 @@ jobs:
           cache: true
       - run: make fuzz FUZZTIME=120s
 
+  # ⚠️ ÜÇÜNCÜ TARAF BİLDİRİMLERİ KAYNAKLA UYUMLU MU. THIRD-PARTY-NOTICES.md
+  # ikiliye giren modüllerden ÜRETİLİYOR ve commit'li duruyor; elle
+  # tutulsaydı bir bağımlılık eklendiği gün sessizce eksik kalırdı ve
+  # eksik olduğunu kimse fark etmezdi. web-check ile aynı gerekçe.
+  notices:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: make notices-check
+
   # Derlenen bir ikili üretilebiliyor mu? Testler geçerken build'in
   # kırık olması mümkün (embed edilen web/dist gibi sebeplerle).
   build:

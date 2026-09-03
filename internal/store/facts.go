@@ -136,6 +136,45 @@ func (s *Store) RecordTargetProbe(ctx context.Context, targetName string, p mode
 	return nil
 }
 
+/*
+ * RecordTargetProbeAttempt, hedefe DOKUNULDUĞUNU kaydeder — ne
+ * öğrenildiğini değil.
+ *
+ * ⚠️ NEDEN VAR: probed_at yalnızca BAŞARILI yoklamada yazılıyordu, oysa
+ * target_probe.refresh kapısı ona bakıyor. Yani cevap üretmeyen bir
+ * yoklama kapıyı hiç kapatmıyor ve HER KANALDA yeniden koşuyordu:
+ * ölçüldü, tek bağlantıda beş kanal = beş yoklama ve (denetim satırı
+ * denemeye taşındıktan sonra) beş defter satırı, oysa başarılı yoklamada
+ * beş kanal = bir satır.
+ *
+ * Bedeli üç yerde: hedefin günlüğüne kullanıcının adına tekrar tekrar
+ * komut düşüyor, denetim defteri aynı cümleyle şişiyor, ve refresh
+ * ayarı söylediği şeyi yapmıyor.
+ *
+ * ⚠️ SEMANTİK DOĞRU: "ProbedAt sıfırsa hedefe hiç dokunulmadı" diyor
+ * (model.TargetFacts) — cevapsız kalan bir yoklama da DOKUNUYOR: exec
+ * kanalı açılıyor ve komutlar çalışıyor. Zaten denetlenmesinin sebebi
+ * bu. Facts'e dokunulmuyor: öğrenilmemiş bir şey yazılmış gibi
+ * görünmesin.
+ */
+func (s *Store) RecordTargetProbeAttempt(ctx context.Context, targetName string, at time.Time) error {
+	id, err := s.rowID(ctx, "store.RecordTargetProbeAttempt", "targets", "name", targetName)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO target_facts (target_id, probed_at)
+		VALUES ($1, $2)
+		ON CONFLICT (target_id) DO UPDATE SET
+			probed_at = EXCLUDED.probed_at;`,
+		id, at.Unix())
+	if err != nil {
+		return translateErr("store.RecordTargetProbeAttempt", err)
+	}
+	return nil
+}
+
 // AllTargetFacts, hedef adı → gözlemler.
 //
 // TEK SORGU: hedef başına ayrı sorgu, ana ekranı çizerken kullanıcının

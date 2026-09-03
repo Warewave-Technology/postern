@@ -110,3 +110,99 @@ func TestProbeIsAuditedEvenWhenItAnswersNothing(t *testing.T) {
 		t.Errorf("details = %q; cevapsız koşu başarılıdan ayırt edilemiyor", row.Details)
 	}
 }
+
+/*
+ * ⚠️ CEVAPSIZ YOKLAMA HER KANALDA TEKRARLANMAMALI.
+ *
+ * refresh kapısı probed_at'e bakıyor ve o yalnızca BAŞARILI yoklamada
+ * yazılıyordu. Yani cevap üretmeyen bir yoklama kapıyı hiç kapatmıyor
+ * ve aynı bağlantının her kanalında yeniden koşuyordu. Denetim satırı
+ * denemeye taşındıktan sonra bu, her kanalda bir defter satırı demek
+ * oldu — başarılı yoklamada beş kanal bir satır yazarken.
+ *
+ * Üç bedel: hedefin günlüğüne kullanıcının adına tekrar tekrar komut
+ * düşüyor, defter aynı cümleyle şişiyor, ve refresh ayarı söylediği
+ * şeyi yapmıyor.
+ */
+func TestFailingProbeIsNotRepeatedOnEveryChannel(t *testing.T) {
+	caKeyPath, caAuthorizedKey := newTestCA(t)
+	tgt := startCertTarget(t, caAuthorizedKey)
+	tc := tgt.target()
+	tc.Name = "web01"
+
+	// 1ns: yoklama deterministik olarak cevapsız kalıyor.
+	// refresh BELGELENEN varsayılan gibi uzun: kapı kapanmalı.
+	tuneConfig = func(c *config.Config) {
+		c.TargetProbe.Enabled = true
+		c.TargetProbe.Timeout = 1
+		c.TargetProbe.Refresh = 24 * time.Hour
+	}
+	t.Cleanup(func() { tuneConfig = nil })
+
+	addr, hostPub, signer, db := testServerWithDB(t, caKeyPath, tc)
+
+	client, err := ssh.Dial("tcp", addr, &ssh.ClientConfig{
+		User:            "yigit:web01",
+		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
+		HostKeyCallback: ssh.FixedHostKey(hostPub),
+		Timeout:         15 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("proxy'ye bağlanılamadı: %v", err)
+	}
+	defer client.Close()
+
+	// ⚠️ TEK BAĞLANTI, BEŞ KANAL — ControlMaster'ın şekli.
+	const channels = 5
+	for i := 0; i < channels; i++ {
+		sess, serr := client.NewSession()
+		if serr != nil {
+			t.Fatalf("%d. NewSession: %v", i, serr)
+		}
+		if _, oerr := sess.Output("echo kanal"); oerr != nil {
+			t.Fatalf("%d. exec: %v", i, oerr)
+		}
+		sess.Close()
+	}
+	client.Close()
+
+	// Yoklamalar ayrı goroutine'lerde; oturmalarını bekle.
+	deadline := time.Now().Add(25 * time.Second)
+	rows := 0
+	for time.Now().Before(deadline) {
+		all, lerr := db.AdminLog(context.Background(), 200)
+		if lerr != nil {
+			t.Fatal(lerr)
+		}
+		rows = 0
+		for _, e := range all {
+			if e.Action == "target.probe" {
+				rows++
+			}
+		}
+		if rows >= 1 {
+			// Bir satır geldikten sonra kısa bir süre daha bekle:
+			// tekrar varsa bu pencerede görünür.
+			time.Sleep(3 * time.Second)
+			all, _ = db.AdminLog(context.Background(), 200)
+			rows = 0
+			for _, e := range all {
+				if e.Action == "target.probe" {
+					rows++
+				}
+			}
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	t.Logf("kanal = %d, refresh = 24h, target.probe satırı = %d", channels, rows)
+	if rows == 0 {
+		t.Fatal("hiç yoklama satırı yok — kurgu tutmadı")
+	}
+	if rows > 1 {
+		t.Errorf("%d kanalda %d defter satırı — cevapsız yoklama refresh "+
+			"kapısını kapatmıyor, hedefte her kanalda yeniden komut "+
+			"çalışıyor ve defter aynı cümleyle şişiyor", channels, rows)
+	}
+}

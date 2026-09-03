@@ -222,6 +222,20 @@ func maybeProbe(ctx context.Context, deps Deps, log *slog.Logger, conn *upstream
 		}
 
 		if perr != nil {
+			/*
+			 * ⚠️ DENEME DE DAMGALANIYOR — damgalanmadığı hâli ölçüldü.
+			 *
+			 * refresh kapısı probed_at'e bakıyor ve o yalnızca BAŞARILI
+			 * yoklamada yazılıyordu. Yani cevapsız kalan bir yoklama
+			 * kapıyı hiç kapatmıyor ve her kanalda yeniden koşuyordu:
+			 * tek bağlantıda beş kanal = beş yoklama ve beş defter
+			 * satırı, oysa başarılı yoklamada beş kanal = bir satır.
+			 * Hedefin günlüğüne kullanıcının adına tekrar tekrar komut
+			 * düşüyor ve refresh söylediği şeyi yapmıyordu.
+			 */
+			if aerr := deps.Store.RecordTargetProbeAttempt(writeCtx, targetName, time.Now()); aerr != nil {
+				log.Warn("target probe attempt not recorded", "error", aerr)
+			}
 			log.Warn("target probe failed", "error", perr)
 			return
 		}

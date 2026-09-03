@@ -27,7 +27,7 @@ LDFLAGS := -X github.com/Warewave-Technology/postern/internal/version.version=$(
 GOSEC_VERSION        ?= v2.29.0
 GOVULNCHECK_VERSION  ?= v1.7.0
 
-.PHONY: build test test-race test-short test-integration vet fmt lint sec vuln fuzz audit ci web web-test web-check release-snapshot release-check clean
+.PHONY: build test test-race test-short test-integration vet fmt lint sec vuln fuzz audit ci web web-test web-check notices notices-check release-snapshot release-check clean
 
 build:
 	$(GO) build -ldflags "$(LDFLAGS)" -o bin/postern ./cmd/postern
@@ -77,6 +77,23 @@ web-check: web
 	@test -z "$$(git status --porcelain web/dist)" || \
 		(echo "web/dist kaynakla uyumsuz: 'make web' çalıştırıp sonucu commit'le"; \
 		 git --no-pager diff --stat web/dist; exit 1)
+
+# THIRD-PARTY-NOTICES.md, ikiliye derlenen modüllerin lisans metinleri.
+#
+# ⚠️ NEDEN GEREKLİ: arşiv yalnızca postern'in kendi LICENSE'ını
+# taşıyordu, oysa ikilinin içinde 20 modül var. MIT ve BSD, telif ve
+# izin bildiriminin "bütün kopyalarda" taşınmasını şart koşuyor ve
+# statik olarak bağlanmış bir ikili de bir kopya.
+notices:
+	$(GO) run ./internal/notices/gen
+
+# Bildirim dosyası kaynakla uyumlu mu? web-check ile AYNI gerekçe: elle
+# tutulan bir liste, bir bağımlılık eklendiği gün sessizce eksik kalır
+# ve eksik olduğunu kimse fark etmez.
+notices-check: notices
+	@test -z "$$(git status --porcelain THIRD-PARTY-NOTICES.md)" || \
+		(echo "THIRD-PARTY-NOTICES.md güncel değil: 'make notices' çalıştırıp sonucu commit'le"; \
+		 git --no-pager diff --stat THIRD-PARTY-NOTICES.md; exit 1)
 
 # gofmt bir şey değiştirecek mi? CI'da "değiştirdi" demek yerine düşmeli.
 lint:
@@ -160,7 +177,7 @@ audit: sec vuln
 # yerelde "CI'ın aynısı"nı koşan biri build'i koşmuyordu, ve release.yml'in
 # verify işi de `make ci` çağırdığı için sürüm yolu goreleaser'a
 # girmeden önce ikilinin derlendiğini hiç doğrulamıyordu. Saniyeler sürüyor.
-ci: lint vet test-race audit test-integration web-test web-check build
+ci: lint vet test-race audit test-integration web-test web-check notices-check build
 
 GORELEASER_VERSION ?= v2.18.0
 

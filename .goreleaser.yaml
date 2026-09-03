@@ -15,6 +15,11 @@ before:
     # bir kez yaşandı: kaynaktan kaldırılmış bir metni hâlâ gösteren bir
     # paket commit'lendi.
     - make web
+    # ⚠️ ÜÇÜNCÜ TARAF BİLDİRİMLERİ. İkiliye 20 modül giriyor; MIT ve BSD
+    # telif bildiriminin kopyayla birlikte gitmesini şart koşuyor.
+    # Üretiliyor, elle tutulmuyor: elle tutulan bir liste bir bağımlılık
+    # eklendiği gün sessizce eksik kalır.
+    - make notices
     # Sürüm çıkarken bağımlılık ağacında bilinen bir açık olmamalı.
     # `make ci`nin tamamı burada koşmuyor: onu iş akışı ayrı bir adımda
     # ve testlerle birlikte koşuyor.
@@ -88,6 +93,7 @@ archives:
       # kurmuş biri, bir şey bulduğunda nereye söyleyeceğini bulmak için
       # depoyu açmak zorunda kalmamalı — çoğu zaman hiç açmıyor.
       - SECURITY.md
+      - THIRD-PARTY-NOTICES.md
       - deploy/systemd/postern.service
       - deploy/README.md
       # ⚠️ deploy/README.md hem systemd'yi hem ansible'ı ANLATIYOR;

@@ -94,7 +94,21 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
+      # ⚠️ COSIGN SÜRÜMÜ AÇIKÇA YAZILI. Eylemin kendisi SHA'ya
+      # sabitlenmiş olsa da hangi cosign'ı kurduğu onun İÇİNDEKİ bir
+      # varsayılandı — yani imzayı üreten ikilinin sürümü, dosyaya
+      # bakarak görülemiyordu.
+      #
+      # ⚠️ v3, .goreleaser.yaml'daki --output-signature ve
+      # --output-certificate bayraklarını "deprecated" işaretliyor ama
+      # HÂLÂ TANIYOR (ölçüldü: cmd/cosign/cli/options/signblob.go:89-102,
+      # MarkDeprecated uyarı basıyor, bayrak çalışıyor). Kaldırıldıkları
+      # gün imzalama argümanları --bundle'a taşınmak zorunda; o zaman
+      # BELGELERDEKİ doğrulama komutu da değişir, çünkü ayrı .sig/.pem
+      # dosyaları yerine tek bir bundle olur.
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.0.6
 
       - uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
         with:
