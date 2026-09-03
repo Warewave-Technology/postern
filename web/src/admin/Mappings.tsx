@@ -250,7 +250,12 @@ export default function Mappings() {
       <ListState
         loading={unmapped.loading}
         denied={unmapped.denied}
-        failed={failed}
+        // ⚠️ unmapped.failed — BURADA sayfanın üstündeki listenin
+        // bayrağı duruyordu. Eşlenmemiş grup sorgusu çökünce bu ekran
+        // "Nothing unmapped so far" diyordu: yani "bakamadım" yerine
+        // "bakacak bir şey yok". Tam olarak failed'ın kapatmak için
+        // eklendiği arıza, onu ekleyen sayfada.
+        failed={unmapped.failed}
         empty={pending.length === 0}
         emptyText="Nothing unmapped so far — every group seen in a login matched a role."
       />
