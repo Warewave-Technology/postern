@@ -2,11 +2,13 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/Warewave-Technology/postern/internal/events"
+	"github.com/Warewave-Technology/postern/internal/store"
 )
 
 // heartbeatEvery, akışta hiçbir olay yokken gönderilen yorum satırının
@@ -16,7 +18,10 @@ import (
 // saniyede kapatıyor. Yorum satırı ("\n:\n") istemci tarafında hiçbir
 // olay üretmiyor ama bağlantıyı canlı tutuyor; olmadan panel dakikada
 // bir sessizce kopup yeniden bağlanırdı.
-const heartbeatEvery = 20 * time.Second
+// ⚠️ const değil var: nabız aralığı, akışın hesabı yeniden sorduğu
+// yer de olduğu için testlerin onu kısaltabilmesi gerekiyor. Testler
+// paralel koşmuyor ve her biri t.Cleanup ile geri alıyor.
+var heartbeatEvery = 20 * time.Second
 
 // UseEventBus, canlı olay akışını açar.
 //
@@ -119,6 +124,38 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 
 		case <-ticker.C:
+			/*
+			 * ⚠️ HER NABIZDA "BU HESAP HÂLÂ DURUYOR MU" DA SORULUYOR —
+			 * VE SORULMADIĞI HÂLİ ÖLÇÜLDÜ.
+			 *
+			 * Zincir (requireSession → requireAdmin → sameOrigin) yalnızca
+			 * BAĞLANIRKEN koşuyor; sonrası sonsuz bir döngü ve nabız,
+			 * vekillerin bağlantıyı düşürmesini de engelliyor. Yani
+			 * `state = deleted` yapılan bir yöneticinin açık bıraktığı
+			 * sekme, kimin hangi hedefe hangi adresten bağlandığını
+			 * CANLI olarak almaya devam ediyordu. Yeni bir istek 401
+			 * alıyordu, akış almıyordu; panelden de CLI'dan da
+			 * düşürülemiyordu, yalnızca bastion'ı yeniden başlatmak
+			 * bitiriyordu.
+			 *
+			 * SSH tarafında aynı sınıf her kanalda soruluyor (proxy.Open),
+			 * panelde her istekte (accountStillOpen). Uzun ömürlü akış
+			 * ikisinin de arasından geçiyordu.
+			 *
+			 * Nabız zaten burada: doğal yer bu. Okuyamamak akışı
+			 * DÜŞÜRMÜYOR — bir veritabanı tıkanması canlı bir ekranı
+			 * kapatmak için sebep değil; kapatan şey yalnızca "bu hesap
+			 * gitti" cevabı.
+			 */
+			if id := sessionAccountID(r); id != "" {
+				err := s.store.RefuseIfDeletedByID(ctx, id)
+				if errors.Is(err, store.ErrAccessDenied) || errors.Is(err, store.ErrNotFound) {
+					s.logger.Warn("live event stream closed: the account is gone",
+						"user", sessionUser(r), "account_id", id)
+					return
+				}
+			}
+
 			fmt.Fprint(w, ": keep-alive\n\n")
 			flusher.Flush()
 		}

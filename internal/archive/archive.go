@@ -248,9 +248,27 @@ func (a *Archiver) archiveOne(ctx context.Context, client *objstore.Client, p st
 
 	path, err := a.safePath(p.RecordingPath)
 	if err != nil {
-		// Kalıcı: yolun kendisi kabul edilebilir değil — düzeltilecek
-		// bir yapılandırma yok, kayıt bu satırla hiç eşleşmiyor.
-		a.fail(ctx, p.SessionID, log, err, false, true)
+		/*
+		 * ⚠️ KUYRUKTAN ÇIKMIYOR — VE ÇIKTIĞI HÂLİ ÖLÇÜLDÜ.
+		 *
+		 * Burada "düzeltilecek bir yapılandırma yok" yazıyordu ve bu
+		 * yanlıştı: safePath'in reddettiği en tipik durum, kaydın
+		 * KÖKÜN DIŞINDA kalması, ve o kök `recording.dir` — yani tam
+		 * olarak bir yapılandırma.
+		 *
+		 * Ölçüldü: recording.dir taşınınca, henüz arşivlenmemiş her
+		 * kayıt kalıcı KAYIP işaretleniyordu. Bastion "dosya yok"
+		 * diyordu, panel "N recordings lost — the file is gone"
+		 * diyordu; ikisi de yalandı, dosyalar eski dizinde sapasağlam
+		 * duruyordu. Ayarı geri almak da kurtarmıyordu, çünkü satır
+		 * kuyruktan çıkmıştı.
+		 *
+		 * gone yalnızca dosyanın GERÇEKTEN olmadığı dal için (aşağıda,
+		 * os.ErrNotExist). Bu, e0d3d7b'nin koyduğu kuralın kendisi:
+		 * "hiçbir operatör müdahalesinin yükleme yaptıramayacağı tek
+		 * durum". Yanlış dizin o durum değil.
+		 */
+		a.fail(ctx, p.SessionID, log, err, false, false)
 		return
 	}
 

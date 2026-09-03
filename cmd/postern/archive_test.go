@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -13,7 +14,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/Warewave-Technology/postern/internal/archive"
 	"github.com/Warewave-Technology/postern/internal/objstore"
+	"github.com/Warewave-Technology/postern/internal/secret"
 )
 
 func codeErr(code string, status int, base error) error {
@@ -245,4 +248,79 @@ func runWithConfig(t *testing.T, cmd *cobra.Command, cfgPath string, args ...str
 	cmd.SetArgs(append(args, "--config", cfgPath))
 	err := cmd.Execute()
 	return out.String(), err
+}
+
+/*
+ * ⚠️ PANELDEN GİRİLEN ANAHTARLA `archive check` ÇALIŞMALI.
+ *
+ * Belgeler operatöre iki şeyi birden söylüyor: arşiv anahtarını
+ * PANELDEN gir, ve kovanın sürümleme/Object Lock durumunu görmek için
+ * `postern archive check` koş. İkisini birden yapan kurulumda komut
+ * HER ZAMAN düşüyordu.
+ *
+ * Sebep: panelden girilen sır veritabanında ŞİFRELİ duruyor ve onu
+ * çözebilmek secret_key_file'ın yüklenmesine bağlı. resolveArchiveCreds
+ * store'u sır kutusunu bağlamadan açıyordu, dolayısıyla "ana gizli
+ * anahtar yapılandırılmamış" diyordu — oysa dosya yerinde ve koşan
+ * bastion aynı dosyayla aynı değeri çözüyor. Hata metni operatörü,
+ * zaten var olan bir anahtar dosyasını aramaya gönderiyordu.
+ */
+func TestArchiveCheckReadsACredentialSetFromThePanel(t *testing.T) {
+	e := newEnv(t)
+
+	// Ana gizli anahtar: paneldeki sırrı mühürleyen/çözen dosya.
+	keyPath := filepath.Join(e.dir, "secret.key")
+	box, err := secret.Init(keyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Panelin yaptığı: kimlik veritabanına, sır MÜHÜRLÜ olarak.
+	ctx := context.Background()
+	e.db.UseSecretBox(box)
+	if serr := e.db.SetSetting(ctx, archive.KeyAccessKeyID, "AKIAPANEL", false, "admin"); serr != nil {
+		t.Fatal(serr)
+	}
+	if serr := e.db.SetSetting(ctx, archive.KeySecretAccessKey, "panelden-gelen-sir", true, "admin"); serr != nil {
+		t.Fatal(serr)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Kovanın var olduğunu söylemek yeterli: ölçtüğümüz şey kimliğin
+		// OKUNABİLMESİ, kovanın ne dediği değil.
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	// ⚠️ archive.secret_key_file YOK — belgelenen "panelden gir" düzeni.
+	// Ana secret_key_file ise ÜST DÜZEYDE, koşan bastion'daki gibi.
+	base, rerr := os.ReadFile(e.config)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	cfg := "secret_key_file: " + keyPath + "\n" + string(base) +
+		"  archive:\n" +
+		"    endpoint: " + srv.URL + "\n" +
+		"    bucket: kova\n" +
+		"    region: us-east-1\n" +
+		"    access_key_id: AKIAPANEL\n"
+	cfgPath := filepath.Join(e.dir, "panel-archive.yaml")
+	if werr := os.WriteFile(cfgPath, []byte(cfg), 0o600); werr != nil {
+		t.Fatal(werr)
+	}
+
+	out, cerr := runWithConfig(t, newArchiveCmd(), cfgPath, "check")
+
+	if strings.Contains(out, "secret key") && strings.Contains(strings.ToLower(out), "not configured") {
+		t.Fatalf("panelden girilen anahtar okunamadı — komut var olan bir "+
+			"anahtar dosyasını aramaya gönderiyor; çıktı:\n%s", out)
+	}
+	if cerr != nil && strings.Contains(cerr.Error(), "secret") {
+		t.Fatalf("archive check sır çözemedi: %v\nçıktı:\n%s", cerr, out)
+	}
+	// Kimliğin PANELDEN geldiğini söylemeli: kaynağı yanlış söylemek,
+	// operatörün hangi anahtarı değiştireceğini bilememesi demek.
+	if !strings.Contains(strings.ToLower(out), "panel") {
+		t.Errorf("çıktı kimliğin panelden geldiğini söylemiyor:\n%s", out)
+	}
 }

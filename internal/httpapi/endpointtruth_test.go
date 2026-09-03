@@ -258,3 +258,63 @@ func startSession(t *testing.T, db *store.Store, id, target string, at time.Time
 		t.Fatalf("StartSession(%s): %v", id, err)
 	}
 }
+
+/*
+ * ⚠️ VERİTABANI KESİNTİSİ PANEL YÖNETİCİLERİNİ ATMAMALI.
+ *
+ * passwordChangeDone, "sır satırı yok" ile "sırrı okuyamadım"ı aynı
+ * kovaya koyuyordu ve ikisinde de bellekteki oturumu YOK EDİYORDU.
+ * Okunamama hâli neredeyse her zaman veritabanının kendisi: failover,
+ * yeniden başlatma, havuz tıkanması. Ölçüldü — veritabanı durunca her
+ * uç 401 döndü ve belirteç yok edildiği için veritabanı geri geldiğinde
+ * de oturum geri gelmiyordu.
+ *
+ * Ve söylenen şey yanlıştı: kişiye "oturumun geçersiz" deniyordu, oysa
+ * geçersiz olan veritabanıydı.
+ *
+ * Bir satır sonraki accountStillOpen bu ayrımı zaten yapıyor ve 503
+ * dönüyor. Aynı zincirde iki zıt politika tutarsızlıktı.
+ */
+func TestDatabaseOutageDoesNotSignOutPanelAdministrators(t *testing.T) {
+	s, db, dsn := dbServerDSN(t)
+	ctx := context.Background()
+
+	if _, err := db.CreateUser(ctx, "admin", "admin@warewave.io", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	id, err := db.AccountID(ctx, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := s.webSessions.CreateLocal("admin", id)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// ⚠️ Tabloyu GERÇEKTEN düşürüyoruz: tek bir sorgunun çökmesini
+	// istiyoruz, bağlantının tamamının değil — "veritabanı cevap
+	// veremiyor" hâlinin en yakın taklidi.
+	dropTable(t, dsn, "local_credentials")
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	ok := s.passwordChangeDone(w, r, "admin", token)
+
+	if ok {
+		t.Fatal("okunamayan sır 'her şey yolunda' sayıldı — kurgu tutmadı")
+	}
+	if w.Code == http.StatusUnauthorized {
+		t.Errorf("veritabanı kesintisi 401 döndü — kullanıcıya oturumunun " +
+			"geçersiz olduğu söyleniyor, oysa geçersiz olan veritabanı")
+	}
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("durum = %d, 503 bekleniyordu; gövde: %s", w.Code, w.Body.String())
+	}
+
+	// ⚠️ ASIL İDDİA: oturum AYAKTA. Veritabanı geri geldiğinde kişi
+	// çalışmaya devam edebilmeli.
+	if _, _, _, rerr := s.webSessions.ResolveSessionFull(token); rerr != nil {
+		t.Errorf("kesinti oturumu yok etti (%v) — veritabanı geri gelse bile "+
+			"her yönetici yeniden giriş yapmak zorunda", rerr)
+	}
+}

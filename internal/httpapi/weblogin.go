@@ -734,14 +734,36 @@ func (s *Server) passwordChangeDone(w http.ResponseWriter, r *http.Request,
 
 	cred, err := s.store.LocalCredential(r.Context(), username)
 	if err != nil {
-		// Satır yok (iptal edildi) ya da okunamadı: oturum biter.
-		// Yönü güvenli olan taraf bu.
-		if !errors.Is(err, store.ErrNotFound) {
-			s.logger.Error("credential check failed", "user", username, "error", err)
+		/*
+		 * ⚠️ "SATIR YOK" İLE "OKUYAMADIM" AYRI — VE BİRLEŞTİRİLDİĞİ HÂLİ
+		 * ÖLÇÜLDÜ.
+		 *
+		 * İkisi de oturumu bitiriyordu ve gerekçesi "yönü güvenli olan
+		 * taraf" idi. Ama okunamama hâli neredeyse her zaman
+		 * VERİTABANININ kendisi: bir failover, bir yeniden başlatma, bir
+		 * havuz tıkanması. Ölçüldü — gerçek bir bastion ve gerçek bir
+		 * Postgres'te, veritabanı durdurulunca /api/me dahil bütün uçlar
+		 * 401 "unauthenticated" döndü ve bellekteki belirteç YOK
+		 * EDİLDİĞİ için veritabanı geri geldiğinde de oturum geri
+		 * gelmiyordu: her panel yöneticisi yeniden giriş yapmak zorunda.
+		 *
+		 * Üstelik yanlış cümleyle: kişiye "oturumun geçersiz" deniyordu,
+		 * oysa oturum gayet geçerliydi, geçersiz olan veritabanıydı.
+		 *
+		 * Bir satır aşağıdaki accountStillOpen bu ayrımı ZATEN yapıyor
+		 * ve okuyamadığında 503 dönüyor. Aynı zincirdeki iki kapının
+		 * aynı arıza için zıt politika tutması tutarsızlıktı; savunulan
+		 * şey (iptal edilmiş sır) yalnızca ErrNotFound dalında.
+		 */
+		if errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrAccessDenied) {
+			s.webSessions.Destroy(token)
+			s.clearSessionCookie(w)
+			writeErr(w, http.StatusUnauthorized, "unauthenticated")
+			return false
 		}
-		s.webSessions.Destroy(token)
-		s.clearSessionCookie(w)
-		writeErr(w, http.StatusUnauthorized, "unauthenticated")
+		s.logger.Error("credential check failed", "user", username, "error", err)
+		writeErr(w, http.StatusServiceUnavailable,
+			"could not verify the account right now; try again shortly")
 		return false
 	}
 	if !cred.MustChange {

@@ -14,6 +14,7 @@ import (
 	"github.com/Warewave-Technology/postern/internal/archive"
 	"github.com/Warewave-Technology/postern/internal/config"
 	"github.com/Warewave-Technology/postern/internal/objstore"
+	"github.com/Warewave-Technology/postern/internal/secret"
 	"github.com/Warewave-Technology/postern/internal/store"
 )
 
@@ -163,6 +164,34 @@ func resolveArchiveCreds(ctx context.Context, cfg *config.Config) (objstore.Cred
 		return objstore.Credentials{}, archive.FromNowhere, err
 	}
 	defer db.Close()
+
+	/*
+	 * ⚠️ SIR KUTUSU BAĞLANMAK ZORUNDA — BAĞLANMADIĞI HÂLİ ÖLÇÜLDÜ.
+	 *
+	 * Panelden girilen arşiv anahtarı veritabanında ŞİFRELİ duruyor ve
+	 * onu okuyabilmek secret_key_file'ın yüklenmesine bağlı. Buradaki
+	 * store.Open kutuyu bağlamıyordu, dolayısıyla archive.Credentials
+	 * "ana gizli anahtar yapılandırılmamış" diyerek düşüyordu — oysa
+	 * dosya yerinde ve koşan bastion aynı dosyayla aynı değeri sorunsuz
+	 * çözüyor.
+	 *
+	 * Bedeli: belgeler operatöre anahtarı PANELDEN girmesini söylüyor
+	 * (README ve kurulum sayfası) ve `postern archive check`i kovanın
+	 * sürümleme/Object Lock durumunu görmenin yolu diye gösteriyor.
+	 * İkisini birden yapan kurulumda komut HER ZAMAN düşüyordu ve hata
+	 * metni operatörü, zaten yerinde olan bir anahtar dosyasını aramaya
+	 * gönderiyordu.
+	 *
+	 * settings.go'daki openStoreWithSecrets bunu doğru yapıyordu; iki
+	 * ayrı yerde iki farklı açma yolu olmasının bedeli buydu.
+	 */
+	if cfg.SecretKeyFile != "" {
+		box, berr := secret.Load(cfg.SecretKeyFile)
+		if berr != nil {
+			return objstore.Credentials{}, archive.FromNowhere, berr
+		}
+		db.UseSecretBox(box)
+	}
 
 	return archive.Credentials(ctx, db, ac.AccessKeyID, hostSecret)
 }

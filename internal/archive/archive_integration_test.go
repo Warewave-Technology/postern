@@ -639,3 +639,68 @@ func TestAccessDeniedDoesNotAbandonTheRecording(t *testing.T) {
 		t.Errorf("Pending = %d, 1 bekleniyordu — satır kuyruktan çıkmış", b.Pending)
 	}
 }
+
+/*
+ * ⚠️ recording.dir'i TAŞIMAK KAYITLARI YOK ETMEMELİ.
+ *
+ * safePath'in reddettiği en tipik durum, kaydın kökün DIŞINDA kalması
+ * — ve o kök `recording.dir`, yani bir yapılandırma. Bu dal "kalıcı
+ * kayıp" işaretliyordu ve gerekçesi "düzeltilecek bir yapılandırma
+ * yok" idi; tam tersi doğru.
+ *
+ * Ölçülen sonuç: dizini taşıyan operatör — min_free'nin engellemek için
+ * var olduğu dolu disk arızasına verilecek en doğal cevap — henüz
+ * arşivlenmemiş her kaydı kalıcı kaybediyordu. Bastion "dosya yok",
+ * panel "N recordings lost — the file is gone" diyordu; ikisi de yalan,
+ * dosyalar eski dizinde duruyordu. Ayarı geri almak da kurtarmıyordu.
+ */
+func TestMovingTheRecordingsDirDoesNotWriteOffIntactRecordings(t *testing.T) {
+	db := newDB(t)
+	eski := t.TempDir()
+	yeni := t.TempDir()
+
+	const id = "d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0"
+	path := seedFinishedSession(t, db, eski, id, "{\"version\":2}\n")
+
+	// Hiçbir isteğe cevap vermeyen bir depo: buraya ULAŞILMAMASI
+	// gerekiyor, çünkü kayıt yol kontrolünde düşecek.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("nesne deposuna istek gitti — yol kontrolünden önce durmalıydı")
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	client, err := objstore.New(objstore.Config{
+		Endpoint: srv.URL, Bucket: "kova", Region: "us-east-1",
+		Credentials: objstore.Credentials{AccessKeyID: "a", SecretAccessKey: "b"},
+		Timeout:     5 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// ⚠️ Operatör recording.dir'i TAŞIDI: arşivleyici artık yeni kökü
+	// biliyor, satırdaki yol ise eski kökün altında.
+	a := fixedArchiver(db, client, Config{RecordingsDir: yeni, Bucket: "kova"},
+		slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	a.RunOnce(context.Background())
+
+	ctx := context.Background()
+	b, berr := db.ArchiveBacklog(ctx)
+	if berr != nil {
+		t.Fatal(berr)
+	}
+	if b.Lost != 0 {
+		t.Errorf("Lost = %d — yanlış dizin yüzünden SAĞLAM bir kayıt kalıcı "+
+			"kayıp sayıldı; dosya hâlâ %s'de duruyor", b.Lost, path)
+	}
+	if b.Pending != 1 {
+		t.Errorf("Pending = %d, 1 bekleniyordu — satır kuyruktan çıkmış, "+
+			"yani ayarı geri almak bile kurtarmaz", b.Pending)
+	}
+
+	// Ve ayar geri alınınca gerçekten yükleniyor: kuyrukta kalmak
+	// kâğıt üzerinde değil, işe yarar biçimde kalmalı.
+	if _, ferr := os.Stat(path); ferr != nil {
+		t.Fatalf("kayıt dosyası kaybolmuş: %v", ferr)
+	}
+}
