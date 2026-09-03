@@ -105,15 +105,6 @@ func (r *reader) uint64() (uint64, error) {
 	return v, nil
 }
 
-func (r *reader) byteVal() (byte, error) {
-	if r.off+1 > len(r.buf) {
-		return 0, errShort
-	}
-	v := r.buf[r.off]
-	r.off++
-	return v, nil
-}
-
 /*
  * str, uzunluk önekli bir dizgi okur.
  *

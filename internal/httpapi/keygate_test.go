@@ -1,9 +1,11 @@
 package httpapi
 
 import (
+	"bytes"
 	"crypto/dsa" //nolint:staticcheck // testin konusu tam olarak DSA'nın reddi
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/json"
 	"net/http/httptest"
 	"testing"
 
@@ -57,5 +59,68 @@ func TestParseAuthorizedKeyRefusesUnusableKey(t *testing.T) {
 	w2 := httptest.NewRecorder()
 	if _, _, ok := parseAuthorizedKey(w2, string(ssh.MarshalAuthorizedKey(edpub))); !ok {
 		t.Errorf("geçerli ed25519 anahtarı reddedildi: %d", w2.Code)
+	}
+}
+
+/*
+ * ⚠️ HOST ANAHTARI KAPISI, PANEL/API TARAFINDA DA OLMALI.
+ *
+ * Kapalı küme kontrolü (sshalg.HostKeyAlgorithmsFor) CLI'ye eklenmişti,
+ * bu kapıya eklenmemişti. Ölçüldü: bir host SERTİFİKASI satırı — yani
+ * /etc/ssh/ssh_host_ed25519_key-cert.pub'dan yapılan gerçekçi bir
+ * yapıştırma — 200 ile kabul ediliyor, target.create olarak
+ * denetleniyor ve hedef HİÇ aranamıyor: her oturum dial'da, TCP
+ * denemesi bile yapılmadan düşüyor.
+ *
+ * Aynı alan için iki kapının iki farklı kural uygulaması, kabul edilmiş
+ * ama asla çalışamayacak bir kayıt üretiyordu — kapalı kümenin var olma
+ * sebebi tam olarak bu.
+ */
+func TestCreateTargetRefusesAHostKeyThatCanNeverDial(t *testing.T) {
+	s, _ := dbServer(t)
+
+	post := func(name, hostKey string) *httptest.ResponseRecorder {
+		body, _ := json.Marshal(map[string]any{
+			"name": name, "host": "10.0.0.9", "port": 22, "host_key": hostKey,
+		})
+		r := httptest.NewRequest("POST", "/api/admin/targets", bytes.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		s.adminCreateTarget(w, r)
+		return w
+	}
+
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := ssh.NewSignerFromKey(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Gerçekçi yapıştırma: hedefin kendi host SERTİFİKASI satırı.
+	cert := &ssh.Certificate{
+		Key:         signer.PublicKey(),
+		CertType:    ssh.HostCert,
+		KeyId:       "web01",
+		ValidBefore: ssh.CertTimeInfinity,
+	}
+	if err := cert.SignCert(rand.Reader, signer); err != nil {
+		t.Fatal(err)
+	}
+	certLine := string(ssh.MarshalAuthorizedKey(cert))
+	if w := post("web01", certLine); w.Code != 400 {
+		t.Errorf("host sertifikası satırı %d ile kabul edildi — kaydedilen "+
+			"ama hiçbir zaman aranamayacak bir hedef; gövde: %s",
+			w.Code, w.Body.String())
+	}
+
+	// Karşı taraf: düz ed25519 host anahtarı GEÇMELİ — kapı her şeyi
+	// reddeden bir düzeltme olmamalı.
+	plain := string(ssh.MarshalAuthorizedKey(signer.PublicKey()))
+	if w := post("web02", plain); w.Code != 200 {
+		t.Errorf("geçerli ed25519 host anahtarı reddedildi: %d %s",
+			w.Code, w.Body.String())
 	}
 }

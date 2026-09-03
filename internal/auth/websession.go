@@ -166,6 +166,40 @@ func (w *WebSessions) DestroyUser(username string) int {
 	return n
 }
 
+/*
+ * DestroyAccount, verilen HESAP KİMLİĞİNE bağlı oturumları düşürür.
+ *
+ * ⚠️ NEDEN AD DEĞİL KİMLİK — VE ADLA DÜŞÜRÜLDÜĞÜ HÂLİN BEDELİ.
+ *
+ * accountStillOpen bir oturumu KİMLİĞE bakarak reddediyor ama sonra
+ * ADLA düşürüyordu. Ad serbest bırakıldıktan sonra iki taraf aynı şeyi
+ * göstermiyor: ayrılan kişinin uyuyan sekmesinden gelen bir istek
+ * reddediliyor (doğru), ama düşürme, adı DEVRALAN yeni kişinin canlı
+ * oturumunu da siliyordu — yeni çalışan iş ortasında, mesajsız, denetim
+ * defterinde açıklaması olmayan bir şekilde dışarı atılıyordu. Log
+ * satırı da hesabı "gitti" diye yazıyordu: eski satır için doğru, az
+ * önce öldürdüğü oturum için yanlış.
+ *
+ * DestroyUser diğer çağıranlarında (purge, silme, parola değişikliği)
+ * DOĞRU kalıyor: orada özne gerçekten ADIN kendisi.
+ */
+func (w *WebSessions) DestroyAccount(accountID string) int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if accountID == "" {
+		return 0
+	}
+	n := 0
+	for token, sess := range w.byToken {
+		if sess.accountID == accountID {
+			delete(w.byToken, token)
+			n++
+		}
+	}
+	return n
+}
+
 // Resolve, token'ı kullanıcı ADINA çevirir. Tanınmayan ya da süresi
 // dolmuş token için ErrNoSession.
 //

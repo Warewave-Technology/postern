@@ -309,16 +309,6 @@ func (l *Logins) Confirm(state, userCode string) error {
 	return nil
 }
 
-// Parked, tarayıcının girişi tamamlayıp kimliği park edip etmediğini
-// söyler.
-func (l *Logins) Parked(state string) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	a, ok := l.byState[state]
-	return ok && a.parked != nil
-}
-
 // Challenge, tarayıcıda gösterilecek kodu ve SSH kaynağını döner.
 //
 // Kod yalnızca kimlik PARK EDİLDİKTEN sonra veriliyor: aksi hâlde

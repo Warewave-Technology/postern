@@ -714,6 +714,27 @@ func (s *Server) adminCreateTarget(w http.ResponseWriter, r *http.Request) {
 	if !okKey {
 		return
 	}
+	/*
+	 * ⚠️ MÜZAKERE EDİLEMEYECEK HOST ANAHTARI PİNLENMİYOR — VE BU KAPI
+	 * BUNU SORMUYORDU.
+	 *
+	 * Kapalı küme kontrolü CLI kapısına (cmd/postern/target.go)
+	 * eklenmişti; panel/API kapısı almamıştı. Ölçüldü: bir host
+	 * SERTİFİKASI satırı (ssh_host_ed25519_key-cert.pub'dan gerçekçi
+	 * bir yapıştırma) ya da sk-* satırı 200 ile kabul ediliyor,
+	 * target.create olarak denetleniyor ve sonra o hedef HİÇ
+	 * aranamıyor: her oturum dial'da, TCP denemesi bile yapılmadan
+	 * düşüyor. Yani kaydedilmiş ama hiçbir zaman çalışamayacak bir
+	 * satır — kapalı kümenin var olma sebebi tam olarak bunu önlemek.
+	 *
+	 * ⚠️ UnusableKeyType BU KONTROLÜN YERİNE GEÇMİYOR, o KULLANICI
+	 * anahtarları için: sk-* orada meşru (sshalg.PublicKeyAuths onları
+	 * kabul ediyor), burada değil. İki soru ayrı kalmalı.
+	 */
+	if _, herr := sshalg.HostKeyAlgorithmsFor(pub.Type()); herr != nil {
+		writeErr(w, http.StatusBadRequest, herr.Error())
+		return
+	}
 
 	// ⚠️ ETİKETLER HEDEFİ AÇMADAN ÖNCE DOĞRULANIYOR. Sonra doğrulasaydık
 	// geçersiz tek bir anahtar, hedefi açılmış ama etiketsiz bırakır ve

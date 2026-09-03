@@ -18,7 +18,6 @@ import (
 
 	"github.com/warewave/postern/internal/config"
 	"github.com/warewave/postern/internal/sshd"
-	"github.com/warewave/postern/internal/store"
 )
 
 /*
@@ -454,24 +453,6 @@ func TestShutdownDrainsWebTerminalSessionsToo(t *testing.T) {
 /*
  * ⚠️ SERVE DÖNDÜĞÜNDE Close BİTMİŞ OLMALI — DEFTERİN BOŞALMASI YETMİYOR.
  *
- * drain'in son beklemesi canlı oturum defterine bakıyor. Oturum
- * defterden Run'ın defer'inde düşüyor (lifecycle.go), Session.Close ise
- * ÇAĞIRANIN defer'inde — yani Run döndükten SONRA (channel.go). İkisi
- * arasında defter boş ama Close hâlâ çalışıyor: EndSession yazılmamış,
- * QueueArchive çağrılmamış olabiliyor.
- *
- * Süreçte Serve'in dönmesi main'in çıkması demek ve serve.go hemen
- * ardından veritabanını kapatıyor. Yani o pencerede kalan oturumların
- * kaydı arşiv kuyruğuna HİÇ girmiyor — "arşivlenmemiş hiçbir şey
- * budanmaz" kuralı gereği diskte kalıyor, yüklenemiyor, ve operatöre
- * bunu söyleyen tek satır o çoktan okumayı bıraktıktan sonra düşüyor.
- *
- * Tek oturumla pencere görünmüyor; test bu yüzden birkaç oturumu
- * birden açıyor.
- */
-/*
- * ⚠️ SERVE DÖNDÜĞÜNDE Close BİTMİŞ OLMALI — DEFTERİN BOŞALMASI YETMİYOR.
- *
  * Oturum canlı defterden Run'ın defer'inde düşüyordu; Session.Close ise
  * ÇAĞIRANIN defer'inde, yani Run'dan SONRA (sshd/channel.go ve
  * httpapi/terminal.go, ikisi de aynı desende). Aradaki pencerede defter
@@ -588,28 +569,4 @@ func TestShutdownFinishesEverySessionsCloseBeforeReturning(t *testing.T) {
 	} else if !queued {
 		t.Error("kayıt arşiv kuyruğuna girmedi")
 	}
-}
-
-// waitForOpenSessions, n adet açık oturum satırı belirene kadar bekler.
-func waitForOpenSessions(t *testing.T, db *store.Store, n int) []string {
-	t.Helper()
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
-		rows, err := db.Sessions(context.Background(), "", 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var ids []string
-		for _, r := range rows {
-			if r.Open() {
-				ids = append(ids, r.ID)
-			}
-		}
-		if len(ids) >= n {
-			return ids
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	t.Fatalf("%d açık oturum belirmedi", n)
-	return nil
 }

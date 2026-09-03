@@ -627,7 +627,12 @@ func (s *Server) accountStillOpen(w http.ResponseWriter, r *http.Request, userna
 	case errors.Is(err, store.ErrAccessDenied), errors.Is(err, store.ErrNotFound):
 		// Hesap gitti: bellekteki oturumları da düşür ki bir sonraki
 		// istek veritabanına hiç gitmesin ve ret KALICI olsun.
-		s.webSessions.DestroyUser(username)
+		//
+		// ⚠️ KİMLİKLE DÜŞÜYOR, ADLA DEĞİL. Reddi kimliğe göre verip
+		// düşürmeyi ada göre yapmak, adı DEVRALAN yeni kişinin canlı
+		// oturumunu da siliyordu — ayrılan kişinin uyuyan her sekmesi
+		// yeni çalışanı bir kez dışarı atabiliyordu.
+		s.webSessions.DestroyAccount(accountID)
 		s.clearSessionCookie(w)
 		s.logger.Warn("session refused: account is gone", "user", username, "error", err)
 		writeErr(w, http.StatusUnauthorized, "unauthenticated")

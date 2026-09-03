@@ -123,3 +123,70 @@ func TestSessionWithoutAccountIDIsRefused(t *testing.T) {
 			w.Code)
 	}
 }
+
+/*
+ * ⚠️ AYRILAN KİŞİNİN BAYAT SEKMESİ, ADI DEVRALAN KİŞİYİ ÇIKARMAMALI.
+ *
+ * accountStillOpen reddi KİMLİĞE göre veriyordu ama düşürmeyi ADA göre
+ * yapıyordu. Ad serbest bırakıldıktan sonra iki taraf farklı şeye
+ * bakıyor: bayat token doğru şekilde reddediliyor, ama aynı çağrı adı
+ * devralan yeni kişinin CANLI oturumunu da siliyordu. Yeni çalışan iş
+ * ortasında, mesajsız, denetim defterinde açıklaması olmadan panelden
+ * atılıyordu — ve bu, ayrılan hesabın bıraktığı her bayat sekme için
+ * bir kez daha.
+ */
+func TestStaleSessionDoesNotEvictTheNewHolderOfTheName(t *testing.T) {
+	s, db := dbServer(t)
+	ctx := context.Background()
+
+	if _, err := db.CreateUser(ctx, "ayse", "ayse@warewave.io", "ayse"); err != nil {
+		t.Fatal(err)
+	}
+	eskiID, err := db.AccountID(ctx, "ayse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	eskiToken, err := s.webSessions.Create("ayse", eskiID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Ayrılıyor, ad serbest bırakılıyor.
+	if err := db.SetAccountState(ctx, "ayse", store.StateDeleted); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.PurgeAccount(ctx, "ayse", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Adı yeni bir insan alıyor ve panele giriyor.
+	if _, err := db.CreateUser(ctx, "ayse", "yeni@warewave.io", "ayse"); err != nil {
+		t.Fatal(err)
+	}
+	yeniID, err := db.AccountID(ctx, "ayse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	yeniToken, err := s.webSessions.Create("ayse", yeniID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Ayrılan kişinin uyuyan sekmesinden bir istek geliyor.
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/me", nil)
+	if s.accountStillOpen(w, r, "ayse", eskiID) {
+		t.Fatal("bayat oturum kabul edildi")
+	}
+
+	// ⚠️ ASIL İDDİA: yeni sahibin oturumu AYAKTA.
+	if _, _, _, err := s.webSessions.ResolveSessionFull(yeniToken); err != nil {
+		t.Errorf("adı devralan kişinin canlı oturumu düşürüldü (%v) — "+
+			"ayrılan kişinin her bayat sekmesi onu bir kez dışarı atıyor", err)
+	}
+	// Ve bayat olan gerçekten gitti: ret KALICI olmalı.
+	if _, _, _, err := s.webSessions.ResolveSessionFull(eskiToken); err == nil {
+		t.Error("bayat oturum bellekte kaldı — bir sonraki istek yine " +
+			"veritabanına gidiyor")
+	}
+}
