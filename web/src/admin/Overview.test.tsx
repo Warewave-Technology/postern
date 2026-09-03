@@ -288,3 +288,40 @@ it("üst üste başarısız yüklemeleri 'bekliyor' diye göstermiyor", async ()
   await waitFor(() => expect(screen.getByText(/keep failing/i)).toBeTruthy());
   expect(screen.queryByText(/cannot be pruned while they wait/i)).toBeNull();
 });
+
+/*
+ * ⚠️ KALICI KAYBOLAN KAYIT, KUTUNUN "0 — NOTHING WAITING" DEMESİNE
+ * SEBEP OLUYORDU.
+ *
+ * Kayıp satırlar kuyrukta durmuyor, yani pending'e girmiyorlar. Sunucu
+ * sayıyı `lost` alanıyla GÖNDERİYORDU; panel alanı hiç okumuyordu.
+ * Sonuç, ekranın yanlış yöne sapması: kayıt kaybettiren bir arıza,
+ * paneli "her şey yolunda" demeye götürüyordu.
+ *
+ * store.ArchiveBacklog'un Lost'u Pending'den ayırma gerekçesi tam da
+ * bu: "onlar için yapılacak bir şey yok, yalnızca GÖRÜLMELERİ
+ * gerekiyor."
+ */
+it("kalıcı kaybolan kayıtları 'bekleyen yok' diye göstermiyor", async () => {
+  vi.spyOn(api, "sessions").mockResolvedValue([]);
+  vi.spyOn(api, "storage").mockResolvedValue({
+    archive: { pending: 0, lost: 3 },
+  } as never);
+  render(<Overview />);
+
+  await waitFor(() => expect(screen.getByText(/3 recordings lost/i)).toBeTruthy());
+  expect(screen.queryByText(/nothing waiting/i)).toBeNull();
+});
+
+// Kuyrukta bekleyen de varsa kayıp AYRICA yazılıyor: biri diğerini
+// gizlerse operatör iki durumdan yalnızca birini görür.
+it("bekleyen varken kaybı da yazıyor", async () => {
+  vi.spyOn(api, "sessions").mockResolvedValue([]);
+  vi.spyOn(api, "storage").mockResolvedValue({
+    archive: { pending: 5, lost: 1, oldest_age_seconds: 3600 },
+  } as never);
+  render(<Overview />);
+
+  await waitFor(() => expect(screen.getByText(/1 recording lost/i)).toBeTruthy());
+  expect(screen.getByText(/cannot be pruned while they wait/i)).toBeTruthy();
+});

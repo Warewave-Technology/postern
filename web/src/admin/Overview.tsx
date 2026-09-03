@@ -286,6 +286,24 @@ export default function Overview() {
     : Infinity;
   const todayIsPartial = sessions.length > 0 && oldest >= startOfDay.getTime();
 
+  /*
+   * lostLine, kalıcı kaybolan kayıtların cümlesi.
+   *
+   * ⚠️ SÖZCÜKLER "BEKLİYOR"DAN DA "BAŞARISIZ"DAN DA AYRI. Bu kayıtlar
+   * hiçbir zaman yüklenmeyecek: yeniden denenecek bir şey yok ve
+   * diskte de yer tutmuyorlar. Onları "yükleme bekliyor" gibi yazmak,
+   * operatöre kendiliğinden düzelecek bir şey olduğunu söylerdi;
+   * store.ArchiveBacklog'un kendi gerekçesi "yapılacak bir şey yok,
+   * yalnızca GÖRÜLMELERİ gerekiyor" diyor.
+   */
+  const lost = storage?.archive?.lost ?? 0;
+  const lostLine =
+    lost > 0
+      ? `${lost} recording${lost === 1 ? "" : "s"} lost — the file is gone, so ${
+          lost === 1 ? "it" : "they"
+        } will never be archived`
+      : null;
+
   return (
     <section>
       <div className="page-bar">
@@ -381,7 +399,16 @@ export default function Overview() {
               : !storage?.archive
                 ? "not measured"
                 : storage.archive.pending === 0
-                  ? "nothing waiting"
+                  ? /*
+                       ⚠️ SIFIR BEKLEYEN "HER ŞEY YOLUNDA" DEMEK DEĞİL.
+                       Kalıcı kaybolan kayıtlar kuyrukta durmuyor, yani
+                       pending'e girmiyorlar. Bu dal onları yazmadığı
+                       sürece, kova adını yanlış yazıp kayıt kaybeden bir
+                       operatörün panelde gördüğü tek şey "nothing
+                       waiting" oluyordu — sunucu sayıyı gönderdiği
+                       hâlde.
+                     */
+                    lostLine ?? "nothing waiting"
                   : /*
                        ⚠️ "BEKLİYOR" İLE "İLERLEMİYOR" AYRI CÜMLELER.
                        Yalnızca yaşı yazmak, üst üste başarısız olan bir
@@ -394,7 +421,9 @@ export default function Overview() {
                     : storage.archive.oldest_age_seconds !== undefined
                       ? `oldest ${formatAge(storage.archive.oldest_age_seconds)} — these cannot be pruned while they wait`
                       : "waiting"}
-          </span>
+            {/* Kuyrukta bekleyen de varsa kayıp AYRICA yazılıyor:
+                iki ayrı durum, biri diğerini gizlememeli. */}
+            {storage?.archive?.pending !== 0 && lostLine ? ` · ${lostLine}` : ""}</span>
         </div>
       </div>
 

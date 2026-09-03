@@ -624,6 +624,12 @@ export type Storage = {
      *  ile "ilerlemiyor" farklı şeyler: ilki yükleyicinin geride
      *  kalması, ikincisi bir şeyin düzeltilmesi gerektiği. */
     failing?: number;
+    /** ⚠️ KAYIP: dosyası olmadığı için hiçbir koşulda yüklenemeyecek
+     *  kayıtlar. "Bekliyor" DEĞİLLER — yapılacak bir şey yok, yalnızca
+     *  GÖRÜLMELERİ gerekiyor. Sunucu bu alanı gönderiyordu ve panel
+     *  hiç okumuyordu: kalıcı kaybolan bir kayıt, kutunun "0 — nothing
+     *  waiting" demesine sebep oluyordu. */
+    lost?: number;
   };
   archive_error?: boolean;
 };
