@@ -11,8 +11,16 @@ import (
 )
 
 func syncStore(t *testing.T) *store.Store {
+	s, _ := syncStoreDSN(t)
+	return s
+}
+
+// syncStoreDSN, aynısını DSN'i de vererek döner: bir testin tek bir
+// yazmayı düşürmek için ikinci bir bağlantı açması gerekebiliyor.
+func syncStoreDSN(t *testing.T) (*store.Store, string) {
 	t.Helper()
-	s, err := store.Open(context.Background(), testdb.DSN(t))
+	dsn := testdb.DSN(t)
+	s, err := store.Open(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
@@ -20,7 +28,7 @@ func syncStore(t *testing.T) *store.Store {
 		t.Fatalf("Migrate: %v", err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	return s
+	return s, dsn
 }
 
 func fallback() Settings {

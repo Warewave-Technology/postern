@@ -350,14 +350,39 @@ func (r *Runner) run(ctx context.Context, runID int64, dryRun bool, limits Limit
 				"user", o.Username, "presence", o.Presence, "error", err)
 		}
 	}
+	rep.Outcome = "ok"
+
 	if stampErrs > 0 {
 		r.logger.Warn("some presence stamps were not written; "+
 			"the grace window may restart for those users",
 			"failed", stampErrs, "considered", len(obs))
 		rep.StampErrors = stampErrs
-	}
 
-	rep.Outcome = "ok"
+		/*
+		 * ⚠️ SAYI SÜREÇTEN ÇIKMALI — ÇIKMIYORDU.
+		 *
+		 * StampErrors yazılıyor ve onu okuyan tek şey kendi testiydi:
+		 * FinishSyncRun taşımıyor, CLI göstermiyor, panel bilmiyordu.
+		 * Ölçüldü: üç damga yazılamazken rapor, sync_runs satırı,
+		 * `postern sync run` çıktısı ve panel — dördü de koşuyu
+		 * tertemiz "ok" gösteriyordu. Sayıyı yalnızca log satırı
+		 * taşıyordu ve log, "dün gece sync sağlıklı mıydı" sorusunun
+		 * sorulduğu yer değil.
+		 *
+		 * Reason SEÇİLDİ çünkü zaten dört yerden birden görünüyor:
+		 * `sync run` çıktısı, `sync list` tablosu, sync_runs satırı ve
+		 * panel. Yeni bir sütun göç isterdi ve bu bilginin taşıdığı
+		 * ağırlık kadar değil.
+		 *
+		 * Outcome "ok" KALIYOR ve bu bilinçli: senkronizasyonun kendisi
+		 * tamamlandı. "ok olmayan" yapmak, "son başarılı koşu" hesabını
+		 * (cmd/postern/sync.go) bozar ve gerçekten hiç koşmamış bir
+		 * kurulumla aynı uyarıyı verirdi.
+		 */
+		rep.Reason = fmt.Sprintf(
+			"%d presence stamp(s) could not be written; the grace window "+
+				"may restart for those users", stampErrs)
+	}
 	r.logger.Info("sync complete", "run", runID,
 		"considered", rep.Considered, "present", rep.Present,
 		"absent", rep.Absent, "unknown", rep.Unknown,
