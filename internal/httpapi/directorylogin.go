@@ -361,19 +361,6 @@ func (s *Server) resolveDirectoryUser(ctx context.Context, log logger,
 	}
 
 	/*
-	 * ⚠️ Kimlik YOKSA bağlama da yok — ama giriş sürüyor.
-	 *
-	 * Dizin kararlı bir değer vermiyorsa (eski şema, ya da servis
-	 * hesabı okuyamıyor) postern'in bugünkü davranışı korunuyor: ada
-	 * göre bulunan hesapla devam. Bu bir gerileme değil, yokluğun
-	 * kabulü — ve teşhis ekranı o dizinde kimlik gelmediğini zaten
-	 * söylüyor.
-	 */
-	if identity == "" {
-		return u, nil
-	}
-
-	/*
 	 * ⚠️ Yönetici hesabı, yalnızca adla devralınamaz — GELEN KİMLİK
 	 * kendisi yönetici grubunda değilse.
 	 *
@@ -381,9 +368,41 @@ func (s *Server) resolveDirectoryUser(ctx context.Context, log logger,
 	 * yönetici hesabını almakla yeni bir yetki kazanmıyor. Kapalı
 	 * tutmak, dizin grubundan yönetici olan herkesi yükseltmeden sonra
 	 * kendi hesabından kilitlerdi (ölçüldü).
+	 *
+	 * ⚠️ BU KONTROL, "kimlik yok" ERKEN DÖNÜŞÜNÜN ÜSTÜNDE OLMAK
+	 * ZORUNDA — ve altındayken devralma ÖLÇÜLDÜ.
+	 *
+	 * Erken dönüş, dizin kararlı bir kimlik vermediğinde (servis hesabı
+	 * objectGUID okuyamıyor — yaygın bir kısıtlama) ada göre bulunan
+	 * hesapla devam ediyordu. Altında duran bu kontrol o durumda HİÇ
+	 * koşmuyordu. Sonuç: dizine `uid=admin` olarak bind edebilen
+	 * herkes, `postern admin bootstrap`'ın açtığı acil durum yönetici
+	 * hesabını devralıyordu. Gerçek bir bastion ikilisi, gerçek bir
+	 * Postgres ve gerçek bir dizinle ölçüldü: /auth/local 200 dönüyor,
+	 * /api/me "admin": true diyor, /api/admin/users açılıyor — ve
+	 * denetim satırı olayı ACİL DURUM HESABININ adına yazıyor, yani
+	 * defter saldırıyı yanlış kişiye atfediyor.
+	 *
+	 * OIDC/e-posta yolu (store.claimExistingAccount) aynı korumayı
+	 * KOŞULSUZ uyguluyor; iki kapının aynı soruya iki farklı cevap
+	 * vermesi, sıkılaştırma değil tutarsızlıktı.
 	 */
 	if u.Admin && !adminGroupMember {
 		return model.User{}, store.ErrAdminBindRefused
+	}
+
+	/*
+	 * ⚠️ Kimlik YOKSA bağlama da yok — ama giriş sürüyor.
+	 *
+	 * Dizin kararlı bir değer vermiyorsa (eski şema, ya da servis
+	 * hesabı okuyamıyor) postern'in bugünkü davranışı korunuyor: ada
+	 * göre bulunan hesapla devam. Bu bir gerileme değil, yokluğun
+	 * kabulü — ve teşhis ekranı o dizinde kimlik gelmediğini zaten
+	 * söylüyor. Yönetici hesapları artık bu yolun DIŞINDA: yukarıdaki
+	 * nota bak.
+	 */
+	if identity == "" {
+		return u, nil
 	}
 
 	if berr := s.store.BindDirIdentity(ctx, u.Name, identity); berr != nil {
