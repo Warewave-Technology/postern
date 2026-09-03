@@ -154,7 +154,13 @@ audit: sec vuln
 # ⚠️ SIRA: web-check `make web` çalıştırıyor, yani npm kurulumu ve
 # derleme. Go testlerinden SONRA duruyor ki hızlı geri bildirim önce
 # gelsin — lint'te düşecek bir değişiklik için npm ci beklemek gerekmez.
-ci: lint vet test-race audit test-integration web-test web-check
+#
+# ⚠️ build DE DAHİL. Değildi, ve o hâlde bu yorumun ilk cümlesi yanlıştı:
+# ci.yml'de ayrı bir `build` işi var, burada yoktu. Bedeli iki yerde:
+# yerelde "CI'ın aynısı"nı koşan biri build'i koşmuyordu, ve release.yml'in
+# verify işi de `make ci` çağırdığı için sürüm yolu goreleaser'a
+# girmeden önce ikilinin derlendiğini hiç doğrulamıyordu. Saniyeler sürüyor.
+ci: lint vet test-race audit test-integration web-test web-check build
 
 GORELEASER_VERSION ?= v2.18.0
 
