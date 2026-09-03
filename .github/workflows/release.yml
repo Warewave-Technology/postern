@@ -3,6 +3,30 @@
 # Bir etiket atıldığında koşuyor ve TASLAK bir sürüm bırakıyor: notları
 # insan okuyup yayınlıyor. Otomatik yayınlamak, yanlış etiketten dönmeyi
 # "sildim, kimse indirmedi umarım"a çevirirdi.
+
+# ⚠️ EYLEMLER COMMIT SHA'SINA SABİTLENDİ — VE BİRİ HİÇ ÇÖZÜLMÜYORDU.
+#
+# `sigstore/cosign-installer@v4` yazılıydı; o depoda v4 diye ne etiket
+# ne dal var, yalnızca v4.1.2 gibi tam sürümler. Ölçüldü:
+#
+#   git/ref/tags/v4   -> 404
+#   git/ref/heads/v4  -> 404
+#   git/ref/tags/v4.1.2 -> 200
+#
+# Yani bu iş akışı ilk etiket atıldığı gün, `verify` işi tam `make ci`yi
+# on beş dakika koştuktan SONRA "action not found" ile ölecekti — hiç
+# koşmamış bir yolda en pahalı yerde.
+#
+# Sabitlemenin kendisi ayrı bir karar: bu iş İMZALI İKİLİ üretiyor.
+# Hareketli bir etiket ele geçirilirse, değiştirilmiş ikili imzalanır ve
+# indiren herkese GEÇERLİ imzayla gider — bu projenin sahip olduğu en
+# yüksek bedelli tedarik zinciri yolu. Aşağıdaki yorumun "ele geçirilmiş
+# bir eylem" gerekçesi zaten bunu söylüyordu; sabitleme onu tamamlıyor.
+# Sürüm adı her satırın yanında yazılı ki yükseltmek okunabilir kalsın.
+#
+# ci.yml sabitlenmedi ve bu bilinçli: orası gönderilen hiçbir şey
+# üretmiyor.
+
 name: Release
 
 on:
@@ -27,12 +51,12 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
           cache: true
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
           cache: npm
@@ -46,7 +70,7 @@ jobs:
       contents: write # sürümü oluşturmak için
       id-token: write # cosign anahtarsız imza için
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           # ⚠️ TÜM GEÇMİŞ ŞART. goreleaser sürümü etiketlerden okuyor;
           # sığ bir kopyada etiket görünmüyor ve ikili kendini yanlış
@@ -57,22 +81,22 @@ jobs:
       # ikilinin derlendiği sürüm aynı olmalı: standart kütüphane
       # açıkları Go sürümüyle kapanıyor ve "test ettiğimiz şey bu değil"
       # demek istemiyoruz.
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
           cache: true
 
       # Panel go:embed ile gömülü; goreleaser'ın before hook'u `make web`
       # çalıştırıyor ve onun için node gerekiyor.
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
 
-      - uses: sigstore/cosign-installer@v4
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
-      - uses: goreleaser/goreleaser-action@v6
+      - uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
         with:
           version: v2.18.0
           args: release --clean
