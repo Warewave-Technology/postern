@@ -9,10 +9,13 @@ would much rather hear about it from you than read about it later.
 **Use GitHub's private vulnerability reporting:**
 [Report a vulnerability](https://github.com/Warewave-Technology/postern/security/advisories/new).
 
-That opens a private thread visible only to you and the maintainers. It is the
-only channel we can promise to read; please do not open a public issue for a
-security problem, and please do not post it to social media before we have had
-a chance to answer.
+That opens a private thread visible only to you and the maintainers. Please do
+not open a public issue for a security problem, and please do not post it to
+social media before we have had a chance to answer.
+
+If that link does not work for you — it needs the repository to be public and
+the feature enabled — open an issue that says only "security report, please
+get in touch" with no detail in it, and we will take it from there.
 
 Helpful things to include, roughly in order of how much they help:
 
