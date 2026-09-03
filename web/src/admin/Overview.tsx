@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Session, Storage, api, toMessage } from "../api";
+import { SESSION_LIST_LIMIT, Session, Storage, api, toMessage } from "../api";
 import { ActionButton, ErrorLine, OkLine } from "./common";
 
 /**
@@ -280,11 +280,24 @@ export default function Overview() {
    * gece yarısından sonraysa, görmediğimiz daha eski oturumlar
    * bugüne ait olabilir — o hâlde rakam bir alt sınır ve öyle
    * yazılıyor.
+   *
+   * ⚠️ AMA SINIRIN GERÇEKTEN ISIRMIŞ OLMASI DA GEREKİYOR — ve
+   * gerekmediği hâli ölçüldü. Koşul yalnızca "en eski satır bugünden"
+   * diyordu; dört oturumu olan TAZE BİR KURULUMDA da doğru, çünkü bütün
+   * geçmiş bugün. Yani kurulumu bitiren yöneticinin gördüğü ilk ekran,
+   * manşet rakamının eksik olduğunu söylüyor ve olmamış bir kırpmayı
+   * suçluyordu ("4+ — at least"). Her yeni kurulumda ve her sakin
+   * bastion'da yanlış.
+   *
+   * Sınırın ısırdığını görmenin yolu, listenin sunucunun penceresini
+   * DOLDURMUŞ olması. Sayı sunucudan geliyor (admin.go, Sessions(...,
+   * sessionListLimit)) ve burada ikinci kez yazılmıyor.
    */
   const oldest = sessions.length
     ? Math.min(...sessions.map((s) => new Date(s.started_at).getTime()))
     : Infinity;
-  const todayIsPartial = sessions.length > 0 && oldest >= startOfDay.getTime();
+  const todayIsPartial =
+    sessions.length >= SESSION_LIST_LIMIT && oldest >= startOfDay.getTime();
 
   /*
    * lostLine, kalıcı kaybolan kayıtların cümlesi.

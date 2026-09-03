@@ -30,3 +30,10 @@ coverage.out
 /testdata/ca_ed25519
 /testdata/ca_ed25519.pub
 /testdata/postern.db*
+
+# ⚠️ KÖKTE node_modules. web/.gitignore yalnızca web/node_modules/'i
+# kapsıyordu; kökte yanlışlıkla koşan bir `npm install`ın bıraktığı
+# vitest önbelleği REPOYA GİRDİ ve içinde .claude worktree yolları ve
+# 35 test paketinin 29'u "failed: true" olarak duruyordu — bir Go
+# güvenlik ürününün kökünde, hiçbir açıklama olmadan.
+node_modules/

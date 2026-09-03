@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
 import Overview from "./Overview";
-import { api, type Session } from "../api";
+import { SESSION_LIST_LIMIT, api, type Session } from "../api";
 
 const session = (over: Partial<Session> = {}): Session => ({
   id: "s1",
@@ -220,16 +220,43 @@ it("liste gece yarısına ulaşmıyorsa sayının alt sınır olduğunu söylüy
   const now = new Date();
   const afterMidnight = new Date(now);
   afterMidnight.setHours(23, 30, 0, 0);
-  // En eski satır bile bugüne ait: demek ki daha eskisi kesilmiş.
-  vi.spyOn(api, "sessions").mockResolvedValue([
-    session({ id: "a", started_at: afterMidnight.toISOString() }),
-    session({ id: "b", started_at: afterMidnight.toISOString() }),
-  ]);
+  // ⚠️ SUNUCU PENCERESİ DOLU: uyarının çıkması için kırpmanın gerçekten
+  // olmuş olması gerekiyor. Dolmamış bir listede "eksik olabilir"
+  // demek, olmamış bir kırpmayı suçlamak olurdu.
+  vi.spyOn(api, "sessions").mockResolvedValue(
+    Array.from({ length: SESSION_LIST_LIMIT }, (_, i) =>
+      session({ id: "s" + i, started_at: afterMidnight.toISOString() }),
+    ),
+  );
   render(<Overview />);
 
   await waitFor(() =>
     expect(screen.getByText(/the list stops before midnight/i)).toBeTruthy(),
   );
+});
+
+/*
+ * ⚠️ TAZE KURULUM "EKSİK" DEMEMELİ — ve diyordu.
+ *
+ * Koşul yalnızca "en eski satır bugünden" diye bakıyordu; dört oturumu
+ * olan yeni bir kurulumda da doğru, çünkü bütün geçmiş bugün. Yani
+ * kurulumu bitiren yöneticinin gördüğü İLK ekran, manşet rakamının
+ * eksik olduğunu söylüyor ve olmamış bir kırpmayı suçluyordu. Her yeni
+ * kurulumda ve her sakin bastion'da yanlış.
+ */
+it("taze kurulumda sayıyı 'eksik' diye işaretlemiyor", async () => {
+  const today = new Date();
+  today.setHours(9, 0, 0, 0);
+  vi.spyOn(api, "sessions").mockResolvedValue([
+    session({ id: "a", started_at: today.toISOString() }),
+    session({ id: "b", started_at: today.toISOString() }),
+    session({ id: "c", started_at: today.toISOString() }),
+    session({ id: "d", started_at: today.toISOString() }),
+  ]);
+  render(<Overview />);
+
+  await waitFor(() => expect(screen.getByText(/sessions today/i)).toBeTruthy());
+  expect(screen.queryByText(/the list stops before midnight/i)).toBeNull();
 });
 
 // Liste düne uzanıyorsa sayı TAM: her rakama "+" koymak, işareti

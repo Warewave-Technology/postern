@@ -832,8 +832,16 @@ func (s *Server) adminDeleteTarget(w http.ResponseWriter, r *http.Request) {
  * "çalışıyor" göstermesi ve yöneticiye onu kesmeyi teklif etmesi
  * demekti.
  */
+// sessionListLimit, bu ucun döndürdüğü en fazla satır.
+//
+// ⚠️ PANELDEKİ SESSION_LIST_LIMIT ile AYNI OLMAK ZORUNDA (web/src/api.ts).
+// Panel "bugünün sayısı eksik olabilir" uyarısını tam olarak bu
+// pencerenin dolup dolmadığına bakarak veriyor; iki taraf ayrışırsa
+// uyarı ya hiç çıkmaz ya da hep çıkar.
+const sessionListLimit = 200
+
 func (s *Server) adminListSessions(w http.ResponseWriter, r *http.Request) {
-	sessions, err := s.store.Sessions(r.Context(), "", 200)
+	sessions, err := s.store.Sessions(r.Context(), "", sessionListLimit)
 	if err != nil {
 		s.storeErr(w, "sessions.list", err)
 		return

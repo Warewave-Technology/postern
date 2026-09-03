@@ -1046,3 +1046,15 @@ export const api = {
     return req<FileHistory>("GET", `/api/admin/files?${q}`);
   },
 };
+
+/*
+ * SESSION_LIST_LIMIT, /api/admin/sessions'ın döndürdüğü EN FAZLA satır.
+ *
+ * ⚠️ SUNUCUYLA AYNI SAYI OLMAK ZORUNDA (internal/httpapi/admin.go,
+ * store.Sessions(ctx, "", sessionListLimit)). Panel "bu rakam eksik
+ * olabilir" derken tam olarak bu pencerenin dolup dolmadığına bakıyor;
+ * iki taraf ayrışırsa uyarı ya hiç çıkmaz ya da hep çıkar. Bir süre
+ * hep çıkıyordu: koşul sayıya hiç bakmıyordu ve dört oturumluk taze bir
+ * kurulumda bile "4+ — at least" yazıyordu.
+ */
+export const SESSION_LIST_LIMIT = 200;

@@ -48,6 +48,29 @@ func TestServerHostKeyRefusesSHA1(t *testing.T) {
 	cfg := testConfigNoDB(t)
 	cfg.HostKey = writeRSAHostKey(t)
 
+	/*
+	 * ⚠️ FixedHostKey, InsecureIgnoreHostKey DEĞİL — ve bu yalnızca
+	 * üslup değil.
+	 *
+	 * Hem açılış sayfası hem kurulum belgesi "InsecureIgnoreHostKey
+	 * hiçbir yerde çağrılmıyor, TESTLER DAHİL" diye MUTLAK bir iddiada
+	 * bulunuyor ve okuru doğrulamaya davet ediyor. Tek bir `git grep`
+	 * onu çürütüyordu — üstelik bulunduğu yer bir HOST ANAHTARI testi,
+	 * yani görünebileceği en kötü dosya.
+	 *
+	 * Testin konusu host key ALGORİTMA müzakeresi; anahtarın kendisini
+	 * sabitlemek ona hiçbir şey kaybettirmiyor. Sunucunun anahtarı
+	 * zaten elimizde: az önce yazdığımız dosya.
+	 */
+	hostPEM, rerr := os.ReadFile(cfg.HostKey)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	hostSigner, perr := ssh.ParsePrivateKey(hostPEM)
+	if perr != nil {
+		t.Fatal(perr)
+	}
+
 	srv, err := New(cfg, nil, testLogger())
 	if err != nil {
 		t.Fatalf("RSA host key'li sunucu kurulamadı: %v", err)
@@ -65,7 +88,7 @@ func TestServerHostKeyRefusesSHA1(t *testing.T) {
 		c, derr := ssh.Dial("tcp", l.Addr().String(), &ssh.ClientConfig{
 			User:              "yigit:web01",
 			Auth:              []ssh.AuthMethod{},
-			HostKeyCallback:   ssh.InsecureIgnoreHostKey(), //nolint:gosec // test: host key doğrulaması burada konu değil
+			HostKeyCallback:   ssh.FixedHostKey(hostSigner.PublicKey()),
 			HostKeyAlgorithms: algos,
 			Timeout:           10 * time.Second,
 		})
