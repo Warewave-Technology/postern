@@ -96,10 +96,62 @@ func TestUnstampedBuildSaysItIsNotARelease(t *testing.T) {
 		t.Fatalf("postern version: %v\n%s", err, out)
 	}
 	got := string(out)
-	if !strings.Contains(got, "not built from a release tag") {
-		t.Errorf("damgasız ikili kendini SÜRÜM ilan ediyor — belgeler ve "+
-			"goreleaser bunun olamayacağını söylüyor; çıktı:\n%s", got)
+
+	/*
+	 * ⚠️ AĞACIN ETİKETLİ OLUP OLMADIĞI SORULUYOR — VE SORULMADIĞI HÂLİ
+	 * SÜRÜMÜ TAMAMEN BLOKE EDİYORDU.
+	 *
+	 * Test "damgasız derleme uyarıyı basar" diye sabitlenmişti ve bu,
+	 * yalnızca HEAD etiketsizken doğru. Go, ana modülün sürümünü VCS'ten
+	 * türetiyor: etiketli bir commit'te -X olmadan derlenen ikili
+	 * etiketin KENDİSİNİ taşıyor, dolayısıyla uyarı çıkmıyor ve
+	 * doğrusu da bu.
+	 *
+	 * Bedeli ölçüldü: `git tag -a v1.0.0` atılmış bir kopyada bu test
+	 * düşüyor. release.yml'in verify işi `make ci` koşuyor ve release
+	 * işi `needs: verify` — yani ilk etiket, tam test takımını
+	 * koşturduktan sonra burada durur ve HİÇBİR sürüm üretilmezdi.
+	 * Etiket atılana kadar da görünmez: etiketsiz her commit'te Go
+	 * sahte sürüm gömüyor ve test geçiyor.
+	 *
+	 * İki dal da anlamlı, o yüzden ikisi de sınanıyor: etiketsizken
+	 * sahte sürümün etiket SAYILMADIĞI (testin yazılma sebebi),
+	 * etiketliyken gerçek etiketin SAYILDIĞI.
+	 */
+	tag := exactTag(t, goBin)
+	if tag == "" {
+		if !strings.Contains(got, "not built from a release tag") {
+			t.Errorf("damgasız ikili kendini SÜRÜM ilan ediyor — belgeler ve "+
+				"goreleaser bunun olamayacağını söylüyor; çıktı:\n%s", got)
+		}
+		return
 	}
+
+	if strings.Contains(got, "not built from a release tag") {
+		t.Errorf("HEAD %s etiketinde ama ikili kendini etiketsiz sanıyor — "+
+			"Go'nun gömdüğü gerçek etiket kabul edilmiyor; çıktı:\n%s", tag, got)
+	}
+	if !strings.Contains(got, tag) {
+		t.Errorf("ikili %s etiketini taşımıyor; çıktı:\n%s", tag, got)
+	}
+}
+
+// exactTag, HEAD tam olarak bir etikete oturuyorsa onun adını döner,
+// yoksa boş. git yoksa ya da burası bir çalışma kopyası değilse de boş:
+// o hâlde Go da VCS bilgisi gömmüyor ve "etiketsiz" doğru cevap.
+func exactTag(t *testing.T, goBin string) string {
+	t.Helper()
+	gitBin, err := exec.LookPath("git")
+	if err != nil {
+		return ""
+	}
+	cmd := exec.Command(gitBin, "describe", "--tags", "--exact-match", "HEAD")
+	cmd.Dir = repoRoot(t)
+	out, derr := cmd.Output()
+	if derr != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // repoRoot, go.mod'un bulunduğu dizini bulur.
