@@ -253,6 +253,29 @@ recordings.
 
 ### Changed
 
+- **The CLI's administrator lever now writes to the audit log.**
+  `postern settings set --key ldap.admin_group`, which revokes
+  administrator from the previous group and grants it to the next, and
+  `postern mapping add`/`remove`, which grant and revoke a role to a
+  whole directory group, wrote nothing to the ledger — so an
+  administrator change made from the host left no trace. They now record
+  it, with the same action names the panel uses.
+
+- **Retention deletions are always audited, even with archiving off.**
+  The recording.prune audit row was written only when an object store
+  was configured, so the ordinary retention-without-archive deployment
+  deleted recordings and recorded nothing — while the panel points the
+  auditor at the admin log for the reason. It is written on every path
+  now, and a recording whose session is still open is no longer pruned
+  mid-session.
+
+- **Sign-in lookups are case-insensitive everywhere.** The account row,
+  its state, its credential, its TOTP enrolment and its directory binding
+  were looked up case-sensitively although usernames are
+  case-insensitively unique — so the same account could be found by one
+  path and reported missing by another, and the break-glass door refused
+  a correct secret when the name's case differed.
+
 - **Shutdown waits for open sessions** instead of cutting them
   mid-flight. Beyond the interruption, the old behaviour meant
   `Session.Close` never ran: the audit row stayed "running" forever, the
