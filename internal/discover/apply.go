@@ -169,8 +169,10 @@ func (p Planner) Run(ctx context.Context, machines []Machine, apply bool) ([]Out
 				}
 				haveRole[o.Role] = true
 				o.CreatedRole = true
-				p.audit(ctx, "discover.role_created", o.Role,
-					"created from tag "+p.TagKey)
+				if aerr := p.audit(ctx, "discover.role_created", o.Role,
+					"created from tag "+p.TagKey); aerr != nil {
+					return out, aerr
+				}
 			}
 
 			if !o.Existing {
@@ -180,8 +182,10 @@ func (p Planner) Run(ctx context.Context, machines []Machine, apply bool) ([]Out
 					return out, fmt.Errorf("create target %q: %w", m.Name, cerr)
 				}
 				o.CreatedTarget = true
-				p.audit(ctx, "discover.target_created", m.Name,
-					fmt.Sprintf("%s:%d from %s", host, p.Port, m.Ref))
+				if aerr := p.audit(ctx, "discover.target_created", m.Name,
+					fmt.Sprintf("%s:%d from %s", host, p.Port, m.Ref)); aerr != nil {
+					return out, aerr
+				}
 			}
 
 			/*
@@ -219,8 +223,10 @@ func (p Planner) Run(ctx context.Context, machines []Machine, apply bool) ([]Out
 			}
 			if k := grantKey(o.Role, m.Name); !haveGrant[k] {
 				haveGrant[k] = true
-				p.audit(ctx, "role.grant", o.Role,
-					"target "+m.Name+" (from tag "+p.TagKey+")")
+				if aerr := p.audit(ctx, "role.grant", o.Role,
+					"target "+m.Name+" (from tag "+p.TagKey+")"); aerr != nil {
+					return out, aerr
+				}
 			}
 			o.Granted = true
 		}
@@ -238,15 +244,40 @@ func grantKey(role, target string) string {
 	return strings.ToLower(role) + "\x00" + strings.ToLower(target)
 }
 
-func (p Planner) audit(ctx context.Context, action, entity, details string) {
+/*
+ * audit, keşfin yaptığı bir değişikliği denetim kaydına yazar.
+ *
+ * ⚠️ HATA ARTIK YUTULMUYOR — VE YUTULDUĞU HÂLİ BU DOSYANIN KENDİSİ
+ * ANLAMSIZ KILIYORDU.
+ *
+ * Eski gerekçe "denetim satırı yazılamadı diye yarım kalmış bir keşif
+ * bırakmak, kaydı olmayan bir keşiften daha kötü" idi. O tartışma,
+ * yazılan satırlar yalnızca "rol yaratıldı"/"hedef yaratıldı" iken
+ * savunulabilirdi. Artık ERİŞİM VEREN satır da buradan geçiyor: yutmak,
+ * "hedefe erişim verildi ve defterde izi yok" demek — az önce
+ * kapatılan deliğin aynısı, başka bir sebeple.
+ *
+ * Ve aynı ikilideki cmd/postern/audit.go tam tersini yazıyor:
+ * "izlenemeyen bir değişiklik, yapılmamış bir değişiklikten daha
+ * kötü". Bir ikilide iki denetim politikası olamaz.
+ *
+ * ⚠️ YARIM KALMA ENDİŞESİ GEÇERSİZ: bu döngüdeki her yazma
+ * yeniden-çalıştırılabilir (CreateRole/CreateTarget ErrConflict'i
+ * tolere ediyor, GrantTarget ON CONFLICT DO NOTHING). Yani duran bir
+ * koşum yeniden koşularak tamamlanıyor. Üstelik LogAdmin düşüyorsa
+ * veritabanının kendisi arızalı — kaydedemeyen bir veritabanına karşı
+ * erişim dağıtmaya devam etmek, bu projenin her yerde reddettiği şey.
+ */
+func (p Planner) audit(ctx context.Context, action, entity, details string) error {
 	if p.DB == nil {
-		return
+		return nil
 	}
-	// Hatası akışı DÜŞÜRMÜYOR: denetim satırı yazılamadı diye yarım
-	// kalmış bir keşif bırakmak, kaydı olmayan bir keşiften daha kötü.
-	_ = p.DB.LogAdmin(ctx, store.AdminLogEntry{
+	if err := p.DB.LogAdmin(ctx, store.AdminLogEntry{
 		Actor: p.Actor, Via: "cli", Action: action, Entity: entity, Details: details,
-	})
+	}); err != nil {
+		return fmt.Errorf("audit %s %q: %w", action, entity, err)
+	}
+	return nil
 }
 
 func fingerprint(authorized string) string {

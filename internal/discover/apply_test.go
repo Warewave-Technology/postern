@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"database/sql"
 	"net"
 	"strings"
 	"testing"
@@ -56,8 +57,16 @@ func fakeSSH(t *testing.T) (host string, port int) {
 
 // newStore, göçleri uygulanmış boş bir veritabanı.
 func newStore(t *testing.T) *store.Store {
+	s, _ := newStoreDSN(t)
+	return s
+}
+
+// newStoreDSN, aynısını DSN'i de vererek döner: bir testin tek bir
+// tabloyu düşürmek için ikinci bir bağlantı açması gerekebiliyor.
+func newStoreDSN(t *testing.T) (*store.Store, string) {
 	t.Helper()
-	s, err := store.Open(context.Background(), testdb.DSN(t))
+	dsn := testdb.DSN(t)
+	s, err := store.Open(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -65,7 +74,7 @@ func newStore(t *testing.T) *store.Store {
 	if err := s.Migrate(context.Background()); err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
-	return s
+	return s, dsn
 }
 
 /*
@@ -429,4 +438,49 @@ func grantRows(t *testing.T, db *store.Store) []store.AdminLogEntry {
 		}
 	}
 	return out
+}
+
+/*
+ * ⚠️ DENETİM YAZILAMIYORSA KEŞİF DEVAM ETMEZ.
+ *
+ * Hata bir süre yutuluyordu ve gerekçesi "yarım kalmış bir keşif,
+ * kaydı olmayan bir keşiften daha kötü" idi. O tartışma yazılan
+ * satırlar yalnızca oluşturma satırlarıyken savunulabilirdi; erişim
+ * VEREN satır da oradan geçtiğine göre yutmak, "erişim verildi ve
+ * defterde izi yok" demek.
+ *
+ * Yarım kalma endişesi de geçersiz: döngüdeki her yazma yeniden
+ * çalıştırılabilir, yani duran koşum yeniden koşularak tamamlanıyor.
+ *
+ * Test admin_log tablosunu düşürerek LogAdmin'i gerçekten
+ * başarısızlaştırıyor — hatayı taklit etmek, taşınıp taşınmadığını
+ * değil taklidin kendisini ölçerdi.
+ */
+func TestDiscoveryStopsWhenTheLedgerCannotBeWritten(t *testing.T) {
+	ctx := context.Background()
+	db, dsn := newStoreDSN(t)
+	host, port := fakeSSH(t)
+
+	// ⚠️ Tabloyu GERÇEKTEN düşürüyoruz, ayrı bir bağlantıdan: tek bir
+	// sorgunun çökmesini istiyoruz, bağlantının tamamının değil.
+	raw, oerr := sql.Open("pgx", dsn)
+	if oerr != nil {
+		t.Fatal(oerr)
+	}
+	defer raw.Close()
+	if _, derr := raw.Exec(`DROP TABLE admin_log;`); derr != nil {
+		t.Fatalf("admin_log düşürülemedi: %v", derr)
+	}
+
+	p := Planner{DB: db, TagKey: "role", Port: port, Actor: "yigit"}
+	_, err := p.Run(ctx, []Machine{
+		{Name: "web-01", Host: host, Tags: []string{"role=ops"}, Running: true, Ref: "qemu/101@n1"},
+	}, true)
+	if err == nil {
+		t.Fatal("denetim kaydı yazılamazken keşif sessizce devam etti — " +
+			"erişim dağıtıyor ve defterde izi yok")
+	}
+	if !strings.Contains(err.Error(), "audit") {
+		t.Errorf("hata denetimden bahsetmiyor: %v", err)
+	}
 }

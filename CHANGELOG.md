@@ -141,11 +141,17 @@ recordings.
   timed-out probe could not even record its own timeout, because the
   audit write shared the probe's deadline.
 
-- **`postern discover --apply` writes its grants to the audit ledger.**
-  It is the one path that hands out target access, and re-tagging a
-  machine — the case the grant re-runs for — left no row at all, so
-  "who gave prod access to web01?" had no answer. Re-running an
-  unchanged discovery still writes nothing.
+- **`postern discover --apply` writes its grants to the audit ledger,
+  and stops if it cannot.** It is the one path that hands out target
+  access, and re-tagging a machine — the case the grant re-runs for —
+  left no row at all, so "who gave prod access to web01?" had no answer.
+  Re-running an unchanged discovery still writes nothing. Discovery also
+  used to swallow a failed ledger write; now that the row that records
+  access goes through the same helper, swallowing it would mean "access
+  granted, no trace" — the very thing above. A run that cannot write to
+  the ledger now stops with an error. Every write it does is
+  re-runnable, so re-running finishes the job once the database is
+  healthy.
 
 - **The bulk-revocation ceilings can no longer be raised from the
   panel.** See *Needs action* below.
