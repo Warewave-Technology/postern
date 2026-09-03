@@ -67,6 +67,29 @@ type Broker struct {
 	// abortErr, denetimi çökerten sebep. Run bunu döndürüyor.
 	abortErr error
 
+	/*
+	 * answering, İSTEMCİDEN gelen bir isteğin cevaplanmasıyla kapanışın
+	 * çakışmasını engelliyor.
+	 *
+	 * ⚠️ ÖLÇÜLDÜ, tahmin değil: `echo hello` gibi anında biten bir
+	 * komutta hedef, biz istemciye "exec kabul edildi" cevabını
+	 * geçirmeye fırsat bulmadan çıktısını yazıyor, exit-status'ü
+	 * gönderiyor ve kanalı kapatıyor. Beklenen üç akış da bittiği için
+	 * Run kapanışa geçiyor ve b.down.Close(), istemcinin kanalını exec
+	 * cevabı yoldayken kesiyordu.
+	 *
+	 * İstemci tarafındaki görüntüsü: KOMUT ÇALIŞMIŞ ve çıktısı kanala
+	 * YAZILMIŞ olmasına rağmen `sess.Output` → EOF. Yani aslında
+	 * başarılı olan bir komut, ağ arızasından ayırt edilemeyen bir
+	 * kopuşa dönüşüyor.
+	 *
+	 * Yarış, cevabı gönderen goroutine'in Run'ın beklediği üçlünün
+	 * DIŞINDA olmasından geliyor ve o bilinçli (bkz. Run: sessiz bir
+	 * istemci oturumu sonsuza kadar açık tutmasın). Kilit o goroutine'in
+	 * bitmesini beklemiyor, yalnızca ELİNDEKİ isteği bitirmesini.
+	 */
+	answering sync.Mutex
+
 	logger *slog.Logger
 }
 
@@ -289,9 +312,14 @@ func (b *Broker) Run(ctx context.Context) error {
 		close(wgCloseSignal)
 	}()
 
+	// graceful, oturumun kendi kendine bittiğini söylüyor (hedef kapattı
+	// ya da kullanıcı çıktı) — zorla kesilmedi. Aşağıdaki bekleme
+	// yalnızca bu dalda güvenli.
+	var graceful bool
 	select {
 	case <-ctx.Done():
 	case <-wgCloseSignal:
+		graceful = true
 	case <-b.aborted:
 	}
 
@@ -325,6 +353,32 @@ func (b *Broker) Run(ctx context.Context) error {
 	 * bir an önce kapatmanın zararı yok.
 	 */
 	b.up.Close()
+
+	/*
+	 * ⚠️ İSTEMCİNİN KANALI, CEVABI YOLDAYKEN KAPANMASIN (bkz. answering).
+	 *
+	 * Boş kritik bölge KASITLI: burada korunacak bir veri yok, beklenecek
+	 * bir iş var — kilidi tutan relayRequests'in elindeki isteği
+	 * bitirmesi.
+	 *
+	 * ⚠️ YALNIZCA graceful'DA ve up.Close()'DAN SONRA. İkisi de
+	 * beklemenin sonlu olmasının şartı:
+	 *
+	 *  - graceful, hedefin request akışının kapandığı anlamına geliyor;
+	 *    yani karşı taraftan close ALINMIŞ ve bekleyen bir SendRequest
+	 *    çoktan serbest kalmış. Kendi Close()'umuzun kendi okumamızı
+	 *    uyandırmadığı ölçüldü (yukarıdaki nota bakın) — zorla kesmede
+	 *    hedef hâlâ canlı ve sessiz olabilir, orada beklemek yöneticinin
+	 *    kesme düğmesini hedefin insafına bırakırdı.
+	 *
+	 *  - up kapalıyken devam eden forwardRequest hedefi beklemiyor;
+	 *    cevap ise istemcinin hâlâ açık olan kanalına yazılıyor.
+	 */
+	if graceful {
+		b.answering.Lock()
+		b.answering.Unlock()
+	}
+
 	b.down.Close()
 
 	/*
@@ -368,51 +422,71 @@ func (b *Broker) Run(ctx context.Context) error {
 // düşer; gönderen zaten cevap beklemiyor.
 func (b *Broker) relayRequests(dst ssh.Channel, src <-chan *ssh.Request, dir direction, observe bool) {
 	for req := range src {
-		if ok, reason := b.policy.allow(dir, req); !ok {
-			// Warn seviyesi: bu bir teşhis satırı değil, denetim
-			// olayı. Operatör "kim sftp denedi" sorusunu buradan
-			// cevaplayacak.
-			b.logger.Warn("session request denied",
-				"direction", dir.String(),
-				"req.type", req.Type,
-				"reason", reason,
-			)
-
-			if req.WantReply {
-				if err := req.Reply(false, nil); err != nil {
-					b.logger.Debug("request denial reply failed",
-						"error", err,
-						"req.type", req.Type,
-					)
-				}
-			}
-			continue
+		/*
+		 * ⚠️ İSTEMCİ YÖNÜ KİLİTLİ İŞLENİYOR: bir isteğin cevabı
+		 * gönderilmeden kapanış başlayamasın (bkz. answering).
+		 * Reddedilen istekler de dahil — "hayır" da bir cevaptır ve
+		 * kaybolursa istemci reddi değil kopuk bir bağlantı görür.
+		 *
+		 * Hedef yönü kilitlenmiyor: o akış Run'ın beklediği üç
+		 * goroutine'den biri, yani kapanıştan zaten önce bitiyor.
+		 */
+		if dir == fromClient {
+			b.answering.Lock()
 		}
+		b.relayOne(dst, req, dir, observe)
+		if dir == fromClient {
+			b.answering.Unlock()
+		}
+	}
+}
 
-		res, err := forwardRequest(dst, req)
+// relayOne filters one request, forwards it to the far end and sends back
+// whatever answer its sender is waiting for.
+func (b *Broker) relayOne(dst ssh.Channel, req *ssh.Request, dir direction, observe bool) {
+	if ok, reason := b.policy.allow(dir, req); !ok {
+		// Warn seviyesi: bu bir teşhis satırı değil, denetim olayı.
+		// Operatör "kim sftp denedi" sorusunu buradan cevaplayacak.
+		b.logger.Warn("session request denied",
+			"direction", dir.String(),
+			"req.type", req.Type,
+			"reason", reason,
+		)
+
+		if req.WantReply {
+			if err := req.Reply(false, nil); err != nil {
+				b.logger.Debug("request denial reply failed",
+					"error", err,
+					"req.type", req.Type,
+				)
+			}
+		}
+		return
+	}
+
+	res, err := forwardRequest(dst, req)
+	if err != nil {
+		b.logger.Debug("request forward failed",
+			"error", err,
+			"direction", dir.String(),
+			"req.type", req.Type,
+		)
+	}
+
+	if observe {
+		b.recordResize(req)
+		b.recordIntent(req)
+		b.beginSFTP(req)
+	}
+
+	if req.WantReply {
+		err = req.Reply(res, nil)
 		if err != nil {
-			b.logger.Debug("request forward failed",
+			b.logger.Debug("request reply failed",
 				"error", err,
 				"direction", dir.String(),
 				"req.type", req.Type,
 			)
-		}
-
-		if observe {
-			b.recordResize(req)
-			b.recordIntent(req)
-			b.beginSFTP(req)
-		}
-
-		if req.WantReply {
-			err = req.Reply(res, nil)
-			if err != nil {
-				b.logger.Debug("request reply failed",
-					"error", err,
-					"direction", dir.String(),
-					"req.type", req.Type,
-				)
-			}
 		}
 	}
 }

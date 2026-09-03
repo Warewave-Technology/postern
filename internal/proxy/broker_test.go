@@ -61,6 +61,12 @@ type fakeChannel struct {
 	sent       []sentReq
 	closed     bool
 	closeWrite bool
+
+	// gate/entered, SendRequest'i testin kontrolüne verir: entered
+	// "istek bana ulaştı", gate ise "artık cevaplayabilirsin" demek.
+	// Aradaki pencere, gerçekte hedefin cevabını beklediğimiz an.
+	gate    chan struct{}
+	entered chan struct{}
 }
 
 func newFakeChannel() (ch *fakeChannel, feedData, feedStderr *io.PipeWriter) {
@@ -103,9 +109,34 @@ func (c *fakeChannel) CloseWrite() error {
 
 func (c *fakeChannel) SendRequest(name string, wantReply bool, payload []byte) (bool, error) {
 	c.mu.Lock()
+	gate, entered := c.gate, c.entered
+	c.mu.Unlock()
+
+	if gate != nil {
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+		<-gate
+	}
+
+	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.sent = append(c.sent, sentReq{name: name, wantReply: wantReply, payload: payload})
 	return true, nil
+}
+
+// holdRequests, bu kanala gelen request'leri release çağrılana kadar
+// bekletir. entered, ilk request'in ulaştığını haber verir.
+//
+// Run'dan ÖNCE çağrılmalı.
+func (c *fakeChannel) holdRequests() (entered <-chan struct{}, release func()) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.gate = make(chan struct{})
+	c.entered = make(chan struct{}, 1)
+	g := c.gate
+	return c.entered, sync.OnceFunc(func() { close(g) })
 }
 
 func (c *fakeChannel) Stderr() io.ReadWriter {
@@ -131,6 +162,131 @@ func (c *fakeChannel) isCloseWritten() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.closeWrite
+}
+
+/*
+ * TestBrokerDoesNotCloseWhileAnsweringClient, kapanışın istemcinin
+ * cevabını kesmediğini ölçüyor.
+ *
+ * ⚠️ CANLI SSH İLE YAKALANMIYOR. `echo hello` 120 kez koşturuldu
+ * (yüklü makinede, eşzamanlı da) ve pencere bir kez bile
+ * kaçırılmadı — ama yarış gerçek ve tam olarak bu sırayla oluyor.
+ * Bu yüzden pencere burada sahte kanalla ZORLA açık tutuluyor:
+ * "bazen düşen" bir test, düşünce kimsenin inanmadığı bir testtir.
+ */
+func TestBrokerDoesNotCloseWhileAnsweringClient(t *testing.T) {
+	down, _, _ := newFakeChannel()
+	up, feedUp, feedUpErr := newFakeChannel()
+	downR := make(chan *ssh.Request)
+	upR := make(chan *ssh.Request)
+
+	// Hedefe iletim burada duracak: istek gitti, cevabı henüz yok.
+	//
+	// WantReply=false: ssh.Request.Reply gerçek bir bağlantı ister
+	// (alanları paket-içi), sahte kanalla çağrılamaz. Sınanan şey zaten
+	// bir alt katman — "istek işlenirken kapatma" — ve cevabın
+	// gönderilmesi o pencerenin içinde.
+	entered, release := up.holdRequests()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- New(down, downR, up, upR, nil, false, RequestPolicy{}, testLogger()).Run(context.Background())
+	}()
+
+	select {
+	case downR <- &ssh.Request{Type: "exec", Payload: ssh.Marshal(struct{ Command string }{"echo hello"})}:
+	case <-time.After(2 * time.Second):
+		t.Fatal("downR'den okuyan yok — Run istemcinin request akışını dinlemiyor")
+	}
+
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("exec hedefe iletilmedi")
+	}
+
+	// Hedef tarafı BİTTİ: çıktı, stderr ve request akışı kapandı.
+	// Broker'ın beklediği üç goroutine de burada dönüyor.
+	feedUp.Close()
+	feedUpErr.Close()
+	close(upR)
+
+	// Kusurlu sürüm tam burada istemcinin kanalını kapatıyordu.
+	time.Sleep(50 * time.Millisecond)
+	if down.isClosed() {
+		t.Fatal("istemcinin kanalı, isteği cevaplanmadan kapatıldı — cevap yolda kalır ve istemci komutu EOF ile düşer")
+	}
+
+	release()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("cevap verildikten sonra Run dönmedi")
+	}
+
+	if !down.isClosed() {
+		t.Error("oturum bitti ama istemcinin kanalı kapatılmadı")
+	}
+
+	var forwarded bool
+	for _, r := range up.sentRequests() {
+		if r.name == "exec" {
+			forwarded = true
+		}
+	}
+	if !forwarded {
+		t.Error("exec hedefe hiç gitmemiş — test yanlış şeyi bekliyor")
+	}
+}
+
+/*
+ * TestForcedCloseDoesNotWaitForTheTarget, düzeltmenin yöneticinin kesme
+ * düğmesini hedefe bağlamadığını ölçüyor.
+ *
+ * ⚠️ BU TEST DÜZELTMENİN KENDİ RİSKİ İÇİN VAR. Kapanışta bir isteğin
+ * bitmesini beklemek, yanlış yere konursa oturumu SESSİZ BİR HEDEFİN
+ * insafına bırakırdı: ctx iptal edilir, admin "kestim" sanır, kabuk
+ * yaşamaya devam eder. Bekleme bu yüzden yalnızca graceful dalda.
+ */
+func TestForcedCloseDoesNotWaitForTheTarget(t *testing.T) {
+	down, _, _ := newFakeChannel()
+	up, _, _ := newFakeChannel()
+	downR := make(chan *ssh.Request)
+	upR := make(chan *ssh.Request)
+
+	// Hedef cevap vermiyor ve HİÇ vermeyecek: release çağrılmıyor.
+	entered, _ := up.holdRequests()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- New(down, downR, up, upR, nil, false, RequestPolicy{}, testLogger()).Run(ctx)
+	}()
+
+	select {
+	case downR <- &ssh.Request{Type: "exec", Payload: ssh.Marshal(struct{ Command string }{"sleep 3600"})}:
+	case <-time.After(2 * time.Second):
+		t.Fatal("downR'den okuyan yok")
+	}
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("exec hedefe iletilmedi")
+	}
+
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("oturum zorla kesildi ama Run, sessiz hedefin cevabını bekliyor — kesme düğmesi hedefe bağlanmış")
+	}
 }
 
 func testLogger() *slog.Logger {
