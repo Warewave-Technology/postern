@@ -15,7 +15,16 @@ CREATE TABLE target_facts (
   -- Dağıtım ve yama seviyesi için en güvenilir tek ipucu.
   server_version  TEXT NOT NULL DEFAULT '',
 
-  -- Pinlenmiş anahtarın türü (ssh-ed25519, rsa-sha2-512 …).
+  -- Pinlenmiş anahtarın TEL TÜRÜ: ssh-ed25519, ssh-rsa,
+  -- ecdsa-sha2-nistp256 …
+  --
+  -- ⚠️ MÜZAKERE EDİLEN İMZA ALGORİTMASI DEĞİL. Burada eskiden örnek
+  -- olarak "rsa-sha2-512" yazıyordu ve o değer buraya HİÇ yazılamaz:
+  -- tek yazan yer upstream/dial.go ve pinlenmiş anahtarın pub.Type()'ını
+  -- koyuyor. RSA bir anahtar rsa-sha2-512 ile imzalansa da tel üzerinde
+  -- "ssh-rsa" olarak duruyor (RFC 8332 imzayı değiştirdi, formatı
+  -- değil). Yanlış örnek, "RSA host key'i olan hedefleri bul" diye
+  -- sorgu yazan kişiye boş sonuç döndürürdü.
   host_key_type   TEXT NOT NULL DEFAULT '',
 
   -- Son BAŞARILI bağlantı ve o bağlantının el sıkışma süresi.
