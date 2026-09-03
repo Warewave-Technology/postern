@@ -333,9 +333,9 @@ $ cosign verify-blob checksums.txt \
 
       <h3>1b. Or build from source</h3>
 <pre>$ git clone https://github.com/warewave/postern &amp;&amp; cd postern
-$ make build          <span class="c"># builds the panel and embeds it in the binary</span>
+$ make build          <span class="c"># embeds the panel bundle that is committed to the repo</span>
 </pre>
-      <div class="note"><b>Note</b><p>The panel is compiled into the binary with <code>go:embed</code>. Rebuilding the web assets alone does not change a running server — you need a new binary.</p></div>
+      <div class="note"><b>Note</b><p>The panel is compiled into the binary with <code>go:embed</code>, from <code>web/dist</code> — which is committed, so a fresh clone builds the right panel without Node installed. <code>make build</code> does not rebuild it. If you change anything under <code>web/src</code>, run <code>make web</code> first: without it the binary silently embeds the previous bundle, and nothing warns you. CI catches a bundle that has drifted from its source, which is the only reason the committed copy can be trusted.</p><p>Rebuilding the web assets alone does not change a running server either — you need a new binary.</p></div>
 
       <h3>2. Database</h3>
 <pre>CREATE ROLE postern LOGIN PASSWORD 'choose-one';
