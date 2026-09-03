@@ -37,3 +37,8 @@ coverage.out
 # 35 test paketinin 29'u "failed: true" olarak duruyordu — bir Go
 # güvenlik ürününün kökünde, hiçbir açıklama olmadan.
 node_modules/
+
+# ⚠️ Ajan araçlarının açtığı git worktree'leri: makineye özel, projeye
+# ait değil. .claude/launch.json BİLEREK takip ediliyor (önizleme
+# yapılandırması), worktree'ler değil.
+.claude/worktrees/

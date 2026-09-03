@@ -96,8 +96,18 @@ notices-check: notices
 		 git --no-pager diff --stat THIRD-PARTY-NOTICES.md; exit 1)
 
 # gofmt bir şey değiştirecek mi? CI'da "değiştirdi" demek yerine düşmeli.
+# ⚠️ .claude/ TARANMIYOR — ve tarandigi hâlin bedeli ölçüldü.
+#
+# gofmt bir DOSYA SİSTEMİ gezgini: `./...` gibi modülle sınırlı değil.
+# .claude/worktrees altında ajan araçlarının açtığı ayrı git
+# worktree'leri duruyor; onların kendi go.mod'u var, bu modüle ait
+# değiller ve içerikleri buradan yönetilmiyor. Onları taramak yerel
+# kapıyı CI'dan DAHA KATI yapıyordu: GitHub temiz bir checkout alıyor,
+# orada o dizin hiç yok. Yani `make ci` yerelde düşerken CI yeşildi —
+# "CI'ın koştuğunun aynısı" iddiasının tersten ihlali.
 lint:
-	@test -z "$$(gofmt -l . | tee /dev/stderr)" || (echo "gofmt gerekli"; exit 1)
+	@bad="$$(gofmt -l . | /usr/bin/grep -v '^\.claude/' || true)"; \
+		test -z "$$bad" || (echo "$$bad"; echo "gofmt gerekli"; exit 1)
 
 # gosec: statik güvenlik taraması.
 #
