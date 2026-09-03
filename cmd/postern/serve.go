@@ -128,14 +128,18 @@ func newServeCmd() *cobra.Command {
 			 * ended_at gerçek bitişten sonrasını gösteriyor ve o
 			 * satırların süresi olduğundan uzun görünecek.
 			 */
-			if n, cerr := db.CloseOrphanSessions(ctx, time.Now()); cerr != nil {
+			if n, q, cerr := db.CloseOrphanSessions(ctx, time.Now()); cerr != nil {
 				// Kapatamamak başlamayı engellemez: eldeki iş, hayalet
 				// satırları temizlemekten daha önemli.
 				logger.Error("could not close orphaned session rows", "error", cerr)
 			} else if n > 0 {
+				// ⚠️ q AYRICA LOGLANIYOR: çökme anında açık olan
+				// oturumların kaydı ancak burada arşiv kuyruğuna giriyor
+				// (Close hiç çalışmadı). Sayı, "kaç kayıt yüklemeye
+				// yeniden alındı" demek.
 				logger.Warn("closed session rows left open by an earlier run; "+
 					"their recorded duration is longer than the real one",
-					"rows", n)
+					"rows", n, "requeued_for_archive", q)
 			}
 
 			// ÇÖZÜLMÜŞ değerler loglanıyor, ham config değil: "0 =

@@ -20,7 +20,9 @@ func TestCloseOrphanSessions(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 	seedSession(t, s)
-	startAt(t, s, "sess-acik", time.Now().Add(-2*time.Hour))
+	// ⚠️ Kaydı OLAN sahipsiz oturum: çökme anında açıktı, Close hiç
+	// çalışmadı. arşiv kuyruğuna ancak burada girmeli.
+	startAtRec(t, s, "sess-acik", time.Now().Add(-2*time.Hour), "rec/sess-acik.cast")
 	startAt(t, s, "sess-kapali", time.Now().Add(-3*time.Hour))
 	if err := s.EndSession(ctx, "sess-kapali", time.Now().Add(-time.Hour)); err != nil {
 		t.Fatal(err)
@@ -35,12 +37,26 @@ func TestCloseOrphanSessions(t *testing.T) {
 	}
 
 	at := time.Now()
-	n, err := s.CloseOrphanSessions(ctx, at)
+	n, q, err := s.CloseOrphanSessions(ctx, at)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if n != 1 {
 		t.Fatalf("kapanan satır = %d, 1 bekleniyordu", n)
+	}
+	if q != 1 {
+		t.Fatalf("arşive alınan = %d, 1 bekleniyordu", q)
+	}
+
+	// ⚠️ ASIL İDDİA: kaydı olan sahipsiz oturum arşiv kuyruğuna girmiş
+	// olmalı. Girmezse kayıt bir daha yüklenmez, ArchiveBacklog onu
+	// saymaz ("bekleyen yok") ve budayıcı arşivlenmemiş diye dokunmaz —
+	// yani çökmenin kayıtları ölen makinede kalır.
+	if _, queued, aerr := s.ArchiveStateOf(ctx, "sess-acik"); aerr != nil {
+		t.Fatal(aerr)
+	} else if !queued {
+		t.Error("SAHİPSİZ KAYIT ARŞİV KUYRUĞUNA GİRMEDİ: yeniden başlatma " +
+			"onu diskte kaybediyor")
 	}
 
 	// ⚠️ KAPANMIŞ SATIRA DOKUNULMAMALI: ikinci kez damgalamak, gerçek
@@ -53,9 +69,10 @@ func TestCloseOrphanSessions(t *testing.T) {
 		t.Error("zaten kapalı satırın bitiş zamanı üzerine yazıldı")
 	}
 
-	// İkinci çağrı hiçbir şey yapmamalı.
-	if n2, err := s.CloseOrphanSessions(ctx, at); err != nil || n2 != 0 {
-		t.Errorf("ikinci çağrı = %d, %v", n2, err)
+	// İkinci çağrı hiçbir şey yapmamalı — kapatma da, kuyruğa yazma da
+	// idempotent (ON CONFLICT DO NOTHING).
+	if n2, q2, err := s.CloseOrphanSessions(ctx, at); err != nil || n2 != 0 || q2 != 0 {
+		t.Errorf("ikinci çağrı = kapanan %d, kuyruk %d, %v", n2, q2, err)
 	}
 	if again, _ := s.OpenSessions(ctx); len(again) != 0 {
 		t.Errorf("hâlâ açık satır var: %+v", again)
@@ -121,9 +138,17 @@ func TestOpenSessionsFindsSessionsPastTheHistoryWindow(t *testing.T) {
 // startAt, belirli bir başlangıç zamanıyla oturum satırı açar.
 func startAt(t *testing.T, s *Store, id string, at time.Time) {
 	t.Helper()
+	startAtRec(t, s, id, at, "")
+}
+
+// startAtRec, kaydı olan bir oturum açar: arşiv kuyruğuna girmesi
+// recording_path'in dolu olmasına bağlı.
+func startAtRec(t *testing.T, s *Store, id string, at time.Time, recPath string) {
+	t.Helper()
 	if err := s.StartSession(context.Background(), SessionStart{
 		ID: id, Username: "yigit", TargetName: "web01",
 		OSUser: "yigit", SrcIP: "10.0.0.1", StartedAt: at,
+		RecordingPath: recPath,
 	}); err != nil {
 		t.Fatal(err)
 	}
