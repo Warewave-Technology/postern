@@ -162,7 +162,14 @@ export default function TargetPage({ me, name }: { me: Me; name: string }) {
               statement that you have never connected to it.
             </p>
           ) : t.sessions.length === 0 ? (
-            <p className="state">You have not connected to this host yet.</p>
+            /* ⚠️ PENCERE DOLDUYSA "HİÇ BAĞLANMADIN" DEME: tarama tüm
+               hedeflerin son N oturumuna bakıyor ve bu hedefinkiler
+               pencerenin dışında kalmış olabilir. */
+            <p className="state">
+              {t.sessions_partial
+                ? `No session to this host among your last ${t.sessions_scanned ?? 200} — older ones may exist.`
+                : "You have not connected to this host yet."}
+            </p>
           ) : (
             <table className="data">
               <thead>

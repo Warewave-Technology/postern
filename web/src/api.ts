@@ -213,6 +213,12 @@ export type MyTargetDetail = MyTarget & {
   }[];
   /** Geçmiş okunamadı; boş listeyle karıştırılmamalı. */
   sessions_error?: boolean;
+  /**
+   * Tarama penceresi doldu: bu hedefin oturumları pencerenin dışında
+   * kalmış olabilir. Boş liste bu bayrakla "hiç bağlanmadın" demiyor.
+   */
+  sessions_partial?: boolean;
+  sessions_scanned?: number;
 };
 
 /** ScannedKey, bir adresteki makinenin O ANDA sunduğu host key.

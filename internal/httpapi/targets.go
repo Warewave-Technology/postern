@@ -503,6 +503,7 @@ func (s *Server) handleMyTargetDetail(w http.ResponseWriter, r *http.Request) {
 	// aynı ayrımın CEVAPTA da olmasıydı. Log'a yazılan bir uyarı
 	// kullanıcının ekranında görünmüyor.
 	sessionsErr := false
+	sessionsPartial := false
 	if all, serr := s.store.Sessions(r.Context(), me, sessionScanLimit); serr == nil {
 		for _, sn := range all {
 			if !strings.EqualFold(sn.Target, tgt.Name) {
@@ -521,6 +522,10 @@ func (s *Server) handleMyTargetDetail(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
+		// ⚠️ PENCERE DOLDUYSA "HİÇ BAĞLANMADIN" DEME. adminTargetDetail
+		// ile aynı: tarama tüm hedeflerin son N oturumuna bakıp süzüyor,
+		// bu hedefin oturumları pencerenin dışında kalmış olabilir.
+		sessionsPartial = len(all) >= sessionScanLimit
 	} else {
 		// Geçmiş okunamadı: detayı düşürmüyoruz ama sessiz de
 		// geçmiyoruz — boş liste "hiç bağlanmadın" demek, "bakamadık"
@@ -539,5 +544,9 @@ func (s *Server) handleMyTargetDetail(w http.ResponseWriter, r *http.Request) {
 		// sessions_error: geçmiş okunamadı. Boş listeyle
 		// karıştırılmamalı.
 		"sessions_error": sessionsErr,
+		// sessions_partial: tarama penceresi doldu; boş liste "hiç
+		// bağlanmadın" demek değil.
+		"sessions_partial": sessionsPartial,
+		"sessions_scanned": sessionScanLimit,
 	})
 }

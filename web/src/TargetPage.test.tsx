@@ -170,4 +170,25 @@ describe("oturum geçmişi okunamadığında", () => {
       ).toBeTruthy(),
     );
   });
+
+  /*
+   * ⚠️ TARAMA PENCERESİ DOLDUYSA "HİÇ BAĞLANMADIN" DEME.
+   *
+   * Tarama tüm hedeflerin son N oturumuna bakıp süzüyor; bu hedefin
+   * oturumları pencerenin dışında kalmış olabilir. Boş liste + partial
+   * bayrağı "hiç bağlanmadın" değil "son N'de yok" demeli.
+   */
+  it("pencere dolduysa 'hiç bağlanmadın' demez", async () => {
+    vi.spyOn(api, "myTarget").mockResolvedValue(
+      detail({ sessions_partial: true, sessions_scanned: 200 }),
+    );
+    render(<TargetPage me={me} name="web-01" />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/among your last 200/i)).toBeTruthy(),
+    );
+    expect(
+      screen.queryByText(/have not connected to this host yet/i),
+    ).toBeNull();
+  });
 });
