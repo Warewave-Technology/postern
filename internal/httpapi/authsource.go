@@ -78,6 +78,19 @@ func (s *Server) adminAuthSourceStatus(w http.ResponseWriter, r *http.Request) {
 	// HİÇBİRİNİN EŞLEŞMEMESİ: LDAP "sysadmins" der, OIDC claim'i
 	// bambaşka bir şey; sonuç "grup gelmiyor" ile birebir aynı görünür
 	// ve herkes sessizce rolsüz kalır.
+	/*
+	 * ⚠️ ÇÖKEN SORGU EKRANA DA SÖYLENİYOR — log'a yazmak yetmiyordu.
+	 *
+	 * ÖLÇÜLEN ARIZA: hata yalnızca log'a düşüyor, uç ise
+	 * `unseen_mappings: null` dönüyordu. Panel bunu boş listeyle aynı
+	 * çiziyor, yani "kontrol ettim, hepsi yerinde" ile "bakamadım"
+	 * ekranda BİREBİR aynı görünüyordu.
+	 *
+	 * Burada olması özellikle kötü: bu ekranın tek işi giriş kaynağını
+	 * değiştirmeye karar vermek ve o, ürünün en kilitlenme eğilimli
+	 * işlemi. Sessiz bir "sorun yok", tam da uyarının okunması gereken
+	 * anda okunmuyor.
+	 */
 	stale, serr := s.staleMappings(r.Context())
 	if serr != nil {
 		s.logger.Error("mapping check failed", "error", serr)
@@ -103,6 +116,10 @@ func (s *Server) adminAuthSourceStatus(w http.ResponseWriter, r *http.Request) {
 		"options": opts,
 		// Aktif kaynakta karşılığı GÖRÜLMEMİŞ eşlemeler.
 		"unseen_mappings": stale,
+		// ...ve bu listenin çıkarılıp çıkarılamadığı. Boş liste ile
+		// "bakamadım" ayrı şeyler; ikisini tek alanla anlatmak,
+		// panelde tam olarak yanlış cümleyi yazdırıyordu.
+		"unseen_error": serr != nil,
 	})
 }
 

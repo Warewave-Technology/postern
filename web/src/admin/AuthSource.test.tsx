@@ -268,3 +268,49 @@ describe("hesap politikası", () => {
     expect(set).toHaveBeenCalledWith("auth.delete_after", "180d");
   });
 });
+
+/*
+ * ⚠️ "BAKAMADIM", "SORUN YOK" DEĞİLDİR — VE BURADA FARK EN PAHALISI.
+ *
+ * Eşleme kontrolü çöktüğünde uç `unseen_mappings` alanını boş
+ * bırakıyordu ve panel hiçbir şey çizmiyordu: ekran, kontrolün
+ * çalışıp temiz çıktığı hâlle BİREBİR aynı görünüyordu.
+ *
+ * Bu ekranın tek işi giriş kaynağını değiştirmeye karar vermek ve o,
+ * ürünün en kilitlenme eğilimli işlemi. Sessiz bir "sorun yok", tam da
+ * uyarının okunması gereken anda okunmuyordu.
+ */
+describe("eslemeler okunamadiginda", () => {
+  it("bakamadigini soyler, 'hepsi yerinde' demez", async () => {
+    vi.spyOn(api, "authSource").mockResolvedValue(
+      status({ unseen_error: true }),
+    );
+    vi.spyOn(api, "settings").mockResolvedValue([] as Setting[]);
+
+    render(<AuthSource />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/mapping check could not run/i),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  // Karşı taraf: kontrol çalışıp temiz çıktığında ekran sessiz kalmalı.
+  // Olmasaydı, uyarıyı her zaman gösteren bir düzeltme de testi geçerdi.
+  it("kontrol calisip temiz ciktiginda sessiz kalir", async () => {
+    vi.spyOn(api, "authSource").mockResolvedValue(
+      status({ unseen_mappings: [] }),
+    );
+    vi.spyOn(api, "settings").mockResolvedValue([] as Setting[]);
+
+    render(<AuthSource />);
+
+    // Ekranın YÜKLENDİĞİNİ bekle, sonra uyarının olmadığını doğrula:
+    // yüklenmeden bakmak, her düzeltmeyi geçiren bir test olurdu.
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /^sign-in$/i })).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/mapping check could not run/i)).toBeNull();
+  });
+});

@@ -98,6 +98,22 @@ export default function AuthSource() {
             kalır ama hiçbiri tutmaz. Sonuç "grup gelmiyor" ile birebir
             aynı görünür ve operatör yanlış yerde arar.
           */}
+          {/*
+            ⚠️ ÖNCE "BAKAMADIM". Sıra tersine olsaydı çıkarılamayan bir
+            liste yine sessiz kalır ve ekran "hepsi yerinde" derdi —
+            düzeltmenin tamamı bu sırada.
+          */}
+          {status.unseen_error && (
+            <p className="msg msg-warn" role="status">
+              <b>The mapping check could not run.</b> That is not the same as
+              every mapping being fine — it means this screen cannot tell you
+              either way. A source change keeps your mappings but not the group
+              names behind them, and the result looks exactly like a source that
+              sends no groups at all. Refresh once the database is answering,
+              and read this before switching.
+            </p>
+          )}
+
           {!!status.unseen_mappings?.length && (
             <p className="msg msg-warn" role="status">
               <b>

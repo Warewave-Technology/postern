@@ -432,6 +432,16 @@ export type AuthSourceStatus = {
    * aynı görünür. Bu liste o sessiz hâli görünür kılıyor.
    */
   unseen_mappings?: string[];
+
+  /*
+   * unseen_error: yukarıdaki liste ÇIKARILAMADI.
+   *
+   * ⚠️ Boş liste ile bakılamamış liste ayrı şeyler ve bu ekranda fark
+   * kritik: tek işi giriş kaynağını değiştirmeye karar vermek. Sorgu
+   * çöktüğünde sessiz kalmak, "kontrol ettim, hepsi yerinde" demekle
+   * aynı ekranı çiziyordu.
+   */
+  unseen_error?: boolean;
 };
 
 // MyKey, kullanıcının kendi açık anahtarı.
