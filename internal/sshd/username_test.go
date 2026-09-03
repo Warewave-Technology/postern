@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// S1.3 tablosu — postern-PLAN.md'deki 8 senaryo. Hedef: tablo geçiyor ve
+// S1.3 tablosu — docs/history/postern-PLAN.md'deki 8 senaryo. Hedef: tablo geçiyor ve
 // username.go %100 kapsamada (go test ./internal/sshd/ -cover ile bak).
 func TestParseUsername(t *testing.T) {
 	cases := []struct {

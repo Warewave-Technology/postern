@@ -428,7 +428,7 @@ type RecordingConfig struct {
 	Dir string `yaml:"dir"` // session recordings root
 
 	// RecordInput defaults to false on purpose: keystrokes include
-	// passwords. See postern-PLAN.md S1.7, design note 4.
+	// passwords. See docs/history/postern-PLAN.md S1.7, design note 4.
 	RecordInput bool `yaml:"record_input"`
 
 	/*

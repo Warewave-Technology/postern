@@ -7,17 +7,58 @@ Certificate-based, session-recording SSH bastion in a single Go binary. A
 deliberately minimal take on the Teleport idea: one protocol, one node, one
 binary.
 
-**Status: in development.** The proxy, certificate model, persistence, RBAC,
+**1.0 — SSH and SFTP.** The proxy, certificate model, persistence, RBAC,
 session recording, the admin panel, OIDC and LDAP sign-in, and directory-backed
-identity are built and exercised against real OpenSSH, Keycloak and OpenLDAP.
-The roadmap lives in
-[postern-PLAN.md](postern-PLAN.md) (Turkish).
+identity are built and exercised against real OpenSSH, Keycloak and OpenLDAP on
+every change. 1.0 means "we think this is right", not "this has run in twenty
+companies for three years". What it deliberately does *not* do is listed at
+[Limits of 1.0](https://postern.warewave.tech/docs/#limits) — read that before
+deploying.
+
+**[Documentation](https://postern.warewave.tech/docs/)** ·
+[Install](https://postern.warewave.tech/docs/#install) ·
+[Production checklist](https://postern.warewave.tech/docs/#checklist) ·
+[Security policy](SECURITY.md)
+
+## Install
+
+Download a release — one static binary per platform, with the panel compiled
+in — and check it against the signed checksums:
+
+```bash
+curl -LO https://github.com/Warewave-Technology/postern/releases/latest/download/postern_1.0.0_linux_amd64.tar.gz
+curl -LO https://github.com/Warewave-Technology/postern/releases/latest/download/checksums.txt
+sha256sum -c checksums.txt --ignore-missing
+```
+
+The checksums file is signed with a cosign keyless signature, so there is no
+public key to look after — the signature is bound to this repository and the
+workflow that built it. The exact `cosign verify-blob` invocation is in the
+release notes and in
+[the install docs](https://postern.warewave.tech/docs/#install); take it from
+there rather than from memory, because the identity it pins has to match the
+repository that produced the artifact.
+
+Or build it:
+
+```bash
+git clone https://github.com/Warewave-Technology/postern && cd postern
+make build
+```
+
+`postern version` prints the tag it was built from, the commit, and whether
+that commit's tree was clean. A build that did not come from a release tag says
+so rather than inventing a number.
+
+Then follow [Setting up](#setting-up) below, or the fuller
+[install documentation](https://postern.warewave.tech/docs/#install).
 
 Release notes and upgrade steps live in [CHANGELOG.md](CHANGELOG.md).
 Read the *Needs action* section before upgrading — a setting that
 silently stops being honoured is worse than one that refuses to start.
-Cutting a release is [RELEASING.md](RELEASING.md); verifying a
-downloaded one is in the release notes and the install docs.
+Cutting a release is [RELEASING.md](RELEASING.md). The original build plan,
+written before the code existed, is kept for history in
+[docs/history/](docs/history/) and is not current process.
 
 ## What it does today
 

@@ -13,7 +13,7 @@ import (
 // Validate anahtar sözdizimini denetlediği için sahte string kullanılamaz.
 const ()
 
-// S1.1 test tablosu — postern-PLAN.md'deki 5 senaryo + olmayan config dosyası.
+// S1.1 test tablosu — docs/history/postern-PLAN.md'deki 5 senaryo + olmayan config dosyası.
 // Bu tablo Load/Validate implementasyonunun sözleşmesidir: hepsi yeşile
 // dönünce S1.1'in test ayağı bitmiş demektir.
 func TestLoad(t *testing.T) {
