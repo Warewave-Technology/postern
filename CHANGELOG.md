@@ -151,14 +151,20 @@ recordings.
   reason instead of connecting over SHA-1. To find them:
 
   ```sql
-  SELECT t.name, t.host, f.server_version
-  FROM targets t JOIN target_facts f ON f.target_id = t.id
-  WHERE f.host_key_type = 'ssh-rsa';
+  SELECT t.name, t.host, COALESCE(f.server_version, '(never connected)')
+  FROM targets t LEFT JOIN target_facts f ON f.target_id = t.id
+  WHERE t.host_key LIKE 'ssh-rsa %';
   ```
 
-  A row here is a target that *has* an RSA host key; only the ones on
-  pre-7.2 sshd are at risk, and the `server_version` column tells you
-  which.
+  A row here is a target with an RSA host key pinned; only the ones on
+  pre-7.2 sshd are at risk, and `server_version` tells you which. Rows
+  showing `(never connected)` are ones postern has not successfully
+  reached yet, so it has no banner for them — check those by hand.
+
+  The query reads the pin rather than the recorded banner deliberately:
+  `host_key_type` is only written after a *successful* connection, so a
+  query driven off it silently skips exactly the targets most likely to
+  be broken.
 
 - **Run `postern db migrate`.** The schema is at 31. The bastion refuses
   to start against an older one, so this is a failed start rather than a
