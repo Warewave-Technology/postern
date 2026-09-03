@@ -71,14 +71,35 @@ func Get() Info {
 		GoVersion: runtime.Version(),
 		Platform:  runtime.GOOS + "/" + runtime.GOARCH,
 	}
+
+	bi, ok := debug.ReadBuildInfo()
+	if !ok {
+		if i.Version == "" {
+			i.Version = "dev"
+		}
+		return i
+	}
+
+	/*
+	 * ⚠️ ldflag BOŞSA, GO'NUN KENDİ GÖMDÜĞÜ SÜRÜME DÜŞ.
+	 *
+	 * `go install module@v1.2.3` ldflag basmıyor ama Go, etiketi
+	 * bi.Main.Version'a koyuyor. Eskiden bunu yok sayıyorduk: bir
+	 * etiketten `go install` ile kurulmuş ikili "not a tagged build"
+	 * diyordu — Tagged alanının kendi yorumu ("etiketi biliyoruz")
+	 * ile çelişen bir yalan.
+	 *
+	 * "(devel)" bir etiket değil (etiketsiz `go build`); onu atlıyoruz.
+	 * "+dirty" ekini kırpıyoruz — kirlilik zaten ayrı alanda (Dirty).
+	 */
+	if i.Version == "" && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+		i.Version = strings.TrimSuffix(bi.Main.Version, "+dirty")
+		i.Tagged = true
+	}
 	if i.Version == "" {
 		i.Version = "dev"
 	}
 
-	bi, ok := debug.ReadBuildInfo()
-	if !ok {
-		return i
-	}
 	for _, s := range bi.Settings {
 		switch s.Key {
 		case "vcs.revision":

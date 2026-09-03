@@ -85,3 +85,22 @@ func TestGetWorksWithoutVCSInfo(t *testing.T) {
 		t.Errorf("derleme bilgisi eksik: %+v", i)
 	}
 }
+
+/*
+ * ⚠️ ldflag BOŞ + BuildInfo YOK → "dev", VE etiketsiz.
+ *
+ * Get()'in Main.Version dalı eklendikten sonra bu yolun bozulmadığını
+ * ölçüyor: buildinfo okunamayan bir bağlamda (ör. `go test` süreci)
+ * sürüm "dev" kalmalı ve Tagged false olmalı — bir geliştirme koşusu
+ * kendini sürüm sanmamalı.
+ */
+func TestGetFallsBackToDevWhenUnstamped(t *testing.T) {
+	i := Get()
+	// Bu test ikilisi ldflag ile damgalanmıyor.
+	if i.Tagged {
+		t.Errorf("damgasız test ikilisi Tagged=true dedi: %+v", i)
+	}
+	if i.Version == "" {
+		t.Error("Version boş kaldı — Short()/String() boş sürüm gösterir")
+	}
+}
