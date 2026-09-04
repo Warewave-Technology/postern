@@ -368,6 +368,17 @@ $ sudo install -o root -g root -m 0755 postern /usr/local/bin/postern   <span cl
       <div class="note"><b>Ask a binary what it is</b><p><code>postern version</code> prints the tag it was built from, the commit, and whether that commit's tree was clean. A build that did not come from a release tag says so rather than inventing a number, and a binary built from a modified tree is marked <code>MODIFIED</code> — which is the distinction that matters when you are checking whether a patch is really in the thing you are running. <code>go version -m ./postern</code> lists the dependency versions it was compiled with.</p></div>
 
       <h3>1b. Or build from source</h3>
+      <p>
+        Needs <b>Go 1.26.6 or newer</b>. That floor is a security decision, not
+        a preference: the standard library is compiled into the binary, so the
+        minimum Go version is the set of standard-library fixes you get. CI
+        installs exactly what <code>go.mod</code> names — the version is not
+        pinned a second time where it could drift — and <code>make vuln</code>
+        fails the build if anything reachable is outstanding. With the default
+        <code>GOTOOLCHAIN=auto</code>, Go fetches a suitable toolchain on its
+        own; with <code>GOTOOLCHAIN=local</code> and an older Go, the build
+        stops and names the version it wants.
+      </p>
 <pre>$ git clone https://github.com/Warewave-Technology/postern &amp;&amp; cd postern
 $ make build          <span class="c"># embeds the panel bundle that is committed to the repo</span>
 </pre>
