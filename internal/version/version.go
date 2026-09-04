@@ -67,12 +67,31 @@ type Info struct {
 /*
  * pseudoVersion, Go'nun etiketsiz bir commit için ürettiği sürüm.
  *
- * Üç biçimi de (vX.0.0-<ts>-<hash>, vX.Y.Z-pre.0.<ts>-<hash>,
- * vX.Y.Z-0.<ts>-<hash>) aynı kuyrukla bitiyor: 14 haneli zaman damgası
- * ve 12 haneli commit öneki. Kuyruğu aramak üçünü birden yakalıyor ve
- * yeni bir bağımlılık (x/mod) getirmiyor.
+ * Üç biçimi de aynı kuyrukla bitiyor — 14 haneli zaman damgası ve 12
+ * haneli commit öneki — ama damgadan ÖNCEKİ ayraç değişiyor:
+ *
+ *   v0.0.0-20260903172313-67c66c03fa77       (hiç etiket yok)   -> '-'
+ *   v1.0.1-0.20260904054242-7004bc5920a8     (etiketten sonra)  -> '.'
+ *   v1.2.3-pre.0.20260904054242-7004bc59     (ön sürümden sonra)-> '.'
+ *
+ * ⚠️ DESEN BİR SÜRE YALNIZCA '-' KABUL EDİYORDU ve yukarıdaki yorum
+ * üç biçimi doğru sayarken kod yalnızca birincisini yakalıyordu.
+ * Görülmemesinin sebebi deponun HİÇ ETİKETİ OLMAMASIYDI: o hâlde Go
+ * her zaman birinci biçimi üretiyor. İlk etiket atılır atılmaz ikinci
+ * biçim geldi ve damgasız derleme kendini sürüm ilan etti —
+ * `postern v1.0.1-0.20260904054242-7004bc5920a8`, uyarı satırı yok.
+ * Yani etiketten sonraki HER commit'in ikilisi kendini sürüm sanacaktı.
  */
-var pseudoVersion = regexp.MustCompile(`-[0-9]{14}-[0-9a-f]{12}$`)
+var pseudoVersion = regexp.MustCompile(`[-.][0-9]{14}-[0-9a-f]{12}$`)
+
+// IsRelease, verilen sürüm metninin GERÇEK bir etiket olup olmadığını
+// söyler — yani Go'nun ürettiği bir sahte sürüm değil. Dışa açık, çünkü
+// deseni doğrudan sınayan test var: uçtan uca test yalnızca deponun o
+// anki durumunun ürettiği biçimi görebiliyor ve kaçan hata tam da
+// görülmeyen biçimdeydi.
+func IsRelease(v string) bool {
+	return v != "" && v != "(devel)" && !pseudoVersion.MatchString(v)
+}
 
 // Get, çalışan ikilinin bilgisini toplar.
 func Get() Info {
@@ -128,7 +147,7 @@ func Get() Info {
 	 */
 	if i.Version == "" && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
 		i.Version = strings.TrimSuffix(bi.Main.Version, "+dirty")
-		i.Tagged = !pseudoVersion.MatchString(i.Version)
+		i.Tagged = IsRelease(i.Version)
 	}
 	if i.Version == "" {
 		i.Version = "dev"

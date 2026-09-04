@@ -104,3 +104,39 @@ func TestGetFallsBackToDevWhenUnstamped(t *testing.T) {
 		t.Error("Version boş kaldı — Short()/String() boş sürüm gösterir")
 	}
 }
+
+/*
+ * ⚠️ SAHTE SÜRÜM DESENİ, ÜÇ BİÇİMİN ÜÇÜNDE DE SINANIYOR.
+ *
+ * Desen bir süre yalnızca `-<zaman>-<hash>` kuyruğunu yakalıyordu ve
+ * bu, depoda HİÇ ETİKET YOKKEN hiçbir zaman yanlış çıkmıyor: o hâlde Go
+ * her zaman v0.0.0-<zaman>-<hash> üretiyor. İlk etiket atıldığı anda
+ * biçim v1.0.1-0.<zaman>-<hash>'e döndü — damgadan önce nokta — ve
+ * damgasız derleme kendini SÜRÜM ilan etti.
+ *
+ * Uçtan uca test bunu göremezdi: o yalnızca deponun O ANKİ durumunun
+ * ürettiği biçimi görüyor. Desenin kendisi doğrudan sınanmak zorunda.
+ */
+func TestPseudoVersionsAreNotMistakenForTags(t *testing.T) {
+	pseudo := []string{
+		"v0.0.0-20260903172313-67c66c03fa77",       // hiç etiket yok
+		"v1.0.1-0.20260904054242-7004bc5920a8",     // etiketten sonra
+		"v1.2.3-pre.0.20260904054242-7004bc5920a8", // ön sürümden sonra
+		"v2.0.0-0.20260101000000-000000000000",
+	}
+	for _, v := range pseudo {
+		if IsRelease(v) {
+			t.Errorf("%q sahte sürüm ama ETİKET sayıldı — o commit'ten "+
+				"derlenen ikili kendini sürüm ilan eder", v)
+		}
+	}
+
+	// Karşı taraf: gerçek etiketler etiket sayılmalı, yoksa `go install
+	// module@v1.2.3` ile kurulan ikili kendini etiketsiz sanır.
+	tags := []string{"v1.0.0", "v1.0.1", "v2.3.4", "v1.0.0-rc.1", "v1.0.0-beta"}
+	for _, v := range tags {
+		if !IsRelease(v) {
+			t.Errorf("%q gerçek bir etiket ama sahte sürüm sayıldı", v)
+		}
+	}
+}
