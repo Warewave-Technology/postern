@@ -245,7 +245,7 @@ $ ssh <span class="g">yigit:web-01</span>@bastion
         <li><strong>SSH and SFTP only.</strong> No HTTP, RDP, VNC, MySQL, PostgreSQL or Kubernetes proxying.</li>
         <li><strong>One node.</strong> No clustering and no shared state between instances. Recordings are files on the bastion's disk; finished ones can be copied to an S3-compatible bucket, but the bucket is a copy, not a second bastion.</li>
         <li><strong>No port forwarding.</strong> <code>direct-tcpip</code> is refused; a tunnel postern cannot record is a tunnel it will not carry.</li>
-        <li><strong>TOTP only</strong> for the second factor — no WebAuthn, no push.</li>
+        <li><strong>TOTP is a step-up factor, not a sign-in factor.</strong> It is asked for when somebody adds a further SSH key. Signing in to the panel has no second factor of its own: SSO and directory accounts get whatever the identity provider enforces, and the break-glass account has only its secret. No WebAuthn, no push.</li>
         <li><strong>No agent on the target.</strong> That is the point, and it is also the limit: postern sees the SSH channel, not the processes behind it.</li>
       </ul>
     </div>
@@ -255,6 +255,13 @@ $ ssh <span class="g">yigit:web-01</span>@bastion
       every change — but 1.0 means "we think this is right", not "this has run
       in twenty companies for three years".
     </p>
+      <p style="margin-top:1rem">
+        <a href="docs/index.html#compare">How postern compares</a> puts that
+        next to Teleport, Warpgate, Boundary, AWS Session Manager and a plain
+        jump host — including the rows postern loses — and
+        <a href="docs/index.html#roadmap">the roadmap</a> says which of them
+        we intend to change.
+      </p>
   </div>
 </section>
 
@@ -268,7 +275,7 @@ $ ssh <span class="g">yigit:web-01</span>@bastion
       <tr><td>Recordings</td><td>Plain asciicast files on disk, one per session, pruned on a retention you set — and, if you point postern at a bucket, copied there before anything local is deleted.</td></tr>
       <tr><td>On each target</td><td>One line of <code>sshd_config</code> trusting postern's CA. No daemon, no package.</td></tr>
     </table>
-    <p style="margin-top:1.4rem">Nine Go modules at runtime and four in the panel — direct dependencies; twenty packages once their own are counted. Nothing is pulled in that could be written in an afternoon and tested in a morning — the TOTP, QR and SFTP-audit code is postern's own, checked against the RFC test vectors and a reference encoder.</p>
+    <p style="margin-top:1.4rem">Ten Go modules at runtime and four in the panel — direct dependencies; twenty once their own are counted, and every one of their licences travels in the release archive. Nothing is pulled in that could be written in an afternoon and tested in a morning — the TOTP, QR and SFTP-audit code is postern's own, checked against the RFC test vectors and a reference encoder.</p>
   </div>
 </section>
 

@@ -122,6 +122,14 @@
   .note b { color: var(--link); } .warn b { color: var(--warn); } .stop b { color: var(--bad); }
 
   table { width: 100%; border-collapse: collapse; margin: 1.1rem 0; font-size: 14.5px; display: block; overflow-x: auto; }
+  /* ⚠️ Karşılaştırma tablosunun ilk sütunu SATIR BAŞLIĞI: sayfanın genel
+     "ilk hücre sarmasın" kuralı burada çok geniş bir sütun üretiyordu. */
+  .cmp td:first-child { white-space: normal; font-weight: 600; color: var(--ink); min-width: 8.5rem; }
+  .cmp td, .cmp th { font-size: 13.5px; }
+  .fn { font-size: 13px; color: var(--muted); padding-left: 1.2rem; margin: .3rem 0 0; }
+  .fn li { margin-bottom: .3rem; }
+  .note-src { font-size: 13px; color: var(--dim); border-top: 1px solid var(--line-soft);
+              padding-top: .9rem; margin-top: 1.7rem; }
   th, td { text-align: left; padding: .55rem .7rem; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
   th { color: var(--dim); font-weight: 550; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
   td:first-child { white-space: nowrap; }
@@ -229,6 +237,8 @@
     <a href="#refuse">What postern refuses</a>
     <a href="#trouble">Troubleshooting</a>
     <a href="#limits">Limits of 1.0</a>
+    <a href="#compare">How postern compares</a>
+    <a href="#roadmap">Roadmap</a>
   </aside>
 
   <main>
@@ -1183,7 +1193,7 @@ $ postern admin issue  --name admin --config postern.yaml
       <ul>
         <li><b>SSH and SFTP only.</b> No HTTP, RDP, VNC, database or Kubernetes proxying.</li>
         <li><b>Single node.</b> No clustering or shared state. Recordings are local files; the archive copies finished ones to a bucket but does not make a second node possible.</li>
-        <li><b>TOTP only</b> as a second factor — no WebAuthn, no push.</li>
+        <li><b>TOTP is a step-up factor, not a sign-in factor.</b> It is asked for when somebody adds a further SSH key — the moment that matters, because a new key is how a stolen account is kept. Signing in to the panel has no second factor of its own: SSO and directory accounts get whatever the identity provider enforces, and the break-glass account has only its secret. No WebAuthn, no push.</li>
         <li><b>No port forwarding</b>, by design.</li>
         <li><b>No integrity seal on recordings.</b> A recording is evidence of what happened, not proof it was not altered afterwards — no hash chain, no signature. Deliberate: anyone able to rewrite the files already owns the bastion, and a chain computed and stored on that same machine is one they can recompute. The archive's protection comes from the bucket instead (versioning, Object Lock), which is why <code>archive check</code> reports on it.</li>
         <li><b>Closing a session reaches only this process.</b> A second postern against the same database is not asked and cannot be told; the panel answers "not running on this instance" rather than pretending. That startup sweep would also close the other instance's live rows — one more reason 1.0 means one node.</li>
@@ -1196,6 +1206,272 @@ $ postern admin issue  --name admin --config postern.yaml
         of production behind it. Treat it as a careful new tool, and keep the
         second way in.
       </p>
+    </section>
+
+        <section id="compare">
+      <h2>How postern compares</h2>
+      <p class="lede">
+        We wrote this, so read it that way. Every row comes from the other
+        product's own documentation or licence file, and the row we would
+        most like to leave out is the first one.
+      </p>
+
+      <div class="stop">
+        <b>Start with the row that goes against us: age</b>
+        <p>
+          postern's first commit is 10 August 2026. It has no production
+          deployments we know of, no external security audit, and no years of
+          somebody else's incidents behind it. Teleport has been going for
+          about a decade, Warpgate for years, Boundary and AWS Session Manager
+          run at a scale we have never seen. If "has survived somewhere else
+          for a long time" is on your list — and for a bastion it reasonably
+          is — postern fails that test today and nothing below changes it.
+        </p>
+      </div>
+
+      <table class="cmp">
+        <thead>
+          <tr>
+            <th></th><th>postern</th><th>Teleport</th><th>Warpgate</th>
+            <th>Boundary</th><th>AWS&nbsp;SSM</th><th>OpenSSH&nbsp;jump&nbsp;host</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Protocols</td>
+            <td>SSH, SFTP</td><td>SSH, Kubernetes, databases, web, RDP</td>
+            <td>SSH, HTTP, Kubernetes, MySQL, PostgreSQL, RDP, VNC</td>
+            <td>SSH, RDP, raw TCP</td><td>Shell, SSH tunnel, port forwarding</td><td>SSH</td>
+          </tr>
+          <tr>
+            <td>On each target</td>
+            <td>Two <code>sshd_config</code> lines</td><td>Agent, or agentless for OpenSSH</td>
+            <td>Nothing</td><td>Nothing</td><td>SSM Agent</td>
+            <td><code>authorized_keys</code>, per user</td>
+          </tr>
+          <tr>
+            <td>Licence you self-host</td>
+            <td><b>Apache&nbsp;2.0</b></td>
+            <td>AGPL&nbsp;3.0 source; binaries only under 100 staff and $10M<sup>1</sup></td>
+            <td>Apache&nbsp;2.0</td><td>BUSL&nbsp;1.1</td><td>Managed service</td><td>BSD</td>
+          </tr>
+          <tr>
+            <td>OIDC and LDAP, unpaid</td>
+            <td><b>Both</b></td><td>Enterprise<sup>2</sup></td><td>Both</td><td>Both</td>
+            <td>IAM</td><td>Neither</td>
+          </tr>
+          <tr>
+            <td>Recording tamper-evidence</td>
+            <td><b>None</b> &mdash; <a href="#roadmap">1.2</a></td><td>None documented<sup>3</sup></td>
+            <td>None documented</td><td><b>Sum and signature</b></td>
+            <td>None documented</td><td>Nothing recorded</td>
+          </tr>
+          <tr>
+            <td>Per-command allow or deny</td>
+            <td><b>None</b> &mdash; <a href="#roadmap">1.1</a></td><td>None documented<sup>4</sup></td>
+            <td>None &mdash; &ldquo;an audit aid, not a security boundary&rdquo;</td>
+            <td>None documented</td><td>Whole predefined commands</td>
+            <td><code>ForceCommand</code>, one command</td>
+          </tr>
+          <tr>
+            <td>What you run</td>
+            <td>One binary, PostgreSQL</td><td>One host up; a control plane always</td>
+            <td>One binary</td><td>Controller, worker, PostgreSQL</td>
+            <td>Nothing</td><td>One <code>sshd</code></td>
+          </tr>
+        </tbody>
+      </table>
+      <ol class="fn">
+        <li>The source stays AGPL&nbsp;3.0 and anyone may compile it. The prebuilt
+          Community binaries carry a separate licence available only to
+          organisations with fewer than 100 employees <em>and</em> under $10M in
+          annual revenue.</li>
+        <li>Community has local accounts and GitHub. SAML and OIDC connectors are
+          an Enterprise feature.</li>
+        <li>Encryption at rest <em>is</em> documented — envelope encryption with
+          key rotation. What is not documented is a way to tell that a recording
+          was altered. postern has neither.</li>
+        <li>Not the same as no control: file copy and port forwarding can be
+          denied outright, locks kill sessions cluster-wide, eBPF records each
+          command without blocking it, and Enterprise moderation can pause or
+          end a live session.</li>
+      </ol>
+
+      <h3>Reach for something else when</h3>
+      <ul>
+        <li><b>You need more than SSH.</b> Warpgate is the closest thing to
+          postern in shape — Apache 2.0, nothing on the target, one binary —
+          and it also proxies HTTP, Kubernetes, MySQL, PostgreSQL, RDP and VNC.
+          If breadth is the requirement, that is the honest recommendation.</li>
+        <li><b>You have to prove a recording was not edited.</b> Boundary signs
+          each one. postern does not, says so on this page, and has it on the
+          roadmap — which is not the same as having it.</li>
+        <li><b>Your machines are EC2 or ECS.</b> Session Manager needs no
+          bastion, no open port and no server of yours at all.</li>
+        <li><b>You want certificates but no proxy in the path.</b> step-ca
+          issues SSH certificates and then gets out of the way. postern sits in
+          the connection on purpose — that is how it records — and that is a
+          throughput and blast-radius decision you should make deliberately.</li>
+        <li><b>You need port forwarding, X11 or agent forwarding.</b> postern
+          refuses all three. A plain OpenSSH jump host gives you every one.</li>
+      </ul>
+
+      <h3>What postern does that led us to build it anyway</h3>
+      <ul>
+        <li><b>A session that cannot be recorded does not start.</b> Recording
+          is not a setting that fails open.</li>
+        <li><b>File transfer is audited per file</b>, with the bytes that
+          actually crossed, and a refused transfer stays in the record as a
+          refusal.</li>
+        <li><b>Default deny on the SSH channel itself.</b> Unknown request
+          types do not reach the target, so an extension added to SSH next year
+          does not cross this bridge before we have decided about it.</li>
+        <li><b>Targets hold no key of yours.</b> One CA line in
+          <code>sshd_config</code>, a fresh certificate per session, valid for
+          five minutes, never written to disk.</li>
+        <li><b>Apache 2.0 with no asterisk</b> — no employee count, no revenue
+          threshold, no feature behind a tier.</li>
+      </ul>
+
+      <p class="note-src">
+        Sources, read on 4 September 2026: Teleport's
+        <a href="https://github.com/gravitational/teleport/blob/master/build.assets/LICENSE-community">Community Edition licence</a>
+        and <a href="https://goteleport.com/docs/reference/access-controls/authentication/">authentication reference</a>;
+        <a href="https://github.com/warp-tech/warpgate">Warpgate's repository</a>;
+        <a href="https://developer.hashicorp.com/boundary/docs">Boundary's documentation</a>;
+        <a href="https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager.html">AWS Session Manager's user guide</a>;
+        and the OpenSSH manual pages. Where a product's documentation did not
+        answer a row, we wrote "none documented" rather than "none" — the two
+        are different, and only one of them is a claim about their product.
+      </p>
+    </section>
+
+    <section id="roadmap">
+      <h2>Roadmap</h2>
+      <p class="lede">
+        Version numbers, not dates. Each entry says what would have to become
+        true, and a few say plainly what we will <em>not</em> build even though
+        people ask.
+      </p>
+
+      <h3>1.1 — Saying which commands may run</h3>
+      <p>
+        The largest gap between postern and a tool an auditor is happy with.
+        Today every session is recorded; none is constrained. 1.1 adds a
+        command policy attached to a role, and it is deliberately built around
+        what SSH lets a proxy actually enforce.
+      </p>
+      <ul>
+        <li>
+          <b>An allow-list or deny-list on <code>exec</code>.</b> When a client
+          runs <code>ssh you:web-01@bastion systemctl restart nginx</code>, the
+          command arrives as the payload of an <code>exec</code> request, and
+          postern reads that payload before anything reaches the target. A
+          refusal there is a real refusal: the command never runs. The
+          <a href="#refuse">request filter</a> is already the place this belongs —
+          it defaults to deny and parses payloads today.
+        </li>
+        <li>
+          <b>Interactive shells become a separate permission.</b> A role can be
+          marked exec-only, and then <code>shell</code> is refused outright.
+          This is the enforceable half of command control, and it is the half
+          that matters: if a person has an interactive shell, they have a shell.
+        </li>
+        <li>
+          <b>Refusals are recorded as refusals</b>, the way the SFTP audit
+          already keeps a denied transfer as a denied transfer rather than
+          dropping it.
+        </li>
+      </ul>
+      <div class="stop">
+        <b>What we will not ship: a deny-list for interactive shells</b>
+        <p>
+          Inside an interactive session postern sees a byte stream, not
+          commands. A pattern match on that stream is defeated by an alias, a
+          shell builtin, a here-doc, <code>base64 -d | sh</code>, or a slow
+          typist splitting a word across two packets. Shipping it would put a
+          control in the panel that reads as enforcement and is not — the exact
+          failure this project spends its time removing. Deny the shell, or
+          record it and read the recording. We would rather say that than sell
+          a filter that a determined person walks past.
+        </p>
+      </div>
+
+      <h3>1.2 — Recordings you can prove were not edited</h3>
+      <p>
+        <a href="#limits">Limits of 1.0</a> is blunt that there is no integrity
+        seal, and the reasoning stands: a hash chain computed and stored on the
+        bastion is one that whoever owns the bastion can recompute. The way out
+        is not a better chain, it is an anchor somewhere the bastion cannot
+        reach.
+      </p>
+      <ul>
+        <li>A hash chain over each finished recording, with the head written to
+          the archive bucket under Object Lock and, optionally, pushed to an
+          endpoint outside the machine.</li>
+        <li>Verification that names what it proves: a recording matches its
+          chain, and the chain head matches the copy the bastion could not
+          rewrite. Anything weaker gets said out loud rather than implied.</li>
+      </ul>
+
+      <h3>1.3 — Second factors that are not TOTP</h3>
+      <p>
+        WebAuthn and passkeys — both as a step-up factor alongside TOTP, and as a
+        sign-in factor, which postern does not have at all today. A local
+        break-glass account signs in with a secret and nothing else.
+      </p>
+
+      <h3>1.4 — Access that expires on its own</h3>
+      <ul>
+        <li><b>Time-boxed grants.</b> A role on a person, or a target on a role,
+          with an end time — so "for this incident" does not quietly become
+          permanent. Today revocation is a decision somebody has to remember to
+          make.</li>
+        <li><b>Approval before a class of target.</b> A second administrator
+          releases the grant, and both names land in the audit trail.</li>
+      </ul>
+
+      <h3>1.5 — Telling the systems that watch</h3>
+      <p>
+        The audit ledger and session events are readable from the panel and
+        <code>postern log</code>. 1.5 pushes them out: a webhook and a syslog
+        writer, with the same rule the ledger already follows — a delivery that
+        cannot be made is reported, never silently dropped.
+      </p>
+
+      <h3>1.6 — A command that checks the install</h3>
+      <p>
+        One preflight that answers what <a href="#trouble">Troubleshooting</a>
+        currently answers by hand: is the schema current, is the CA readable, is
+        the secret key in place, does each target's pinned host key still match
+        the machine, and does the target trust this CA. Most of that is already
+        measured somewhere in the product; it is not in one place a person can
+        run before an outage rather than during one.
+      </p>
+
+      <h3>2.0 — More than one node</h3>
+      <p>
+        Single node is the limit with the longest shadow: closing a session
+        reaches only the process holding it, the startup sweep assumes it is
+        alone, and recordings are local files. Fixing that means session
+        ownership, a way to reach the instance holding a session, and recordings
+        that are not tied to one disk. It is a different product underneath, so
+        it gets a major number rather than a minor one.
+      </p>
+
+      <h3>Asked for, and deliberately not planned</h3>
+      <ul>
+        <li><b>RDP, HTTP, databases, Kubernetes.</b> Each is a second protocol
+          to record faithfully and a second way to be wrong about what happened.
+          <a href="#limits">One protocol, done properly</a> is the whole idea.</li>
+        <li><b>An agent on the target.</b> The absence of one is the product.</li>
+        <li><b>Port forwarding.</b> A tunnel postern cannot record is a tunnel
+          it will not carry. If this ever changes it will be a narrow, recorded,
+          named-destination form — not <code>-L</code> as you know it.</li>
+        <li><b>A container image.</b> The systemd unit is itself a security
+          boundary with a long list of sandboxing directives. An image is a
+          second supported surface and should be a decision, not a side effect.</li>
+      </ul>
     </section>
 
     <footer>
