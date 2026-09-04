@@ -120,13 +120,32 @@ checksum:
 #
 # ⚠️ SNAPSHOT'TA ATLANIYOR: `make release-snapshot` --skip=sign ile
 # koşuyor, yoksa yerelde cosign ve bir OIDC kimliği gerekirdi.
+# ⚠️ TEK BİR SİGSTORE PAKETİ, AYRI .sig/.pem DEĞİL — VE BUNU BİR SÜRÜM
+# DENEMESİ ÖĞRETTİ.
+#
+# Burada `--output-signature` ve `--output-certificate` yazılıydı.
+# cosign v3 onları hâlâ TANIYOR ama `--new-bundle-format` varsayılan
+# olarak AÇIK ve o hâlde ikisini de YOK SAYIP `--bundle` yolunu
+# bekliyor. Yol verilmediği için v1.0.0 sürümü tam olarak burada
+# düştü, hem de sekiz buçuk dakikalık bir koşumun sonunda:
+#
+#   WARNING: --output-signature is deprecated when using --new-bundle-format
+#   Error: signing dist/checksums.txt: create bundle file: open : no such file
+#
+# Bayrakların kayıtlı olması yetmiyormuş; DAVRANIŞI ölçmek gerekiyordu.
+#
+# ⚠️ VE ÇÖZÜM "eski biçime dön" DEĞİL. `verify-blob` de aynı varsayılanı
+# taşıyor (cmd/cosign/cli/options/verify.go:66): iki dosyalı çıktıda
+# ısrar etseydik, bugün cosign kuran bir kullanıcı belgelerdeki
+# komutla doğrulayamazdı — yani sayfa yine çalışmayan bir doğrulama
+# öğretirdi. Paket, imzayı ve sertifikayı tek dosyada taşıyor;
+# doğrulayan tarafın da indireceği dosya sayısı ikiden bire iniyor.
 signs:
   - cmd: cosign
-    certificate: "${artifact}.pem"
+    signature: "${artifact}.bundle"
     args:
       - sign-blob
-      - "--output-certificate=${certificate}"
-      - "--output-signature=${signature}"
+      - "--bundle=${signature}"
       - "${artifact}"
       - --yes
     artifacts: checksum
@@ -163,11 +182,13 @@ release:
 
     ```
     cosign verify-blob checksums.txt \
-      --signature checksums.txt.sig \
-      --certificate checksums.txt.pem \
+      --bundle checksums.txt.bundle \
       --certificate-identity-regexp '^https://github\.com/Warewave-Technology/postern/\.github/workflows/release\.yml@' \
       --certificate-oidc-issuer https://token.actions.githubusercontent.com
     ```
+
+    Needs cosign v3 or later — that is the version this signature is
+    produced with, and the bundle format is its default.
 
     To see which dependency versions a binary was built with — the
     question that matters when an advisory lands:

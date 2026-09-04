@@ -28,6 +28,43 @@ audit rows into a shape it does not understand.
   commit after the tag — RELEASING.md says the same thing at the end.
 -->
 
+## 1.0.1 — 2026-09-04
+
+### Needs action when upgrading a pre-release build
+
+- **Verifying a release takes one file now, and cosign v3.** The
+  signature ships as a single sigstore bundle, `checksums.txt.bundle`,
+  instead of a separate `.sig` and `.pem`:
+
+  ```
+  cosign verify-blob checksums.txt \
+    --bundle checksums.txt.bundle \
+    --certificate-identity-regexp '^https://github\.com/Warewave-Technology/postern/\.github/workflows/release\.yml@' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
+  ```
+
+  This is not a preference. cosign v3 turns the bundle format on by
+  default and then ignores `--output-signature` and
+  `--output-certificate`, which is what the 1.0.0 tag failed on — after
+  the whole test suite had already run. Insisting on the two-file form
+  would not have helped either: `verify-blob` carries the same default,
+  so anyone installing cosign today would have found the documented
+  verification command failing against a genuine release. That is the
+  worst way for a verification step to fail, so the artifact moved
+  rather than the instructions.
+
+### Fixed
+
+- **1.0.0 was tagged but never released.** The tag exists and the module
+  is resolvable — `go install
+  github.com/Warewave-Technology/postern/cmd/postern@v1.0.0` works and
+  is byte-identical to 1.0.1's source — but the release workflow failed
+  at the signing step, so there are no archives, no checksums and no
+  signature for it. The tag is deliberately left where it is: the Go
+  module proxy and sum.golang.org have already recorded v1.0.0 against
+  that commit, and moving a tag they have pinned makes every
+  `go install` of it fail with a checksum mismatch. Download 1.0.1.
+
 ## 1.0.0 — 2026-09-04
 
 The first release. postern is an SSH bastion that mints a short-lived

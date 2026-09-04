@@ -30,14 +30,15 @@ Download a release — one static binary per platform, with the panel compiled
 in — and check it against the signed checksums:
 
 ```bash
-curl -LO https://github.com/Warewave-Technology/postern/releases/latest/download/postern_1.0.0_linux_amd64.tar.gz
+curl -LO https://github.com/Warewave-Technology/postern/releases/latest/download/postern_1.0.1_linux_amd64.tar.gz
 curl -LO https://github.com/Warewave-Technology/postern/releases/latest/download/checksums.txt
 sha256sum -c checksums.txt --ignore-missing
 ```
 
 The checksums file is signed with a cosign keyless signature, so there is no
 public key to look after — the signature is bound to this repository and the
-workflow that built it. The exact `cosign verify-blob` invocation is in the
+workflow that built it. The signature ships as a single sigstore bundle
+(`checksums.txt.bundle`) and verifying it needs cosign v3 or later. The exact `cosign verify-blob` invocation is in the
 release notes and in
 [the install docs](https://postern.warewave.tech/docs/#install); take it from
 there rather than from memory, because the identity it pins has to match the

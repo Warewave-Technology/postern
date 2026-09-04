@@ -37,6 +37,14 @@ hand gets them wrong on the release where it matters.
    braces rather than the only check — but finding out on the tag is a
    slower way to learn it.
 
+⚠️ **A tag that has been pushed cannot be moved.** The moment
+`proxy.golang.org` fetches it, `sum.golang.org` records a hash against
+that exact commit, permanently. Re-pointing the tag afterwards makes
+every `go install` of that version fail with a checksum mismatch and a
+SECURITY ERROR. If a release fails after the tag is public, fix forward
+with the next patch version — that is why 1.0.0 exists as a tag with no
+release.
+
 ## The tag
 
 ```bash
@@ -59,9 +67,17 @@ annotated tags, and the message is where the tag itself says what it is.
    systemd unit, `deploy/README.md` and the Ansible role, and writes
    `checksums.txt`.
 3. cosign signs `checksums.txt` with a keyless signature bound to this
-   repository and this workflow. There is no signing key to store, lose
-   or rotate — which is the same reasoning that keeps the CA key off the
+   repository and this workflow, written as a single sigstore bundle
+   (`checksums.txt.bundle`). There is no signing key to store, lose or
+   rotate — which is the same reasoning that keeps the CA key off the
    panel.
+
+   ⚠️ The bundle is not a style choice. cosign v3 turns
+   `--new-bundle-format` on by default and then *ignores*
+   `--output-signature` and `--output-certificate`; the v1.0.0 tag failed
+   exactly there, after the whole suite had run. `verify-blob` carries the
+   same default, so going back to two files would have left the published
+   verification command failing against a real release.
 4. A **draft** release appears. Read it, then publish it by hand.
 
 The draft is deliberate. Publishing automatically turns a mistaken tag
