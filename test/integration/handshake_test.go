@@ -19,6 +19,7 @@ import (
 	"github.com/Warewave-Technology/postern/internal/ca"
 	"github.com/Warewave-Technology/postern/internal/config"
 	"github.com/Warewave-Technology/postern/internal/model"
+	"github.com/Warewave-Technology/postern/internal/secret"
 	"github.com/Warewave-Technology/postern/internal/sshd"
 	"github.com/Warewave-Technology/postern/internal/store"
 	"github.com/Warewave-Technology/postern/internal/testdb"
@@ -224,6 +225,25 @@ func TestHandshakeRejectsUnknownKey(t *testing.T) {
 	if err == nil {
 		t.Fatal("bilinmeyen anahtar reddedilmeliydi (varsayılan deny)")
 	}
+}
+
+/*
+ * attachSecretBox, entegrasyon bastion'ına bir sır kutusu bağlar.
+ *
+ * ⚠️ İSTEĞE BAĞLI VE ÖYLE KALMALI. Göç 033'ten beri TOTP kaydı anahtarsız
+ * açılamıyor, ama anahtarSIZ bastion da sınanan bir durum:
+ * TestFederationAPISettings tam olarak "anahtar yokken şifreli ayar yazma
+ * REDDEDİLİYOR mu" sorusunu soruyor ve ortak kuruluma kutu bağlamak o testi
+ * sessizce anlamsızlaştırıyordu (ölçüldü: 400 yerine 200 dönmeye başladı).
+ * Kutuya ihtiyacı olan test onu kendisi bağlar.
+ */
+func attachSecretBox(t *testing.T, db *store.Store) {
+	t.Helper()
+	box, err := secret.Init(filepath.Join(t.TempDir(), "secret.key"))
+	if err != nil {
+		t.Fatalf("secret.Init: %v", err)
+	}
+	db.UseSecretBox(box)
 }
 
 // seedStore, "yigit" kullanıcısını (os_user: postern) verilen hedeflerin

@@ -42,6 +42,32 @@ audit rows into a shape it does not understand.
   — that copy pins the tag in the identity it checks, which is the point
   of checking it.
 
+### Needs action if you never set a secret key
+
+- **Enrolling an authenticator now requires one.** postern seals the TOTP
+  secret at rest with the same key that already seals stored settings
+  (`secret_key_file`, `internal/secret`). Installs that skipped
+  `postern secret init` could enrol before and cannot now: the enrolment is
+  refused rather than writing the seed in plain text, and the log names the
+  fix. The documented install has always included that step, so most
+  installs are unaffected.
+
+  **Nobody loses an authenticator.** Enrolments made before this release
+  keep working exactly as they did, and each one is sealed in place the
+  first time its owner enters a correct code — no operator action, no
+  re-enrolment, no window where the second factor is unavailable.
+
+  Why now: the seed used to gate one thing — adding a second SSH key. From
+  1.1 it gates every local sign-in, so what a leaked database row is worth
+  changed, and the old note in migration 028 ("the secret is stored in the
+  clear and there is no other way") was half right. A TOTP seed cannot be
+  *hashed* — verification has to generate codes from it — but it can be
+  sealed, which is what the settings table has always done with the LDAP
+  bind password for the same reason. Sealing does not defend against
+  somebody holding root on the bastion; it defends against the database
+  contents alone being enough — a dump that left the box, a stale replica,
+  a table pasted into a ticket.
+
 ### Changed
 
 - **Verifying a release now pins the tag, not just the repository.** The

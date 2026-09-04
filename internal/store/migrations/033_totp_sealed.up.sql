@@ -1,0 +1,39 @@
+-- TOTP sırrını mühürleyerek saklamak.
+--
+-- 028 şunu yazmıştı: "SIR AÇIK SAKLANIYOR VE BAŞKA TÜRLÜSÜ MÜMKÜN DEĞİL."
+-- İddianın yarısı hâlâ doğru, yarısı değil ve ayrımı burada yazmak gerekiyor:
+--
+--   • Doğru olan: TOTP sırrı ÖZETLENEMEZ. Doğrulama, sırrın kendisiyle kod
+--     üretmeyi gerektiriyor; parolalar gibi tek yönlü saklanamaz.
+--   • Doğru olmayan: "o hâlde korunamaz." Özetlemek tek koruma değil.
+--     Ayarlar tablosu 2021'den beri AES-256-GCM ile MÜHÜRLENİYOR (settings.
+--     encrypted, internal/secret) — LDAP servis hesabının parolası da tam
+--     olarak bu sebeple, aynı sebeple, tersine çevrilebilir bir sır olduğu
+--     hâlde düz metin durmuyor.
+--
+-- 028'in maliyet hesabı O GÜNKÜ kapsam için yazılmıştı: TOTP yalnızca İKİNCİ
+-- bir SSH anahtarı eklerken soruluyordu. 1.1'de sır, YEREL HESAPLARIN HER
+-- GİRİŞİNİ koruyan şey oluyor. Aynı satırın değeri değişti, dolayısıyla o
+-- hesap yeniden yapılmalıydı.
+--
+-- ⚠️ NEYE KARŞI KORUR, NEYE KARŞI KORUMAZ — abartmadan:
+-- Anahtar veritabanında DEĞİL, host'taki dosyada (cfg.secret_key_file).
+-- Dolayısıyla mühür, veritabanı İÇERİĞİNİN tek başına yetmediği durumları
+-- kapatır: kutunun dışına çıkmış bir pg_dump, yanlış yapılandırılmış bir
+-- replika, bir yedek diski, bir destek biletine yapıştırılmış tablo çıktısı.
+-- Host'ta root olan biri hem satırı hem anahtarı okur; SECURITY.md bunu zaten
+-- kapsam dışı ilan ediyor ve bu göç o sınırı değiştirmiyor.
+--
+-- ⚠️ VARSAYILAN FALSE, ÇÜNKÜ YÜKSELTME SESSİZCE BOZMAMALI.
+-- Bu göç mevcut satırları mühürleyemez: SQL'in anahtara erişimi yok. Mevcut
+-- kayıtlar sealed=false olarak okunmaya devam eder ve bir sonraki BAŞARILI
+-- kullanımda mühürlenir (store.UseTOTPStep). Yani filo, yöneticinin hiçbir
+-- şey yapmasına gerek kalmadan yakınsar; kimse ikinci faktörünü kaybetmez.
+--
+-- Yeni KAYITLAR ise anahtar olmadan açılamaz (store.BeginTOTP reddeder).
+-- Gerekçesi settings.SetSetting'inkiyle aynı: düz metin yazıp "mühürledim"
+-- sanmak, bu mekanizmanın bütün amacını sessizce boşa çıkarır. Bu, anahtar
+-- yapılandırmamış kurulumlar için bir DAVRANIŞ DEĞİŞİKLİĞİ ve CHANGELOG'un
+-- "Needs action" bölümüne yazıldı.
+ALTER TABLE totp_credentials
+  ADD COLUMN sealed BOOLEAN NOT NULL DEFAULT FALSE;

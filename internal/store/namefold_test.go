@@ -77,7 +77,9 @@ func TestLookupsAgreeOnLetterCase(t *testing.T) {
  */
 func TestTOTPWritePathFoldsTheUsername(t *testing.T) {
 	ctx := context.Background()
-	s := newTestStore(t)
+	// Göç 033'ten beri TOTP kaydı sır kutusu istiyor; bu test adın
+	// katlanmasını sınıyor, mühürlemeyi değil.
+	s := newTOTPStore(t)
 
 	if _, err := s.CreateUser(ctx, "Ayse", "ayse@warewave.io", "ayse"); err != nil {
 		t.Fatal(err)

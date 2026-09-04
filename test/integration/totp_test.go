@@ -60,6 +60,8 @@ func meReq(t *testing.T, client *http.Client, method, url, body string) (int, st
 func signedInSSOUser(t *testing.T) (*http.Client, string) {
 	t.Helper()
 	_, apiURL, _, db := oobBastionFresh(t)
+	// Göç 033: TOTP kaydı sır kutusu olmadan açılmıyor.
+	attachSecretBox(t, db)
 
 	if _, err := db.CreateRole(t.Context(), "ops"); err != nil {
 		t.Fatal(err)
