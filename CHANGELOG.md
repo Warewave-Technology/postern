@@ -55,6 +55,17 @@ audit rows into a shape it does not understand.
 
 ### Fixed
 
+- **A build made after a release tag no longer claims to be that
+  release.** Go embeds a different pseudo-version once a tag exists —
+  `v1.0.1-0.<timestamp>-<commit>` rather than `v0.0.0-<timestamp>-<commit>`
+  — and the check that recognises one only matched the shape a repository
+  with no tags produces. So `postern version` on any build between
+  releases would have printed a version-shaped string with no "not built
+  from a release tag" warning: wrong exactly when people ask which build
+  they are running, right after a release. It could not have appeared
+  before 1.0.0, because until then there was no tag for Go to base the
+  other form on.
+
 - **1.0.0 was tagged but never released.** The tag exists and the module
   is resolvable — `go install
   github.com/Warewave-Technology/postern/cmd/postern@v1.0.0` works and
