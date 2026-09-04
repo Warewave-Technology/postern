@@ -326,30 +326,45 @@ $ ssh -J bastion ...                <span class="c"># not this; postern is not a
       <p>
         Either download a release, or build from source. Releases carry a
         single static binary per platform with the panel already compiled in.
+        Four are published — <code>linux_amd64</code>, <code>linux_arm64</code>,
+        <code>darwin_amd64</code> and <code>darwin_arm64</code> — so substitute
+        the one you need for <code>linux_amd64</code> below.
       </p>
-<pre>$ curl -LO https://github.com/Warewave-Technology/postern/releases/download/v1.0.1/postern_1.0.1_linux_amd64.tar.gz
-$ curl -LO https://github.com/Warewave-Technology/postern/releases/download/v1.0.1/checksums.txt
-$ sha256sum -c checksums.txt --ignore-missing
-$ tar xzf postern_1.0.1_linux_amd64.tar.gz
-$ sudo install -o root -g root -m 0755 postern /usr/local/bin/postern   <span class="c"># where the systemd unit looks</span>
+<pre>$ B=https://github.com/Warewave-Technology/postern/releases/download/v1.0.1
+$ curl -LO $B/postern_1.0.1_linux_amd64.tar.gz
+$ curl -LO $B/checksums.txt
+$ curl -LO $B/checksums.txt.bundle
 </pre>
       <p>
-        The checksums file is signed, and there is no public key to look
-        after: the signature is bound to the repository and the workflow that
-        produced it. With
+        Now verify, <b>before</b> installing — the order is the whole point. The
+        signature is what makes <code>checksums.txt</code> worth trusting; only
+        then does a checksum say anything about the archive. Checking an archive
+        against an unverified checksums file proves the two arrived together and
+        nothing more, because whoever replaced one could replace the other.
+        There is no public key to look after: the signature is bound to the
+        repository and the workflow that produced it. With
         <a href="https://github.com/sigstore/cosign">cosign</a> installed:
       </p>
-<pre>$ curl -LO https://github.com/Warewave-Technology/postern/releases/download/v1.0.1/checksums.txt.bundle
-$ cosign verify-blob checksums.txt \
+<pre>$ cosign verify-blob checksums.txt \
     --bundle checksums.txt.bundle \
     --certificate-identity-regexp '^https://github\.com/Warewave-Technology/postern/\.github/workflows/release\.yml@' \
     --certificate-oidc-issuer https://token.actions.githubusercontent.com
+Verified OK
 </pre>
       <p>
-        One file, not two: the bundle carries the signature and the
-        certificate together. It needs <b>cosign v3 or later</b> — that is
-        what produces the signature, and the bundle is its default format.
+        One file, not two: the bundle carries the signature and the certificate
+        together. It needs <b>cosign v3 or later</b> — that is what produces the
+        signature, and the bundle is its default format. If this prints anything
+        other than <code>Verified OK</code>, stop there.
       </p>
+      <p>
+        With the checksums file vouched for, check the archive against it and
+        install:
+      </p>
+<pre>$ sha256sum -c checksums.txt --ignore-missing     <span class="c"># macOS: shasum -a 256 -c</span>
+$ tar xzf postern_1.0.1_linux_amd64.tar.gz
+$ sudo install -o root -g root -m 0755 postern /usr/local/bin/postern   <span class="c"># where the systemd unit looks</span>
+</pre>
       <div class="note"><b>Ask a binary what it is</b><p><code>postern version</code> prints the tag it was built from, the commit, and whether that commit's tree was clean. A build that did not come from a release tag says so rather than inventing a number, and a binary built from a modified tree is marked <code>MODIFIED</code> — which is the distinction that matters when you are checking whether a patch is really in the thing you are running. <code>go version -m ./postern</code> lists the dependency versions it was compiled with.</p></div>
 
       <h3>1b. Or build from source</h3>

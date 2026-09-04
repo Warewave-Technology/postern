@@ -28,6 +28,48 @@ audit rows into a shape it does not understand.
   commit after the tag — RELEASING.md says the same thing at the end.
 -->
 
+## Unreleased
+
+### Needs action if you are running a 1.0.1 binary
+
+- **The published 1.0.1 binaries mark themselves `MODIFIED`, and it is a
+  false alarm.** `postern version` on an official 1.0.1 download prints
+  `commit 0a069427d1c6 (MODIFIED — this is not the source of any commit)`,
+  and `go version -m` reports `v1.0.1+dirty`. The source is not modified:
+  the binary reproduces from a clean clone of the `v1.0.1` tag. What was
+  dirty was the release runner's working tree.
+
+  `web/tsconfig.tsbuildinfo` — TypeScript's incremental build cache — was
+  tracked in git. The release rebuilds the panel before building, CI's Node
+  writes a different cache file than the machine that committed it, and Go
+  stamps `vcs.modified=true` whenever the tree is not clean. goreleaser
+  cannot catch this on its own: its git cleanliness check runs *before* the
+  build hooks that dirty the tree.
+
+  The binary itself is unaffected and its signature and checksum verify
+  normally — a 1.0.1 download whose `checksums.txt` signature says
+  `Verified OK` is genuine despite what it says about itself. But the
+  version stamp exists precisely to answer "is the fix really in the thing
+  I am running", so it gets a real release rather than a footnote.
+
+### Fixed
+
+- **A release can no longer be built from a dirty tree.** The build cache is
+  untracked and ignored, and the release runs a cleanliness gate as its last
+  step before building. A hook that rewrites a tracked file now stops the
+  release loudly instead of shipping binaries that misreport themselves.
+
+### Changed
+
+- **The install instructions verify the signature before installing.** The
+  documented order was: check the archive against `checksums.txt`, install
+  it, then verify that `checksums.txt` was signed. An unverified checksums
+  file only proves the archive and its checksum arrived together — whoever
+  replaced one could replace the other — so the signature check now comes
+  first. The four published platforms are named as well; previously only
+  `linux_amd64` appeared in the commands, though `linux_arm64`,
+  `darwin_amd64` and `darwin_arm64` are built and signed alongside it.
+
 ## 1.0.1 — 2026-09-04
 
 ### Needs action when upgrading a pre-release build

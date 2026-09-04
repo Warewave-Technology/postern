@@ -1,1 +1,9 @@
 node_modules/
+
+# ⚠️ TypeScript'in artımlı derleme önbelleği — TAKİP EDİLMEZ. Makineye özgü
+# üretiliyor ve sürüm derlemesinde goreleaser'ın `make web` hook'u onu yeniden
+# yazıyor. v1.0.1 tam bu yüzden yanlış çıktı: CI'ın node 22'si, commit'lenmiş
+# (node 23 ile üretilmiş) dosyadan farklısını yazdı, çalışma ağacı kirlendi ve
+# Go yayımlanan her ikiliye vcs.modified=true gömdü — `postern version`
+# "MODIFIED — this is not the source of any commit" diyordu.
+tsconfig.tsbuildinfo

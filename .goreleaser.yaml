@@ -24,6 +24,11 @@ before:
     # `make ci`nin tamamı burada koşmuyor: onu iş akışı ayrı bir adımda
     # ve testlerle birlikte koşuyor.
     - make vuln
+    # ⚠️ SON HOOK, KAPI. Yukarıdaki hook'lardan biri takipli bir dosyayı
+    # yeniden yazarsa ağaç kirlenir ve Go her ikiliye vcs.modified=true
+    # gömer; goreleaser bunu göremez, çünkü kendi git temizlik kontrolü
+    # hook'lardan ÖNCE koştu. v1.0.1 bu yüzden "MODIFIED" damgalı yayımlandı.
+    - make release-clean-check
 
 builds:
   - id: postern

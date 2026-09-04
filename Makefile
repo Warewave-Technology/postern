@@ -27,7 +27,7 @@ LDFLAGS := -X github.com/Warewave-Technology/postern/internal/version.version=$(
 GOSEC_VERSION        ?= v2.29.0
 GOVULNCHECK_VERSION  ?= v1.7.0
 
-.PHONY: build test test-race test-short test-integration vet fmt lint sec vuln fuzz audit ci web web-test web-check notices notices-check release-snapshot release-check clean
+.PHONY: build test test-race test-short test-integration vet fmt lint sec vuln fuzz audit ci web web-test web-check notices notices-check release-snapshot release-check release-clean-check clean
 
 build:
 	$(GO) build -ldflags "$(LDFLAGS)" -o bin/postern ./cmd/postern
@@ -211,6 +211,18 @@ GORELEASER_VERSION ?= v2.18.0
 release-snapshot:
 	$(GO) run github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION) \
 		release --snapshot --clean --skip=sign
+
+# Sürüm ağacının temiz olduğunu doğrular. goreleaser'ın kendi git temizlik
+# kontrolü before-hook'lardan ÖNCE koşuyor, yani bir hook'un yeniden yazdığı
+# takipli dosyayı göremiyor. Göremediği şey ikiliye işliyor: çalışma ağacı
+# kirliyse Go vcs.modified=true gömüyor ve `postern version` "MODIFIED — this
+# is not the source of any commit" diyor. v1.0.1 böyle yayımlandı —
+# web/tsconfig.tsbuildinfo takipteydi ve CI'ın node'u onu farklı üretiyordu.
+# Sürümü sessizce yalan söyletmektense burada gürültüyle düşür.
+release-clean-check:
+	@out="$$(git status --porcelain)"; \
+		test -z "$$out" || (echo "$$out"; \
+		 echo "sürüm ağacı kirli: yukarıdaki dosyalar ikiliyi +dirty damgalar"; exit 1)
 
 # release-check, yapılandırmayı derlemeden doğrular.
 release-check:
