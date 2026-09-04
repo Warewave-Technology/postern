@@ -30,7 +30,7 @@ Download a release — one static binary per platform, with the panel compiled
 in — and check it against the signed checksums:
 
 ```bash
-curl -LO https://github.com/Warewave-Technology/postern/releases/latest/download/postern_1.0.1_linux_amd64.tar.gz
+curl -LO https://github.com/Warewave-Technology/postern/releases/latest/download/postern_1.0.2_linux_amd64.tar.gz
 curl -LO https://github.com/Warewave-Technology/postern/releases/latest/download/checksums.txt
 sha256sum -c checksums.txt --ignore-missing
 ```
