@@ -103,7 +103,7 @@
 
   pre { background: var(--sunken); border: 1px solid var(--line); border-radius: 10px; padding: .9rem 1.05rem; overflow-x: auto; font-family: var(--mono); font-size: 13.5px; line-height: 1.6; margin: 1rem 0; }
   code { font-family: var(--mono); font-size: .92em; }
-  p code, li code, td code, dd code { background: var(--raised); border: 1px solid var(--line-soft); border-radius: 5px; padding: .05rem .35rem; }
+  p code, li code, td code, dd code { background: var(--raised); border: 1px solid var(--line-soft); border-radius: 5px; padding: .05rem .35rem; overflow-wrap: anywhere; }
   .c { color: var(--dim); }
   .g { color: var(--accent); }
   .y { color: var(--warn); }
@@ -162,7 +162,7 @@
    * onu okunur yapmanın yolu değil.
    */
   @media (max-width: 720px) {
-    header.top .bar { overflow-x: auto; }
+    header.top .bar { overflow-x: auto; gap: 1.25rem; }
     header.top .bar > * { flex: 0 0 auto; }
     aside {
       position: static;
