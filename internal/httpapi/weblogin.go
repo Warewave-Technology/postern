@@ -450,9 +450,25 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	 */
 	canChangePassword := hasLocal && !u.Admin
 
+	/*
+	 * İkinci faktör zorunluluğu, YALNIZCA yerel kapıdan gelen oturumlar
+	 * için. Kapının kendisi (totpEnrolmentDone) de aynı kapsamda; buradaki
+	 * bayrak onun ekrandaki yansıması, ikinci bir karar değil.
+	 *
+	 * Okunamazsa false: panel o an kayıt ekranını çizmez, ama kapı zaten
+	 * 503 döndürüyor. Burada true dönmek, veritabanı sorunu yaşayan
+	 * herkese "ikinci faktörünü kur" ekranı göstermek olurdu.
+	 */
+	mustEnrolTOTP := false
+	if sessionViaLocal(r) && !mustChange {
+		if enrolled, terr := s.store.TOTPEnrolled(r.Context(), u.Name); terr == nil {
+			mustEnrolTOTP = !enrolled
+		}
+	}
+
 	// Kısıtlıyken hedef listesi GÖNDERİLMİYOR: kişi henüz hiçbir şey
 	// yapamıyor ve envanter, ekranın işine yaramayan bir bilgi.
-	if mustChange {
+	if mustChange || mustEnrolTOTP {
 		targets = []string{}
 	}
 
@@ -467,6 +483,11 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		// güvenerek açık bırakılan bir kapı, kapalı değildir.
 		"must_change_password": mustChange,
 		"password_policy":      policy,
+
+		// Parola ekranından SONRAKİ kapı. Panel bunu görürse yalnızca
+		// kayıt ekranını çiziyor; asıl koruma yine uçta
+		// (requireSession → totpEnrolmentDone).
+		"must_enrol_totp": mustEnrolTOTP,
 
 		// Profil sayfası parola kartını buna göre çiziyor (gerekçe
 		// yukarıda). Asıl koruma uçta ve veritabanı kısıtında.
@@ -545,6 +566,11 @@ const (
 	// ctxAccountID: oturumun bağlı olduğu users.id. Web terminali bunu
 	// proxy.Open'a taşıyor — ad kalıcı bir tutamak değil, kimlik kalıcı.
 	ctxAccountID ctxKey = 1
+	// ctxViaLocal: oturum YEREL PAROLA kapısından mı açıldı. /api/me bunu
+	// okuyup ikinci faktör zorunluluğunu paneldeki doğru kitleye söylüyor;
+	// dizin/OIDC oturumlarına söylemek, kuramayacakları bir ekran çizmek
+	// olurdu.
+	ctxViaLocal ctxKey = 2
 )
 
 // requireSession, oturum isteyen uçları saran middleware: cookie →
@@ -666,12 +692,21 @@ func (s *Server) requireSession(next http.Handler) http.Handler {
 			return
 		}
 
+		// ⚠️ SIRA ÖNEMLİ: önce parola, sonra ikinci faktör. Kişi henüz
+		// kendi seçmediği bir parolayla girmişken ikinci faktör kurmaya
+		// zorlanırsa, kurduğu faktör ONU değil, ona o sırrı veren kişiyi
+		// korumuş olur.
+		if viaLocal && !s.totpEnrolmentDone(w, r, username) {
+			return
+		}
+
 		if !s.accountStillOpen(w, r, username, accountID) {
 			return
 		}
 
 		ctx := context.WithValue(r.Context(), ctxUser, username)
 		ctx = context.WithValue(ctx, ctxAccountID, accountID)
+		ctx = context.WithValue(ctx, ctxViaLocal, viaLocal)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -781,12 +816,113 @@ func (s *Server) passwordChangeDone(w http.ResponseWriter, r *http.Request,
 	return false
 }
 
+/*
+ * totpEnrolmentAllowed, ZORUNLU İKİNCİ FAKTÖR KAYDI sırasında açık uçlar.
+ *
+ * ⚠️ changePasswordAllowed ile aynı kural: TAM DESEN, önek değil. Aynı
+ * gerekçe aynen geçerli — "/api/me/totp ile başlayan her şey serbest"
+ * demek, aşağıdaki disable ucunu da açardı.
+ *
+ * ⚠️ disable BİLEREK YOK. Kayıt zorunluluğundan çıkışın yolu kaydı
+ * TAMAMLAMAK; kapatmak değil. Bugün pratikte de işlemezdi (disable
+ * doğrulanmış bir kayıt ister ve burada olan kişinin öylesi yok), ama
+ * listeye koymamak o bağımlılığı kalıcı hâle getiriyor: yarın disable'ın
+ * ön koşulu gevşerse, bu liste yine de kaçış yolu açmıyor.
+ *
+ * ⚠️ POST /api/me/keys BURADA DA YOK. changePasswordAllowed'daki ölçülmüş
+ * arıza birebir geçerli: hesabın İLK anahtarı kimlik doğrulaması istemeden
+ * ekleniyor, yani bu listeye girseydi "ikinci faktörünü kurana kadar
+ * hiçbir şey yapamazsın" kısıtı, kalıcı SSH erişimi kurmanın önündeki tek
+ * engeli kaldırırdı.
+ */
+var totpEnrolmentAllowed = map[string]bool{
+	// Panelin kim olduğunu ve hangi ekranı çizeceğini öğrenmesi için.
+	"GET /api/me": true,
+	// Kayıt akışının kendisi: durum, başlat, doğrula.
+	"GET /api/me/totp":          true,
+	"POST /api/me/totp/begin":   true,
+	"POST /api/me/totp/confirm": true,
+
+	/*
+	 * ⚠️ PAROLA DEĞİŞTİRME DE AÇIK, VE BU BİLİNÇLİ.
+	 *
+	 * Kapalı olduğu hâli ölçüldü: parolasının sızdığını fark eden kişi,
+	 * önce O SIZMIŞ PAROLAYLA ikinci faktörünü kurmak zorunda kalıyordu.
+	 * Sıra ters — kaybettiğin sırrı değiştirmek, yeni bir sır kurmaktan
+	 * önce gelmeli.
+	 *
+	 * Açmak kısıtı zayıflatmıyor: bu uç MEVCUT parolayı istiyor, yani
+	 * yalnızca çerezi ele geçiren biri onu kullanamaz. Kısıtın koruduğu
+	 * şey kalıcılık kurmak (yeni anahtar) ve o kapalı kalıyor.
+	 */
+	"POST /api/me/password": true,
+}
+
+/*
+ * totpEnrolmentDone, oturumun ikinci faktör kaydını tamamlayıp
+ * tamamlamadığını karara bağlar. false dönerse cevap YAZILMIŞTIR.
+ *
+ * ⚠️ KARAR HER İSTEKTE VERİTABANINDAN OKUNUYOR, oturuma damgalanmıyor —
+ * passwordChangeDone ile aynı kural, aynı sebeple: bir yönetici birinin
+ * ikinci faktörünü sıfırladığında, o kişinin AÇIK oturumu da o an kısıtlı
+ * hâle gelmeli. Oturuma damgalanmış bir "kaydı var" bayrağı, sıfırlamayı
+ * bir sonraki girişe kadar görünmez yapardı.
+ *
+ * ⚠️ KAPSAM viaLocal — yani YEREL PAROLA KAPISINDAN açılmış oturumlar.
+ * Dizin ve OIDC oturumları buradan geçmiyor: onların ikinci faktörü kimlik
+ * sağlayıcının işi ve postern'in oraya ikinci bir zorunluluk koyması,
+ * kurumun kendi politikasını görmezden gelmek olurdu. Kapsamı hesabın
+ * TÜRÜNE değil oturumun KÖKENİNE bağlamak, changePasswordAllowed'ın zaten
+ * kurduğu ayrım.
+ */
+func (s *Server) totpEnrolmentDone(w http.ResponseWriter, r *http.Request,
+	username string) bool {
+
+	enrolled, err := s.store.TOTPEnrolled(r.Context(), username)
+	if err != nil {
+		/*
+		 * ⚠️ OKUNAMAMAK, "KAYDI YOK" DEĞİLDİR. Sorguyu düşüren şey
+		 * neredeyse her zaman veritabanının kendisi; onu "kayıt yok"
+		 * saymak, bütün panel kullanıcılarını bir failover sırasında
+		 * kayıt ekranına hapsederdi — ve orada da hiçbir şey
+		 * yapamazlardı, çünkü kayıt da aynı veritabanına yazıyor.
+		 * accountStillOpen ile aynı politika: 503.
+		 */
+		s.logger.Error("second factor check failed", "user", username, "error", err)
+		writeErr(w, http.StatusServiceUnavailable,
+			"could not verify the account right now; try again shortly")
+		return false
+	}
+	if enrolled {
+		return true
+	}
+	if totpEnrolmentAllowed[r.Pattern] {
+		return true
+	}
+
+	// 403, 401 değil — passwordChangeDone ile aynı gerekçe: oturum
+	// geçerli, kim olduğunu biliyoruz, ve 401 kişiyi giriş ekranına atıp
+	// sonsuz döngüye sokardı.
+	writeErr(w, http.StatusForbidden,
+		"set up an authenticator before using the panel")
+	return false
+}
+
 // sessionUser, requireSession'ın context'e koyduğu adı geri okur.
 // Middleware'siz çağrılırsa boş döner — bu bir programlama hatasıdır ve
 // handler'ın hatayla düşmesi doğrudur, sessizce anonim davranması değil.
 func sessionUser(r *http.Request) string {
 	name, _ := r.Context().Value(ctxUser).(string)
 	return name
+}
+
+// sessionViaLocal, oturumun yerel parola kapısından açılıp açılmadığı.
+// Middleware'siz çağrılırsa false döner; yönü güvenli olan taraf bu —
+// bilmiyorsak "yerel değil" saymak, kimseye kuramayacağı bir zorunluluk
+// göstermemek demek.
+func sessionViaLocal(r *http.Request) bool {
+	v, _ := r.Context().Value(ctxViaLocal).(bool)
+	return v
 }
 
 // sessionAccountID, oturumun bağlı olduğu hesap kimliği. sessionUser

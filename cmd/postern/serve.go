@@ -110,6 +110,40 @@ func newServeCmd() *cobra.Command {
 			}
 
 			/*
+			 * ⚠️ YEREL KAPI VARSA SIR ANAHTARI ŞART (1.1).
+			 *
+			 * Yerel oturumlar artık ikinci faktör kaydını tamamlamadan
+			 * panelde hiçbir şey yapamıyor (requireSession →
+			 * totpEnrolmentDone) ve kayıt açmak sırrı MÜHÜRLEMEYİ
+			 * gerektiriyor (göç 033, store.BeginTOTP).
+			 *
+			 * Anahtar yoksa bu ikisi bir kilit oluşturuyor: kişi kapıya
+			 * takılıyor, kaydı da açamıyor, ve panelin içinden çıkış yolu
+			 * YOK. Kurulumun tek yöneticisi için bu, bastion'a erişimin
+			 * bitmesi demek.
+			 *
+			 * Bunu ilk giriş denemesinde keşfettirmek yerine açılışta
+			 * söylüyoruz — bekleyen göç kontrolüyle aynı gerekçe: bir
+			 * yapılandırma eksiği, çalışma anında değil başlangıçta
+			 * görünmeli. Yerel kimlik bilgisi HİÇ yoksa kilit de yok,
+			 * o yüzden koşul ona bağlı.
+			 */
+			if cfg.SecretKeyFile == "" {
+				holders, herr := db.LocalCredentialHolders(ctx)
+				if herr != nil {
+					return herr
+				}
+				if len(holders) > 0 {
+					return fmt.Errorf(
+						"%d local account(s) can sign in, but no secret_key_file is "+
+							"configured: they would be required to set up an "+
+							"authenticator and unable to, with no way out of the panel. "+
+							"Run `postern secret init` and set secret_key_file",
+						len(holders))
+				}
+			}
+
+			/*
 			 * ⚠️ SAHİPSİZ OTURUM SATIRLARINI KAPAT.
 			 *
 			 * ÖLÇÜLEN ARIZA: postern SIGKILL alırsa (çökme, güç

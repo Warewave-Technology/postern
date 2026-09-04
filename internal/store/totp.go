@@ -5,6 +5,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -99,6 +100,37 @@ func (s *Store) ConfirmTOTP(ctx context.Context, username string, step int64) er
 		return fmt.Errorf("store.ConfirmTOTP[%s]: %w", username, ErrNotFound)
 	}
 	return nil
+}
+
+/*
+ * TOTPEnrolled, hesabın DOĞRULANMIŞ bir ikinci faktörü var mı, onu söyler.
+ *
+ * ⚠️ SIRRA DOKUNMUYOR — ve bu bilinçli, iki sebeple. Birincisi bu soru her
+ * istekte soruluyor (requireSession); sırrı her seferinde açmak, kapıya
+ * gereksiz bir AES çözme maliyeti bindirirdi. İkincisi ve önemlisi: sır
+ * anahtarı yoksa TOTP() hata veriyor, ve o hata bu kapıdan geçseydi
+ * anahtarını kaybetmiş bir kurulumda panel BÜTÜNÜYLE kapanırdı — kimsenin
+ * ikinci faktörü kaybolmadığı hâlde. Kapının sorusu "kayıt var mı", "sır
+ * okunabiliyor mu" değil.
+ *
+ * Doğrulanmamış kayıt SAYILMIYOR: QR'ı hiç okutmamış birinin telefonunda
+ * karşılığı olmayan bir kayıt, ikinci faktör değildir.
+ */
+func (s *Store) TOTPEnrolled(ctx context.Context, username string) (bool, error) {
+	var enrolled bool
+	err := s.db.QueryRowContext(ctx, `
+		SELECT t.confirmed_at IS NOT NULL
+		FROM totp_credentials t
+		JOIN users u ON u.id = t.user_id
+		WHERE `+ciEq("u.username", "$1")+`;`, username).Scan(&enrolled)
+	if errors.Is(err, sql.ErrNoRows) {
+		// Satır yok = kayıt yok. Bu bir HATA değil, kapının cevabı.
+		return false, nil
+	}
+	if err != nil {
+		return false, translateErr("store.TOTPEnrolled", err)
+	}
+	return enrolled, nil
 }
 
 // TOTP, hesabın ikinci faktörünü döner. Yoksa ErrNotFound.

@@ -718,6 +718,81 @@ describe("zorunlu parola değişikliği", () => {
 });
 
 /*
+ * ⚠️ ZORUNLU İKİNCİ FAKTÖR KAYDI (1.1).
+ *
+ * Parola ekranının kardeşi ve aynı işi yapıyor: kısıtlı oturumun yanında
+ * başka hiçbir şey çizilmemeli. Asıl koruma sunucuda
+ * (requireSession → totpEnrolmentDone); buradaki testlerin işi, ekranın
+ * kullanıcıya yapamayacağı şeyleri vaat etmemesi.
+ */
+describe("zorunlu ikinci faktör kaydı", () => {
+  it("kayıt tamamlanana kadar başka hiçbir şey çizilmiyor", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({
+      name: "ayse",
+      os_user: "ayse",
+      admin: true,
+      targets: [],
+      terminal_enabled: true,
+      public_key_login: true,
+      must_enrol_totp: true,
+    });
+
+    render(<App />);
+    await screen.findByText("Set up your authenticator");
+
+    expect(screen.queryByRole("button", { name: "Settings" })).toBeNull();
+    expect(screen.queryByText("Your targets")).toBeNull();
+  });
+
+  /*
+   * ⚠️ SIRA: ÖNCE PAROLA, SONRA İKİNCİ FAKTÖR.
+   *
+   * İkisi birden isteniyorsa parola ekranı kazanmalı. Tersi olsaydı kişi,
+   * henüz KENDİ SEÇMEDİĞİ bir parolayla ikinci faktör kurardı — ve o
+   * faktör onu değil, ona o sırrı veren kişiyi korurdu.
+   */
+  it("parola ekranı ikinci faktör ekranından önce geliyor", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({
+      name: "ayse",
+      os_user: "ayse",
+      admin: true,
+      targets: [],
+      terminal_enabled: true,
+      public_key_login: true,
+      must_change_password: true,
+      must_enrol_totp: true,
+      password_policy: { min_length: 12, max_length: 256, min_distinct: 5 },
+    });
+
+    render(<App />);
+    await screen.findByText("Set your password");
+    expect(screen.queryByText("Set up your authenticator")).toBeNull();
+  });
+
+  /*
+   * Kurulum sihirbazından da önce: sunucu kapısı yönetici uçlarını da
+   * kapattığı için kayıt bitmeden Setup zaten çalışamaz. Çalışamayan bir
+   * ekranı çizmek arıza gibi görünürdü.
+   */
+  it("kurulum sihirbazının önüne geçiyor", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({
+      name: "ayse",
+      os_user: "ayse",
+      admin: true,
+      targets: [],
+      terminal_enabled: true,
+      public_key_login: true,
+      setup_required: true,
+      must_enrol_totp: true,
+    });
+
+    render(<App />);
+    await screen.findByText("Set up your authenticator");
+    expect(screen.queryByText(/set up sign-in/i)).toBeNull();
+  });
+});
+
+/*
  * ⚠️ OIDC EKRANI MENÜDE, VE KAYNAKTAN BAĞIMSIZ.
  *
  * Bu ayarlar bir süre yalnızca kurulum sihirbazının içinden

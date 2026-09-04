@@ -68,6 +68,38 @@ audit rows into a shape it does not understand.
   contents alone being enough — a dump that left the box, a stale replica,
   a table pasted into a ticket.
 
+### Needs action for every local account
+
+- **A local sign-in now reaches nothing until an authenticator is
+  enrolled.** postern stands between people and their servers, so a
+  password on its own is not a sufficient answer to "who is this". The
+  panel shows the enrolment screen immediately after the password screen
+  and nothing else until it is finished.
+
+  Who this affects: accounts that sign in through the local password door.
+  Directory and identity-provider sign-ins are untouched — their second
+  factor belongs to the identity provider, and postern adding a second
+  requirement on top would be overriding a decision your organisation has
+  already made. SSH is untouched as well; local credentials were never
+  read there.
+
+  What stays open while enrolling: reading your own account, the three
+  enrolment endpoints, and changing your password. That last one is
+  deliberate — somebody who thinks their password has leaked should be
+  able to change it *before* setting up a second factor on top of it, not
+  after. Adding an SSH key stays shut, because the first key on an account
+  is added with no verification and would otherwise be a way straight past
+  the requirement.
+
+- **`postern serve` refuses to start when local accounts exist and no
+  `secret_key_file` is configured.** The two changes in this release
+  combine into a lock otherwise: the gate requires enrolment, enrolment
+  requires sealing, sealing requires the key, and there is no way out from
+  inside the panel. For an installation with a single administrator that
+  is the end of access to the bastion. The refusal names the fix, and it
+  happens while starting the service rather than at somebody's login
+  screen.
+
 ### Added
 
 - **`postern admin reset-totp --name <user>` clears an authenticator from

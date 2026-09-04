@@ -289,6 +289,50 @@ func TestStaleSessionCannotEnrol(t *testing.T) {
 	}
 }
 
+/*
+ * enrolTOTP, açık bir panel oturumu için ikinci faktörü kurup doğrular.
+ *
+ * 1.1'den beri yerel oturumlar kayıt tamamlanmadan panelde hiçbir şey
+ * yapamıyor, yani yerel kapıdan giren HER testin bu adımı geçmesi gerekiyor.
+ * Testlerin kendi içinde tekrar etmesindense burada bir kez.
+ */
+func enrolTOTP(t *testing.T, client *http.Client, apiURL, reauth string) {
+	t.Helper()
+
+	/*
+	 * ⚠️ reauth BOŞ GEÇİLEBİLİR AMA HER ZAMAN DEĞİL. Kayıt açmak, hesabın
+	 * doğrulanabilir bir yerel sırrı varsa O SIRRI istiyor; yoksa TAZE bir
+	 * oturum yetiyor (totp.go, canBeginTOTP). Yerel kapıdan giren testler
+	 * sırrı vermek zorunda — boş geçilirse uç 401 "wrong secret" döner.
+	 */
+	code, body := meReq(t, client, "POST", apiURL+"/api/me/totp/begin",
+		`{"reauth":`+jsonStr(reauth)+`}`)
+	if code != http.StatusOK {
+		t.Fatalf("kayıt başlatılamadı: %d %s", code, body)
+	}
+	var out struct {
+		Secret string `json:"secret"`
+	}
+	if err := json.Unmarshal([]byte(body), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Secret == "" {
+		t.Fatal("kayıt sırrı dönmedi")
+	}
+
+	otp, err := totp.Code(out.Secret, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, body = meReq(t, client, "POST", apiURL+"/api/me/totp/confirm",
+		`{"code":`+jsonStr(otp)+`}`)
+	// Uç 204 dönüyor (gövde yok); 200 beklemek yalnızca yardımcıyı
+	// kırılgan yapardı.
+	if code < 200 || code > 299 {
+		t.Fatalf("kayıt doğrulanamadı: %d %s", code, body)
+	}
+}
+
 // jsonStr, bir dizgiyi JSON değeri olarak kaçırır.
 func jsonStr(s string) string {
 	b, _ := json.Marshal(s)

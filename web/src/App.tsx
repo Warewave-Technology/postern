@@ -19,6 +19,7 @@ import AuthSource from "./admin/AuthSource";
 import Settings from "./admin/Settings";
 import OIDCSettingsScreen from "./admin/OIDCSettings";
 import Setup from "./admin/Setup";
+import Authenticator from "./Authenticator";
 import ChangePassword from "./ChangePassword";
 import Profile from "./Profile";
 import { ToastHost } from "./toast";
@@ -512,12 +513,48 @@ export default function App() {
       )}
 
       {/*
+        ⚠️ PAROLA EKRANININ HEMEN ARDINDAKİ KAPI.
+
+        Sıra tesadüf değil: kişi henüz kendi seçmediği bir parolayla
+        girmişken ikinci faktör kurarsa, kurduğu faktör ONU değil, ona o
+        sırrı veren kişiyi korumuş olur.
+
+        Kurulum ekranından da ÖNCE geliyor. Sunucu kapısı yönetici uçlarını
+        da kapatıyor, yani kayıt tamamlanmadan Setup zaten çalışamazdı —
+        çalışamayan bir ekranı çizmek, arıza gibi görünürdü.
+
+        Asıl koruma sunucuda (requireSession → totpEnrolmentDone). Buradaki
+        iş yalnızca çıkış yolunu göstermek.
+      */}
+      {!me.must_change_password && me.must_enrol_totp && (
+        <main className="app">
+          <div className="center-card">
+            <h1>Set up your authenticator</h1>
+            <p>
+              This bastion stands between people and their servers, so a
+              password on its own is not enough to get in. Add an
+              authenticator now — it takes a minute, and it is the last thing
+              between you and the panel.
+            </p>
+          </div>
+          <Authenticator
+            onEnrolled={() => {
+              // Kısıt kalktı. /api/me'yi yeniden okumak yerine sayfayı
+              // tazeliyoruz: ekranın her parçası artık farklı bir yetkiyle
+              // çiziliyor — ChangePassword'ün onDone'ıyla aynı gerekçe.
+              window.location.assign("/");
+            }}
+          />
+        </main>
+      )}
+
+      {/*
         ⚠️ KURULUM BİTMEDİYSE BAŞKA HİÇBİR ŞEY YOK.
         Sekmeler ve bölümler çizilmiyor: yarım kurulmuş bir bastion'ın
         yönetim ekranlarını gezdirmek, ayarları kaynağı seçilmeden
         değiştirmeye davet etmek olurdu.
       */}
-      {!me.must_change_password && needsSetup && me.admin && (
+      {!me.must_change_password && !me.must_enrol_totp && needsSetup && me.admin && (
         <main className="app">
           <Setup meName={me.name} dirBound={me.dir_bound} />
         </main>
@@ -525,7 +562,7 @@ export default function App() {
 
       {/* Kurulum bitmemiş ve YÖNETİCİ DEĞİLSE: girecek yer yok, ama
           sebebini söylüyoruz — boş bir ekran arıza gibi görünürdü. */}
-      {!me.must_change_password && needsSetup && !me.admin && (
+      {!me.must_change_password && !me.must_enrol_totp && needsSetup && !me.admin && (
         <main className="center">
           <div className="center-card">
             <h1>Not set up yet</h1>
@@ -538,7 +575,7 @@ export default function App() {
         </main>
       )}
 
-      {!me.must_change_password && !needsSetup && (
+      {!me.must_change_password && !me.must_enrol_totp && !needsSetup && (
         <>
           <nav className="tabs" aria-label="Sections">
             <div className="tabs-inner">

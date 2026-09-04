@@ -22,7 +22,18 @@ function group(secret: string): string {
   return (secret.match(/.{1,4}/g) ?? []).join(" ");
 }
 
-export default function Authenticator() {
+/*
+ * onEnrolled: kayıt DOĞRULANDIĞINDA çağrılıyor.
+ *
+ * Profil sayfasında gereksiz (kart kendi durumunu tazeliyor), ama zorunlu
+ * kayıt ekranında şart: kişi orada başka hiçbir şey göremiyor ve kayıt
+ * bitince ekranın tamamı farklı bir yetkiyle yeniden çizilmeli.
+ */
+export default function Authenticator({
+  onEnrolled,
+}: {
+  onEnrolled?: () => void;
+} = {}) {
   const [status, setStatus] = useState<TOTPStatus | null>(null);
   const [secret, setSecret] = useState<{
     secret: string;
@@ -226,6 +237,7 @@ export default function Authenticator() {
                 ).then(() => {
                   setSecret(null);
                   setSetting(false);
+                  onEnrolled?.();
                 });
               }}
             >

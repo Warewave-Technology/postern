@@ -30,6 +30,7 @@ export type Me = {
    *  sınırlıyor. Asıl koruma sunucuda (requireSession): ekranın doğru
    *  çizilmesine güvenerek açık bırakılan bir kapı, kapalı değildir. */
   must_change_password?: boolean;
+  must_enrol_totp?: boolean;
   /** Kuralın TEK KAYNAĞI sunucu. Ekrana ikinci bir kopyasını yazmak,
    *  bir güvenlik kontrolünü iki yerde tutmak olurdu. */
   password_policy?: PasswordPolicy;

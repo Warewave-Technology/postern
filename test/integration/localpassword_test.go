@@ -488,6 +488,9 @@ func TestRemovingAKeyByFingerprintHitsOnlyThatKey(t *testing.T) {
  */
 func TestUserCanRemoveTheirOwnKeyByFingerprint(t *testing.T) {
 	_, apiURL, _, db := oobBastionFresh(t)
+	// Göç 033: ikinci faktör kaydı sır kutusu istiyor, ve 1.1'den beri
+	// yerel oturum kayıt tamamlanmadan anahtar uçlarını göremiyor.
+	attachSecretBox(t, db)
 	ctx := context.Background()
 
 	if _, err := db.CreateUser(ctx, "ayse", "ayse@warewave.io", "ayse"); err != nil {
@@ -530,6 +533,8 @@ func TestUserCanRemoveTheirOwnKeyByFingerprint(t *testing.T) {
 	if code, msg := localSignIn(t, client, apiURL, "ayse", secret); code != http.StatusOK {
 		t.Fatalf("giriş %d: %s", code, msg)
 	}
+	// Yerel oturum, ikinci faktörünü kurmadan panelde hiçbir şey yapamaz.
+	enrolTOTP(t, client, apiURL, secret)
 
 	// Liste parmak izlerini veriyor mu?
 	resp, err := client.Get(apiURL + "/api/me/keys")
