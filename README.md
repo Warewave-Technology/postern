@@ -27,22 +27,29 @@ deploying.
 ## Install
 
 Download a release — one static binary per platform, with the panel compiled
-in — and check it against the signed checksums:
+in. Four are published: `linux_amd64`, `linux_arm64`, `darwin_amd64` and
+`darwin_arm64`.
 
 ```bash
-curl -LO https://github.com/Warewave-Technology/postern/releases/latest/download/postern_1.0.2_linux_amd64.tar.gz
-curl -LO https://github.com/Warewave-Technology/postern/releases/latest/download/checksums.txt
-sha256sum -c checksums.txt --ignore-missing
+B=https://github.com/Warewave-Technology/postern/releases/download/v1.0.2
+curl -LO $B/postern_1.0.2_linux_amd64.tar.gz
+curl -LO $B/checksums.txt
+curl -LO $B/checksums.txt.bundle
 ```
 
-The checksums file is signed with a cosign keyless signature, so there is no
-public key to look after — the signature is bound to this repository and the
-workflow that built it. The signature ships as a single sigstore bundle
-(`checksums.txt.bundle`) and verifying it needs cosign v3 or later. The exact `cosign verify-blob` invocation is in the
-release notes and in
+Verify in that order — signature first, then checksum. `checksums.txt` is
+signed with a cosign keyless signature, so there is no public key to look
+after: the signature binds the file to this repository, this workflow and this
+tag. It ships as a single sigstore bundle and needs cosign v3 or later. The
+exact `cosign verify-blob` invocation is in the release notes and in
 [the install docs](https://postern.warewave.tech/docs/#install); take it from
 there rather than from memory, because the identity it pins has to match the
-repository that produced the artifact.
+repository and the tag that produced the artifact. Only once it prints
+`Verified OK` does the checksum mean anything:
+
+```bash
+sha256sum -c checksums.txt --ignore-missing
+```
 
 Or build it:
 

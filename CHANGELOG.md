@@ -28,6 +28,47 @@ audit rows into a shape it does not understand.
   commit after the tag — RELEASING.md says the same thing at the end.
 -->
 
+## Unreleased
+
+### Needs action if you unpacked a 1.0.2 archive
+
+- **The `README.md` inside the 1.0.2 archives gives a download command that
+  returns 404.** It names `postern_1.0.1_linux_amd64.tar.gz` and fetches it
+  through `releases/latest/download/`, so it broke the moment 1.0.2 became
+  latest. The fix was committed after the tag was cut, which is why it
+  missed the archives. Nothing else in the archive is affected — the binary,
+  the checksums and the signature are the ones 1.0.2 published. Use the
+  commands on [the install page](https://postern.warewave.tech/docs/#install)
+  or in the release notes; both are correct.
+
+### Changed
+
+- **Verifying a release now pins the tag, not just the repository.** The
+  documented `--certificate-identity-regexp` ended at
+  `release.yml@`, which proves an artifact came from this repository's
+  release workflow but not *which release* — the same command verified any
+  version's `checksums.txt`. It now ends `@refs/tags/<version>$`, so a
+  signed checksums file from a different release no longer satisfies it.
+
+- **The release notes verify before they checksum.** They listed the
+  `sha256sum` step first and the signature afterwards. A checksum read out
+  of an unverified file only proves the archive and the checksum arrived
+  together, so the order is now signature, then checksum — matching what
+  the install docs already say.
+
+- **`README.md` stops pretending to follow the latest release.** Its
+  download URL went through `releases/latest/download/` with the version
+  written into the filename, which cannot work: the filename changes every
+  release. It pins the tag explicitly now, the way the install docs do.
+
+### Fixed
+
+- **A release whose documentation still names the previous version stops
+  before it ships.** `make release-docs-check` compares the version strings
+  in `README.md` and the install docs against the tag being built, and runs
+  as a release before-hook. This is the check that would have caught the
+  README above.
+
 ## 1.0.2 — 2026-09-04
 
 ### Needs action if you are running a 1.0.1 binary

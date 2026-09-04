@@ -11,7 +11,20 @@ hand gets them wrong on the release where it matters.
    actually read — a setting that silently stops being honoured belongs
    there, and so does anything that changes how long a restart takes.
 
-2. **Check the configuration builds a release.**
+2. **Bump the version strings, before the tag and not after.** The
+   download commands in `README.md` and `site/docs/index.html`, and the
+   `postern version` sample output in the docs, all name a version.
+   `make release-docs-check VERSION=<the version you are tagging>` says
+   whether they agree; the release runs the same check as a before-hook,
+   so a tag that disagrees stops there rather than shipping.
+
+   This is not hypothetical bookkeeping. 1.0.2 was tagged first and the
+   documentation fixed after, so all four 1.0.2 archives carry a README
+   whose download command names 1.0.1 — and because that command used
+   `releases/latest/download/` with the version baked into the filename,
+   it started returning 404 the moment 1.0.2 was published.
+
+3. **Check the configuration builds a release.**
 
    ```bash
    make release-check      # validates .goreleaser.yaml
@@ -32,7 +45,7 @@ hand gets them wrong on the release where it matters.
    different Go than the one in `go.mod`. The real release is built in
    CI with `setup-go` reading `go.mod`.
 
-3. **Green CI on the commit you are about to tag.** The release workflow
+4. **Green CI on the commit you are about to tag.** The release workflow
    runs `make ci` again before it builds anything, so this is belt and
    braces rather than the only check — but finding out on the tag is a
    slower way to learn it.

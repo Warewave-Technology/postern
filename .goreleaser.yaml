@@ -28,6 +28,10 @@ before:
     # yeniden yazarsa ağaç kirlenir ve Go her ikiliye vcs.modified=true
     # gömer; goreleaser bunu göremez, çünkü kendi git temizlik kontrolü
     # hook'lardan ÖNCE koştu. v1.0.1 bu yüzden "MODIFIED" damgalı yayımlandı.
+    # ⚠️ Belgeler etiketi takip ediyor mu. v1.0.2'nin arşivlerine 1.0.1
+    # adresini gösteren bir README girdi, çünkü düzeltme etiketten sonra
+    # commit'lendi; o komut yayımlandığı an 404 verdi.
+    - make release-docs-check VERSION={{ .Version }}
     - make release-clean-check
 
 builds:
@@ -175,28 +179,31 @@ release:
   footer: |
     ## Verifying what you downloaded
 
-    Checksums:
+    Signature first, then checksum — that order is the point. The signature is
+    what makes `checksums.txt` worth trusting; a checksum read out of an
+    unverified file only proves the archive and the checksum arrived together.
+
+    `checksums.txt` is signed with [cosign](https://github.com/sigstore/cosign)
+    keyless signing, so there is no public key to trust — the signature is tied
+    to this repository, this workflow and this tag:
+
+    ```
+    cosign verify-blob checksums.txt \
+      --bundle checksums.txt.bundle \
+      --certificate-identity-regexp '^https://github\.com/Warewave-Technology/postern/\.github/workflows/release\.yml@refs/tags/{{ .Tag }}$' \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com
+    ```
+
+    Needs cosign v3 or later — that is the version this signature is produced
+    with, and the bundle format is its default. Only once it prints
+    `Verified OK` does the checksum mean anything:
 
     ```
     sha256sum -c checksums.txt --ignore-missing
     ```
 
-    The checksums file is signed with [cosign](https://github.com/sigstore/cosign)
-    keyless signing, so there is no public key to trust — the signature is
-    tied to this repository and this workflow:
-
-    ```
-    cosign verify-blob checksums.txt \
-      --bundle checksums.txt.bundle \
-      --certificate-identity-regexp '^https://github\.com/Warewave-Technology/postern/\.github/workflows/release\.yml@' \
-      --certificate-oidc-issuer https://token.actions.githubusercontent.com
-    ```
-
-    Needs cosign v3 or later — that is the version this signature is
-    produced with, and the bundle format is its default.
-
-    To see which dependency versions a binary was built with — the
-    question that matters when an advisory lands:
+    To see which dependency versions a binary was built with — the question
+    that matters when an advisory lands:
 
     ```
     go version -m ./postern

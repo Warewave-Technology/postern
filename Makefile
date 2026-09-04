@@ -27,7 +27,7 @@ LDFLAGS := -X github.com/Warewave-Technology/postern/internal/version.version=$(
 GOSEC_VERSION        ?= v2.29.0
 GOVULNCHECK_VERSION  ?= v1.7.0
 
-.PHONY: build test test-race test-short test-integration vet fmt lint sec vuln fuzz audit ci web web-test web-check notices notices-check release-snapshot release-check release-clean-check clean
+.PHONY: build test test-race test-short test-integration vet fmt lint sec vuln fuzz audit ci web web-test web-check notices notices-check release-snapshot release-check release-clean-check release-docs-check clean
 
 build:
 	$(GO) build -ldflags "$(LDFLAGS)" -o bin/postern ./cmd/postern
@@ -211,6 +211,22 @@ GORELEASER_VERSION ?= v2.18.0
 release-snapshot:
 	$(GO) run github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION) \
 		release --snapshot --clean --skip=sign
+
+# Belgelerdeki sürüm dizgelerinin kesilen etiketle aynı olduğunu doğrular.
+# v1.0.2 bunu yaşadı: README'nin indirme komutu 1.0.1 diyordu, düzeltmesi
+# etiketten SONRA commit'lendi, ve dört arşivin içine de o hâliyle girdi —
+# `latest/download/` yoluna sürüm gömülü olduğu için komut yayımlandığı an
+# 404 vermeye başladı. İnsan hafızası bunu tutmuyor, kapı tutuyor.
+# Snapshot'ta atlanıyor: orada sürüm 1.0.1-SNAPSHOT-<sha> gibi bir şey ve
+# hiçbir belgede öyle yazmaz.
+release-docs-check:
+	@case "$(VERSION)" in *SNAPSHOT*|"") exit 0;; esac; \
+		bad=""; \
+		for f in README.md site/docs/index.html; do \
+		  /usr/bin/grep -q "postern_$(VERSION)_linux_amd64" "$$f" || bad="$$bad $$f"; \
+		done; \
+		test -z "$$bad" || (echo "sürüm dizgesi $(VERSION) ile uyuşmayan belge:$$bad"; \
+		 echo "etiketten önce bump et — RELEASING.md 'Before the tag'"; exit 1)
 
 # Sürüm ağacının temiz olduğunu doğrular. goreleaser'ın kendi git temizlik
 # kontrolü before-hook'lardan ÖNCE koşuyor, yani bir hook'un yeniden yazdığı
