@@ -754,6 +754,22 @@ $ postern sync status --config postern.yaml
         password or a TOTP code, and directory users are not left waiting for an
         administrator to do it for them.
       </p>
+      <p>
+        <b>Lost the phone.</b> An administrator clears the enrolment from
+        <b>Users → the account → Reset authenticator</b>, and the person enrols
+        again. That covers everyone except the administrator, so there is a
+        second door that does not need the panel at all:
+      </p>
+<pre>$ postern admin reset-totp --name yigit
+</pre>
+      <p>
+        It runs on the bastion, against the database in the config — the same
+        place <code>postern admin bootstrap</code> runs, and the same authority.
+        It grants nothing new: whoever can run it could already edit the row
+        with <code>psql</code>. What it adds is the audit line, which editing
+        the row by hand does not leave. There are no recovery codes on purpose:
+        a second secret written on paper moves the protection onto that paper.
+      </p>
     </section>
 
     <section id="breakglass">

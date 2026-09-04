@@ -35,6 +35,7 @@ func newAdminCmd() *cobra.Command {
 	cmd.AddCommand(newAdminIssueCmd())
 	cmd.AddCommand(newAdminListCmd())
 	cmd.AddCommand(newAdminRevokeCmd())
+	cmd.AddCommand(newAdminResetTOTPCmd())
 	return cmd
 }
 
@@ -382,6 +383,81 @@ func newAdminRevokeCmd() *cobra.Command {
 			}
 			fmt.Fprintf(cmd.OutOrStdout(),
 				"Local secret for %q removed. The account and its audit trail remain.\n",
+				strings.TrimSpace(name))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
+	cmd.Flags().StringVar(&name, "name", "", "postern username")
+	return cmd
+}
+
+/*
+ * newAdminResetTOTPCmd, bir hesabın ikinci faktörünü HOST'tan kaldırır.
+ *
+ * ⚠️ NEDEN PANELDE DEĞİL DE BURADA. Panelde zaten var (adminResetTOTP) ve
+ * çoğu gün doğru kapı o. Ama 1.1'de TOTP yerel hesapların GİRİŞ faktörü
+ * oluyor ve o an panel yolunun bir taban durumu kalmıyor: telefonunu
+ * kaybeden kullanıcıyı yönetici sıfırlar, peki telefonunu kaybeden
+ * YÖNETİCİYİ kim sıfırlar? Panelde cevap yok — kimse giremez, kurulum
+ * kilitlenir. Tam olarak 015'in "hesap kilitleme yok" kuralının ve 026'daki
+ * CHECK'in engellemek için yazıldığı sonuç.
+ *
+ * ⚠️ YENİ BİR GÜVEN KÖKÜ AÇMIYOR. Host'a erişen kişi zaten `psql` ile satırı
+ * silebilir; bu komut ona yeni bir yetki vermiyor. Kattığı şey İZ: elle
+ * silmek denetim defterine hiçbir şey yazmıyor, bu yazıyor. Bir ikinci
+ * faktörün ortadan kalkması, kimin kaldırdığı belli olmadan gerçekleşmemeli.
+ *
+ * Kurtarma kodu ÜRETMİYOR ve bu bilinçli: kullanıcıya bir kenara yazacağı
+ * ikinci bir sır vermek, korumayı o kâğıdın güvenliğine bağlar. Kurtarma,
+ * kimliği zaten doğrulayabilen tarafta kalıyor — burada o taraf host'a
+ * erişebilen kişi, yani kurulumu ilk kuran güven kökünün ta kendisi.
+ */
+func newAdminResetTOTPCmd() *cobra.Command {
+	var configPath, name string
+
+	cmd := &cobra.Command{
+		Use:   "reset-totp",
+		Short: "Remove an account's authenticator, from the host",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if name == "" {
+				return errors.New("--name is required")
+			}
+			cfg, err := config.Load(configPath)
+			if err != nil {
+				return err
+			}
+			ctx := context.Background()
+
+			db, err := store.Open(ctx, cfg.Database.DSN)
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+
+			if err := db.DisableTOTP(ctx, name); err != nil {
+				// ⚠️ HAM ErrNotFound YETMİYOR. İki farklı sebebi var —
+				// hesap yok, ya da hesap var ama ikinci faktörü yok — ve
+				// operatör ilkini gördüğünde adı yanlış yazdığını sanıp
+				// aramaya koyulur. Ayrımı söylüyoruz.
+				if errors.Is(err, store.ErrNotFound) {
+					return fmt.Errorf(
+						"%q has no authenticator to remove (if the account itself "+
+							"is missing, `postern admin list` will not show it)", name)
+				}
+				return err
+			}
+
+			if err := db.LogAdmin(ctx, store.AdminLogEntry{
+				Actor: "cli", Via: "cli", Action: "admin.totp_reset", Entity: name,
+				Details: "authenticator removed from the host",
+			}); err != nil {
+				return err
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(),
+				"Authenticator for %q removed. They enrol again on next sign-in; "+
+					"the account, its keys and its audit trail are untouched.\n",
 				strings.TrimSpace(name))
 			return nil
 		},

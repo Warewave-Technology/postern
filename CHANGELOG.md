@@ -68,6 +68,28 @@ audit rows into a shape it does not understand.
   contents alone being enough — a dump that left the box, a stale replica,
   a table pasted into a ticket.
 
+### Added
+
+- **`postern admin reset-totp --name <user>` clears an authenticator from
+  the host.** The panel could already do this — Users → the account →
+  Reset authenticator — and on most days that is the right door. It stops
+  working in one case, and it is the case that matters: once a second
+  factor is required to sign in, the administrator who lost their phone
+  cannot reach the panel to reset anybody, including themselves. The panel
+  path has no base case; this one does.
+
+  It grants nothing new. Whoever can run it can already edit the row with
+  `psql`, and `postern admin bootstrap` runs from the same place with the
+  same authority. What it adds is the audit line — removing a second
+  factor by hand leaves none, and a second factor disappearing should
+  never be untraceable.
+
+  Still no recovery codes, for the reason the code has always given: a
+  second secret the user writes down moves the protection onto that piece
+  of paper. Recovery stays with a party that can already establish
+  identity. This release only adds the case where that party is whoever
+  holds the host rather than whoever can reach the panel.
+
 ### Changed
 
 - **Verifying a release now pins the tag, not just the repository.** The
