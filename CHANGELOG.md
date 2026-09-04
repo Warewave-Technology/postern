@@ -39,7 +39,8 @@ audit rows into a shape it does not understand.
   missed the archives. Nothing else in the archive is affected — the binary,
   the checksums and the signature are the ones 1.0.2 published. Use the
   commands on [the install page](https://postern.warewave.tech/docs/#install)
-  or in the release notes; both are correct.
+  — that copy pins the tag in the identity it checks, which is the point
+  of checking it.
 
 ### Changed
 
