@@ -28,7 +28,7 @@ audit rows into a shape it does not understand.
   commit after the tag — RELEASING.md says the same thing at the end.
 -->
 
-## Unreleased
+## 1.0.2 — 2026-09-04
 
 ### Needs action if you are running a 1.0.1 binary
 
@@ -69,6 +69,14 @@ audit rows into a shape it does not understand.
   first. The four published platforms are named as well; previously only
   `linux_amd64` appeared in the commands, though `linux_arm64`,
   `darwin_amd64` and `darwin_arm64` are built and signed alongside it.
+
+- **The documentation says which Go version building from source needs.**
+  It described the clone-and-`make build` path without naming one. With
+  the default `GOTOOLCHAIN=auto` that never shows; with
+  `GOTOOLCHAIN=local`, or a network that refuses a toolchain download, you
+  got a bare version error and nothing saying whether the floor was
+  deliberate. It is: the standard library is compiled in, so the `go`
+  directive decides which standard-library fixes your binary carries.
 
 ## 1.0.1 — 2026-09-04
 
