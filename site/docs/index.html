@@ -361,7 +361,7 @@ Verified OK
         With the checksums file vouched for, check the archive against it and
         install:
       </p>
-<pre>$ sha256sum -c checksums.txt --ignore-missing     <span class="c"># macOS: shasum -a 256 -c</span>
+<pre>$ sha256sum -c checksums.txt --ignore-missing     <span class="c"># macOS: shasum -a 256 in place of sha256sum</span>
 $ tar xzf postern_1.0.2_linux_amd64.tar.gz
 $ sudo install -o root -g root -m 0755 postern /usr/local/bin/postern   <span class="c"># where the systemd unit looks</span>
 </pre>
