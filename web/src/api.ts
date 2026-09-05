@@ -941,8 +941,39 @@ export const api = {
    *  izini döndürüyor, dolayısıyla panelin elindeki tek tanımlayıcı bu. */
   removeMyKeyByFingerprint: (fingerprint: string) =>
     req<{ ok: true }>("POST", "/api/me/keys/remove", { fingerprint }),
-  localLogin: (username: string, secret: string) =>
-    req<{ ok: boolean }>("POST", "/auth/local", { username, secret }),
+  /*
+   * ⚠️ KENDİ CEVABINI OKUYOR, req() KULLANMIYOR.
+   *
+   * req() hatada yalnızca `error` alanını alıp gerisini atıyor. Bu uç
+   * "parola yanlış" ile "ikinci faktör gerekiyor"u AYIRT ETMEK zorunda:
+   * ilki bir hata, ikincisi akışın bir adımı. Ortak hata tipini bu tek uç
+   * için genişletmektense burada okumak dürüst olanı.
+   */
+  localLogin: async (
+    username: string,
+    secret: string,
+    code?: string,
+  ): Promise<{ ok: boolean; totpRequired: boolean; error?: string }> => {
+    const r = await fetch("/auth/local", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, secret, code: code ?? "" }),
+    });
+    if (r.ok) return { ok: true, totpRequired: false };
+
+    noteStatus(r.status);
+    let msg = r.statusText;
+    let totpRequired = false;
+    try {
+      const b = await r.json();
+      msg = b.error ?? msg;
+      totpRequired = b.totp_required === true;
+    } catch {
+      /* gövde JSON değilse statusText kalır */
+    }
+    if (totpRequired) return { ok: false, totpRequired: true, error: msg };
+    throw new ApiError(r.status, msg);
+  },
   syncSettings: () => req<SyncSettings>("GET", "/api/admin/sync/settings"),
   syncRuns: (limit = 20) =>
     req<SyncRun[]>("GET", `/api/admin/sync/runs?limit=${limit}`),

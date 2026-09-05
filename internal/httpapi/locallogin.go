@@ -90,6 +90,12 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Username string `json:"username"`
 		Secret   string `json:"secret"`
+		// Code, hesabın DOĞRULANMIŞ bir ikinci faktörü varsa istenen
+		// TOTP kodu. Aynı istekte gönderiliyor: iki adımlı bir akış,
+		// aradaki durumu taşıyacak bir ara belirteç gerektirirdi ve o
+		// belirteç, henüz ikinci faktörünü kanıtlamamış birinin elinde
+		// duran bir şey olurdu.
+		Code string `json:"code"`
 	}
 	if !readJSON(w, r, &in) {
 		return
@@ -273,6 +279,50 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 		log.Error("local login user load failed", "error", err)
 		writeErr(w, http.StatusInternalServerError, "sign-in failed")
 		return
+	}
+
+	/*
+	 * ⚠️ İKİNCİ FAKTÖR, OTURUM YARATILMADAN ÖNCE.
+	 *
+	 * Sıra bu işin tamamı. Önce oturumu açıp sonra kod sormak, kodu
+	 * bilmeyen birinin elinde GEÇERLİ BİR OTURUM bırakırdı; o oturumun
+	 * neye eriştiği artık başka kapıların dikkatine kalırdı ve tek bir
+	 * unutulmuş uç yeter.
+	 *
+	 * ⚠️ YALNIZCA DOĞRULANMIŞ KAYIT KOD İSTİYOR. Kaydı olmayan ya da
+	 * yarım bırakmış hesap girebiliyor — ve hemen ardından panel kapısına
+	 * (weblogin.go, totpEnrolmentDone) çarpıp kaydını tamamlamak zorunda
+	 * kalıyor. İkisi birlikte boşluk bırakmıyor: ya kayıtlısın ve kod
+	 * veriyorsun, ya değilsin ve hiçbir şey yapamadan kaydoluyorsun.
+	 * Burada kod ISRAR ETMEK, kaydolmamış kimsenin giremediği ve
+	 * dolayısıyla kaydolamadığı bir kilit olurdu.
+	 */
+	switch c, terr := s.store.TOTP(r.Context(), u.Name); {
+	case terr != nil && !errors.Is(terr, store.ErrNotFound):
+		log.Error("totp lookup failed", "user", u.Name, "error", terr)
+		writeErr(w, http.StatusInternalServerError, "sign-in failed")
+		return
+	case terr == nil && c.Confirmed:
+		if in.Code == "" {
+			/*
+			 * ⚠️ 401 VE MAKİNE OKUNUR BİR İŞARET.
+			 *
+			 * Panelin kod kutusunu çizebilmesi için "parola yanlış" ile
+			 * "kod eksik"i ayırt etmesi gerekiyor. Bilgi sızdırmıyor:
+			 * buraya gelen taraf parolayı ZATEN kanıtladı.
+			 *
+			 * Deneme sayacına yazılmıyor — eksik kod bir tahmin değil.
+			 * Yanlış kod ise spendTOTP'nin kovasına düşüyor.
+			 */
+			writeJSON(w, http.StatusUnauthorized, map[string]any{
+				"error":         "enter the code from your authenticator",
+				"totp_required": true,
+			})
+			return
+		}
+		if !s.spendTOTP(w, r, u.Name, in.Code) {
+			return
+		}
 	}
 
 	// ⚠️ CreateLocal: oturumun kökeni yerel parola kapısı. Zorunlu

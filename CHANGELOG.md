@@ -70,6 +70,27 @@ audit rows into a shape it does not understand.
 
 ### Needs action for every local account
 
+- **Signing in locally asks for the authenticator code.** TOTP was a
+  step-up factor — asked only when adding a second SSH key. It is a
+  sign-in factor now: password, then code, on every local sign-in.
+
+  The code is asked only of accounts that have a confirmed authenticator,
+  and that is not a gap. An account without one signs in and immediately
+  meets the enrolment gate, which lets it do nothing else. Demanding a
+  code from an account that has none would be a lock with no key: you
+  could not sign in, so you could not enrol, so you could not sign in.
+
+  **The session is created after the code, not before.** Getting this
+  backwards would leave somebody who does not know the code holding a
+  valid session, and what that session could reach would then depend on
+  every other gate being right. Nothing exists until the second factor is
+  proven.
+
+  Codes are single-use here as everywhere else: the same code cannot open
+  a second session inside its thirty-second window. Wrong codes count
+  against the same rate limit and backoff as wrong passwords, so
+  alternating between the two doors buys nothing.
+
 - **A local sign-in now reaches nothing until an authenticator is
   enrolled.** postern stands between people and their servers, so a
   password on its own is not a sufficient answer to "who is this". The

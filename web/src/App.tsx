@@ -167,6 +167,16 @@ function LocalSignIn({
 }) {
   const [username, setUsername] = useState("");
   const [secret, setSecret] = useState("");
+  const [code, setCode] = useState("");
+  /*
+   * needCode: sunucu ikinci faktör istedi.
+   *
+   * ⚠️ BAŞTAN ÇİZİLMİYOR. Kod kutusunu herkese göstermek, hangi hesapların
+   * ikinci faktörü olduğunu giriş ekranından okunabilir yapardı. Kutu
+   * ancak parola doğrulandıktan SONRA beliriyor — o noktada soran taraf
+   * zaten parolayı biliyor.
+   */
+  const [needCode, setNeedCode] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -175,8 +185,17 @@ function LocalSignIn({
     setBusy(true);
     setError("");
     api
-      .localLogin(username.trim(), secret)
-      .then(onDone)
+      .localLogin(username.trim(), secret, code)
+      .then((res) => {
+        if (res.totpRequired) {
+          setNeedCode(true);
+          // Parola kutusu DOLU kalıyor: aynı istekte tekrar gönderilecek
+          // ve kişiye iki kez yazdırmanın hiçbir faydası yok.
+          setError(res.error ?? "");
+          return;
+        }
+        onDone();
+      })
       .catch((err: unknown) => setError(toMessage(err)))
       .finally(() => setBusy(false));
   };
@@ -204,6 +223,18 @@ function LocalSignIn({
           onChange={(e) => setSecret(e.target.value)}
         />
       </label>
+      {needCode && (
+        <label>
+          Authenticator code
+          <input
+            value={code}
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            autoFocus
+            onChange={(e) => setCode(e.target.value)}
+          />
+        </label>
+      )}
       <ErrorLine msg={error} />
       <button
         className="btn btn-primary"
@@ -532,9 +563,9 @@ export default function App() {
             <h1>Set up your authenticator</h1>
             <p>
               This bastion stands between people and their servers, so a
-              password on its own is not enough to get in. Add an
-              authenticator now — it takes a minute, and it is the last thing
-              between you and the panel.
+              password on its own is not enough to get in. Add an authenticator
+              now — it takes a minute, and it is the last thing between you and
+              the panel.
             </p>
           </div>
           <Authenticator
@@ -554,26 +585,32 @@ export default function App() {
         yönetim ekranlarını gezdirmek, ayarları kaynağı seçilmeden
         değiştirmeye davet etmek olurdu.
       */}
-      {!me.must_change_password && !me.must_enrol_totp && needsSetup && me.admin && (
-        <main className="app">
-          <Setup meName={me.name} dirBound={me.dir_bound} />
-        </main>
-      )}
+      {!me.must_change_password &&
+        !me.must_enrol_totp &&
+        needsSetup &&
+        me.admin && (
+          <main className="app">
+            <Setup meName={me.name} dirBound={me.dir_bound} />
+          </main>
+        )}
 
       {/* Kurulum bitmemiş ve YÖNETİCİ DEĞİLSE: girecek yer yok, ama
           sebebini söylüyoruz — boş bir ekran arıza gibi görünürdü. */}
-      {!me.must_change_password && !me.must_enrol_totp && needsSetup && !me.admin && (
-        <main className="center">
-          <div className="center-card">
-            <h1>Not set up yet</h1>
-            <p>
-              This bastion has not finished its first-run setup. An
-              administrator has to choose how people sign in before it can be
-              used.
-            </p>
-          </div>
-        </main>
-      )}
+      {!me.must_change_password &&
+        !me.must_enrol_totp &&
+        needsSetup &&
+        !me.admin && (
+          <main className="center">
+            <div className="center-card">
+              <h1>Not set up yet</h1>
+              <p>
+                This bastion has not finished its first-run setup. An
+                administrator has to choose how people sign in before it can be
+                used.
+              </p>
+            </div>
+          </main>
+        )}
 
       {!me.must_change_password && !me.must_enrol_totp && !needsSetup && (
         <>

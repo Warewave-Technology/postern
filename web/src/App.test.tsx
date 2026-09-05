@@ -423,7 +423,9 @@ describe("giris yollari", () => {
       ldap: false,
     });
     vi.spyOn(api, "myTargets").mockResolvedValue(myTargets);
-    const login = vi.spyOn(api, "localLogin").mockResolvedValue({ ok: true });
+    const login = vi
+      .spyOn(api, "localLogin")
+      .mockResolvedValue({ ok: true, totpRequired: false });
 
     render(<App />);
     await waitFor(() =>
@@ -434,8 +436,66 @@ describe("giris yollari", () => {
     await userEvent.type(screen.getByLabelText(/Sign-in secret/i), "AAAA-BBBB");
     await userEvent.click(screen.getByRole("button", { name: /^Sign in$/i }));
 
-    await waitFor(() => expect(login).toHaveBeenCalledWith("ops", "AAAA-BBBB"));
+    await waitFor(() =>
+      expect(login).toHaveBeenCalledWith("ops", "AAAA-BBBB", ""),
+    );
     expect(meSpy).toHaveBeenCalled();
+  });
+
+  /*
+   * ⚠️ KOD KUTUSU BAŞTAN ÇİZİLMİYOR.
+   *
+   * Herkese göstermek, hangi hesapların ikinci faktörü olduğunu giriş
+   * ekranından okunabilir yapardı — kimliği doğrulanmamış birine hesap
+   * hakkında bilgi vermek. Kutu ancak parola doğrulandıktan sonra
+   * beliriyor.
+   */
+  it("kod kutusu ancak sunucu isteyince beliriyor", async () => {
+    vi.spyOn(api, "me").mockRejectedValue(new ApiError(401, "unauthenticated"));
+    vi.spyOn(api, "authMethods").mockResolvedValue({
+      source: "local",
+      oidc: false,
+      local: true,
+      ldap: false,
+    });
+    const login = vi
+      .spyOn(api, "localLogin")
+      .mockResolvedValue({
+        ok: false,
+        totpRequired: true,
+        error: "enter the code",
+      });
+
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByLabelText(/Sign-in secret/i)).toBeInTheDocument(),
+    );
+    expect(screen.queryByLabelText(/Authenticator code/i)).toBeNull();
+
+    await userEvent.type(screen.getByLabelText(/Username/i), "ayse");
+    await userEvent.type(screen.getByLabelText(/Sign-in secret/i), "hunter2");
+    await userEvent.click(screen.getByRole("button", { name: /^Sign in$/i }));
+
+    await waitFor(() =>
+      expect(screen.getByLabelText(/Authenticator code/i)).toBeInTheDocument(),
+    );
+
+    /*
+     * ⚠️ PAROLA KUTUSU DOLU KALIYOR. Kod aynı istekte gönderiliyor, yani
+     * temizlenirse ikinci gönderim parolasız gider ve kullanıcı sebebi
+     * anlaşılmayan bir "yanlış parola" görür.
+     */
+    expect(screen.getByLabelText(/Sign-in secret/i)).toHaveValue("hunter2");
+
+    await userEvent.type(
+      screen.getByLabelText(/Authenticator code/i),
+      "123456",
+    );
+    await userEvent.click(screen.getByRole("button", { name: /^Sign in$/i }));
+
+    await waitFor(() =>
+      expect(login).toHaveBeenLastCalledWith("ayse", "hunter2", "123456"),
+    );
   });
 
   it("yanlis sirda hata gosterir ve formda kalir", async () => {
