@@ -28,7 +28,7 @@ audit rows into a shape it does not understand.
   commit after the tag — RELEASING.md says the same thing at the end.
 -->
 
-## Unreleased
+## 1.1.0 — 2026-09-05
 
 ### Needs action if you unpacked a 1.0.2 archive
 
@@ -87,9 +87,16 @@ audit rows into a shape it does not understand.
   proven.
 
   Codes are single-use here as everywhere else: the same code cannot open
-  a second session inside its thirty-second window. Wrong codes count
-  against the same rate limit and backoff as wrong passwords, so
-  alternating between the two doors buys nothing.
+  a second session inside its thirty-second window.
+
+  Guessing is bounded by the sign-in rate limit, which a coded attempt
+  spends twice — once for the password check and once for the code — so a
+  single source gets five attempts a minute. The escalating backoff shares
+  its counter with the password door and no longer resets when the
+  password is right and the code is wrong, but be clear about which of the
+  two is doing the work: measured, the per-minute limit binds first at
+  this door, and the backoff is what remains if that limit is ever
+  loosened.
 
 - **A local sign-in now reaches nothing until an authenticator is
   enrolled.** postern stands between people and their servers, so a

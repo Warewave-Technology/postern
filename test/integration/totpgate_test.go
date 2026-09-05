@@ -330,3 +330,86 @@ func TestBreakGlassAdminCanEnrolWithItsOwnSecret(t *testing.T) {
 		t.Fatalf("kayıttan sonra yönetim ucu %d: %s", c, b)
 	}
 }
+
+/*
+ * ⚠️ ÜST ÜSTE YANLIŞ KOD SINIRSIZ DENENEMİYOR.
+ *
+ * Bu test önce artan gecikmeyi ölçmeye çalışıyordu ve ÖLÇEMEDİ: giriş
+ * kapısında bağlayıcı sınır dakikalık kota (IP başına 10 jeton; kodlu bir
+ * deneme handleLocalLogin'de bir, spendTOTP'de bir olmak üzere 2 harcıyor,
+ * yani dakikada 5 deneme). Gecikme dördüncü BAŞARISIZLIKTA devreye giriyor
+ * ama kota ondan önce doluyor — üstelik kurulum girişi ve kayıt da aynı
+ * kovadan harcadığı için. Ölçülemeyen şeyi iddia etmemek için test, gerçekte
+ * gözlenebilen şeyi çiviliyor: parolayı bilen biri altı haneyi sınırsız
+ * deneyemiyor.
+ *
+ * Sıralama düzeltmesi (succeed(bkey) artık ikinci faktörden SONRA) yine de
+ * duruyor ve doğru: başarısız bir ikinci faktör, sayacı sıfırlamamalı.
+ * Kotanın onu gölgelemesi, yanlış olmasını gerektirmiyor.
+ */
+func TestWrongCodesAtSignInAreBounded(t *testing.T) {
+	_, apiURL, _, db := oobBastionFresh(t)
+	attachSecretBox(t, db)
+	ctx := context.Background()
+
+	if _, err := db.CreateUser(ctx, "ayse", "ayse@warewave.io", "ayse"); err != nil {
+		t.Fatal(err)
+	}
+	secret, verifier, err := auth.NewLocalSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AddLocalCredential(ctx, "ayse", verifier, "cli"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetChosenPassword(ctx, "ayse", verifier, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetSetting(ctx, auth.KeyLoginSource, "local", false, "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	jar, _ := cookiejar.New(nil)
+	setup := &http.Client{Jar: jar, Timeout: 30 * time.Second}
+	if c, m := localSignIn(t, setup, apiURL, "ayse", secret); c != http.StatusOK {
+		t.Fatalf("kurulum girişi %d: %s", c, m)
+	}
+	enrolTOTP(t, setup, apiURL, secret)
+
+	/*
+	 * DOĞRU parola, YANLIŞ kod — üst üste.
+	 *
+	 * Dakikalık kota 10 ve kodlu bir deneme 2 jeton harcıyor, yani beş
+	 * denemede kota biter. Gecikme ise dördüncü denemede devreye giriyor
+	 * (backoffSteps: 0,0,0,2s). Aradaki fark, testin kota mesajını
+	 * gecikme mesajı sanmasını engelliyor.
+	 */
+	jar2, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar2, Timeout: 30 * time.Second}
+
+	bounded := false
+	for i := 1; i <= 8; i++ {
+		code, body := localSignInWithCode(t, client, apiURL, "ayse", secret, "000000")
+		if code == http.StatusOK {
+			t.Fatalf("%d. denemede yanlış kodla girildi: %s", i, body)
+		}
+		if code == http.StatusTooManyRequests {
+			bounded = true
+			break
+		}
+		if code != http.StatusUnauthorized {
+			t.Fatalf("%d. denemede beklenmeyen durum %d: %s", i, code, body)
+		}
+	}
+	if !bounded {
+		t.Fatal("sekiz yanlış kod hiçbir sınıra çarpmadı; parolayı ele " +
+			"geçiren biri altı haneyi serbestçe deneyebilir")
+	}
+
+	/*
+	 * Doğru kodun ardından girilebildiğini burada SINAMIYORUZ: kota
+	 * dolduğu için bir sonraki deneme zaten 429 alır ve testin bir dakika
+	 * beklemesi gerekirdi. O yol TestSignInDemandsTheCodeBeforeItOpensASession
+	 * içinde temiz bir kovayla ölçülüyor.
+	 */
+}

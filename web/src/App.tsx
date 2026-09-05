@@ -303,6 +303,8 @@ export default function App() {
    * panelin kendi çıkarımı değil.
    */
   const [sourceIsLocal, setSourceIsLocal] = useState(false);
+  // Zorunlu kayıt ekranındaki parola değiştirme kartı açık mı.
+  const [pwOpen, setPwOpen] = useState(false);
   useEffect(() => {
     if (!me?.admin || needsSetup) return;
     api
@@ -576,6 +578,30 @@ export default function App() {
               window.location.assign("/");
             }}
           />
+          {/*
+            ⚠️ SUNUCUNUN AÇIK BIRAKTIĞI KAÇIŞ YOLU ARAYÜZDE DE OLMALI.
+
+            requireSession bu ucu kayıt kapısında BİLEREK açık bırakıyor
+            (weblogin.go, totpEnrolmentAllowed): parolasının sızdığını
+            düşünen kişi, o parolanın üstüne ikinci faktör kurmadan ÖNCE
+            onu değiştirebilmeli. Panelde bir yol sunulmazsa o gerekçe
+            kâğıt üstünde kalıyordu — uç açık ama kimse ulaşamıyor.
+          */}
+          {pwOpen ? (
+            <ChangePassword
+              name={me.name}
+              policy={me.password_policy}
+              onDone={() => setPwOpen(false)}
+            />
+          ) : (
+            <button
+              type="button"
+              className="btn-quiet"
+              onClick={() => setPwOpen(true)}
+            >
+              Change your password first
+            </button>
+          )}
         </main>
       )}
 

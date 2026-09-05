@@ -263,9 +263,24 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Doğru değer geldi: sayaç sıfırlanıyor. Doğru parolayı bilen kişi
-	// hiçbir zaman gecikmeyle karşılaşmasın (bkz. backoff.go).
-	s.guessBackoff.succeed(bkey)
+	/*
+	 * ⚠️ SAYAÇ BURADA SIFIRLANMIYOR — İKİNCİ FAKTÖRDEN SONRA.
+	 *
+	 * Burada sıfırlıyordu ve ölçüldü: TOTP kontrolü aşağıda, ve spendTOTP
+	 * AYNI anahtarı kullanıyor (backoffKey = ad + adres). Yani parolayı
+	 * bilen biri için sıra şuydu — doğru parola sayacı SİLİYOR, yanlış kod
+	 * sayacı 1 yapıyor, bir sonraki denemede doğru parola tekrar SİLİYOR.
+	 * Sayaç hiçbir zaman 1'i geçmiyordu ve backoffSteps'in ilk üç adımı
+	 * zaten sıfır olduğu için artan gecikme HİÇ devreye girmiyordu; geriye
+	 * yalnızca dakikalık kota kalıyordu.
+	 *
+	 * Yani parolayı ele geçiren biri, altı haneyi gecikmesiz deniyordu —
+	 * ikinci faktörün var olma sebebinin tam karşısı.
+	 *
+	 * Sıfırlama artık TAM başarıdan sonra: parola VE kod. Doğru parolayı
+	 * bilen kişinin gecikmeyle karşılaşmaması kuralı korunuyor, çünkü kodu
+	 * da doğru giren kişi sayacı yine siliyor.
+	 */
 
 	// ⚠️ Silinmiş hesap girişle geri gelmez (bkz. göç 023).
 	if derr := s.store.RefuseIfDeleted(r.Context(), in.Username); derr != nil {
@@ -324,6 +339,9 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	// Parola VE (varsa) kod doğrulandı: sayaç ancak şimdi sıfırlanıyor.
+	s.guessBackoff.succeed(bkey)
 
 	// ⚠️ CreateLocal: oturumun kökeni yerel parola kapısı. Zorunlu
 	// parola değişikliği kısıtı buna bakıyor (weblogin.go'daki gate).

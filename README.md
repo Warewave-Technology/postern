@@ -31,8 +31,8 @@ in. Four are published: `linux_amd64`, `linux_arm64`, `darwin_amd64` and
 `darwin_arm64`.
 
 ```bash
-B=https://github.com/Warewave-Technology/postern/releases/download/v1.0.2
-curl -LO $B/postern_1.0.2_linux_amd64.tar.gz
+B=https://github.com/Warewave-Technology/postern/releases/download/v1.1.0
+curl -LO $B/postern_1.1.0_linux_amd64.tar.gz
 curl -LO $B/checksums.txt
 curl -LO $B/checksums.txt.bundle
 ```
@@ -710,16 +710,30 @@ caught it. `internal/ldap/ldaptest` is a small LDAP server that can — it also
 produces the referral that AD returns for a wrong base DN, which is the other
 answer that reads as "no such user" if you take it at face value.
 
-### Adding a second key without asking anyone
+### The second factor
 
-Adding a *further* SSH key is exactly the move someone makes to keep access
-after taking over an account, so postern re-checks who you are first. It could
-only ever check a local password — which directory-backed and OIDC accounts do
-not have. In the deployments postern is actually built for, that made "ask an
+Local accounts must enrol an authenticator, and a local sign-in asks for the
+password and then the code. The session is created after the code, never
+before it, so a wrong code leaves nothing behind to use. An account that has
+not enrolled yet signs in and then reaches nothing but the enrolment screen —
+demanding a code from an account without one would be a lock with no key.
+
+Accounts that sign in through a directory or an identity provider are not
+asked for a postern code: their second factor belongs to that provider, and
+adding a requirement on top would override a decision your organisation has
+already made. SSH is unaffected — it authenticates with a key, and local
+credentials are never read there.
+
+Enrolment needs `secret_key_file` set, because the seed is sealed at rest with
+the same key that seals stored settings. `postern serve` refuses to start when
+local accounts exist and that key is missing, rather than letting people
+discover it at the sign-in screen.
+
+**It also guards adding a further SSH key.** That is exactly the move someone
+makes to keep access after taking over an account, so postern re-checks who
+you are first. It could only ever check a local password — which
+directory-backed and OIDC accounts do not have, which had made "ask an
 administrator" the answer for everyone.
-
-An authenticator app closes that. Enrol one from your own page, and a code
-authorises adding a key.
 
 Two things about it are deliberate:
 
@@ -744,15 +758,25 @@ one, which surfaces days later as "my codes never work" — with the person
 locked out of their own account. Goldens generated from our own output would
 have caught none of that; a wrong encoder agrees with itself perfectly.
 
-**Enrolling one takes over the check.** An account that had a password and then
-enrols an authenticator is asked for a code from that point on, not the
-password. That is the point of enrolling — otherwise the password would still
-be enough on its own and the authenticator would protect nothing. It does mean
-losing the phone means losing this ability until it is reset.
+**For the key check, enrolling takes over from the password.** An account that
+had a password and then enrols is asked for a code from that point on, not the
+password — otherwise the password would still be enough on its own and the
+authenticator would protect nothing. Signing in is different: there both are
+asked, the password first and then the code.
 
 There are no recovery codes, on purpose: a second secret for you to write down
 moves the security of the account onto that piece of paper. Lost your phone? An
-administrator resets the authenticator, and the reset is in the admin log.
+administrator resets the authenticator from the panel, and the reset is in the
+admin log. When the administrator is the one locked out, the reset runs on the
+host instead:
+
+```bash
+postern admin reset-totp --name admin --config postern.yaml
+```
+
+That grants nothing new — whoever can run it already holds the database
+credentials — but it leaves an audit line, which editing the row by hand does
+not.
 
 The codes themselves are RFC 6238, checked against the RFC's own published
 vectors — so what postern computes is what your phone computes, not merely what
@@ -845,7 +869,8 @@ postern admin bootstrap --config postern.yaml
 postern serve --config postern.yaml
 ```
 
-`secret init` writes the key named by `secret_key_file`; it is what encrypts
+`secret init` writes the key named by `secret_key_file`; it seals every enrolled
+authenticator secret, and it is what encrypts
 settings kept in the database — the archive credential and the directory bind
 password among them — so the panel cannot store those without it.
 `admin bootstrap` prints a sign-in secret once and never again; without it the

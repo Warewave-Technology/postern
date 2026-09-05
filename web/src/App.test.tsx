@@ -458,13 +458,11 @@ describe("giris yollari", () => {
       local: true,
       ldap: false,
     });
-    const login = vi
-      .spyOn(api, "localLogin")
-      .mockResolvedValue({
-        ok: false,
-        totpRequired: true,
-        error: "enter the code",
-      });
+    const login = vi.spyOn(api, "localLogin").mockResolvedValue({
+      ok: false,
+      totpRequired: true,
+      error: "enter the code",
+    });
 
     render(<App />);
     await waitFor(() =>
@@ -827,6 +825,47 @@ describe("zorunlu ikinci faktör kaydı", () => {
     render(<App />);
     await screen.findByText("Set your password");
     expect(screen.queryByText("Set up your authenticator")).toBeNull();
+  });
+
+  /*
+   * ⚠️ SUNUCUNUN AÇIK BIRAKTIĞI KAÇIŞ YOLU ARAYÜZDE DE OLMALI.
+   *
+   * requireSession, kayıt kapısında POST /api/me/password'ü bilerek açık
+   * bırakıyor: parolasının sızdığını düşünen kişi, o parolanın üstüne
+   * ikinci faktör kurmadan önce onu değiştirebilmeli. Panelde bir yol
+   * sunulmazsa o gerekçe kâğıt üstünde kalır — uç açık, kimse ulaşamıyor.
+   */
+  it("kayıt ekranında parola değiştirme yolu var", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({
+      name: "ayse",
+      os_user: "ayse",
+      admin: false,
+      targets: [],
+      terminal_enabled: true,
+      public_key_login: true,
+      must_enrol_totp: true,
+      password_policy: { min_length: 12, max_length: 256, min_distinct: 5 },
+    });
+
+    // ⚠️ Authenticator mount'ta kendi durumunu çekiyor; mock'lanmazsa
+    // istek düşüyor ve kartın altındaki kardeşler çizilmiyor.
+    vi.spyOn(api, "totpStatus").mockResolvedValue({
+      enrolled: false,
+      pending: false,
+      can_begin: true,
+      needs_fresh_login: false,
+    });
+
+    render(<App />);
+    await screen.findByText("Set up your authenticator");
+
+    const link = await screen.findByRole("button", {
+      name: /Change your password first/i,
+    });
+    await userEvent.click(link);
+    await waitFor(() =>
+      expect(screen.getByText("Set your password")).toBeInTheDocument(),
+    );
   });
 
   /*
