@@ -28,6 +28,8 @@ audit rows into a shape it does not understand.
   commit after the tag — RELEASING.md says the same thing at the end.
 -->
 
+## Unreleased
+
 ## 1.1.0 — 2026-09-05
 
 ### Needs action if you unpacked a 1.0.2 archive

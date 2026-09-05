@@ -99,8 +99,35 @@ somebody's automation might have.
 
 ## After publishing
 
-Open a new `## Unreleased` section at the top of `CHANGELOG.md`, above
-the version you just shipped.
+1. **Redeploy `site/`.** Nothing does this for you, and until it happens
+   the live documentation describes the previous release. That is not a
+   broken-link problem — the old download URLs keep working — it is an
+   accuracy one, and it has been the last outstanding step on every
+   release so far. Two things on that page are pinned to a version and
+   silently wrong until it is copied up: the download URLs, and the
+   `cosign verify-blob` identity, which is anchored to the tag and so
+   fails against the new release's artifacts.
+
+   Deploy from `main`, not from the tag: step 3 below lands after the tag
+   is cut, so the tag does not have it.
+
+2. **Fill in the `postern version` sample** in `site/docs/index.html`
+   with the tag's real commit and timestamp:
+
+   ```bash
+   git show -s --format=%H v<version>            # commit
+   TZ=UTC git show -s --format=%cd \
+     --date=format-local:%Y-%m-%dT%H:%M:%SZ v<version>   # committed
+   ```
+
+   It cannot be written before the tag, because a commit cannot contain
+   its own hash. Filling it in afterwards is deliberate — the previous
+   sample carried an invented hash on the one page that teaches people to
+   check hashes, and `site/` is not in the release archives, so nothing
+   published ever carries the stale copy.
+
+3. **Open a new `## Unreleased` section** at the top of `CHANGELOG.md`,
+   above the version you just shipped.
 
 ## What is not in the pipeline, and why
 
