@@ -226,7 +226,13 @@ release-docs-check:
 		  /usr/bin/grep -q "postern_$(VERSION)_linux_amd64" "$$f" || bad="$$bad $$f"; \
 		done; \
 		test -z "$$bad" || (echo "sürüm dizgesi $(VERSION) ile uyuşmayan belge:$$bad"; \
-		 echo "etiketten önce bump et — RELEASING.md 'Before the tag'"; exit 1)
+		 echo "etiketten önce bump et — RELEASING.md 'Before the tag'"; exit 1); \
+		stale=""; \
+		for f in README.md site/index.html site/docs/index.html; do \
+		  /usr/bin/grep -q "step-up factor, not a sign-in factor" "$$f" && stale="$$stale $$f"; \
+		done; \
+		test -z "$$stale" || (echo "belge TOTP'yi hâlâ yalnızca step-up diye anlatıyor:$$stale"; \
+		 echo "1.1'de TOTP bir GİRİŞ faktörü — Limits, ikinci faktör bölümü ve roadmap 1.3 güncellenmeli"; exit 1)
 
 # Sürüm ağacının temiz olduğunu doğrular. goreleaser'ın kendi git temizlik
 # kontrolü before-hook'lardan ÖNCE koşuyor, yani bir hook'un yeniden yazdığı

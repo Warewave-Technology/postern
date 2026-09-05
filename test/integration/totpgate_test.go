@@ -260,3 +260,73 @@ func totpSecretOf(t *testing.T, db *store.Store, name string) string {
 	}
 	return c.Secret
 }
+
+/*
+ * ⚠️ ACİL ÇIKIŞ YÖNETİCİSİ KENDİ KENDİNE İKİ FAKTÖRLÜ OLABİLİYOR MU.
+ *
+ * Bu testin cevapladığı soru bir tasarım kararıydı: `admin bootstrap`
+ * TOTP kaydını host'ta da açmalı mı? Eğer bootstrap yöneticisi kendi
+ * sırrıyla girip panelden kaydolabiliyorsa, komuta etkileşimli bir kod
+ * doğrulama adımı eklemek onu betiklenemez yapar ve hiçbir şey
+ * kazandırmaz.
+ *
+ * Kritik ayrıntı: kayıt açmak YENİDEN DOĞRULAMA istiyor ve bootstrap
+ * hesabının sırrı MAKİNE ÜRETİMİ (chosen_at NULL), yani doğrulama
+ * VerifyLocalSecret yolundan geçiyor — parola yolundan değil. O yolun
+ * burada çalıştığını görmek gerekiyordu.
+ */
+func TestBreakGlassAdminCanEnrolWithItsOwnSecret(t *testing.T) {
+	_, apiURL, _, db := oobBastionFresh(t)
+	attachSecretBox(t, db)
+	ctx := context.Background()
+
+	// `postern admin bootstrap`ın ürettiği hâl: yönetici, makine üretimi
+	// sır, created_by="cli". Göç 026'nın CHECK'i bunu şart koşuyor.
+	if _, err := db.CreateUser(ctx, "admin", "", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	secret, verifier, err := auth.NewLocalSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AddLocalCredential(ctx, "admin", verifier, "cli"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetUserAdmin(ctx, "admin", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetSetting(ctx, auth.KeyLoginSource, "local", false, "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
+
+	// Kaydı yok, dolayısıyla giriş kod sormuyor.
+	if code, msg := localSignIn(t, client, apiURL, "admin", secret); code != http.StatusOK {
+		t.Fatalf("bootstrap yöneticisi giremedi: %d %s", code, msg)
+	}
+
+	// Ama kapıya çarpıyor.
+	code, body := meReq(t, client, "GET", apiURL+"/api/me", "")
+	if code != http.StatusOK {
+		t.Fatalf("/api/me %d: %s", code, body)
+	}
+	var me struct {
+		MustEnrolTOTP bool `json:"must_enrol_totp"`
+	}
+	if err := json.Unmarshal([]byte(body), &me); err != nil {
+		t.Fatal(err)
+	}
+	if !me.MustEnrolTOTP {
+		t.Fatal("yönetici kayıt kapısına takılmıyor — acil çıkış hesabı tek faktörlü kalırdı")
+	}
+
+	// ⚠️ ASIL SORU: makine üretimi sırrıyla kaydolabiliyor mu?
+	enrolTOTP(t, client, apiURL, secret)
+
+	// Kapı açıldı: yönetim uçları görünür oldu.
+	if c, b := meReq(t, client, "GET", apiURL+"/api/admin/users", ""); c != http.StatusOK {
+		t.Fatalf("kayıttan sonra yönetim ucu %d: %s", c, b)
+	}
+}
