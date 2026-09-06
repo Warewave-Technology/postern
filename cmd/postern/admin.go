@@ -249,7 +249,7 @@ func newAdminIssueCmd() *cobra.Command {
 			}
 
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "Secret issued for %q (admin: %t).\n\n", u.Name, u.Admin)
+			fmt.Fprintf(out, "Password issued for %q (admin: %t).\n\n", u.Name, u.Admin)
 			fmt.Fprintf(out, "  sign-in password:  %s\n\n", secret)
 			fmt.Fprint(out, "This is the only time it is shown.\n")
 			if !u.Admin {
