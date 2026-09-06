@@ -308,7 +308,7 @@ func New(o *auth.OIDCHolder, logins *auth.Logins, db *store.Store, logger *slog.
 		bindSlots:    make(chan struct{}, directoryBindSlots),
 
 		totpWindow:      2 * time.Minute,
-		totpMaxFailures: 5,
+		totpMaxFailures: 3,
 		totpLockFor:     15 * time.Minute,
 		prompts:         map[string]time.Time{},
 		logins:          logins,

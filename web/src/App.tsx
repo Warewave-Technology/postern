@@ -363,6 +363,7 @@ function LocalSignIn({
       <Modal
         open={needCode}
         title="Authenticator code"
+        narrow
         description={
           left !== undefined && left > 0
             ? `Enter the 6-digit code from your authenticator. This request expires in ${left}s.`

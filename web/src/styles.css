@@ -1670,14 +1670,28 @@ label > textarea {
   font-size: 16px;
   line-height: 1;
 }
-.modal-sub {
+/* ⚠️ ÖZGÜLLÜK MODAL'IN KENDİ SINIFINDAN ALINIYOR (.modal .modal-sub),
+   çünkü modal bir KAPSAYICININ İÇİNDE render ediliyor ve o kapsayıcının
+   kuralları buraya sızıyor. Ölçüldü: giriş ekranındaki `.center-card p`
+   (0,1,1) düz `.modal-sub`'ı (0,1,0) yeniyor ve açıklamanın yatay
+   boşluğunu sıfırlıyordu — başlık 307px'ten, açıklama 289px'ten
+   başlıyordu. <dialog> görsel olarak üst katmanda çizilse de DOM'da
+   kapsayıcının içinde duruyor, yani modalın kendi stili nereye
+   takıldığından BAĞIMSIZ olmak zorunda. */
+.modal .modal-sub {
   margin: 0 1.15rem 1rem;
   color: var(--muted);
   font-size: 12.5px;
   max-width: 60ch;
 }
-.modal-body {
+.modal .modal-body {
   padding: 0 1.15rem 1.15rem;
+}
+/* Tek bir kısa alan için 44rem çok geniş: altı haneli bir kod kutusu
+   ekranı boydan boya kaplıyordu. Yönetim formları (birkaç alan yan yana)
+   geniş hâli istiyor, bu yüzden varsayılan değişmiyor. */
+.modal-narrow {
+  max-width: min(24rem, calc(100vw - 2rem));
 }
 /* Modal içindeki form satırı dikey: dar bir kutuda yan yana üç alan
    sıkışıyor ve etiketleri kırpıyordu. */

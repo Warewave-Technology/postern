@@ -133,8 +133,16 @@ type AuthConfig struct {
 	TOTPWindow *time.Duration `yaml:"totp_window"`
 
 	/*
-	 * TOTPMaxFailures, hesabın kilitlendiği hata sayısı. Yazılmazsa 5,
+	 * TOTPMaxFailures, hesabın kilitlendiği hata sayısı. Yazılmazsa 3,
 	 * 0 yazılırsa kilit YOK (sayaç yine tutulur).
+	 *
+	 * ⚠️ 3, ÖNÜNDEKİ KATMANLARA GÖRE SEÇİLDİ — ve bu ölçüldü. Kod
+	 * doğrulanmadan ÖNCE iki koruma çalışıyor: artan gecikme ve dakikalık
+	 * IP kotası (kodlu deneme başına iki jeton, yani dakikada beş deneme).
+	 * Eşik 5 iken beşinci deneme kilide değil backoff'a çarpıyor, sayaç
+	 * 4'te kalıyor ve kilit ancak kota tazelendikten SONRAKİ dakikada
+	 * kuruluyordu. Yani "beş hatada kilitlenir" doğru ama aynı oturuşta
+	 * gözlenemiyordu. 3, kotanın içinde kalıyor.
 	 *
 	 * ⚠️ PAROLA KAPISINDA KİLİT YOK, BURADA VAR ve fark gerçek: parola
 	 * 128 bitlik makine üretimi bir değer olabiliyor ve orada kilit,
@@ -166,7 +174,7 @@ func (a AuthConfig) TOTPPromptWindow() time.Duration {
 // TOTPFailureLimit, yazılmamış alan için varsayılan.
 func (a AuthConfig) TOTPFailureLimit() int {
 	if a.TOTPMaxFailures == nil {
-		return 5
+		return 3
 	}
 
 	return *a.TOTPMaxFailures

@@ -22,12 +22,16 @@ export default function Modal({
   title,
   description,
   onClose,
+  narrow = false,
   children,
 }: {
   open: boolean;
   title: string;
   description?: string;
   onClose: () => void;
+  /** Tek kısa alan taşıyan modallar için dar kip. Varsayılan genişlik,
+   *  birkaç alanı yan yana alan yönetim formları için. */
+  narrow?: boolean;
   children: React.ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -85,7 +89,7 @@ export default function Modal({
   return (
     <dialog
       ref={ref}
-      className="modal"
+      className={narrow ? "modal modal-narrow" : "modal"}
       aria-labelledby={titleID}
       // Boşluğa tıklayınca kapansın: <dialog> bunu kendiliğinden
       // yapmıyor. Hedef kontrolü ŞART — form içindeki bir tıklama da
