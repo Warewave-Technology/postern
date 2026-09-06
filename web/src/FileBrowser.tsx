@@ -216,19 +216,39 @@ export default function FileBrowser({ target }: { target: string }) {
               {shown.map((e) => (
                 <tr key={e.name} className={e.isDir ? "is-dir" : undefined}>
                   <td>
-                    {e.isDir ? (
+                    {/*
+                      ⚠️ BAĞLAR DA TIKLANABİLİR ve sebebi ölçüldü:
+                      READDIR lstat semantiği kullanıyor, yani bir
+                      DİZİNE işaret eden bağ da isDir=false geliyordu ve
+                      panelde ölü uç oluyordu. Gerçek dosya sistemlerinde
+                      dizine bağ yaygın (dağıtım dizinleri, /var/log
+                      altları).
+
+                      Nereye işaret ettiğini SORMUYORUZ — girdi başına
+                      bir STAT turu, uzun listelerde listenin kendisinden
+                      pahalı olurdu. Bunun yerine tıklanınca okumayı
+                      deniyoruz; dosyaya işaret eden bir bağda hedef
+                      hata veriyor ve sebep şeride yazılıyor.
+
+                      GÜVENLİK: tıklanan yol istemcinin YAZDIĞI yol
+                      (…/guncel-proje) ve politika tam olarak onu
+                      görüyor. Bağın nereye çözüldüğü hedefin işi ve
+                      politikanın göremediği şey — bu, bağları
+                      tıklanmaz yapmakla değişen bir şey değil.
+                    */}
+                    {e.isDir || e.isLink ? (
                       <button
                         type="button"
                         className="fb-name fb-link"
                         disabled={busy}
                         onClick={() => open(joinPath(cwd, e.name))}
                       >
-                        <FolderIcon />
+                        {e.isDir ? <FolderIcon /> : <LinkIcon />}
                         {e.name}
                       </button>
                     ) : (
                       <span className="fb-name">
-                        {e.isLink ? <LinkIcon /> : <FileIcon />}
+                        <FileIcon />
                         {e.name}
                       </span>
                     )}
@@ -264,6 +284,15 @@ export default function FileBrowser({ target }: { target: string }) {
 export function reason(e: unknown): string {
   if (e instanceof SFTPError) {
     if (e.message.startsWith("postern: ")) return e.message.slice(9);
+    /*
+     * ⚠️ BİR DOSYAYA İŞARET EDEN BAĞA TIKLAMAK. Hedefin cevabı bu
+     * durumda ham errno metni oluyor ("Failure" ya da "Not a
+     * directory") ve kullanıcı ne yaptığını anlamıyor. Bağlar
+     * tıklanabilir olduğu için bu, nadir değil BEKLENEN bir yol.
+     */
+    if (/not a directory/i.test(e.message)) {
+      return "that is not a directory — postern cannot show file contents";
+    }
     if (e.code === FX.PERMISSION_DENIED) {
       return `permission denied on the target: ${e.message}`;
     }

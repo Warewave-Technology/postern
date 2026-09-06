@@ -743,6 +743,12 @@ second role granting the same prefix. A *longer* allow still wins, which
 is what makes the carve-out possible in the first place; write the denial
 at or below the depth you mean.
 
+Symbolic links are listed with their own icon and can be followed. What
+gets checked is the path the client writes — `/home/dev/current` — which
+is exactly the path a rule can name; where the target resolves it is the
+target's business. Following a link that points at a file says so rather
+than showing the target's raw errno.
+
 What the rules cannot see is symbolic links. postern has no access to the
 target filesystem, so a link inside an allowed directory pointing
 somewhere else looks allowed: the rules constrain the path the client

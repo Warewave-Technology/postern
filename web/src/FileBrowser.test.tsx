@@ -101,6 +101,7 @@ function entry(name: string, mode: number, size = 0): number[] {
 
 const DIR = 0o040755;
 const FILE = 0o100644;
+const LINK = 0o120777;
 
 /*
  * next, sıradaki ISTENEN TİPTE kareyi bekler ve indeksini döner.
@@ -354,5 +355,62 @@ describe("sebep metni", () => {
   it("kapanış sebebi yoksa kodu yazıyor", () => {
     expect(closeReason({ code: 1000, reason: "" })).toBe("session ended");
     expect(closeReason({ code: 1006, reason: "" })).toContain("1006");
+  });
+});
+
+/**
+ * ⚠️ DİZİNE İŞARET EDEN BAĞ ÖLÜ UÇ OLMAMALI.
+ *
+ * READDIR lstat semantiği kullanıyor: bir dizine işaret eden bağ da
+ * isDir=false geliyor. Yalnızca isDir'e bakan bir arayüzde o satır
+ * tıklanamaz oluyordu — demoda görüldü, gerçek dosya sistemlerinde
+ * dizine bağ yaygın.
+ */
+describe("sembolik bağlar", () => {
+  it("bağ tıklanabilir ve girildiğinde yol değişiyor", async () => {
+    render(<FileBrowser target="web01" />);
+    const ws = FakeWS.last!;
+
+    await handshake(ws, "/home/yigit", [entry("guncel", LINK)]);
+    await waitFor(() => expect(screen.getByText("guncel")).toBeTruthy());
+
+    const link = screen.getByRole("button", { name: /guncel/ });
+    await userEvent.click(link);
+
+    // Hedef bağı çözdü ve dizin listesi geldi.
+    await serveDir(ws, [entry("main.go", FILE)]);
+    await waitFor(() => expect(screen.getByText("main.go")).toBeTruthy());
+
+    const nav = screen.getByRole("navigation", { name: "path" });
+    expect(within(nav).getByText("guncel")).toBeTruthy();
+  });
+
+  it("dosyaya işaret eden bağda sebebi anlaşılır yazıyor", async () => {
+    render(<FileBrowser target="web01" />);
+    const ws = FakeWS.last!;
+
+    await handshake(ws, "/home/yigit", [entry("kisayol", LINK)]);
+    await waitFor(() => expect(screen.getByText("kisayol")).toBeTruthy());
+
+    await userEvent.click(screen.getByRole("button", { name: /kisayol/ }));
+
+    const od = await next(ws, FXP.OPENDIR);
+    await ws.deliver(
+      0,
+      packet(
+        FXP.STATUS,
+        ...u32(idOf(ws.body(od))),
+        ...u32(FX.FAILURE),
+        ...str("Not a directory"),
+      ),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toMatch(/not a directory/i),
+    );
+    // Ham errno metni DEĞİL, ne yapıldığını söyleyen cümle.
+    expect(screen.getByRole("alert").textContent).toMatch(
+      /cannot show file contents/,
+    );
   });
 });
