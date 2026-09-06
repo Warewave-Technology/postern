@@ -36,6 +36,8 @@ const (
 	fxpRename   = 18
 	fxpReadlink = 19
 	fxpSymlink  = 20
+	// fxpLink, v6: sabit ya da sembolik bağ yaratır (İKİ yol taşır).
+	fxpLink     = 21
 	fxpExtended = 200
 
 	fxpStatus = 101

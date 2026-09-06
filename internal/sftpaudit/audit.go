@@ -180,128 +180,102 @@ func (s *Session) FromTarget(p []byte) error {
  * bekleyenler tablosunda duruyor.
  */
 func (s *Session) onRequest(typ byte, r *reader) error {
+	req, err := parseRequest(typ, r)
+	if err != nil {
+		return err
+	}
+
+	if !req.known {
+		/*
+		 * ⚠️ TANIMADIĞIMIZ TÜR SESSİZCE GEÇMİYOR — EKLENTİLERDEKİYLE AYNI
+		 * GEREKÇE. Burası eskiden her bilinmeyen türü "salt okuma
+		 * üstverisi" sayıyordu, yani ÖNCEDEN ONAYLIYORDU. Sürüm anlaşmasını
+		 * izlemiyoruz (fxpInit'e bakılmıyor), dolayısıyla hedefin v6
+		 * konuşmadığını iddia edemeyiz.
+		 *
+		 * Gövdeyi çözemiyoruz ama kimliği okuyabiliyoruz: hedefin cevabını
+		 * bu satıra bağlamaya yetiyor — "bilinmeyen tür 22 BAŞARILI oldu".
+		 */
+		return s.addPending(req.id, pendingOp{typ: typ})
+	}
+
 	switch typ {
 	case fxpInit:
 		// Sürüm anlaşması: ilgilenmiyoruz, ama akışın başı burası.
 		return nil
 
 	case fxpOpen:
-		id, err := r.uint32()
-		if err != nil {
-			return err
-		}
-		path, err := r.str()
-		if err != nil {
-			return err
-		}
-		flags, err := r.uint32()
-		if err != nil {
-			return err
-		}
-		return s.addPending(id, pendingOp{typ: typ, path: path, flags: flags})
+		return s.addPending(req.id, pendingOp{typ: typ, path: req.path, flags: req.flags})
 
-	case fxpOpendir:
-		id, path, err := idAndPath(r)
-		if err != nil {
-			return err
-		}
-		return s.addPending(id, pendingOp{typ: typ, path: path})
+	case fxpOpendir, fxpRemove, fxpRmdir, fxpMkdir, fxpSetstat:
+		return s.addPending(req.id, pendingOp{typ: typ, path: req.path})
 
-	case fxpRemove, fxpRmdir, fxpMkdir, fxpSetstat:
-		id, path, err := idAndPath(r)
-		if err != nil {
-			return err
-		}
-		return s.addPending(id, pendingOp{typ: typ, path: path})
+	case fxpRename, fxpSymlink, fxpLink:
+		/*
+		 * ⚠️ v6 LINK sert ve sembolik bağı AYIRMIYORUZ. Ayrım gövdenin
+		 * sonundaki bayrakta ve denetimin sorduğu soru için önemsiz:
+		 * ikisi de dosyaya İKİNCİ BİR AD veriyor, yani silinen bir
+		 * dosyanın içeriği başka bir yerde yaşamaya devam edebiliyor.
+		 */
+		return s.addPending(req.id, pendingOp{typ: typ, path: req.path, newPath: req.newPath})
 
-	case fxpRename, fxpSymlink:
-		id, path, err := idAndPath(r)
-		if err != nil {
-			return err
-		}
-		newPath, err := r.str()
-		if err != nil {
-			return err
-		}
-		return s.addPending(id, pendingOp{typ: typ, path: path, newPath: newPath})
-
-	case fxpRead:
-		id, handle, err := idAndPath(r)
-		if err != nil {
-			return err
-		}
-		return s.addPending(id, pendingOp{typ: typ, handle: handle})
+	case fxpRead, fxpClose:
+		return s.addPending(req.id, pendingOp{typ: typ, handle: req.handle})
 
 	case fxpWrite:
-		id, handle, err := idAndPath(r)
-		if err != nil {
-			return err
-		}
-		if _, err := r.uint64(); err != nil { // offset
-			return err
-		}
-		n, err := r.strLen()
-		if err != nil {
-			return err
-		}
-		return s.addPending(id, pendingOp{typ: typ, handle: handle, n: n})
-
-	case fxpClose:
-		id, handle, err := idAndPath(r)
-		if err != nil {
-			return err
-		}
-		return s.addPending(id, pendingOp{typ: typ, handle: handle})
-
-	case fxpExtended:
-		return s.onExtended(r)
+		return s.addPending(req.id, pendingOp{typ: typ, handle: req.handle, n: req.n})
 
 	case fxpFsetstat:
-		// Açık tanıtıcı üzerinde izin/zaman değişikliği. Tanıtıcıyı
-		// yola çevirebiliyoruz; çeviremiyorsak yine de yazıyoruz ki
-		// "burada bir değişiklik oldu" görünsün.
-		id, handle, err := idAndPath(r)
-		if err != nil {
-			return err
-		}
-		path := handle
-		if f, ok := s.handles[handle]; ok {
+		// Açık tanıtıcı üzerinde izin/zaman değişikliği. Tanıtıcıyı yola
+		// çevirebiliyoruz; çeviremiyorsak yine de yazıyoruz ki "burada bir
+		// değişiklik oldu" görünsün.
+		path := req.handle
+		if f, ok := s.handles[req.handle]; ok {
 			path = f.path
 		}
-		return s.addPending(id, pendingOp{typ: typ, path: path})
+		return s.addPending(req.id, pendingOp{typ: typ, path: path})
+
+	case fxpExtended:
+		return s.pendExtended(req)
 	}
 
 	/*
-	 * Tanıdığımız salt-okuma üstverisi: dosya içeriğine ya da ad uzayına
-	 * dokunmuyorlar, satır üretmiyorlar. Akış çözümlenmeye devam ediyor.
+	 * Tanıdığımız salt-okuma üstverisi (stat, lstat, fstat, readdir,
+	 * realpath, readlink): dosya içeriğine ya da ad uzayına dokunmuyorlar
+	 * ve denetim satırı üretmiyorlar. Yolları yine de ÇÖZÜLÜYOR
+	 * (parseRequest), çünkü politika onları kapsıyor.
 	 */
-	if readOnlyRequests[typ] {
+	return nil
+}
+
+/*
+ * pendExtended, EXTENDED isteğini bekleyenler tablosuna koyar.
+ *
+ * ⚠️ ÖLÇÜLEN ARIZA: bu dal hiç yoktu ve yeniden adlandırmalar denetim
+ * defterine HİÇ DÜŞMÜYORDU. OpenSSH'in kendi sftp istemcisi, sunucu
+ * eklentiyi ilan ettiğinde SSH_FXP_RENAME değil "posix-rename@openssh.com"
+ * gönderiyor — yani gerçek dünyadaki neredeyse her yeniden adlandırma.
+ * Demoda ölçüldü: `rename a b` hedefte başarıyla çalıştı, session_files'ta
+ * karşılığı yoktu.
+ *
+ * ⚠️ TANIMADIĞIMIZ EKLENTİ SESSİZCE GEÇMİYOR. Bilinen ve zararsız olanlar
+ * (fsync, statvfs...) stat/readdir gibi satır üretmiyor; geri kalan HER ŞEY
+ * adıyla birlikte yazılıyor. Aksi hâli bu arızanın kendisiydi: adını
+ * bilmediğimiz bir eklenti dosyayı taşısın ve defter boş kalsın. Yarın
+ * eklenen bir eklenti önceden onaylanmış olmamalı.
+ */
+func (s *Session) pendExtended(req request) error {
+	switch req.ext {
+	case extPosixRename, extHardlink, extLsetstat:
+		return s.addPending(req.id, pendingOp{typ: fxpExtended, ext: req.ext,
+			path: req.path, newPath: req.newPath})
+	}
+
+	if quietExtensions[req.ext] {
 		return nil
 	}
 
-	/*
-	 * ⚠️ TANIMADIĞIMIZ TÜR SESSİZCE GEÇMİYOR — EKLENTİLERDEKİYLE AYNI
-	 * GEREKÇE (bkz. onExtended). Burası eskiden her bilinmeyen türü
-	 * "salt okuma üstverisi" sayıyordu, yani ÖNCEDEN ONAYLIYORDU.
-	 *
-	 * ÖLÇÜLEN AÇIK: sürüm anlaşmasını izlemiyoruz (fxpInit'e bakılmıyor),
-	 * dolayısıyla hedef v6 konuşuyorsa SSH_FXP_LINK (21) — sabit dosya
-	 * bağlantısı YARATAN bir işlem — bu kovaya düşüp deftere hiç
-	 * girmiyordu. BLOCK (22) ve UNBLOCK (23) de öyle. "Yarın eklenen bir
-	 * tür önceden onaylanmış olmamalı" cümlesi eklentiler için yazılmıştı;
-	 * temel tür uzayında uygulanmamıştı.
-	 *
-	 * Gövdeyi çözemiyoruz (biçimini bilmiyoruz) ama isteğin KİMLİĞİNİ
-	 * okuyabiliyoruz: INIT dışında her istek onunla başlıyor. Kimlik,
-	 * hedefin cevabını bu satıra bağlamaya yetiyor — yani "bilinmeyen tür
-	 * 21 BAŞARILI oldu" yazabiliyoruz. Operatörün görmesi gereken satır bu.
-	 */
-	id, err := r.uint32()
-	if err != nil {
-		return err
-	}
-
-	return s.addPending(id, pendingOp{typ: typ})
+	return s.addPending(req.id, pendingOp{typ: fxpExtended, ext: req.ext})
 }
 
 // readOnlyRequests, satır ÜRETMEYEN istek türleri: hiçbiri içeriği ya da
@@ -611,6 +585,7 @@ var statusOps = map[byte]Op{
 	fxpMkdir:    OpMkdir,
 	fxpRename:   OpRename,
 	fxpSymlink:  OpSymlink,
+	fxpLink:     OpLink,
 	fxpSetstat:  OpSetstat,
 	fxpFsetstat: OpSetstat,
 }

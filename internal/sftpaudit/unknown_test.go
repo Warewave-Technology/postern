@@ -9,22 +9,21 @@ import (
  * ⚠️ TANIMADIĞIMIZ TÜR ÖNCEDEN ONAYLANMIŞ OLMAMALI.
  *
  * ÖLÇÜLEN AÇIK: onRequest'in son dalı, tanımadığı HER türü "salt okuma
- * üstverisi" sayıp sessizce geçiriyordu. Sürüm anlaşmasını izlemediğimiz
- * için (fxpInit'e bakılmıyor) hedef v6 konuşuyorsa SSH_FXP_LINK (21) —
- * dosyaya İKİNCİ BİR AD veren, silinen bir dosyanın içeriğini yaşatan
- * işlem — tam olarak o kovaya düşüyordu.
+ * üstverisi" sayıp sessizce geçiriyordu. Sürüm anlaşmasını izlemiyoruz
+ * (fxpInit'e bakılmıyor), yani hedefin v6 konuşmadığını iddia edemeyiz.
  *
- * Aynı gerekçe eklentiler için zaten yazılıydı (onExtended); temel tür
+ * Aynı gerekçe eklentiler için zaten yazılıydı (pendExtended); temel tür
  * uzayında uygulanmamıştı.
+ *
+ * Ölçü BLOCK (22) ile yapılıyor: v6'nın gerçek bir türü ve postern onu
+ * hâlâ çözemiyor. (LINK (21) artık çözülüyor — bkz. aşağıdaki test.)
  */
 func TestUnknownRequestTypeIsRecorded(t *testing.T) {
-	const fxpLink = 21 // v6: sabit/sembolik bağ yaratır
+	const fxpBlock = 22 // v6: dosya bölgesi kilitler
 
 	s, got := collect(t)
 
-	// v6 LINK: id, yeni-yol, mevcut-yol, symlink-mi.
-	feedClient(t, s, newPkt(fxpLink).u32(9).
-		str("/tmp/kopya").str("/srv/gizli.db").bytes())
+	feedClient(t, s, newPkt(fxpBlock).u32(9).str("h1").u64(0).u64(16).bytes())
 	feedTarget(t, s, statusOK(9))
 
 	if len(*got) != 1 {
@@ -34,11 +33,44 @@ func TestUnknownRequestTypeIsRecorded(t *testing.T) {
 	if e.Op != OpUnknown {
 		t.Errorf("Op = %q, %q bekleniyordu", e.Op, OpUnknown)
 	}
-	if !strings.Contains(e.Detail, "21") {
+	if !strings.Contains(e.Detail, "22") {
 		t.Errorf("detail = %q; tür numarasını taşımalı ki operatör neye baktığını bilsin", e.Detail)
 	}
 	if !e.OK {
 		t.Error("hedef kabul etti ama satır başarısız yazılmış")
+	}
+}
+
+/*
+ * v6 SSH_FXP_LINK artık İKİ YOLUYLA kaydediliyor.
+ *
+ * ⚠️ NEDEN ÖNEMLİ: bağ, dosyaya ikinci bir ad veriyor — silinen bir
+ * dosyanın içeriği başka bir yerde yaşamaya devam edebiliyor. Daha önce bu
+ * tür "bilinmeyen" kovasındaydı: satır vardı ama YOL YOKTU, yani hangi
+ * dosyaya ikinci ad verildiği defterden okunamıyordu. Yol politikası da
+ * eşleşecek bir şey bulamazdı.
+ *
+ * Sert ve sembolik bağ ayrılmıyor: ayrım gövdenin sonundaki bayrakta ve
+ * denetimin sorduğu soru için önemsiz.
+ */
+func TestV6LinkIsRecordedWithBothPaths(t *testing.T) {
+	const fxpLinkT = 21
+
+	s, got := collect(t)
+
+	feedClient(t, s, newPkt(fxpLinkT).u32(4).
+		str("/tmp/kopya").str("/srv/gizli.db").bytes())
+	feedTarget(t, s, statusOK(4))
+
+	if len(*got) != 1 {
+		t.Fatalf("bağ kaydedilmedi: %+v", *got)
+	}
+	e := (*got)[0]
+	if e.Op != OpLink {
+		t.Errorf("Op = %q, %q bekleniyordu", e.Op, OpLink)
+	}
+	if e.Path != "/tmp/kopya" || e.NewPath != "/srv/gizli.db" {
+		t.Errorf("yollar = %q -> %q; ikisi de kaydedilmeli", e.Path, e.NewPath)
 	}
 }
 
@@ -144,5 +176,37 @@ func TestNameReplyDrainsThePending(t *testing.T) {
 
 	if n := len(s.pending); n != 0 {
 		t.Fatalf("%d bekleyen asılı kaldı", n)
+	}
+}
+
+/*
+ * Bozuk bir salt-okuma isteği artık AÇMA isteğiyle aynı muameleyi görüyor.
+ *
+ * ⚠️ BİLİNÇLİ DAVRANIŞ DEĞİŞİKLİĞİ. Salt-okuma türleri eskiden yolu HİÇ
+ * ayrıştırmıyordu, dolayısıyla kesik bir STAT sessizce geçiyor, kesik bir
+ * OPEN ise oturumu bitiriyordu. Aynı bozukluğun iki farklı sonucu vardı ve
+ * ayrımın bir gerekçesi yoktu — yalnızca biri ayrıştırılıyordu.
+ *
+ * Artık ikisi de ayrıştırılıyor (politika yolu görebilsin diye) ve ikisi de
+ * kapalı tarafa düşüyor. Meşru bir istemci kesik paket göndermiyor.
+ */
+func TestMalformedReadOnlyRequestIsTreatedLikeAnyOther(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		typ  byte
+	}{
+		{"stat", fxpStat},
+		{"open", fxpOpen},
+		{"readlink", fxpReadlink},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := NewSession(func(Event) {})
+
+			// Kimlik var, yol yok: gövde kesik.
+			err := s.FromClient(newPkt(tc.typ).u32(1).bytes())
+			if err == nil {
+				t.Fatalf("%s: kesik gövde kabul edildi", tc.name)
+			}
+		})
 	}
 }
