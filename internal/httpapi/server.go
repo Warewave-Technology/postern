@@ -165,6 +165,16 @@ type Server struct {
 	 * "kilit yok, pencere yok" anlamına gelirdi — yani ölçülen davranış
 	 * üretimdekinden farklı olurdu.
 	 */
+	/*
+	 * sftpPanel, panelin dosya tarayıcısının açık olup olmadığı
+	 * (config: session.sftp_panel). VARSAYILAN KAPALI.
+	 *
+	 * ⚠️ session.sftp'DEN AYRI. "SFTP açık" ile "tarayıcıdan dosya
+	 * gezilebilir" aynı karar değil; tek bayrağa bağlamak, birini
+	 * isteyene diğerini de vermek olurdu.
+	 */
+	sftpPanel bool
+
 	totpWindow      time.Duration
 	totpMaxFailures int
 	totpLockFor     time.Duration
@@ -230,6 +240,9 @@ func (s *Server) SetTOTPLimits(window time.Duration, max int, lockFor time.Durat
 }
 
 func (s *Server) SetPublicKeyLogin(on bool) { s.publicKeyLogin = on }
+
+// SetSFTPPanel, panelin dosya tarayıcısını açar/kapatır.
+func (s *Server) SetSFTPPanel(on bool) { s.sftpPanel = on }
 
 // SetSSHEndpoint, panelin göstereceği ssh adresini bildirir.
 // Dinlemeye başlamadan ÖNCE çağrılmalı: alan kilitsiz.
@@ -407,6 +420,12 @@ func (s *Server) Handler() http.Handler {
 	// ama yetkisiz bir uç, kapalı bir uçtan daha büyük bir yüzeydir.
 	if s.proxyDeps != nil {
 		mux.Handle("GET /api/terminal/{target}", s.requireSession(http.HandlerFunc(s.handleTerminal)))
+		/*
+		 * ⚠️ AYNI KAPI, AYNI KORUMALAR. Dosya tarayıcısı da requireSession
+		 * arkasında ve aynı origin kontrolünden geçiyor; ayrı bir uç olması
+		 * yalnızca kanalın TÜRÜNÜ ayırmak için.
+		 */
+		mux.Handle("GET /api/sftp/{target}", s.requireSession(http.HandlerFunc(s.handleSFTPPanel)))
 	}
 
 	// /api altındaki eşleşmeyen yollar SPA'ya DÜŞMEZ: bir API isteğine

@@ -23,6 +23,17 @@ type PtyRequest struct {
 }
 
 // WindowChangeRequest, "window-change" payload'ı (RFC 4254 §6.7).
+/*
+ * SubsystemRequest, "subsystem" isteğinin gövdesi (RFC 4254 §6.5).
+ *
+ * Tek alan: alt sistemin adı. Broker yalnızca "sftp" adını geçiriyor ve
+ * gerekçesi requests.go'da yazılı — adını çözemediğimiz bir alt sistemi
+ * "denetleniyor" diye geçirmek olurdu.
+ */
+type SubsystemRequest struct {
+	Name string
+}
+
 type WindowChangeRequest struct {
 	Columns, Rows uint32
 	Width, Height uint32

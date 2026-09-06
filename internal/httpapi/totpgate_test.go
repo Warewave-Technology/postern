@@ -32,6 +32,13 @@ func TestTOTPEnrolmentAllowlistIsMinimal(t *testing.T) {
 		"POST /api/me/totp/disable",
 
 		"GET /api/terminal/{target}",
+		/*
+		 * ⚠️ DOSYA TARAYICISI DA KAPALI. Terminalle aynı gerekçe: kısıt
+		 * altındaki bir oturum hedefe ulaşamamalı. İzin listesi TAM DESENLE
+		 * çalıştığı için yeni uç kendiliğinden kapalı geliyor; bu satır o
+		 * özelliği çiviliyor, yarın biri listeye eklerse test söylesin.
+		 */
+		"GET /api/sftp/{target}",
 		"GET /api/admin/users",
 		"GET /api/admin/settings",
 		"GET /api/targets",

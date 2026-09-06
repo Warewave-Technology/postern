@@ -153,6 +153,12 @@ func oobBastionOpts(t *testing.T, oobTimeout time.Duration, terminal bool, fresh
 		// tek oturum akışı.
 		webAPI.EnableTerminal(srv.ProxyDeps(), external)
 	}
+	// ⚠️ tuneConfig ile aynı desen, aynı sebeple güvenli: bu testler
+	// paralel koşmuyor. Dosya tarayıcısı VARSAYILAN KAPALI olduğu için,
+	// onu açan tek yer bunu bilerek yapan test.
+	if tuneWebAPI != nil {
+		tuneWebAPI(webAPI)
+	}
 	api := &http.Server{Handler: webAPI.Handler()}
 	go api.Serve(l)
 	t.Cleanup(func() { api.Shutdown(context.Background()) })

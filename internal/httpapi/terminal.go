@@ -20,8 +20,50 @@ import (
 )
 
 // handleTerminal, tarayıcıya hedefte bir kabuk açar.
+/*
+ * sftpPanelReadLimit, dosya tarayıcısı kanalında kabul edilen en büyük
+ * websocket mesajı.
+ *
+ * SFTP paketi maxPacket'e (1 MiB) kadar çıkabiliyor; kütüphanenin 32 KiB
+ * varsayılanı böyle bir çerçeveyi görünce bağlantıyı düşürür. Sınırı
+ * paket tavanının biraz üstünde tutuyoruz ki tek bir paket asla sınıra
+ * çarpmasın, ama sınırsız da bırakmıyoruz.
+ */
+const sftpPanelReadLimit = 2 << 20
+
+// handleTerminal, tarayıcı terminalini açar.
 func (s *Server) handleTerminal(w http.ResponseWriter, r *http.Request) {
+	s.serveChannel(w, r, false)
+}
+
+/*
+ * handleSFTPPanel, panelin dosya tarayıcısı için SFTP kanalını açar.
+ *
+ * ⚠️ AYRI BİR UÇ, AYRI BİR YOL DEĞİL. Kanal aynı broker'dan geçiyor: yol
+ * politikası, denetim defteri ve kayıt zinciri kendiliğinden çalışıyor.
+ * Panelin çağıracağı, sunucu tarafında SFTP istemcisi tutan bir yardımcı
+ * uç REDDEDİLDİ ve öyle kalıyor — o, hedef dosyalarına giden ikinci ve
+ * denetime bağlanmamış bir yol demek.
+ */
+func (s *Server) handleSFTPPanel(w http.ResponseWriter, r *http.Request) {
+	s.serveChannel(w, r, true)
+}
+
+// serveChannel, tarayıcıdan gelen bir kanalı hedefe bağlar. sftp true ise
+// kanal terminal yerine SFTP alt sistemine gidiyor.
+func (s *Server) serveChannel(w http.ResponseWriter, r *http.Request, sftp bool) {
 	log := s.logger.With("remote", s.clientKey(r), "user", sessionUser(r))
+
+	/*
+	 * ⚠️ BAYRAK YÜKSELTMEDEN ÖNCE. Kapalı bir özelliği soketi açtıktan
+	 * sonra reddetmek, kullanıcıya bağlanmış gibi görünen bir bağlantı
+	 * verip sonra kapatmak olurdu.
+	 */
+	if sftp && !s.sftpPanel {
+		writeErr(w, http.StatusForbidden,
+			"the file browser is off on this bastion (session.sftp_panel)")
+		return
+	}
 
 	// 1. ORIGIN — her şeyden önce.
 	//
@@ -115,6 +157,31 @@ func (s *Server) handleTerminal(w http.ResponseWriter, r *http.Request) {
 	//    kütüphaneninkini kapatıyoruz — ATLAMIYORUZ, DEĞİŞTİRİYORUZ:
 	//    ters proxy arkasında Host aldatıcı olabilir, biz external_url'e
 	//    göre karşılaştırıyoruz.
+	/*
+	 * ⚠️ POLİTİKASIZ OTURUMDA DOSYA TARAYICISI AÇILMIYOR.
+	 *
+	 * Kuralsız rol kısıtsız (policy.SFTPDecider) ve taze bir kurulumda
+	 * hiçbir rolün kuralı yok. Bu yüzeyin ertelemesini kaldıran gerekçe
+	 * "yol politikası riski sınırlar"dı; politikanın hiç kurulmadığı bir
+	 * oturumda o gerekçe boş, dolayısıyla kanal da açılmıyor.
+	 *
+	 * Yükseltmeden önce: mesaj HTTP ile gidiyor ve sebebi söylüyor.
+	 */
+	if sftp && !sess.SFTPPolicyActive() {
+		sess.Log.Warn("file browser refused: no path rules on this account's roles")
+		sess.Close(r.Context())
+		writeErr(w, http.StatusForbidden,
+			"the file browser needs path rules on your roles — ask an administrator "+
+				"to run `postern role path set`")
+		return
+	}
+
+	if sftp {
+		// ⚠️ SALT-OKUNUR, SUNUCU TARAFINDA. Panelin JavaScript'i bu
+		// kısıtı taşıyamaz: çalınmış bir oturum FXP_WRITE'ı elle yazar.
+		sess.SetSFTPReadOnly(true)
+	}
+
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		InsecureSkipVerify: true,
 	})
@@ -163,7 +230,21 @@ func (s *Server) handleTerminal(w http.ResponseWriter, r *http.Request) {
 
 	// Bağlantı kapanınca ctx'i iptal et: broker'ın hedef tarafındaki
 	// akışları pty yüzünden kendiliğinden bitmez (wschannel.go'daki not).
-	down, downR := newWSChannel(ctx, conn, cancel)
+	newChannel := newWSChannel
+	if sftp {
+		newChannel = newWSChannelSFTP
+
+		/*
+		 * ⚠️ OKUMA SINIRI YÜKSELTİLİYOR. Kütüphanenin varsayılanı 32 KiB;
+		 * SFTP paketi maxPacket'e (1 MiB) kadar çıkabiliyor ve sınırı
+		 * aşan bir çerçeve bağlantıyı düşürüyor. Terminal için 32 KiB
+		 * fazlasıyla yeter, o yüzden sınır yalnızca bu kanalda
+		 * gevşetiliyor.
+		 */
+		conn.SetReadLimit(sftpPanelReadLimit)
+	}
+
+	down, downR := newChannel(ctx, conn, cancel)
 	defer sess.Close(ctx)
 
 	if err := sess.Run(ctx, down, downR); err != nil {

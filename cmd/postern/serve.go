@@ -628,6 +628,13 @@ func newServeCmd() *cobra.Command {
 
 				webAPI := httpapi.New(oidcHolder, logins, db, logger)
 				webAPI.SetPublicKeyLogin(cfg.Auth.PublicKeyLoginEnabled())
+				/*
+				 * ⚠️ İKİ KOŞUL BİRDEN. Panel tarayıcısı, SFTP kanalı
+				 * kapalıyken açılamaz: kapalı bir kanalın üzerine
+				 * arayüz koymak, kullanıcıya çalışmayan bir düğme
+				 * göstermek olurdu.
+				 */
+				webAPI.SetSFTPPanel(cfg.Session.SFTP && cfg.Session.SFTPPanel)
 				webAPI.SetTOTPLimits(
 					cfg.Auth.TOTPPromptWindow(),
 					cfg.Auth.TOTPFailureLimit(),

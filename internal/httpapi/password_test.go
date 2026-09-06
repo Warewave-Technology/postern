@@ -24,6 +24,13 @@ func TestRestrictedSessionCannotReachKeyEndpoints(t *testing.T) {
 		"GET /api/me/keys",
 		"POST /api/me/keys/remove",
 		"GET /api/terminal/{target}",
+		/*
+		 * ⚠️ DOSYA TARAYICISI DA KAPALI. Terminalle aynı gerekçe: kısıt
+		 * altındaki bir oturum hedefe ulaşamamalı. İzin listesi TAM DESENLE
+		 * çalıştığı için yeni uç kendiliğinden kapalı geliyor; bu satır o
+		 * özelliği çiviliyor, yarın biri listeye eklerse test söylesin.
+		 */
+		"GET /api/sftp/{target}",
 		"GET /api/admin/users",
 		"POST /api/admin/users/{name}/credential",
 		"GET /api/admin/settings",

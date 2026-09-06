@@ -121,22 +121,64 @@ type resizeMessage struct {
 // Dönen kanal broker'ın downR'ıdır: pty-req, shell ve window-change
 // buradan akar.
 func newWSChannel(ctx context.Context, conn *websocket.Conn, onEOF func()) (*wsChannel, <-chan *ssh.Request) {
-	// Tampon: ilk iki request (pty-req + shell) kimse okumadan önce
-	// yazılabilsin. Tamponsuz kanal burada kilitlenirdi — broker henüz
-	// başlamamış oluyor.
-	c := &wsChannel{conn: conn, ctx: ctx, reqs: make(chan *ssh.Request, 8), onEOF: onEOF}
-
 	// Terminal, kabuk açılmadan boş kalır: SSH istemcisinin yaptığı iki
 	// şeyi biz sentetik olarak üretiyoruz. Boyut şimdilik varsayılan;
 	// istemcinin ilk resize mesajı gerçek boyutu getirecek.
-	c.reqs <- &ssh.Request{
-		Type:      "pty-req",
-		WantReply: false,
-		Payload: ssh.Marshal(proxy.PtyRequest{
-			Term: "xterm-256color", Columns: 80, Rows: 24,
-		}),
+	return newWSChannelWith(ctx, conn, onEOF,
+		&ssh.Request{
+			Type:      "pty-req",
+			WantReply: false,
+			Payload: ssh.Marshal(proxy.PtyRequest{
+				Term: "xterm-256color", Columns: 80, Rows: 24,
+			}),
+		},
+		&ssh.Request{Type: "shell", WantReply: false},
+	)
+}
+
+/*
+ * newWSChannelSFTP, kanalı SFTP alt sistemine bağlar.
+ *
+ * Terminal yerine tek bir istek gidiyor: pty yok, kabuk yok. Broker'ın
+ * geri kalanı aynı — yani yol politikası, denetim defteri ve kayıt zinciri
+ * bu kanalda da kendiliğinden çalışıyor. Panelin ayrı bir SFTP yolu
+ * olmamasının bütün sebebi bu (bkz. proxy/sftp.go dosya başı).
+ */
+func newWSChannelSFTP(ctx context.Context, conn *websocket.Conn, onEOF func()) (*wsChannel, <-chan *ssh.Request) {
+	return newWSChannelWith(ctx, conn, onEOF,
+		&ssh.Request{
+			Type: "subsystem",
+			/*
+			 * ⚠️ WantReply FALSE OLMAK ZORUNDA ve bunun bir bedeli var.
+			 *
+			 * Bu istek SENTETİK: gerçek bir SSH bağlantısından gelmiyor,
+			 * dolayısıyla cevaplanamıyor. true verseydik broker cevabı
+			 * yazmaya kalkar ve mux'ı olmayan bir Request üzerinde
+			 * panikler.
+			 *
+			 * BEDELİ: hedef alt sistemi reddederse broker bunu
+			 * öğrenemiyor (undoArm yalnızca cevap İSTENDİĞİNDE anlamlı,
+			 * bkz. broker.go) ve denetim kurulu kalıyor. Sunucu tarafında
+			 * bu durumu ayırt etmenin yolu yok; ama hedef alt sistemi
+			 * başlatamayınca kanalı kapatıyor, o yüzden tarayıcı
+			 * "hedef SFTP'yi başlatmadı" diyebiliyor. Uydurmak yerine
+			 * sınırı burada yazıyoruz.
+			 */
+			WantReply: false,
+			Payload:   ssh.Marshal(proxy.SubsystemRequest{Name: "sftp"}),
+		},
+	)
+}
+
+// newWSChannelWith, kanalı kurar ve verilen açılış isteklerini sıraya koyar.
+func newWSChannelWith(ctx context.Context, conn *websocket.Conn, onEOF func(), initial ...*ssh.Request) (*wsChannel, <-chan *ssh.Request) {
+	// Tampon: açılış istekleri kimse okumadan önce yazılabilsin.
+	// Tamponsuz kanal burada kilitlenirdi — broker henüz başlamamış oluyor.
+	c := &wsChannel{conn: conn, ctx: ctx, reqs: make(chan *ssh.Request, 8), onEOF: onEOF}
+
+	for _, r := range initial {
+		c.reqs <- r
 	}
-	c.reqs <- &ssh.Request{Type: "shell", WantReply: false}
 
 	return c, c.reqs
 }

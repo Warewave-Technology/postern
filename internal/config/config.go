@@ -485,6 +485,27 @@ type SessionConfig struct {
 	 */
 	SFTP bool `yaml:"sftp"`
 
+	/*
+	 * SFTPPanel, panelin dosya tarayıcısını açar. VARSAYILAN KAPALI ve
+	 * `sftp`'den AYRI.
+	 *
+	 * ⚠️ NEDEN AYRI BİR BAYRAK. "SFTP açık" ile "tarayıcıdan dosya
+	 * gezilebilir" aynı karar değil. Bir operatör gerçek SFTP
+	 * istemcilerine izin verip panelde dosya yöneticisi istemeyebilir;
+	 * tek bayrağa bağlamak, birini isteyene diğerini de vermek olurdu.
+	 *
+	 * ⚠️ AÇMAK YETMİYOR: kanal ancak kullanıcının rollerinde YOL KURALI
+	 * varsa açılıyor (bkz. Session.SFTPPolicyActive). Kuralsız rol
+	 * kısıtsız, ve "politika riski sınırlar" gerekçesine dayanan bir
+	 * yüzeyi tam da o gerekçenin boş olduğu kurulumda açmak, korumayı
+	 * iddia edip vermemek olurdu.
+	 *
+	 * Kanal her hâlükârda SALT-OKUNUR: sunucu tarafında, panelin
+	 * JavaScript'inde değil (bkz. Broker.WithSFTPReadOnly). İndirme ayrı
+	 * bir karar ve bu bayrağın kapsamında değil.
+	 */
+	SFTPPanel bool `yaml:"sftp_panel"`
+
 	// MaxLifetime, oturumun mutlak ömrü. VARSAYILAN KAPALI (0).
 	//
 	// Gerekçesi somut: süreli rol atamaları (AssignRole expiresAt)
