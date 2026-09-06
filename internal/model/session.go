@@ -29,6 +29,16 @@ type Session struct {
 	// SrcIP, kullanıcının bastion'a bağlandığı adres.
 	SrcIP string
 
+	// RecordingChain ve RecordingLinks, kaydın zincir başı ve halka
+	// sayısı (göç 034).
+	//
+	// ⚠️ BOŞ BAŞ "DOĞRULANDI" DEĞİL, "DOĞRULANAMAZ" DEMEK. Göç öncesi
+	// kapanmış oturumlarda ve çökme sonrası süpürülen oturumlarda baş
+	// yok; ikisini "geçti" gibi göstermek, kanıtı olmayan bir kaydı
+	// kanıtlanmış saymak olurdu.
+	RecordingChain string
+	RecordingLinks int64
+
 	StartedAt time.Time
 
 	// EndedAt sıfır değerse oturum hâlâ açık (şemada NULL).

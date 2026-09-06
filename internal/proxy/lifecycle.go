@@ -876,6 +876,22 @@ func (s *Session) Close(ctx context.Context) {
 	}
 
 	/*
+	 * ⚠️ ZİNCİR BAŞI, rec.Close'DAN SONRA OKUNUYOR. Kapanış son yarım
+	 * UTF-8 kuyruklarını boşaltıyor; önce okunan bir baş dosyanın
+	 * tamamını kapsamaz ve doğrulanamayacak bir değer yazmış oluruz.
+	 *
+	 * Boş baş yazılmıyor: kayıtsız yolda (rec nil değil ama dosya yok)
+	 * zincir boş döner ve o satırı "doğrulandı" gibi göstermek yerine
+	 * hiç dokunmuyoruz — sütunun varsayılanı zaten "doğrulanamaz".
+	 */
+	if head, links := s.rec.Chain(); head != "" {
+		if cerr := s.deps.Store.SetRecordingChain(closeCtx, s.ID, head, links); cerr != nil {
+			s.Log.Error("recording chain not stored; this recording cannot be verified",
+				"error", cerr)
+		}
+	}
+
+	/*
 	 * ⚠️ ARŞİV KUYRUĞUNA YAZMA — VE BU BİR VERİTABANI SATIRI, AĞ DEĞİL.
 	 *
 	 * Oturum yolunun yükleme ile TEK teması burası. Yükleyicinin

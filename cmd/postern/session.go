@@ -12,6 +12,7 @@ import (
 
 	"github.com/Warewave-Technology/postern/internal/config"
 	"github.com/Warewave-Technology/postern/internal/model"
+	"github.com/Warewave-Technology/postern/internal/record"
 	"github.com/Warewave-Technology/postern/internal/store"
 )
 
@@ -23,6 +24,7 @@ func newSessionCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newSessionListCmd())
 	cmd.AddCommand(newSessionShowCmd())
+	cmd.AddCommand(newSessionVerifyCmd())
 	return cmd
 }
 
@@ -211,3 +213,116 @@ func newSessionShowCmd() *cobra.Command {
 	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
 	return cmd
 }
+
+/*
+ * newSessionVerifyCmd, bir kaydın yazıldığı gibi durup durmadığını
+ * söyler.
+ *
+ * ⚠️ NE KANITLAR, NE KANITLAMAZ — ve komut bunu ÇIKTISINDA söylüyor,
+ * yalnızca belgede değil. Zincir, dosyanın yazıldıktan sonra
+ * değiştirilmediğini gösterir. Bastion'da root olan biri hem .cast'i
+ * hem veritabanındaki başı yeniden yazabilir; o durumda ikisi yine
+ * tutar. Zincirin taşıdığı değer, başın makinenin ULAŞAMADIĞI bir yere
+ * de yazılmasıyla ortaya çıkıyor (arşiv kovası, dış uç). Bunu söylemeyen
+ * bir "doğrulandı" satırı, olmadığı bir güvence veriyor demektir.
+ *
+ * ⚠️ ÜÇ AYRI SONUÇ, İKİ DEĞİL. "Geçti" ve "geçmedi" yetmiyor: başı
+ * olmayan kayıtlar var (göç 034 öncesi kapananlar, çökme sonrası
+ * süpürülenler) ve onlar DOĞRULANAMAZ — doğrulanmış değil. Üçünü ayırt
+ * etmeyen bir çıktı, kanıtı olmayan bir kaydı kanıtlanmış gösterirdi.
+ */
+func newSessionVerifyCmd() *cobra.Command {
+	var configPath string
+
+	cmd := &cobra.Command{
+		Use:   "verify <session-id>",
+		Short: "Check that a recording is byte-for-byte what postern wrote",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load(configPath)
+			if err != nil {
+				return err
+			}
+
+			ctx := context.Background()
+
+			db, err := store.Open(ctx, cfg.Database.DSN)
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+
+			s, err := db.Session(ctx, args[0])
+			if err != nil {
+				if errors.Is(err, store.ErrNotFound) {
+					return fmt.Errorf("session %q not found", args[0])
+				}
+				return err
+			}
+
+			out := cmd.OutOrStdout()
+
+			if s.RecordingPath == "" {
+				return fmt.Errorf("session %q has no recording", s.ID)
+			}
+			if s.RecordingChain == "" {
+				// Çıkış kodu 0 DEĞİL: "doğrulayamadım" bir başarı değil.
+				return fmt.Errorf(
+					"session %q has no chain, so it cannot be verified — it "+
+						"ended before chains existed, or postern crashed before "+
+						"the chain was stored", s.ID)
+			}
+
+			rs, err := record.NewStore(cfg.Recording.Dir)
+			if err != nil {
+				return err
+			}
+			f, err := rs.Open(s.ID, s.RecordingPath)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+
+			ok, links, err := record.VerifyChain(f, s.RecordingChain)
+			if err != nil {
+				return err
+			}
+
+			if !ok {
+				/*
+				 * Halka sayısı burada asıl bilgi: "bozuk" demek yetmiyor,
+				 * olay müdahalesinde soru kaydın NEREDE ayrıldığı.
+				 */
+				fmt.Fprintf(out, "FAILED  %s\n", s.ID)
+				fmt.Fprintf(out, "  stored chain   %s over %d links\n",
+					s.RecordingChain, s.RecordingLinks)
+				fmt.Fprintf(out, "  file has       %d links and a different chain\n", links)
+				if links < s.RecordingLinks {
+					fmt.Fprintf(out, "  the file is short by %d lines\n",
+						s.RecordingLinks-links)
+				}
+
+				return errRecordingChanged
+			}
+
+			fmt.Fprintf(out, "OK  %s\n", s.ID)
+			fmt.Fprintf(out, "  %d links, chain %s\n", links, s.RecordingChain)
+			fmt.Fprintf(out, "\n")
+			fmt.Fprintf(out, "This proves the file was not changed after postern wrote it.\n")
+			fmt.Fprintf(out, "It does not prove more than that: whoever holds root on this\n")
+			fmt.Fprintf(out, "host could rewrite the file and this chain together. The chain\n")
+			fmt.Fprintf(out, "is worth what its copy elsewhere is worth — the archive bucket,\n")
+			fmt.Fprintf(out, "and any endpoint you push it to.\n")
+
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
+
+	return cmd
+}
+
+// errRecordingChanged, doğrulamanın BAŞARISIZ olduğunu çağırana sıfırdan
+// farklı bir çıkış koduyla bildiriyor: bu komut betikten çağrılacak ve
+// "değişmiş" hâli 0 dönmemeli.
+var errRecordingChanged = errors.New("recording does not match its chain")

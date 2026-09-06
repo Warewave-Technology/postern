@@ -59,6 +59,10 @@ type Writer struct {
 
 	out stream // kind: "o"
 	in  stream // kind: "i"
+
+	// chain, dosyaya giden baytların zinciri. w nil ise (kayıtsız test
+	// yolu) nil kalır ve Chain boş döner.
+	chain *chainWriter
 }
 
 // stream, tek bir olay akışının durumu: tipi ve yarım kalan UTF-8 kuyruğu.
@@ -98,14 +102,27 @@ func NewWriter(w io.WriteCloser, width, height int, env map[string]string) (*Wri
 		return nil, fmt.Errorf("record.NewWriter: %w", err)
 	}
 
+	/*
+	 * ⚠️ ZİNCİR BAŞLIK SATIRINI DA KAPSIYOR. Başlık genişlik, yükseklik
+	 * ve zaman damgası taşıyor; onu zincirin dışında bırakmak, kaydın
+	 * ne zaman başladığını sessizce değiştirmeye açık kapı olurdu.
+	 */
+	var chain *chainWriter
 	if w != nil {
-		_, err = w.Write(append(data, '\n'))
+		chain = newChainWriter(w)
+
+		_, err = chain.Write(append(data, '\n'))
 		if err != nil {
 			return nil, fmt.Errorf("record.NewWriter: %w", err)
 		}
 	}
 
-	return &Writer{w: w, start: t, in: stream{kind: "i"}, out: stream{kind: "o"}}, nil
+	out := &Writer{start: t, in: stream{kind: "i"}, out: stream{kind: "o"}, chain: chain}
+	if chain != nil {
+		out.w = chain
+	}
+
+	return out, nil
 }
 
 func (w *Writer) Err() error {
@@ -236,6 +253,25 @@ func (w *Writer) Close() (err error) {
 // kapatmanın yolu demek.
 //
 // Dinlemeye başlamadan ÖNCE çağrılmalı.
+/*
+ * Chain, kaydın zincir başını ve halka sayısını döner.
+ *
+ * ⚠️ CLOSE'DAN SONRA ÇAĞRILMALI. Kapanış son yarım UTF-8 kuyruklarını
+ * boşaltıyor (flush), yani Close'dan önce okunan bir baş dosyanın
+ * tamamını kapsamaz. Kapanmamış bir kayıttan baş almak, doğrulanamayacak
+ * bir değeri veritabanına yazmak olurdu.
+ */
+func (w *Writer) Chain() (head string, links int64) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.chain == nil {
+		return "", 0
+	}
+
+	return w.chain.head()
+}
+
 func (w *Writer) OnFailure(fn func(error)) {
 	w.mu.Lock()
 	defer w.mu.Unlock()

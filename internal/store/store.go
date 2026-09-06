@@ -1943,6 +1943,35 @@ func (s *Store) StartSession(ctx context.Context, rec SessionStart) error {
 	return nil
 }
 
+/*
+ * SetRecordingChain, kaydın zincir başını ve halka sayısını yazar.
+ *
+ * ⚠️ EndSession'DAN AYRI, VE BU BİLİNÇLİ. EndSession oturumu defterden
+ * düşüren yol ve çökme sonrası süpürme (CloseOrphanSessions) da onu
+ * kullanıyor — orada elde bir zincir YOK, çünkü kaydı kapatan süreç
+ * ölmüş. İkisini birleştirmek, zinciri olmayan her kapanışta ya boş baş
+ * yazmayı ya da imzayı yalanlamayı gerektirirdi.
+ *
+ * ⚠️ BAŞARISIZLIĞI OTURUMU DÜŞÜRMÜYOR. Oturum bitti; yazılamayan bir
+ * zincir başı, o kaydı DOĞRULANAMAZ yapar ama var olan hiçbir şeyi
+ * bozmaz. Çağıran hatayı log'luyor ve kapanışa devam ediyor: burada
+ * hata döndürüp kapanışı yarıda bırakmak, denetim satırını "running"
+ * bırakmak olurdu ki o gerçek bir kayıp.
+ */
+func (s *Store) SetRecordingChain(ctx context.Context, id, head string, links int64) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE sessions SET recording_chain=$2, recording_links=$3 WHERE id=$1;`,
+		id, head, links)
+	if err != nil {
+		return translateErr("store.SetRecordingChain", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("store.SetRecordingChain[%s]: %w", id, ErrNotFound)
+	}
+
+	return nil
+}
+
 func (s *Store) EndSession(ctx context.Context, id string, endedAt time.Time) error {
 	var sessionID string
 	queryStr := `
@@ -1976,7 +2005,9 @@ func (s *Store) Session(ctx context.Context, id string) (model.Session, error) {
 	       s.src_ip,
 	       s.started_at,
 	       s.ended_at,
-	       s.recording_path
+	       s.recording_path,
+	       s.recording_chain,
+	       s.recording_links
 		FROM sessions s
 		JOIN users   u ON u.id = s.user_id
 		JOIN targets t ON t.id = s.target_id
@@ -1990,6 +2021,7 @@ func (s *Store) Session(ctx context.Context, id string) (model.Session, error) {
 	err := s.db.QueryRowContext(ctx, queryStr, id).Scan(
 		&session.ID, &session.User, &session.Target, &session.OSUser,
 		&session.SrcIP, &startedAt, &endedAt, &session.RecordingPath,
+		&session.RecordingChain, &session.RecordingLinks,
 	)
 	if err != nil {
 		return model.Session{}, translateErr("store.Session", err)
