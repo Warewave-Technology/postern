@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import App from "./App";
@@ -592,6 +592,23 @@ describe("giris yollari", () => {
       expect(screen.getByText(/wrong code/i)).toBeInTheDocument(),
     );
     expect(container.querySelector("dialog")!.open).toBe(false);
+
+    /*
+     * ⚠️ KAPANMA OLAYI HATAYI SİLMEMELİ.
+     *
+     * jsdom close() çağrısında `close` olayını uçurmuyor, gerçek tarayıcı
+     * uçuruyor — ve bu fark bir arızayı gizledi: Modal kapanırken
+     * onClose'u çağırıyor, o da hatayı temizliyordu. Kullanıcı giriş
+     * ekranına SEBEPSİZ dönüyordu. Testin bunu görmesi için olayı elle
+     * gönderiyoruz.
+     */
+    // act: olayın tetiklediği durum güncellemesi iddiadan ÖNCE işlensin.
+    // Sarmalamazsak güncelleme beklemede kalıyor, iddia eski DOM'u görüp
+    // geçiyor ve mutasyon fark edilmiyor.
+    await act(async () => {
+      container.querySelector("dialog")!.dispatchEvent(new Event("close"));
+    });
+    expect(screen.getByText(/wrong code/i)).toBeInTheDocument();
     // Parola da temizlendi: ekranı açık unutan birinin parolası kalmasın.
     expect(screen.getByLabelText(/^Password$/i)).toHaveValue("");
   });

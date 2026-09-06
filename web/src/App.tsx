@@ -221,11 +221,28 @@ function LocalSignIn({
    * Parola kutusu da temizleniyor: dolu bırakmak, ekranı açık unutan
    * birinin parolasını tarayıcıda bırakır.
    */
-  const backToStart = (msg: string) => {
+  /*
+   * ⚠️ ADIMI SIFIRLAMAK İLE SEBEBİ YAZMAK AYRI.
+   *
+   * ÖLÇÜLEN ARIZA: ikisi tek fonksiyondaydı ve Modal kapanırken onClose'u
+   * çağırıyor (native `close` olayı). Yanlış kod geldiğinde önce hatayı
+   * yazıyor, sonra pencereyi kapatıyorduk; kapanma onClose'u tetikliyor
+   * ve o da hatayı SİLİYORDU. Kullanıcı giriş ekranına sebepsiz dönüyordu.
+   *
+   * Testler bunu kaçırdı çünkü jsdom close() çağrısında `close` olayını
+   * uçurmuyor — Modal'ın kendi yorumunda yazılı bir gerçek. Gerçek
+   * tarayıcıda uçuruyor. Bu yüzden davranış artık olayın gelip
+   * gelmemesine BAĞLI DEĞİL: sıfırlama hatayı hiç ellemiyor.
+   */
+  const resetToStart = () => {
     setNeedCode(false);
     setCode("");
     setPassword("");
     setLeft(undefined);
+  };
+
+  const backToStart = (msg: string) => {
+    resetToStart();
     setError(msg);
   };
 
@@ -353,7 +370,7 @@ function LocalSignIn({
               ? "This request has expired. Close this and sign in again."
               : "Enter the 6-digit code from your authenticator."
         }
-        onClose={() => backToStart("")}
+        onClose={resetToStart}
       >
         <form
           className="local-signin"
