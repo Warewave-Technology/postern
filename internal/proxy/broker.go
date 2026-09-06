@@ -73,6 +73,33 @@ type Broker struct {
 	 */
 	aborted chan struct{}
 
+	/*
+	 * startGate, istemciden gelen VERİNİN, oturumu başlatan isteğin
+	 * işlenmesini beklediği kapı.
+	 *
+	 * ⚠️ NEDEN VAR — ÖLÇÜLEN AÇIK. SFTP çözümleyicisi `subsystem sftp`
+	 * İŞLENDİĞİNDE kuruluyor, kanal AÇILDIĞINDA değil. İstek goroutine'i
+	 * tek ve sıralı; istemci önüne geçerli başka bir istek koyarsa
+	 * (`pty-req` yetiyor) kurulum o isteğin hedef gidiş-dönüşü kadar
+	 * gecikiyor. O aralıkta gelen baytlar hedefte çalışıp denetime HİÇ
+	 * girmiyordu — TestPacketsBehindAnEarlierRequestAreAudited bunu
+	 * kapı yokken sıfır olayla gösteriyor.
+	 *
+	 * ⚠️ TAMPON DEĞİL, BLOKLAMA. Baytları biriktirmek sınırsız bellek
+	 * demekti; yazmayı bekletmek SSH penceresini doldurup istemciyi
+	 * kendiliğinden durduruyor. Bellek maliyeti sıfır, sıra korunuyor:
+	 * baytlar isteğin ARDINDAN, aynı sırayla gidiyor.
+	 *
+	 * ⚠️ KANAL TEMBEL KURULUYOR, KURUCUDA DEĞİL. Broker'ı elle kuran
+	 * testler var (requests_test.go); New'e bağlasaydık onlarda kanal nil
+	 * kalır ve close(nil) panik ederdi. Daha kötüsü: nil kanaldan okuma
+	 * sonsuza kadar bloke eder, yani sessiz bir kilitlenme. gate() her
+	 * çağırana aynı kanalı veriyor, nasıl kurulmuş olursa olsun.
+	 */
+	gateInit  sync.Once
+	gateOnce  sync.Once
+	startGate chan struct{}
+
 	// abortErr, denetimi çökerten sebep. Run bunu döndürüyor.
 	abortErr error
 
@@ -111,6 +138,15 @@ func New(down ssh.Channel, downR <-chan *ssh.Request, up ssh.Channel, upR <-chan
 		recordInput: recordInput, policy: policy, logger: logger,
 		aborted: make(chan struct{})}
 }
+
+// gate, başlangıç kapısını verir; ilk çağıran kuruyor.
+func (b *Broker) gate() chan struct{} {
+	b.gateInit.Do(func() { b.startGate = make(chan struct{}) })
+	return b.startGate
+}
+
+// openStartGate, park etmiş istemci yazıcılarını serbest bırakır. Bir kez.
+func (b *Broker) openStartGate() { b.gateOnce.Do(func() { close(b.gate()) }) }
 
 // WithSFTP, SFTP denetim hedefini bağlar.
 //
@@ -353,6 +389,13 @@ func (b *Broker) Run(ctx context.Context) error {
 	// kapandıktan sonra yazmaya kalksaydık, koparılmış bir transferin
 	// izi kaybolurdu — yani veriyi çekip bağlantıyı koparmak, denetimden
 	// kaçmanın yolu olurdu.
+	/*
+	 * ⚠️ KAPI KAPANIŞTA DA AÇILIYOR. Oturumu başlatan istek hiç gelmediyse
+	 * (yalnızca veri yazan bir istemci) park etmiş yazıcı orada kalırdı.
+	 * finishSFTP'den ÖNCE açılıyor ki uyanan baytlar çözümleyiciye girsin
+	 * ve yarım transferin izi onları da kapsasın.
+	 */
+	b.openStartGate()
 	b.finishSFTP()
 
 	// ⚠️ KULLANICI NEDEN KESİLDİĞİNİ ÖĞRENMELİ. Sessizce kopan bir
@@ -463,6 +506,26 @@ func (b *Broker) relayRequests(dst ssh.Channel, src <-chan *ssh.Request, dir dir
 		b.relayOne(dst, req, dir, observe)
 		if dir == fromClient {
 			b.answering.Unlock()
+
+			/*
+			 * ⚠️ KAPI YALNIZCA HEDEFTE PROGRAM BAŞLATAN İSTEKLERLE
+			 * AÇILIYOR — ve bu liste EKSİK OLAMAZ. clientRequests kapalı
+			 * bir izin listesi (requests.go); dışındaki her tür zaten
+			 * reddedilip hedefe hiç gitmiyor. İzinlilerden
+			 * pty-req/window-change/signal/env ve iki OpenSSH uzantısı
+			 * program başlatmıyor, dolayısıyla geriye bu üçü kalıyor.
+			 *
+			 * ⚠️ O LİSTEYE PROGRAM BAŞLATAN YENİ BİR TÜR EKLENİRSE BURASI
+			 * DA GÜNCELLENMELİ; yoksa pencere sessizce geri gelir.
+			 *
+			 * Reddedilen istek de kapıyı açıyor: ret sonrası hedefte
+			 * program yok, ama istemci veri göndermeye devam edebilir ve
+			 * onu sonsuza kadar park etmenin bir faydası olmazdı.
+			 */
+			switch req.Type {
+			case "shell", "exec", "subsystem":
+				b.openStartGate()
+			}
 		}
 	}
 }

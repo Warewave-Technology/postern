@@ -56,20 +56,25 @@ type SFTPSink interface {
  * Artık kurulum iletimden önce; hedef subsystem'i reddederse çağıran
  * cancelSFTP ile geri alıyor.
  *
- * ⚠️ PENCERE DARALDI, KAPANMADI — ve bu ölçüldü, tahmin değil.
+ * ⚠️ PENCERE ARTIK KAPALI — ama kurulumu öne alarak değil.
  *
- * Kurulum, isteği İSTEMCİ YÖNÜNDEKİ TEK relay goroutine'i sıradan
- * ALDIĞI an oluyor; kanalın açıldığı an değil. İstemci `subsystem
- * sftp`'den önce geçerli başka bir istek koyarsa (örneğin
- * `env LANG=C`, varsayılan listede kabul ediliyor), kurulum o isteğin
- * hedef gidiş-dönüşü kadar gecikiyor ve aradaki baytlar yine
- * denetimsiz geçiyor. Ölçüldü: hedef ilk isteği 500 ms tuttuğunda,
- * boru hattıyla gelen OPEN hedefte çalıştı ve tek olay üretmedi.
+ * Kurulum, isteği İSTEMCİ YÖNÜNDEKİ TEK relay goroutine'i sıradan ALDIĞI
+ * an oluyor; kanalın açıldığı an değil. İstemci `subsystem sftp`'den önce
+ * geçerli başka bir istek koyarsa, kurulum o isteğin hedef gidiş-dönüşü
+ * kadar gecikiyordu ve aradaki baytlar denetime hiç girmeden hedefte
+ * çalışıyordu.
  *
- * Kalıcı çözüm kurulumu KANAL AÇILIŞINA bağlamak olurdu (subsystem
- * beklemeden), ama o, SFTP olmayan her kanala da çözümleyici takmak
- * demek. Kararı vermeden önce ölçmek gerekiyor; şimdilik bilinen ve
- * yazılı bir sınır.
+ * Kapatan şey başlangıç kapısı: istemci yönündeki VERİ, oturumu başlatan
+ * istek işlenene kadar bekletiliyor (broker.startGate). Böylece bir
+ * zamanlar "kalıcı çözüm" diye yazdığımız "kurulumu kanal açılışına bağla"
+ * yolunun maliyeti hiç doğmuyor — SFTP olmayan hiçbir kanala fazladan
+ * çözümleyici takılmıyor.
+ *
+ * Ölçüm: TestPacketsBehindAnEarlierRequestAreAudited. Önde tek bir
+ * `pty-req` yetiyor ve kapı sökülünce açılan dosya SIFIR olay üretiyor.
+ * (Eski not burada örnek olarak `env LANG=C` diyor ve onu "varsayılan
+ * listede kabul ediliyor" sayıyordu; env AYRICA accept_env süzgecine
+ * tabi, o yüzden ölçüm koşulsuz izinli olan pty-req ile yapıldı.)
  */
 func (b *Broker) beginSFTP(req *ssh.Request) bool {
 	if b.sftpSink == nil || req.Type != "subsystem" {
@@ -178,6 +183,23 @@ func (t *sftpTap) feed(s *sftpaudit.Session, p []byte) error {
  * denetlenemeyen bir kanal geçmez (bkz. lifecycle.go, Records.Create).
  */
 func (t *sftpTap) Write(p []byte) (int, error) {
+	/*
+	 * ⚠️ İSTEMCİ YÖNÜ, OTURUM BAŞLAYANA KADAR BEKLİYOR (bkz. startGate).
+	 * Çözümleyici `subsystem sftp` işlenince kuruluyor; ondan önce gelen
+	 * baytlar denetime uğramadan hedefe geçiyordu. Beklemek o pencereyi
+	 * kapatıyor, düşürmüyor: bayt geciktiriliyor, sonra sırasıyla gidiyor.
+	 *
+	 * Hedef yönü beklemiyor — oradan bayt gelmesi için kurulum zaten
+	 * olmuş olmalı. Kapı sftpTap'in içinde, yani sftpSink nil olan
+	 * varsayılan yol bu satırı hiç görmüyor.
+	 */
+	if t.dir == fromClient {
+		select {
+		case <-t.b.gate():
+		case <-t.b.aborted:
+		}
+	}
+
 	s := t.b.sftp.Load()
 
 	if s != nil && t.dir == fromClient {

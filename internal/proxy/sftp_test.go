@@ -362,9 +362,20 @@ func TestPipelinedSFTPPacketsAreAudited(t *testing.T) {
 
 	// ⚠️ CEVAP HENÜZ YOLDA. Kusurlu sürümde b.sftp burada nil'di ve
 	// bu paket çözümleyiciye hiç uğramadan hedefe geçiyordu.
-	sendClient(t, feedDown, up, sftpPkt(3, uint32(1), "/etc/shadow", uint32(1), uint32(0)))
+	//
+	// ⚠️ sendClient DEĞİL, mustWrite. sendClient baytın HEDEFTE
+	// görünmesini bekliyor; başlangıç kapısı (broker.startGate) tam da
+	// bunu, oturum başlayana kadar bekletiyor. Beklemek testi kilitlerdi.
+	openPkt := sftpPkt(3, uint32(1), "/etc/shadow", uint32(1), uint32(0))
+	mustWrite(t, feedDown, string(openPkt))
 
 	release()
+
+	// Kapı açıldı: bayt artık hedefe ULAŞMALI. Hedefin cevabını ondan
+	// önce yazmak, çözümleyicinin OPEN'ı görmeden HANDLE'ı görmesi
+	// demek olurdu — tanıtıcı tablosu boş kalır ve test kendi yarışını
+	// arıza sanırdı.
+	waitForContent(t, up.dataW, string(openPkt))
 
 	// Kalan alışveriş normal sırada: hedef tanıtıcıyı veriyor, dosya
 	// okunuyor, kapanıyor.
@@ -645,5 +656,119 @@ func TestInstantTargetReplyDoesNotLoseTheAuditRow(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run dönmedi")
+	}
+}
+
+/*
+ * TestPacketsBehindAnEarlierRequestAreAudited, kurulum penceresinin KALAN
+ * yarısını ölçüyor.
+ *
+ * TestPipelinedSFTPPacketsAreAudited, `subsystem sftp`'nin sıradaki İLK
+ * istek olduğu hâli çiviliyor ve orada pencere kapalı: kurulum artık
+ * iletimden önce.
+ *
+ * Ama kurulum, isteğin İŞLENDİĞİ an oluyor — kanalın açıldığı an değil —
+ * ve istek goroutine'i TEK ve SIRALI. İstemci önüne geçerli başka bir
+ * istek koyarsa, `subsystem sftp` o isteğin hedef gidiş-dönüşü bitene
+ * kadar hiç işlenmiyor. Aradaki baytlar çözümleyiciye uğramadan hedefe
+ * geçiyor ve dosya listesi kendini eksiksiz sanıyor.
+ *
+ * Önde duran istek olarak `pty-req` seçildi: koşulsuz izinli (env
+ * accept_env'e takılıyor) ve saldırganın gönderebileceği gerçek bir şekil.
+ *
+ * ⚠️ BU TEST sendClient KULLANMIYOR — bilerek. O yardımcı paketin hedef
+ * tamponunda görünmesini bekliyor; pencereyi kapatan çözüm baytları tam
+ * da orada bekletecek, dolayısıyla beklemek testin kendisini kilitlerdi.
+ */
+func TestPacketsBehindAnEarlierRequestAreAudited(t *testing.T) {
+	down, feedDown, _ := newFakeChannel()
+	up, feedUp, _ := newFakeChannel()
+	downR := make(chan *ssh.Request)
+	upR := make(chan *ssh.Request)
+
+	files := &memSink{}
+
+	entered, release := up.holdRequests()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	b := New(down, downR, up, upR, nil, false, RequestPolicy{AllowSFTP: true}, testLogger()).
+		WithSFTP(files)
+	done := make(chan error, 1)
+	go func() { done <- b.Run(ctx) }()
+
+	// Önde duran istek: geçerli, hedefe iletiliyor ve orada bekliyor.
+	// ⚠️ WantReply verilmiyor: sahte Request'in mux'i yok ve cevap
+	// yazmak nil pointer olurdu. Bekletme wantReply'dan bagimsiz.
+	downR <- &ssh.Request{Type: "pty-req"}
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("pty-req hedefe iletilmedi")
+	}
+
+	// subsystem sftp sıraya giriyor. Kendi goroutine'inde, çünkü relay
+	// döngüsü hâlâ pty-req'in cevabını bekliyor ve bu gönderim bloke.
+	queued := make(chan struct{})
+	go func() {
+		downR <- &ssh.Request{Type: "subsystem", Payload: sshString("sftp")}
+		close(queued)
+	}()
+
+	// ⚠️ ÇÖZÜMLEYİCİ HENÜZ KURULMADI. Kusurlu sürümde bu paket hedefe
+	// çözümleyiciye hiç uğramadan geçiyor.
+	openPkt := sftpPkt(3, uint32(1), "/etc/shadow", uint32(1), uint32(0))
+	mustWrite(t, feedDown, string(openPkt))
+
+	release()
+
+	select {
+	case <-queued:
+	case <-time.After(2 * time.Second):
+		t.Fatal("subsystem isteği relay döngüsüne hiç ulaşmadı")
+	}
+
+	// Kapı ancak subsystem İŞLENDİKTEN sonra açılıyor; baytın hedefte
+	// görünmesi hem bunun olduğunun hem de çözümleyiciden geçtiğinin
+	// ölçüsü (bkz. sendClient).
+	waitForContent(t, up.dataW, string(openPkt))
+
+	// Kalan alışveriş normal sırada.
+	secret := strings.Repeat("KOKPIT-SIFRESI-", 20)
+	mustWrite(t, feedUp, string(sftpPkt(102, uint32(1), "h1")))
+	sendClient(t, feedDown, up, sftpPkt(5, uint32(2), "h1", uint64(0), uint32(len(secret))))
+	mustWrite(t, feedUp, string(sftpPkt(103, uint32(2), secret)))
+	sendClient(t, feedDown, up, sftpPkt(4, uint32(3), "h1"))
+	mustWrite(t, feedUp, string(sftpPkt(101, uint32(3), uint32(0), "", "")))
+
+	waitForContent(t, down.dataW, secret)
+
+	// Denetim, açılan YOLU görmüş olmalı. Görmediyse tanıtıcı tablosu boş
+	// kalmış demektir ve okunan baytlar hiçbir dosyaya bağlanamaz.
+	var found bool
+	deadline := time.Now().Add(2 * time.Second)
+	for !found && time.Now().Before(deadline) {
+		for _, e := range files.all() {
+			if e.Path == "/etc/shadow" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run dönmedi")
+	}
+
+	if !found {
+		t.Fatalf("ÖNÜNDE BAŞKA BİR İSTEK OLAN OTURUMDA AÇILAN DOSYA DENETİME HİÇ GİRMEDİ; "+
+			"üretilen olaylar: %+v", files.all())
 	}
 }
