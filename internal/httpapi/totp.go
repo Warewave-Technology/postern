@@ -314,6 +314,30 @@ func (s *Server) handleTOTPDisable(w http.ResponseWriter, r *http.Request) {
 }
 
 /*
+ * countTOTPFailure, başarısız bir kod denemesini sayar ve eşikte kilitler.
+ *
+ * ⚠️ SAYAÇ spendTOTP'NİN İÇİNDE, YALNIZCA GİRİŞ YOLUNDA DEĞİL. Bu
+ * fonksiyonun üç çağıranı var: giriş, anahtar işlemleri için yeniden
+ * doğrulama ve doğrulayıcı yönetimi. Sayacı yalnızca girişe koysaydık,
+ * tahmin denemesi için kilitlenmeyen iki kapı daha kalırdı.
+ *
+ * ⚠️ YAZILAMAMASI DENEMEYİ GEÇERLİ KILMIYOR. Hata log'a düşüyor ve kod
+ * zaten reddedildi; sayamamak, reddetmemek için sebep değil.
+ */
+func (s *Server) countTOTPFailure(r *http.Request, name string) {
+	lock, err := s.store.TOTPFailure(r.Context(), name, s.totpMaxFailures, s.totpLockFor)
+	if err != nil {
+		s.logger.Error("totp failure not counted", "user", name, "error", err)
+		return
+	}
+	if lock.Locked(time.Now()) {
+		s.logger.Warn("account locked after wrong codes",
+			"user", name, "failures", lock.Failures,
+			"until", lock.LockedUntil.UTC().Format(time.RFC3339))
+	}
+}
+
+/*
  * spendTOTP, kodu doğrular ve adımı TÜKETİR.
  *
  * ⚠️ TÜKETMEK ŞART. Aynı kod 30 saniye geçerli; omuz üstünden okuyan ya
@@ -333,6 +357,25 @@ func (s *Server) spendTOTP(w http.ResponseWriter, r *http.Request, name, code st
 	}
 	if !c.Confirmed {
 		writeErr(w, http.StatusForbidden, "finish enrolment first")
+		return false
+	}
+
+	/*
+	 * ⚠️ KİLİT, PAROLA DOĞRULANDIKTAN SONRA BAKILIYOR.
+	 *
+	 * Bu fonksiyona gelen her yol parolayı ya da geçerli bir oturumu
+	 * zaten kanıtlamış durumda. Kilidi daha önce kontrol etseydik,
+	 * parolayı bilmeyen birine "bu hesap kilitli" — dolayısıyla "bu
+	 * hesap VAR" — bilgisini vermiş olurduk. locallogin.go aynı sızıntıyı
+	 * sahte doğrulayıcıyla (decoyVerifier) kapatıyor; burada da aynı
+	 * özen gerekiyor.
+	 */
+	if lock, lerr := s.store.TOTPLockState(r.Context(), name); lerr == nil && lock.Locked(time.Now()) {
+		s.logger.Warn("totp attempt on a locked account", "user", name)
+		writeJSON(w, http.StatusForbidden, map[string]any{
+			"error":        "too many wrong codes; this account is locked",
+			"locked_until": lock.LockedUntil.UTC().Format(time.RFC3339),
+		})
 		return false
 	}
 
@@ -358,6 +401,7 @@ func (s *Server) spendTOTP(w http.ResponseWriter, r *http.Request, name, code st
 	}
 	if !ok {
 		s.guessBackoff.fail(bkey)
+		s.countTOTPFailure(r, name)
 		s.logger.Warn("totp code refused", "user", name)
 		writeErr(w, http.StatusUnauthorized, "wrong code")
 		return false

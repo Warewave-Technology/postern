@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Warewave-Technology/postern/internal/auth"
 	"github.com/Warewave-Technology/postern/internal/config"
@@ -155,6 +156,29 @@ type Server struct {
 	// yuvalardan AYRI: orada postern'in belleği, burada KURUMUN dizini
 	// korunuyor.
 	bindSlots chan struct{}
+
+	/*
+	 * TOTP kod isteminin sınırları (bkz. config.AuthConfig).
+	 *
+	 * ⚠️ VARSAYILANLAR BURADA DA VAR. Sunucu yapılandırma verilmeden de
+	 * kurulabiliyor (testler böyle yapıyor) ve o hâlde sıfır değerler
+	 * "kilit yok, pencere yok" anlamına gelirdi — yani ölçülen davranış
+	 * üretimdekinden farklı olurdu.
+	 */
+	totpWindow      time.Duration
+	totpMaxFailures int
+	totpLockFor     time.Duration
+
+	/*
+	 * totpPrompt, kod istenen hesapların istem ZAMANI.
+	 *
+	 * ⚠️ BELLEKTE, VERİTABANINDA DEĞİL. Taşıdığı şey yalnızca "bu isteme
+	 * ne zaman başlandı"; yeniden başlatmada kaybolması, kullanıcının en
+	 * kötü ihtimalle bir kez daha parola girmesi demek. Veritabanına
+	 * yazmak, her giriş denemesine bir yazma eklerdi.
+	 */
+	promptMu sync.Mutex
+	prompts  map[string]time.Time
 }
 
 /*
@@ -191,6 +215,20 @@ func (s *Server) BeginShutdown() {
  * değil, yalnızca nezaket: uç açık kaldığı sürece curl ile anahtar
  * eklenebilirdi ve kapalı sanılan kapı açık kalırdı.
  */
+/*
+ * SetTOTPLimits, kod isteminin süresini ve kilit eşiğini kurar.
+ *
+ * ⚠️ SIFIR "KAPALI" DEMEK, "HEMEN" DEĞİL. window 0 ise istem hiç
+ * zamanaşımına uğramıyor; max 0 ise kilit kurulmuyor (sayaç yine
+ * tutuluyor). Sıfırı "anında kilitle" saymak, yapılandırmayı boş
+ * bırakan bir operatörün kurulumunu kilitlerdi.
+ */
+func (s *Server) SetTOTPLimits(window time.Duration, max int, lockFor time.Duration) {
+	s.totpWindow = window
+	s.totpMaxFailures = max
+	s.totpLockFor = lockFor
+}
+
 func (s *Server) SetPublicKeyLogin(on bool) { s.publicKeyLogin = on }
 
 // SetSSHEndpoint, panelin göstereceği ssh adresini bildirir.
@@ -268,13 +306,18 @@ func New(o *auth.OIDCHolder, logins *auth.Logins, db *store.Store, logger *slog.
 		localLimit:   newLocalLimiter(),
 		guessBackoff: newGuessBackoff(),
 		bindSlots:    make(chan struct{}, directoryBindSlots),
-		logins:       logins,
-		logger:       logger,
-		store:        db,
-		ping:         db.Ping,
-		webSessions:  auth.NewWebSessions(),
-		webLogins:    &webPending{},
-		groups:       auth.ClaimGroups{},
+
+		totpWindow:      2 * time.Minute,
+		totpMaxFailures: 5,
+		totpLockFor:     15 * time.Minute,
+		prompts:         map[string]time.Time{},
+		logins:          logins,
+		logger:          logger,
+		store:           db,
+		ping:            db.Ping,
+		webSessions:     auth.NewWebSessions(),
+		webLogins:       &webPending{},
+		groups:          auth.ClaimGroups{},
 
 		// ⚠️ VARSAYILAN AÇIK. Sıfır değeri false olsaydı,
 		// SetPublicKeyLogin çağırmayı unutan her yol anahtar girişini

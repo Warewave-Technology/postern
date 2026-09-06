@@ -36,6 +36,7 @@ func newAdminCmd() *cobra.Command {
 	cmd.AddCommand(newAdminListCmd())
 	cmd.AddCommand(newAdminRevokeCmd())
 	cmd.AddCommand(newAdminResetTOTPCmd())
+	cmd.AddCommand(newAdminUnlockCmd())
 	return cmd
 }
 

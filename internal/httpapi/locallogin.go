@@ -329,6 +329,9 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 	 * Burada kod ISRAR ETMEK, kaydolmamış kimsenin giremediği ve
 	 * dolayısıyla kaydolamadığı bir kilit olurdu.
 	 */
+	// failedSince, son başarılı girişten bu yanaki başarısız kod denemesi.
+	var failedSince int
+
 	switch c, terr := s.store.TOTP(r.Context(), u.Name); {
 	case terr != nil && !errors.Is(terr, store.ErrNotFound):
 		log.Error("totp lookup failed", "user", u.Name, "error", terr)
@@ -346,15 +349,56 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 			 * Deneme sayacına yazılmıyor — eksik kod bir tahmin değil.
 			 * Yanlış kod ise spendTOTP'nin kovasına düşüyor.
 			 */
-			writeJSON(w, http.StatusUnauthorized, map[string]any{
+			s.notePrompt(u.Name)
+
+			out := map[string]any{
 				"error":         "enter the code from your authenticator",
 				"totp_required": true,
-			})
+			}
+			if s.totpWindow > 0 {
+				// Panel geri sayımı buradan çiziyor.
+				out["expires_in"] = int(s.totpWindow.Seconds())
+			}
+			writeJSON(w, http.StatusUnauthorized, out)
+
 			return
 		}
+
+		/*
+		 * ⚠️ SÜRESİ GEÇMİŞ İSTEM, YANLIŞ KOD GİBİ SAYILIYOR.
+		 *
+		 * Terk edilen bir istemi göremeyiz — kullanıcı hiçbir şey
+		 * göndermezse elimizde ölçecek bir olay yok. Ölçebildiğimiz şey
+		 * GEÇ GELEN kod, ve onu saymak istemi süresiz açık tutmanın
+		 * bedelsiz olmamasını sağlıyor.
+		 */
+		if s.promptExpired(u.Name) {
+			s.countTOTPFailure(r, u.Name)
+			log.Warn("totp code arrived after the prompt expired", "user", u.Name)
+			writeJSON(w, http.StatusUnauthorized, map[string]any{
+				"error":         "that code request timed out; sign in again",
+				"totp_required": true,
+			})
+
+			return
+		}
+
 		if !s.spendTOTP(w, r, u.Name, in.Code) {
 			return
 		}
+
+		/*
+		 * ⚠️ SAYAÇ SIFIRLANMADAN ÖNCE OKUNUYOR. Kullanıcıya "son
+		 * girişinizden bu yana N başarısız deneme" diyebilmenin tek yolu
+		 * bu; ayrı bir okuma yapsaydık araya giren bir deneme sayıyı
+		 * değiştirebilir ve yanlış bir sayı gösterirdik.
+		 */
+		if n, cerr := s.store.ClearTOTPFailures(r.Context(), u.Name); cerr != nil {
+			log.Error("totp failure counter not cleared", "user", u.Name, "error", cerr)
+		} else {
+			failedSince = n
+		}
+		s.clearPrompt(u.Name)
 	}
 
 	// Parola VE (varsa) kod doğrulandı: sayaç ancak şimdi sıfırlanıyor.
@@ -410,8 +454,18 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 		log.Error("audit write failed", "error", aerr)
 	}
 
-	log.Info("local login", "user", u.Name)
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	log.Info("local login", "user", u.Name, "failed_code_attempts", failedSince)
+
+	out := map[string]any{"ok": true}
+	if failedSince > 0 {
+		/*
+		 * ⚠️ YALNIZCA SIFIRDAN BÜYÜKKEN GÖNDERİLİYOR. "0 başarısız
+		 * deneme" her girişte gösterilen bir gürültü olurdu ve gürültü,
+		 * gerçekten bir şey olduğu günü görünmez kılar.
+		 */
+		out["failed_code_attempts"] = failedSince
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 /*

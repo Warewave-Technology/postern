@@ -117,6 +117,68 @@ type AuthConfig struct {
 	 * görünmemesi demekti.
 	 */
 	PublicKeyLogin *bool `yaml:"public_key_login"`
+
+	/*
+	 * TOTPWindow, kod isteminin geçerli kalma süresi. Yazılmazsa 2 dakika,
+	 * 0 yazılırsa süre sınırı YOK.
+	 *
+	 * ⚠️ BU BİR GÜVENLİK SINIRI DEĞİL, HİJYEN SINIRI — ve abartmamak
+	 * gerekiyor. Akış parolayı kodla birlikte yeniden gönderiyor (araya
+	 * belirteç koymamak bilinçli: o belirteç, ikinci faktörünü henüz
+	 * kanıtlamamış birinin elinde duran bir şey olurdu). Dolayısıyla
+	 * pencereyi tazelemek, parolayı yeniden göndermek kadar kolay.
+	 * Yaptığı iş, AÇIK KALMIŞ bir kod istemini sınırlamak ve geç gelen
+	 * kodu bir başarısızlık olarak saydırmak.
+	 */
+	TOTPWindow *time.Duration `yaml:"totp_window"`
+
+	/*
+	 * TOTPMaxFailures, hesabın kilitlendiği hata sayısı. Yazılmazsa 5,
+	 * 0 yazılırsa kilit YOK (sayaç yine tutulur).
+	 *
+	 * ⚠️ PAROLA KAPISINDA KİLİT YOK, BURADA VAR ve fark gerçek: parola
+	 * 128 bitlik makine üretimi bir değer olabiliyor ve orada kilit,
+	 * kimliği doğrulanmamış birine "tek yöneticiyi dışarıda bırak"
+	 * düğmesi verirdi. TOTP kodu altı hane ve buraya ulaşan taraf
+	 * parolayı ZATEN kanıtlamış.
+	 */
+	TOTPMaxFailures *int `yaml:"totp_max_failures"`
+
+	/*
+	 * TOTPLockFor, kilidin süresi. Yazılmazsa 15 dakika.
+	 *
+	 * ⚠️ SÜRELİ, KALICI DEĞİL. Kalıcı kilit, parolası sızmış bir hesap
+	 * üzerinden tek yöneticiyi süresiz dışarıda bırakabilirdi. Erken
+	 * açmak için `postern admin unlock` var.
+	 */
+	TOTPLockFor *time.Duration `yaml:"totp_lock_for"`
+}
+
+// TOTPPromptWindow, yazılmamış alan için varsayılan.
+func (a AuthConfig) TOTPPromptWindow() time.Duration {
+	if a.TOTPWindow == nil {
+		return 2 * time.Minute
+	}
+
+	return *a.TOTPWindow
+}
+
+// TOTPFailureLimit, yazılmamış alan için varsayılan.
+func (a AuthConfig) TOTPFailureLimit() int {
+	if a.TOTPMaxFailures == nil {
+		return 5
+	}
+
+	return *a.TOTPMaxFailures
+}
+
+// TOTPLockDuration, yazılmamış alan için varsayılan.
+func (a AuthConfig) TOTPLockDuration() time.Duration {
+	if a.TOTPLockFor == nil {
+		return 15 * time.Minute
+	}
+
+	return *a.TOTPLockFor
 }
 
 // PublicKeyLoginEnabled, yazılmamış alan için varsayılan (açık).

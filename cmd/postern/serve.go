@@ -628,6 +628,11 @@ func newServeCmd() *cobra.Command {
 
 				webAPI := httpapi.New(oidcHolder, logins, db, logger)
 				webAPI.SetPublicKeyLogin(cfg.Auth.PublicKeyLoginEnabled())
+				webAPI.SetTOTPLimits(
+					cfg.Auth.TOTPPromptWindow(),
+					cfg.Auth.TOTPFailureLimit(),
+					cfg.Auth.TOTPLockDuration(),
+				)
 
 				// Panelin kopyalattığı ssh komutunun adresi. Gösterim
 				// amaçlı; hiçbir erişim kararına girmiyor.
