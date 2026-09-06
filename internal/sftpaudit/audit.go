@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // Op, denetim olayının cinsi.
@@ -69,6 +70,32 @@ type Event struct {
  * kullanım değil, saldırı işaretidir ve oturumu bitiriyor.
  */
 const (
+	/*
+	 * maxPath, BEKLEYEN kayıtta saklanan yolun üst sınırı.
+	 *
+	 * ⚠️ SAYI SINIRI BAYT SINIRI DEĞİL. maxPending 4096 istekle sınırlıyor
+	 * ama her isteğin yolu gövde kadar (maxHeader, 64 KiB) uzun olabiliyordu:
+	 * 4096 × 64 KiB ≈ 256 MiB, oturum başına. İstemci kanaldan OKUMAYI
+	 * bırakırsa hedefin cevapları geri birikiyor, bekleyenler boşalmıyor ve
+	 * bu sınıra gerçekten ulaşılıyor.
+	 *
+	 * 4096, Linux'ta PATH_MAX. Bunu aşan bir yol hedefte zaten
+	 * ENAMETOOLONG ile dönüyor; sakladığımız şey reddedilecek bir isteğin
+	 * kaydı.
+	 */
+	maxPath = 4096
+
+	/*
+	 * maxHandleLen, tanıtıcının üst sınırı.
+	 *
+	 * ⚠️ KESMİYORUZ, REDDEDİYORUZ. Tanıtıcı bir tablo ANAHTARI; kesmek iki
+	 * ayrı dosyayı aynı anahtara düşürebilir ve denetim baytları yanlış
+	 * dosyaya yazardı. draft-ietf-secsh-filexfer-02 §6.7 tanıtıcının 256
+	 * baytı aşmamasını şart koşuyor, yani bunu aşan bir tanıtıcı protokole
+	 * aykırı — hedef değil, araya giren biri üretmiş olabilir.
+	 */
+	maxHandleLen = 256
+
 	maxPending = 4096
 	maxHandles = 1024
 )
@@ -381,6 +408,17 @@ func (s *Session) onReply(typ byte, r *reader) error {
 		if err != nil {
 			return err
 		}
+		/*
+		 * ⚠️ SINIR HEDEF TARAFINDA DA GEREKLİ. addPending istemcinin
+		 * gönderdiği tanıtıcıyı süzüyor, ama tanıtıcı buraya HEDEFTEN
+		 * geliyor ve tablo anahtarı olarak saklanıyor. Yalnızca istemci
+		 * tarafını süzmek, ele geçirilmiş bir hedefin maxHandles × 64 KiB
+		 * tutturmasına açık bırakırdı — ve bir bastion'ın sınırlaması
+		 * gereken şey tam olarak hedefin ele geçirilmiş olması.
+		 */
+		if len(handle) > maxHandleLen {
+			return fmt.Errorf("sftpaudit: target handle length %d exceeds limit %d", len(handle), maxHandleLen)
+		}
 		p, ok := s.takePending(id)
 		if !ok {
 			return nil
@@ -430,6 +468,43 @@ func (s *Session) onReply(typ byte, r *reader) error {
 		if f, ok := s.handles[p.handle]; ok {
 			f.read += int64(n)
 		}
+		return nil
+
+	/*
+	 * ⚠️ STATUS OLMAYAN CEVAPLAR DA BEKLEYENİ ALIYOR.
+	 *
+	 * ÖLÇÜLEN AÇIK: bu dal hiç yoktu. onReply yalnızca
+	 * VERSION/HANDLE/DATA/STATUS tanıyor, gerisi sessizce düşüyordu.
+	 * Tanımadığımız bir eklenti EXTENDED_REPLY ile cevaplandığında
+	 * bekleyen HİÇ alınmıyordu: satır yazılmıyordu — onExtended'in
+	 * "tanımadığımız eklenti adıyla birlikte yazılır" sözüne rağmen — ve
+	 * kayıt maxPending'e kadar birikiyordu. 4097'nci istekte addPending
+	 * hata veriyor, denetim çöküyor, oturum "sftp audit failed" ile
+	 * bitiyor: sıradan bir sunucu davranışı postern'in arızası gibi
+	 * görünüyordu.
+	 *
+	 * Bu üç cevap BAŞARI bildiriyor: hedef isteği yaptı ve sonucunu
+	 * gönderdi. STATUS beklerken sonuç gelmesi reddedilme değil.
+	 */
+	case fxpName, fxpAttrs, fxpExtendedReply:
+		id, err := r.uint32()
+		if err != nil {
+			return err
+		}
+		p, ok := s.takePending(id)
+		if !ok {
+			return nil
+		}
+		/*
+		 * ⚠️ OPEN/OPENDIR buraya düşmemeli — cevapları HANDLE. Düşerse
+		 * onStatus onları "başarısız" yazardı, çünkü o dal STATUS'un
+		 * HANDLE YERİNE geldiği durum için yazılmış. Yanlış satır
+		 * yazmaktansa yazmamayı seçiyoruz; bekleyen yine de alındı.
+		 */
+		if p.typ == fxpOpen || p.typ == fxpOpendir {
+			return nil
+		}
+		s.onStatus(p, fxOK, "")
 		return nil
 
 	case fxpStatus:
@@ -576,9 +651,45 @@ func (s *Session) Finish() {
 			Read: f.read, Wrote: f.wrote, OK: false,
 			Detail: "channel closed before the file was closed"})
 	}
+
+	/*
+	 * ⚠️ BEKLEYENLER VE FRAMER TAMPONLARI DA BIRAKILIYOR.
+	 *
+	 * Broker kapanışta b.sftp'yi TEMİZLEMİYOR (bilinçli, bkz. broker.go) —
+	 * yani Session, kanal bittikten sonra da erişilebilir kalıyor. Finish
+	 * yalnızca handles'ı boşaltsaydı, yarım kalmış bir paketin başlığı ve
+	 * cevapsız bekleyenler oturumla birlikte asılı kalırdı. Bunlar
+	 * kapandıktan sonra hiçbir işe yaramıyor.
+	 */
+	clear(s.pending)
+	s.fromClient.head = nil
+	s.fromClient.keep = 0
+	s.fromTarget.head = nil
+	s.fromTarget.keep = 0
+}
+
+// clampPath, saklanacak yolu maxPath'e indirir ve KESİLDİĞİNİ işaretler.
+//
+// ⚠️ SESSİZ KESME YAPMIYORUZ. Defterde kısaltılmış bir yol gören operatör,
+// onu gerçek yol sanıp yanlış bir şey üzerinde işlem yapabilirdi.
+func clampPath(p string) string {
+	if len(p) <= maxPath {
+		return p
+	}
+	p = p[:maxPath]
+	for len(p) > 0 && !utf8.ValidString(p) {
+		p = p[:len(p)-1]
+	}
+	return p + " (truncated)"
 }
 
 func (s *Session) addPending(id uint32, p pendingOp) error {
+	if len(p.handle) > maxHandleLen {
+		return fmt.Errorf("sftpaudit: handle length %d exceeds limit %d", len(p.handle), maxHandleLen)
+	}
+	p.path = clampPath(p.path)
+	p.newPath = clampPath(p.newPath)
+
 	if len(s.pending) >= maxPending {
 		return fmt.Errorf("sftpaudit: too many outstanding requests (limit %d)", maxPending)
 	}

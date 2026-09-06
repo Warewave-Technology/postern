@@ -41,6 +41,10 @@ const (
 	fxpStatus = 101
 	fxpHandle = 102
 	fxpData   = 103
+	fxpName   = 104
+	fxpAttrs  = 105
+
+	fxpExtendedReply = 201
 )
 
 // Durum kodları (§7). Yalnızca "başardı mı" ayrımı için gerekli.

@@ -25,6 +25,15 @@ type framer struct {
 	need int    // bu paketin gövde uzunluğu (tip baytı dahil)
 	got  int    // gövdeden şimdiye kadar görülen bayt
 	head []byte // gövdenin saklanan ön kısmı
+	// keep, head'in büyüyebileceği üst sınır.
+	//
+	// ⚠️ SINIR AYRI BİR ALAN, cap(head) DEĞİL. Eskiden sınır kapasiteydi
+	// ve kapasite uzunluk öneki gelir gelmez ayrılıyordu: 4 bayt tel
+	// trafiği, 64 KiB'a kadar YERLEŞİK bellek satın alıyordu. Ayrılan yer
+	// yalnızca paket TAMAMLANINCA bırakılıyor — saldırganın esirgediği
+	// olay tam olarak o. Şimdi head geldikçe büyüyor, yani bellek
+	// BİLDİRİLEN değil GELEN baytları takip ediyor.
+	keep int
 
 	// deliver, tamamlanan her paket için çağrılıyor.
 	deliver func(typ byte, body *reader) error
@@ -60,11 +69,21 @@ func (f *framer) write(p []byte) error {
 			}
 			f.need = int(length)
 			f.got = 0
-			keep := f.need
-			if keep > maxHeader {
-				keep = maxHeader
+			f.keep = f.need
+			if f.keep > maxHeader {
+				f.keep = maxHeader
 			}
-			f.head = make([]byte, 0, keep)
+			/*
+			 * ⚠️ BURADA YER AYIRMIYORUZ. Uzunluk alanını istemci yazıyor;
+			 * ona göre ayırmak, 4 baytla 64 KiB tutturmanın yoluydu.
+			 *
+			 * Tampon YENİDEN KULLANILIYOR (kapasite duruyor, uzunluk
+			 * sıfırlanıyor). Ölçüldü: her pakette yeniden büyütmek, 32 KiB'lık
+			 * bir gövde parçalı geldiğinde 2 ayırma yerine 7 ve 3 kat süre
+			 * demekti — TCP paketi gerçekte hep bölüyor. Yeniden kullanımda
+			 * kararlı durumda gövde için hiç ayırma olmuyor.
+			 */
+			f.head = f.head[:0]
 			continue
 		}
 
@@ -74,7 +93,7 @@ func (f *framer) write(p []byte) error {
 		if take > len(p) {
 			take = len(p)
 		}
-		if space := cap(f.head) - len(f.head); space > 0 {
+		if space := f.keep - len(f.head); space > 0 {
 			n := take
 			if n > space {
 				n = space
@@ -86,9 +105,17 @@ func (f *framer) write(p []byte) error {
 
 		// 3) Paket tamamlandı mı?
 		if f.got == f.need {
+			/*
+			 * body ile f.head aynı diziyi gösteriyor; f.head'i sıfır uzunluğa
+			 * çekmek body'nin uzunluğunu değiştirmiyor. Bir sonraki append
+			 * ancak deliver döndükten SONRA olabiliyor ve çözümleyici gövdeden
+			 * okuduğu her dizgiyi kopyalıyor (protocol.go, str), yani diziyi
+			 * elinde tutan kimse kalmıyor.
+			 */
 			body := f.head
+			f.head = f.head[:0]
 			f.lenHave = 0
-			f.head = nil
+			f.keep = 0
 			if len(body) == 0 {
 				// Uzunluk sıfır olamayacağı için buraya düşülmemeli;
 				// yine de sessiz geçmiyoruz.

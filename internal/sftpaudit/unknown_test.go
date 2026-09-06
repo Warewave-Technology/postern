@@ -104,3 +104,45 @@ func TestUnknownTypeReturningAHandleIsNotRecordedAsAFile(t *testing.T) {
 		}
 	}
 }
+
+/*
+ * Tanımadığımız bir eklenti EXTENDED_REPLY ile cevaplanabiliyor — ve o
+ * durumda satır YAZILMIYORDU.
+ *
+ * ⚠️ İKİ ARIZA BİRDEN: onExtended "tanımadığımız eklenti adıyla birlikte
+ * yazılır" diye söz veriyor, o söz tutulmuyordu; ve bekleyen kayıt hiç
+ * alınmadığı için maxPending'e kadar birikiyordu. Sınıra varınca denetim
+ * çöküyor ve oturum "sftp audit failed" ile bitiyor: sıradan bir sunucu
+ * davranışı postern'in arızası gibi görünüyordu.
+ */
+func TestExtendedReplyIsRecordedAndDrainsThePending(t *testing.T) {
+	s, got := collect(t)
+
+	feedClient(t, s, newPkt(fxpExtended).u32(5).
+		str("vendor-thing@example.com").bytes())
+	feedTarget(t, s, newPkt(fxpExtendedReply).u32(5).str("sonuc").bytes())
+
+	if len(*got) != 1 {
+		t.Fatalf("EXTENDED_REPLY ile cevaplanan eklenti deftere girmedi: %+v", *got)
+	}
+	if e := (*got)[0]; e.Op != OpExtended || !strings.Contains(e.Detail, "vendor-thing") {
+		t.Errorf("satır eklentiyi adıyla anmıyor: %+v", e)
+	}
+	if n := len(s.pending); n != 0 {
+		t.Errorf("%d bekleyen asılı kaldı; sınıra kadar birikirdi", n)
+	}
+}
+
+// NAME cevabı da bekleyeni almalı: aynı sızıntı, farklı cevap türü.
+func TestNameReplyDrainsThePending(t *testing.T) {
+	const fxpWeird = 98
+
+	s, _ := collect(t)
+
+	feedClient(t, s, newPkt(fxpWeird).u32(6).str("/x").bytes())
+	feedTarget(t, s, newPkt(fxpName).u32(6).u32(0).bytes())
+
+	if n := len(s.pending); n != 0 {
+		t.Fatalf("%d bekleyen asılı kaldı", n)
+	}
+}
