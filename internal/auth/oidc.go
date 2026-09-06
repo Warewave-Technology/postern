@@ -28,8 +28,6 @@ var (
 	// ErrNonceMismatch: ID token'daki nonce beklenenle aynı değil —
 	// token bu giriş DENEMESİ için kesilmemiş (tekrar oynatma işareti).
 	ErrNonceMismatch = errors.New("auth: nonce mismatch")
-
-	errNotImplemented = errors.New("auth: not implemented")
 )
 
 // OIDCConfig, bir OpenID Connect sağlayıcısına bağlanmak için gerekenler.

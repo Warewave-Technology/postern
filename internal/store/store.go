@@ -87,12 +87,6 @@ var (
 	 * iddiası tam olarak buna dayanıyor.
 	 */
 	ErrAdminPasswordRefused = errors.New("store: an administrator account cannot hold a password")
-
-	// errNotImplementedS51, S5.1 iskeletinin bekleyen fonksiyonları.
-	errNotImplementedS51 = errors.New("store: not implemented")
-
-	// errNotImplementedS33, S3.3 iskeletinin bekleyen fonksiyonları.
-	errNotImplementedS33 = errors.New("store: not implemented")
 )
 
 type Store struct {

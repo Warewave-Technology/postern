@@ -105,9 +105,25 @@ notices-check: notices
 # kapıyı CI'dan DAHA KATI yapıyordu: GitHub temiz bir checkout alıyor,
 # orada o dizin hiç yok. Yani `make ci` yerelde düşerken CI yeşildi —
 # "CI'ın koştuğunun aynısı" iddiasının tersten ihlali.
+# staticcheck: YALNIZCA U1000 (kullanılmayan kod).
+#
+# ⚠️ NEDEN BU KONTROL EKLENDİ. `go vet` kullanılmayan paket düzeyi
+# tanımlarını bildirmiyor ve bu depoda golangci-lint yok; yani ölü kod
+# CI'ye tümüyle görünmezdi. Ölçüldü: bir refaktör (0dae392) sftpaudit'te
+# üç öge bıraktı ve biri — readOnlyRequests — "hangi istekler denetim
+# satırı üretmez" sorusunun OTORİTESİ gibi okunuyordu. Kimse okumuyordu.
+# Bir güvenlik ürününde defteri yönettiğini iddia eden ama hiçbir şeyi
+# yönetmeyen bir tablo, olmayan tablodan kötü.
+#
+# ⚠️ TAM TAKIM AÇILMADI ve sebebi var: SA1019 (deprecated) bu depoda
+# YANLIŞ POZİTİF — internal/sshalg DSA'yı REDDETMEK için tanıyor ve
+# reddetmek için adını yazmak zorunda. Onu susturmak dosya dosya nolint
+# gerektirirdi; kazancı olmayan bir gürültü. U1000'in ise bu depoda
+# yanlış pozitifi yok.
 lint:
 	@bad="$$(gofmt -l . | /usr/bin/grep -v '^\.claude/' || true)"; \
 		test -z "$$bad" || (echo "$$bad"; echo "gofmt gerekli"; exit 1)
+	$(GO) run honnef.co/go/tools/cmd/staticcheck@2025.1.1 -checks U1000 ./...
 
 # gosec: statik güvenlik taraması.
 #

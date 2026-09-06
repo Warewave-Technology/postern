@@ -333,3 +333,139 @@ func TestPathRulesWrittenFromThePanelOpenTheBrowser(t *testing.T) {
 		t.Fatalf("kural silinmedi: %v %v", left, err)
 	}
 }
+
+/*
+ * TestBrowsingCostsOneRowPerDirectory — defterin gezinme karşısındaki
+ * davranışının ÖLÇÜMÜ.
+ *
+ * ⚠️ RİSK NEYDİ: proxy.journalCap 10000 ve aşılırsa oturum ÖLÜYOR. Bir
+ * arayüz, elle yazan bir SFTP istemcisinden çok daha hızlı istek
+ * üretiyor. Satır sayısı gezinmeyle nasıl büyüyorsa, tavanın bu yüzey
+ * için ne anlama geldiği de o.
+ *
+ * ⚠️ ÖLÇÜM BİR VARSAYIMI ÇÜRÜTTÜ. "İzin verilen üstveri okumaları
+ * deftere hiç girmiyor" sanıyordum; girmiyorlar, AMA opendir giriyor.
+ * Gerçek şu: DİZİN BAŞINA BİR SATIR, içindeki dosya sayısından bağımsız.
+ * readdir, stat ve close hiçbir satır bırakmıyor.
+ *
+ * Bu iyi bir denge ve test onu ikisinden de koruyor:
+ *   - Satır sayısı girdi başına OLSAYDI, 500 dosyalık tek bir dizin tek
+ *     tıklamada 500 satır yazardı ve tavan gerçek bir sınır olurdu.
+ *   - Hiç satır olmasaydı, "hangi dizinlere bakıldı" sorusu cevapsız
+ *     kalırdı — bu ürünün iddiasının tam ortasındaki soru.
+ *
+ * 10000'e ulaşmak için tek oturumda 10000 dizin açmak gerekiyor.
+ */
+func TestBrowsingCostsOneRowPerDirectory(t *testing.T) {
+	apiURL, db := browserBastionWithFileBrowser(t)
+
+	ctx := context.Background()
+	if err := db.SetRolePath(ctx, "ops", "/tmp", true, true); err != nil {
+		t.Fatalf("SetRolePath: %v", err)
+	}
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
+	browserSignIn(t, client, apiURL)
+
+	conn, _, err := dialFileBrowser(t, client, apiURL, "web01")
+	if err != nil {
+		t.Fatalf("dosya tarayıcısı açılamadı: %v", err)
+	}
+	conn.SetReadLimit(2 << 20)
+
+	dialCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	pipe := &wsPipe{ctx: dialCtx, c: conn}
+	defer pipe.Close()
+
+	cli, err := sftp.NewClientPipe(pipe, pipe)
+	if err != nil {
+		t.Fatalf("SFTP el sıkışması: %v", err)
+	}
+
+	// Bir arayüzün bir oturumda üreteceğinden fazla gezinme.
+	const rounds = 60
+	for i := 0; i < rounds; i++ {
+		if _, err := cli.ReadDir("/tmp"); err != nil {
+			t.Fatalf("%d. listeleme: %v", i, err)
+		}
+	}
+
+	// Bir de ret: satır bırakması GEREKEN tek şey.
+	if _, err := cli.ReadDir("/etc"); err == nil {
+		t.Fatal("/etc listelendi")
+	}
+
+	pipe.Close()
+
+	/*
+	 * Olaylar toplu yazılıyor (flushEvery = 2s), o yüzden bekleniyor.
+	 * Oturumun kapanması da yazmayı tetikliyor.
+	 */
+	sessions, err := db.Sessions(ctx, "", 0)
+	if err != nil || len(sessions) == 0 {
+		t.Fatalf("oturum bulunamadı: %v", err)
+	}
+	sid := sessions[0].ID
+
+	var denied, total int
+	for i := 0; i < 60; i++ {
+		time.Sleep(250 * time.Millisecond)
+		rows, err := db.SessionFiles(ctx, sid)
+		if err != nil {
+			t.Fatalf("session_files: %v", err)
+		}
+		total = len(rows)
+		denied = 0
+		for _, r := range rows {
+			if strings.HasPrefix(r.Op, "denied.") {
+				denied++
+			}
+		}
+		if denied > 0 {
+			break
+		}
+	}
+
+	if denied == 0 {
+		t.Fatal("ret satırı yazılmadı — defter gezinmeyi de retleri de kaçırıyor")
+	}
+
+	/*
+	 * ⚠️ TAVAN: 60 listeleme, journalCap'in (10000) yanına
+	 * yaklaşmamalı. Sayıyı buraya yazmak, ileride izin verilen
+	 * okumaların da yazılmaya başlaması durumunda bu testin
+	 * DÜŞMESİNİ sağlıyor — sessizce tavana yürümek yerine.
+	 */
+	rows, _ := db.SessionFiles(ctx, sid)
+	byOp := map[string]int{}
+	for _, r := range rows {
+		byOp[r.Op]++
+	}
+	t.Logf("%d listeleme + 1 ret → %d satır; işlemler: %v", rounds, total, byOp)
+
+	// Dizin başına TAM BİR satır.
+	if byOp["opendir"] != rounds {
+		t.Errorf("opendir satırı %d, %d bekleniyordu", byOp["opendir"], rounds)
+	}
+
+	/*
+	 * ⚠️ readdir SATIR YAZMAMALI. Uzun bir dizin birden çok READDIR
+	 * turu gerektiriyor (gerçek sunucuda ölçüldü: 500 girdi birkaç
+	 * sayfaya bölünüyor). Her tur bir satır yazsaydı, satır sayısı
+	 * dizinin BÜYÜKLÜĞÜYLE artardı ve tavan bu yüzeyin sınırı olurdu.
+	 */
+	for _, quiet := range []string{"readdir", "stat", "lstat", "close", "realpath"} {
+		if byOp[quiet] != 0 {
+			t.Errorf("%q %d satır yazdı: defter artık dizin başına değil istek başına "+
+				"büyüyor, journalCap (10000) bu yüzeyin sınırı hâline gelir",
+				quiet, byOp[quiet])
+		}
+	}
+
+	if total != rounds+1 {
+		t.Errorf("toplam %d satır, %d bekleniyordu (%d listeleme + 1 ret)",
+			total, rounds+1, rounds)
+	}
+}

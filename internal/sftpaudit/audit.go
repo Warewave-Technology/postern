@@ -40,7 +40,9 @@ const (
 	OpUnknown Op = "unknown"
 
 	// Aşağıdakiler yalnızca REDDEDİLDİKLERİNDE satır üretiyor: izin verilen
-	// üstveri istekleri sessiz kalmaya devam ediyor (bkz. readOnlyRequests).
+	// üstveri istekleri sessiz kalıyor. Kararın verildiği tek yer
+	// onRequest'in switch'i — orada listelenmeyen tip bekleyenler
+	// tablosuna girmiyor, dolayısıyla satır da üretmiyor.
 	OpStat     Op = "stat"
 	OpReaddir  Op = "readdir"
 	OpRealpath Op = "realpath"
@@ -353,69 +355,6 @@ func (s *Session) pendExtended(req request) error {
 	}
 
 	return s.addPending(req.id, pendingOp{typ: fxpExtended, ext: req.ext})
-}
-
-// readOnlyRequests, satır ÜRETMEYEN istek türleri: hiçbiri içeriği ya da
-// ad uzayını değiştirmiyor. quietExtensions'ın temel tür karşılığı.
-var readOnlyRequests = map[byte]bool{
-	fxpLstat:    true,
-	fxpFstat:    true,
-	fxpReaddir:  true,
-	fxpRealpath: true,
-	fxpStat:     true,
-	fxpReadlink: true,
-}
-
-/*
- * onExtended, SSH_FXP_EXTENDED (200) isteklerini çözer.
- *
- * ⚠️ ÖLÇÜLEN ARIZA: BU DAL HİÇ YOKTU ve yeniden adlandırmalar denetim
- * defterine HİÇ DÜŞMÜYORDU. OpenSSH'in kendi sftp istemcisi, sunucu
- * eklentiyi ilan ettiğinde SSH_FXP_RENAME değil
- * "posix-rename@openssh.com" gönderiyor — yani gerçek dünyadaki
- * neredeyse her yeniden adlandırma. Demoda ölçüldü: `rename a b`
- * hedefte başarıyla çalıştı, session_files'ta karşılığı yoktu.
- *
- * ⚠️ TANIMADIĞIMIZ EKLENTİ SESSİZCE GEÇMİYOR. Bilinen ve zararsız
- * olanlar (fsync, statvfs...) stat/readdir gibi satır üretmiyor; geri
- * kalan HER ŞEY adıyla birlikte yazılıyor. Aksi hâli, bu arızanın
- * kendisiydi: adını bilmediğimiz bir eklenti dosyayı taşısın ve defter
- * boş kalsın. Yarın eklenen bir eklenti önceden onaylanmış olmamalı.
- */
-func (s *Session) onExtended(r *reader) error {
-	id, name, err := idAndPath(r) // id + string: eklenti adı
-	if err != nil {
-		return err
-	}
-
-	switch name {
-	case extPosixRename, extHardlink:
-		path, perr := r.str()
-		if perr != nil {
-			return perr
-		}
-		newPath, nerr := r.str()
-		if nerr != nil {
-			return nerr
-		}
-		return s.addPending(id, pendingOp{typ: fxpExtended, ext: name,
-			path: path, newPath: newPath})
-
-	case extLsetstat:
-		path, perr := r.str()
-		if perr != nil {
-			return perr
-		}
-		return s.addPending(id, pendingOp{typ: fxpExtended, ext: name, path: path})
-	}
-
-	if quietExtensions[name] {
-		return nil
-	}
-
-	// Tanımadığımız eklenti: yolunu çözemeyebiliriz ama OLDUĞUNU
-	// yazarız. Adı detail'e gidiyor ki operatör neye baktığını bilsin.
-	return s.addPending(id, pendingOp{typ: fxpExtended, ext: name})
 }
 
 // OpenSSH eklenti adları. Ayrıntı: PROTOCOL dosyası, openssh-portable.
@@ -761,17 +700,4 @@ func (s *Session) takePending(id uint32) (pendingOp, bool) {
 func (s *Session) write(e Event) {
 	e.At = s.now()
 	s.emit(e)
-}
-
-// idAndPath, "uint32 id + string" başlığını okur (çok yerde aynı).
-func idAndPath(r *reader) (uint32, string, error) {
-	id, err := r.uint32()
-	if err != nil {
-		return 0, "", err
-	}
-	p, err := r.str()
-	if err != nil {
-		return 0, "", err
-	}
-	return id, p, nil
 }
