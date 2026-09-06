@@ -298,9 +298,13 @@ func (s *Session) pathForHandle(h string) (string, bool) {
 	if f, ok := s.handles[h]; ok {
 		return f.path, true
 	}
-	if s.dirHandles[h] {
-		// Dizin tanıtıcıları yolu saklamıyor; açılışta karara bağlandı.
-		return "", true
+	if p, ok := s.dirHandles[h]; ok {
+		/*
+		 * ⚠️ DİZİN TANITICISI DA YOLUNU TAŞIYOR. "OPENDIR'da karara
+		 * bağlandı, READDIR'a bakmaya gerek yok" varsayımı, READDIR'ı
+		 * politikaya BOŞ yolla sordurup her listelemeyi reddettiriyordu.
+		 */
+		return p, true
 	}
 
 	return "", false

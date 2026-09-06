@@ -408,3 +408,104 @@ func TestUnreadableRequestIDEndsTheSessionInsteadOfAnswering(t *testing.T) {
 		t.Errorf("cevaplanamayan istek için satır yazıldı: %+v", *got)
 	}
 }
+
+/*
+ * ⚠️ İZİNLİ BİR DİZİNDE `ls` ÇALIŞMALI.
+ *
+ * ÖLÇÜLEN ARIZA: dizin tanıtıcıları yollarını saklamıyordu ("OPENDIR'da
+ * karara bağlandı, gerisi gerekmez"). Sonuç: READDIR politikaya BOŞ yolla
+ * gidiyor, hiçbir önek boş yolu kapsamıyor ve izin listesi kullanan HER
+ * kurulumda her dizin listeleme reddediliyordu. CLI'ın kendi belgelediği
+ * örnek (--prefix /home/dev) `ls`'i kırıyordu.
+ *
+ * Demoda kaçtı çünkü `ls` yalnızca REDDEDİLEN bir dizinde denenmişti;
+ * doğru cevabı verdiği için arıza görünmedi.
+ */
+func TestListingAnAllowedDirectoryWorks(t *testing.T) {
+	// Yalnızca /home/u altına izin veren, gerisini reddeden politika.
+	allowHome := func(r Request) (bool, string) {
+		if r.Path == "/home/u" || strings.HasPrefix(r.Path, "/home/u/") {
+			return true, ""
+		}
+		return false, "no rule covers this path"
+	}
+
+	s, got, out := runPolicy(t, allowHome,
+		newPkt(fxpOpendir).u32(1).str("/home/u").bytes())
+
+	if len(out) == 0 {
+		t.Fatal("izinli dizinin OPENDIR'ı reddedildi")
+	}
+
+	// Hedef tanıtıcıyı veriyor.
+	if err := s.FromTarget(newPkt(fxpHandle).u32(1).str("d1").bytes()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Ve şimdi READDIR — asıl ölçüm.
+	var out2 []byte
+	pkt := newPkt(fxpReaddir).u32(2).str("d1").bytes()
+	if err := s.fromClient.writeTo(pkt, func(b []byte) error {
+		out2 = append(out2, b...)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(out2) == 0 {
+		t.Fatalf("İZİNLİ DİZİNDE READDIR REDDEDİLDİ — `ls` çalışmaz. Olaylar: %+v", *got)
+	}
+	for _, e := range *got {
+		if strings.HasPrefix(string(e.Op), "denied.") {
+			t.Fatalf("ret satırı yazıldı: %+v", e)
+		}
+	}
+}
+
+// Reddedilen bir dizinde READDIR yine reddedilmeli — ve ret satırı YOLU
+// taşımalı, yoksa defterden hangi dizinin reddedildiği okunamaz.
+func TestListingARefusedDirectoryIsRefusedWithItsPath(t *testing.T) {
+	allowHome := func(r Request) (bool, string) {
+		if r.Path == "/home/u" || strings.HasPrefix(r.Path, "/home/u/") {
+			return true, ""
+		}
+		return false, "no rule covers this path"
+	}
+
+	s, got, _ := runPolicy(t, allowHome,
+		newPkt(fxpOpendir).u32(1).str("/home/u/gizli").bytes())
+	if err := s.FromTarget(newPkt(fxpHandle).u32(1).str("d1").bytes()); err != nil {
+		t.Fatal(err)
+	}
+
+	// /home/u/gizli izinli (önek eşleşiyor), şimdi onu reddeden bir
+	// politikayla aynı tanıtıcı üzerinden listeleme deneyelim.
+	s.SetPolicy(func(r Request) (bool, string) {
+		return r.Path != "/home/u/gizli", "path is not permitted"
+	})
+
+	var out []byte
+	pkt := newPkt(fxpReaddir).u32(2).str("d1").bytes()
+	if err := s.fromClient.writeTo(pkt, func(b []byte) error {
+		out = append(out, b...)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(out) != 0 {
+		t.Fatal("reddedilen dizin listelendi")
+	}
+	var seen bool
+	for _, e := range *got {
+		if e.Op == "denied."+OpReaddir {
+			seen = true
+			if e.Path != "/home/u/gizli" {
+				t.Errorf("ret satırı yolu taşımıyor: %q", e.Path)
+			}
+		}
+	}
+	if !seen {
+		t.Fatalf("ret defterine düşmedi: %+v", *got)
+	}
+}

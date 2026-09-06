@@ -141,8 +141,18 @@ type Session struct {
 	now     func() time.Time
 	pending map[uint32]pendingOp
 	handles map[string]*openFile
-	// dirHandles, OPENDIR ile açılanlar — transfer özeti üretmiyorlar.
-	dirHandles map[string]bool
+	/*
+	 * dirHandles, OPENDIR ile açılan tanıtıcılar → AÇILDIKLARI YOL.
+	 * Transfer özeti üretmiyorlar, ama yolları tutuluyor.
+	 *
+	 * ⚠️ ESKİDEN map[string]bool İDİ ve yol saklanmıyordu; "açılışta
+	 * karara bağlandı, gerisi gerekmez" varsayımıyla. Ölçülen sonuç:
+	 * READDIR politikaya BOŞ yolla gidiyor, hiçbir önek boş yolu
+	 * kapsamıyor ve izin listesi kullanan bir kurulumda HER dizin
+	 * listeleme reddediliyordu — `ls` çalışmıyordu. Ret satırı da yolsuz
+	 * yazılıyordu, yani defterden hangi dizinin reddedildiği okunamıyordu.
+	 */
+	dirHandles map[string]string
 
 	// policy, isteklere karar veren geri çağrı (policy.go). nil olabilir.
 	policy Decider
@@ -165,7 +175,7 @@ func NewSession(emit func(Event)) *Session {
 		now:        time.Now,
 		pending:    make(map[uint32]pendingOp),
 		handles:    make(map[string]*openFile),
-		dirHandles: make(map[string]bool),
+		dirHandles: make(map[string]string),
 	}
 	s.fromClient = newFramer(s.onRequest)
 	s.fromTarget = newFramer(s.onReply)
@@ -466,7 +476,7 @@ func (s *Session) onReply(typ byte, r *reader) error {
 			if len(s.dirHandles)+len(s.handles) >= maxHandles {
 				return fmt.Errorf("sftpaudit: too many open handles (limit %d)", maxHandles)
 			}
-			s.dirHandles[handle] = true
+			s.dirHandles[handle] = p.path
 			s.write(Event{Op: OpOpendir, Path: p.path, OK: true})
 			return nil
 		}
@@ -657,7 +667,7 @@ var statusOps = map[byte]Op{
 
 // closeHandle, dosya özetini yazar ve tanıtıcıyı bırakır.
 func (s *Session) closeHandle(handle string) {
-	if s.dirHandles[handle] {
+	if _, isDir := s.dirHandles[handle]; isDir {
 		delete(s.dirHandles, handle)
 		return
 	}
