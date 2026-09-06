@@ -19,6 +19,16 @@ type request struct {
 	typ byte
 	id  uint32
 
+	/*
+	 * haveID, istek KİMLİĞİNİ okuyabildiğimiz.
+	 *
+	 * ⚠️ CEVAP VEREBİLMENİN ÖN KOŞULU. SFTP cevapları kimliğe göre
+	 * eşliyor; okuyamadığımız bir kimliğe uydurma bir değerle cevap
+	 * vermek, istemcinin hiç göndermediği bir isteğe cevap vermek olur.
+	 * OpenSSH bunu fatal("ID mismatch") ile karşılıyor.
+	 */
+	haveID bool
+
 	// known, türü TANIDIĞIMIZI söylüyor. Tanımıyorsak id dışındaki hiçbir
 	// alan doldurulmuyor — gövdenin biçimini bilmiyoruz.
 	known bool
@@ -47,46 +57,48 @@ type request struct {
 func parseRequest(typ byte, r *reader) (request, error) {
 	req := request{typ: typ, known: true}
 
-	switch typ {
-	case fxpInit:
+	if typ == fxpInit {
 		// Sürüm anlaşması: istek kimliği YOK, gövdesi sürüm numarası.
 		return req, nil
+	}
 
+	/*
+	 * ⚠️ KİMLİK ÖNCE VE HERKES İÇİN. INIT dışında her istek onunla
+	 * başlıyor; okuyabilmek, cevap verebilmenin ön koşulu.
+	 */
+	id, err := r.uint32()
+	if err != nil {
+		return req, err
+	}
+	req.id = id
+	req.haveID = true
+
+	switch typ {
 	case fxpOpen:
-		var err error
-		if req.id, err = r.uint32(); err != nil {
-			return req, err
-		}
 		if req.path, err = r.str(); err != nil {
 			return req, err
 		}
-		if req.flags, err = r.uint32(); err != nil {
-			return req, err
-		}
-		return req, nil
+		req.flags, err = r.uint32()
+		return req, err
 
 	case fxpOpendir, fxpRemove, fxpRmdir, fxpMkdir, fxpSetstat,
 		fxpLstat, fxpStat, fxpRealpath, fxpReadlink:
-		var err error
-		req.id, req.path, err = idAndPath(r)
+		req.path, err = r.str()
 		return req, err
 
 	case fxpRename, fxpSymlink, fxpLink:
-		var err error
-		if req.id, req.path, err = idAndPath(r); err != nil {
+		if req.path, err = r.str(); err != nil {
 			return req, err
 		}
 		req.newPath, err = r.str()
 		return req, err
 
 	case fxpRead, fxpClose, fxpReaddir, fxpFstat, fxpFsetstat:
-		var err error
-		req.id, req.handle, err = idAndPath(r)
+		req.handle, err = r.str()
 		return req, err
 
 	case fxpWrite:
-		var err error
-		if req.id, req.handle, err = idAndPath(r); err != nil {
+		if req.handle, err = r.str(); err != nil {
 			return req, err
 		}
 		if _, err = r.uint64(); err != nil { // offset
@@ -96,8 +108,7 @@ func parseRequest(typ byte, r *reader) (request, error) {
 		return req, err
 
 	case fxpExtended:
-		var err error
-		if req.id, req.ext, err = idAndPath(r); err != nil {
+		if req.ext, err = r.str(); err != nil {
 			return req, err
 		}
 		switch req.ext {
@@ -115,14 +126,8 @@ func parseRequest(typ byte, r *reader) (request, error) {
 		return req, nil
 	}
 
-	/*
-	 * Tanımadığımız tür. Gövdenin biçimini bilmiyoruz ama INIT dışında
-	 * her istek kimlikle başlıyor; onu okuyabilmek, hedefin cevabını bu
-	 * isteğe bağlamaya yetiyor.
-	 */
+	// Tanımadığımız tür: kimliği okuduk, gövdesini çözemiyoruz.
 	req.known = false
-	var err error
-	req.id, err = r.uint32()
 
-	return req, err
+	return req, nil
 }

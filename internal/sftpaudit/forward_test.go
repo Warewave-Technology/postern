@@ -74,18 +74,18 @@ func TestDeniedPacketNeverReachesTheTarget(t *testing.T) {
 			deliveredIDs = append(deliveredIDs, id)
 			return nil
 		})
-		f.decide = func(typ byte, r *reader) bool {
+		f.decide = func(typ byte, r *reader) (bool, error) {
 			if typ != fxpOpen {
-				return true
+				return true, nil
 			}
 			if _, err := r.uint32(); err != nil {
-				return false
+				return false, nil
 			}
 			path, err := r.str()
 			if err != nil {
-				return false // eksik gövde: kapalı tarafa düş
+				return false, nil // eksik gövde: kapalı tarafa düş
 			}
-			return path != "/etc/shadow"
+			return path != "/etc/shadow", nil
 		}
 
 		feedSplit(t, f, out, wire, chunk)
@@ -140,15 +140,15 @@ func TestPaddedDeniedPacketIsFullyDropped(t *testing.T) {
 
 	out := &forwarded{}
 	f := newFramer(func(byte, *reader) error { return nil })
-	f.decide = func(typ byte, r *reader) bool {
+	f.decide = func(typ byte, r *reader) (bool, error) {
 		if typ != fxpOpen {
-			return true
+			return true, nil
 		}
 		if _, err := r.uint32(); err != nil {
-			return false
+			return false, nil
 		}
 		p, err := r.str()
-		return err == nil && p != "/etc/shadow"
+		return err == nil && p != "/etc/shadow", nil
 	}
 
 	/*

@@ -10,6 +10,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/Warewave-Technology/postern/internal/record"
+	"github.com/Warewave-Technology/postern/internal/sftpaudit"
 )
 
 // requestSender, üzerine request gönderilebilen uç (ssh.Channel bunu sağlar).
@@ -57,6 +58,13 @@ type Broker struct {
 	 * yazmak, kaydedilecek tek durumda sink'in var olmaması demekti.
 	 */
 	onDeny func(reqType, reason string)
+
+	/*
+	 * sftpPolicy, SFTP isteklerine karar veren politika. nil ise hiçbir
+	 * istek reddedilmiyor ve veri yolu bu özellik eklenmeden önceki gibi
+	 * çalışıyor.
+	 */
+	sftpPolicy sftpaudit.Decider
 	// sftp, kanal SFTP'ye geçtiğinde dolan çözümleyici (sftp.go).
 	sftp sftpState
 	// abortOnce, denetim çökünce kanalı bir kez kapatmak için.
@@ -96,9 +104,41 @@ type Broker struct {
 	 * sonsuza kadar bloke eder, yani sessiz bir kilitlenme. gate() her
 	 * çağırana aynı kanalı veriyor, nasıl kurulmuş olursa olsun.
 	 */
-	gateInit  sync.Once
-	gateOnce  sync.Once
-	startGate chan struct{}
+	/*
+	 * downMu, İSTEMCİYE giden veri akışını seri hâle getiriyor.
+	 *
+	 * ⚠️ NEDEN GEREKLİ: postern bazen istemciye kendi cevabını yazıyor
+	 * (reddedilen SFTP istekleri). O yazma, hedeften gelen baytları
+	 * aktaran goroutine ile çakışamaz — ve daha önemlisi, gerçek bir
+	 * paketin ORTASINA düşemez. Kilit, yazma ile çözümlemeyi TEK PARÇA
+	 * hâline getiriyor: kilidi alan biri, "son parça hem yazıldı hem
+	 * çözümlendi" durumunu görüyor, arada kalmış bir anı değil.
+	 */
+	downMu sync.Mutex
+	/*
+	 * injectQ, istemciye gönderilmeyi bekleyen kendi cevaplarımız.
+	 *
+	 * ⚠️ KUYRUK VAR ÇÜNKÜ BEKLEMEK İSTEMİYORUZ. Ret anında hedef akışı
+	 * paketin ortasındaysa cevabı yazamıyoruz; bir goroutine'i orada
+	 * bekletmek, hedef susarsa sonsuza kadar asılı kalan bir goroutine
+	 * demekti. Bunun yerine sıraya koyuluyor ve hedef yönü bir sonraki
+	 * paket sınırına vardığında boşaltılıyor.
+	 */
+	injectQ [][]byte
+	// injectMu, YALNIZCA kuyruğu koruyor.
+	//
+	// ⚠️ downMu'DAN AYRI OLMAK ZORUNDA. Retleri sıraya koyan goroutine,
+	// istemciye yazan goroutine'in kilidini beklememeli: o yazma ağ
+	// üzerinde bloke olabiliyor ve bekleyen goroutine istemciden OKUYAN
+	// goroutine'in ta kendisi. Okumayı durdurmak, istemcinin yazmalarını
+	// da durdurup ikisini birbirine kilitlerdi.
+	injectMu  sync.Mutex
+	injectSig chan struct{}
+
+	injectInit sync.Once
+	gateInit   sync.Once
+	gateOnce   sync.Once
+	startGate  chan struct{}
 
 	// abortErr, denetimi çökerten sebep. Run bunu döndürüyor.
 	abortErr error
@@ -139,6 +179,109 @@ func New(down ssh.Channel, downR <-chan *ssh.Request, up ssh.Channel, upR <-chan
 		aborted: make(chan struct{})}
 }
 
+// injectSignal, enjektörü uyandıran kanal; ilk çağıran kuruyor.
+func (b *Broker) injectSignal() chan struct{} {
+	b.injectInit.Do(func() { b.injectSig = make(chan struct{}, 1) })
+	return b.injectSig
+}
+
+// pokeInjector, enjektöre "bir şey değişti, dene" der. Bloke etmiyor.
+func (b *Broker) pokeInjector() {
+	select {
+	case b.injectSignal() <- struct{}{}:
+	default:
+	}
+}
+
+/*
+ * queueRefusals, postern'in kendi cevaplarını sıraya koyar.
+ *
+ * ⚠️ BURADA İSTEMCİYE YAZILMIYOR. Yazmak, istemciden okuyan goroutine'i
+ * bir ağ yazmasının arkasında bekletirdi; okumayı durdurmak istemcinin
+ * yazmalarını da durdurur ve iki yön birbirini kilitlerdi. Yazma işi
+ * kendi goroutine'inde.
+ */
+func (b *Broker) queueRefusals(pkts [][]byte) {
+	b.injectMu.Lock()
+	b.injectQ = append(b.injectQ, pkts...)
+	b.injectMu.Unlock()
+
+	b.pokeInjector()
+}
+
+/*
+ * tryInject, hedef akışı paket SINIRINDAYSA bekleyen cevapları yazar.
+ *
+ * ⚠️ SINIR ŞART. Gerçek bir paketin ortasına yazmak, istemcinin
+ * çözümleyicisinde o paketi ikiye böler ve sonraki her bayt kayar.
+ * Sınırda değilsek kuyruk duruyor; hedef bir sonraki paketi bitirince
+ * yeniden çağrılıyoruz.
+ */
+func (b *Broker) tryInject() {
+	s := b.sftp.Load()
+	if s == nil {
+		return
+	}
+
+	b.injectMu.Lock()
+	empty := len(b.injectQ) == 0
+	b.injectMu.Unlock()
+	if empty {
+		return
+	}
+
+	b.downMu.Lock()
+	defer b.downMu.Unlock()
+
+	if !s.TargetAtBoundary() {
+		return
+	}
+
+	b.injectMu.Lock()
+	q := b.injectQ
+	b.injectQ = nil
+	b.injectMu.Unlock()
+
+	for _, pkt := range q {
+		if _, err := b.down.Write(pkt); err != nil {
+			/*
+			 * Yazılamadıysa kanal zaten kopuyor. Oturumu burada
+			 * bitirmiyoruz: ret UYGULANDI, iletilemeyen şey yalnızca
+			 * gerekçesi. Denetim satırı zaten yazılı.
+			 */
+			b.logger.Error("refusal reply not delivered to the client", "error", err)
+			return
+		}
+	}
+}
+
+/*
+ * injector, bekleyen retleri istemciye ulaştıran goroutine.
+ *
+ * ⚠️ AYRI BİR GOROUTINE OLMAK ZORUNDA. Reddi veren goroutine istemciden
+ * OKUYAN goroutine; ona yazdırmak, okumayı bir ağ yazmasının arkasında
+ * durdurup iki yönü birbirine kilitlerdi.
+ *
+ * ⚠️ WaitGroup İÇİNDE. İstemciye yazan herkes, kanal kapanmadan önce
+ * bitmiş olmalı (bkz. TestUnansweredCloseHoldsTwoGoroutines çevresi).
+ */
+func (b *Broker) injector(ctx context.Context, stop <-chan struct{}) {
+	sig := b.injectSignal()
+
+	for {
+		select {
+		case <-sig:
+			b.tryInject()
+		case <-stop:
+			return
+		case <-b.aborted:
+			return
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
 // gate, başlangıç kapısını verir; ilk çağıran kuruyor.
 func (b *Broker) gate() chan struct{} {
 	b.gateInit.Do(func() { b.startGate = make(chan struct{}) })
@@ -154,6 +297,15 @@ func (b *Broker) openStartGate() { b.gateOnce.Do(func() { close(b.gate()) }) }
 // (varsayılan) çağıranların hiçbiri değişmiyor.
 func (b *Broker) WithSFTP(sink SFTPSink) *Broker {
 	b.sftpSink = sink
+	return b
+}
+
+// WithSFTPPolicy, SFTP isteklerine karar verecek politikayı kurar.
+//
+// ⚠️ WithSFTP'DEN ÖNCE YA DA SONRA ÇAĞRILABİLİR; politika oturum
+// KURULURKEN okunuyor (beginSFTP), kanal açılırken değil.
+func (b *Broker) WithSFTPPolicy(d sftpaudit.Decider) *Broker {
+	b.sftpPolicy = d
 	return b
 }
 
@@ -367,6 +519,24 @@ func (b *Broker) Run(ctx context.Context) error {
 
 		b.relayRequests(b.down, b.upR, fromTarget, false)
 	}()
+	/*
+	 * ⚠️ ENJEKTÖR wg'NİN DIŞINDA, ve bu bir zorunluluk. wgCloseSignal
+	 * "veri goroutine'leri bitti" demek; enjektör de onu beklediği için
+	 * içine koymak dairesel bir bekleme yaratıyordu — wgCloseSignal
+	 * enjektörü, enjektör kapanış sinyalini bekliyordu ve Run hiç
+	 * dönmüyordu. (Ölçüldü: üç test aynı anda "Run dönmedi" dedi.)
+	 *
+	 * Yine de istemci kanalı kapanmadan ÖNCE bitmiş olmak zorunda; o
+	 * yüzden kendi durdurma kanalı ve kendi beklemesi var.
+	 */
+	injStop := make(chan struct{})
+	injDone := make(chan struct{})
+	go func() {
+		defer close(injDone)
+
+		b.injector(ctx, injStop)
+	}()
+
 	go b.relayRequests(b.up, b.downR, fromClient, true)
 
 	go func() {
@@ -397,6 +567,25 @@ func (b *Broker) Run(ctx context.Context) error {
 	 */
 	b.openStartGate()
 	b.finishSFTP()
+
+	/*
+	 * ⚠️ ENJEKTÖR BURADA DURUYOR — istemci kanalına yazan herkes, kanal
+	 * kapanmadan önce bitmiş olmalı.
+	 */
+	close(injStop)
+	<-injDone
+
+	/*
+	 * ⚠️ SON BİR DENEME. Enjektör ctx ile birlikte durdu; sıraya girmiş
+	 * ama iletilememiş bir ret varsa istemci onu hiç görmeyecek. Denemek
+	 * bedava, denememek istemciyi cevapsız bırakmak.
+	 */
+	b.tryInject()
+	b.injectMu.Lock()
+	if n := len(b.injectQ); n > 0 {
+		b.logger.Error("refusals never reached the client", "count", n)
+	}
+	b.injectMu.Unlock()
 
 	// ⚠️ KULLANICI NEDEN KESİLDİĞİNİ ÖĞRENMELİ. Sessizce kopan bir
 	// oturum, ağ arızasından ayırt edilemez: kullanıcı yeniden bağlanıp

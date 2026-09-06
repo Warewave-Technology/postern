@@ -61,12 +61,23 @@ type framer struct {
 	 * hedef→istemci akışını da durduruyor. Bellekteki bir önek eşlemesi
 	 * bunun için uygun; ağa ya da veritabanına giden bir kontrol değil.
 	 */
-	decide func(typ byte, body *reader) bool
+	decide func(typ byte, body *reader) (bool, error)
 
 	// hold, kararı beklenen paketin ham tel baytları.
 	hold    []byte
 	decided bool
 	allow   bool
+
+	/*
+	 * sawPacket, bu yönde EN AZ BİR paketin tamamlandığı.
+	 *
+	 * ⚠️ "HİÇ BAŞLAMADIK" SINIR DEĞİL. Enjeksiyon sınırı bunu ayırt
+	 * etmek zorunda: hedef henüz konuşmamışken istemciye yazmak,
+	 * istemcinin gördüğü İLK paketin bizim cevabımız olması demek.
+	 * OpenSSH'in sftp_init'i yalnızca SSH_FXP_VERSION kabul ediyor ve
+	 * başka bir şey görünce fatal ile çıkıyor.
+	 */
+	sawPacket bool
 }
 
 /*
@@ -236,6 +247,8 @@ func (f *framer) writeTo(p []byte, forward func([]byte) error) error {
 			f.lenHave = 0
 			f.keep = 0
 
+			f.sawPacket = true
+
 			allowed := f.allow
 			f.decided = false
 			f.allow = false
@@ -283,7 +296,18 @@ func (f *framer) decideNow(forward func([]byte) error) error {
 	f.allow = true
 
 	if f.decide != nil && len(f.head) > 0 {
-		f.allow = f.decide(f.head[0], &reader{buf: f.head[1:]})
+		allow, err := f.decide(f.head[0], &reader{buf: f.head[1:]})
+		if err != nil {
+			/*
+			 * ⚠️ HATA REDDETMEK DEĞİL, AKIŞI BOZUK SAYMAKTIR. Politika
+			 * isteğe cevap veremeyecek durumdaysa (kimliği bile
+			 * okunamıyorsa) uydurma bir cevap yazmaktansa oturumu
+			 * bitiriyoruz: istemcinin göndermediği bir isteğe cevap
+			 * vermek onu çökertir.
+			 */
+			return err
+		}
+		f.allow = allow
 	}
 
 	if forward == nil {

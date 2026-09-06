@@ -3,6 +3,7 @@ package sftpaudit
 // İstek politikası: hangi isteğin hedefe geçeceğine karar vermek.
 
 import (
+	"fmt"
 	"path"
 	"strings"
 )
@@ -87,38 +88,60 @@ func (s *Session) TakeDenials() [][]byte {
  * Geçirmek, politikayı "postern'in çözemediği her şey" kadar delik
  * bırakırdı — ve o deliğin adını saldırgan koyardı.
  */
-func (s *Session) decideRequest(typ byte, r *reader) bool {
+func (s *Session) decideRequest(typ byte, r *reader) (bool, error) {
 	req, err := parseRequest(typ, r)
-	if err != nil {
-		// Karar bütçesine sığmayan ya da kesik gövde.
-		return s.refuse(req.id, OpUnknown, "request could not be parsed")
-	}
 
 	// INIT'in kimliği yok ve yol taşımıyor; sürüm anlaşması geçiyor.
 	if typ == fxpInit {
-		return true
+		return true, nil
+	}
+
+	if !req.haveID {
+		/*
+		 * ⚠️ KİMLİKSİZ İSTEĞE CEVAP YOK. Uydurma bir kimlikle STATUS
+		 * yazmak, istemcinin HİÇ GÖNDERMEDİĞİ bir isteğe cevap vermek
+		 * olur ve OpenSSH bunu fatal("ID mismatch") ile karşılıyor.
+		 * Kimliği okunamayan bir akış zaten çözülemiyor demektir.
+		 */
+		return false, fmt.Errorf("sftpaudit: request id unreadable: %w", err)
+	}
+
+	if err != nil {
+		// Karar bütçesine sığmayan ya da kesik gövde: kimlik var, cevap
+		// verebiliyoruz.
+		return s.refuse(req.id, Request{Op: OpUnknown}, "request could not be parsed"), nil
 	}
 
 	if !req.known {
-		return s.refuse(req.id, OpUnknown, unknownDetail(typ, "not recognised"))
+		return s.refuseWith(req.id, Request{Op: OpUnknown}, StatusOpUnsupported,
+			unknownDetail(typ, "not recognised")), nil
 	}
 
 	pr, checked := s.policyView(req)
 	if !checked {
-		return true
+		return true, nil
 	}
 	if pr.deny != "" {
-		return s.refuse(req.id, pr.req.Op, pr.deny)
+		/*
+		 * ⚠️ TANIMADIĞIMIZ UZANTI "İZİN YOK" DEĞİL "DESTEKLENMİYOR".
+		 * Sebebi doğru söylemek, istemcinin postern'in denetleyebildiği
+		 * standart işlemlere geri düşmesini sağlıyor.
+		 */
+		code := StatusPermissionDenied
+		if pr.unsupported {
+			code = StatusOpUnsupported
+		}
+		return s.refuseWith(req.id, pr.req, code, pr.deny), nil
 	}
 
 	if allow, reason := s.policy(pr.req); !allow {
 		if reason == "" {
 			reason = "path is not permitted"
 		}
-		return s.refuse(req.id, pr.req.Op, reason)
+		return s.refuse(req.id, pr.req, reason), nil
 	}
 
-	return true
+	return true, nil
 }
 
 // policyResult, politikaya sunulacak istek ya da onu sunmadan reddetme
@@ -126,6 +149,8 @@ func (s *Session) decideRequest(typ byte, r *reader) bool {
 type policyResult struct {
 	req  Request
 	deny string
+	// unsupported, reddin sebebinin YOL değil TANIMAMA olduğu.
+	unsupported bool
 }
 
 /*
@@ -216,8 +241,9 @@ func (s *Session) extendedView(req request) policyResult {
 	}
 
 	return policyResult{
-		req:  Request{Op: OpExtended},
-		deny: "extension " + req.ext + " is not recognised",
+		req:         Request{Op: OpExtended},
+		deny:        "extension " + req.ext + " is not recognised",
+		unsupported: true,
 	}
 }
 
@@ -326,12 +352,38 @@ func opForType(typ byte) Op {
  *
  * Her zaman false dönüyor: çağrı yerinde "reddet" ifadesinin kendisi.
  */
-func (s *Session) refuse(id uint32, op Op, reason string) bool {
+// flagsText, reddedilen isteğin niyetini defterde okunur kılıyor: operatör
+// "okumaya mı yazmaya mı kalkıştı" sorusunu satırdan cevaplayabilmeli.
+func (r Request) flagsText() string {
+	if r.Write {
+		return "write"
+	}
+
+	return "read"
+}
+
+func (s *Session) refuse(id uint32, r Request, reason string) bool {
+	return s.refuseWith(id, r, StatusPermissionDenied, reason)
+}
+
+// refuseWith, reddi belirli bir durum koduyla kaydeder.
+func (s *Session) refuseWith(id uint32, r Request, code uint32, reason string) bool {
+	/*
+	 * ⚠️ OP'A "denied." ÖNEKİ. Hedefin kendi EACCES'i de OK=false ve
+	 * Status=3 yazıyor; ayırt edilebilir olmalı ki panel "politika kaç
+	 * isteği engelledi" sorusunu SERBEST METİNDE alt dizgi arayarak
+	 * cevaplamak zorunda kalmasın.
+	 *
+	 * Önek, postern'in KENDİ retleri için zaten kurulmuş sözleşme
+	 * (bkz. lifecycle.go, "denied."+reqType). Yeni bir sütun eklemek
+	 * göç gerektirirdi; bu alan zaten serbest.
+	 */
 	s.write(Event{
-		Op: op, OK: false, Status: StatusPermissionDenied,
+		Op: "denied." + r.Op, Path: r.Path, NewPath: r.NewPath,
+		Flags: r.flagsText(), OK: false, Status: code,
 		Detail: "postern: " + reason,
 	})
-	s.denials = append(s.denials, StatusPacket(id, StatusPermissionDenied, "postern: "+reason))
+	s.denials = append(s.denials, StatusPacket(id, code, "postern: "+reason))
 
 	return false
 }

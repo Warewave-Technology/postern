@@ -179,6 +179,58 @@ func (s *Session) FromClient(p []byte) error {
 	return s.fromClient.write(p)
 }
 
+/*
+ * FromClientTo, FromClient ile aynı işi yapıyor ve AYRICA iletimi
+ * üstleniyor: hedefe gitmesi gereken aralıklar forward'a gidiyor,
+ * reddedilen isteğin baytları hiç gitmiyor.
+ *
+ * ⚠️ ÇAĞIRAN DÖNÜŞTEN SONRA TakeDenials'I BOŞALTMALI. Reddedilen istek
+ * hedefe gitmediği için hiçbir zaman cevaplanmayacak; istemciye postern'in
+ * kendi cevabı gitmezse o istek kimliği sonsuza kadar açık kalır ve
+ * istemci askıda bekler.
+ *
+ * ⚠️ DENETİMİN GÖRDÜĞÜ, HEDEFİN YAPABİLECEĞİNDEN ÖNCE. Bir paketin ilk
+ * parçası hedefe gidebiliyor ama hedef paketi TAMAMLANMADAN işleyemiyor;
+ * tamamlayan parça ise denetim olayı yazıldıktan sonra iletiliyor. Yani
+ * "hedef bir isteği yaptıysa denetim onu görmüştür" değişmezi duruyor.
+ */
+func (s *Session) FromClientTo(p []byte, forward func([]byte) error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.fromClient.writeTo(p, forward)
+}
+
+/*
+ * TargetAtBoundary, hedef→istemci akışının paket SINIRINDA olup olmadığı.
+ *
+ * ⚠️ NEDEN SORULUYOR: postern bazen istemciye KENDİ cevabını yazıyor
+ * (reddedilen istekler). O baytları gerçek bir paketin ORTASINA sokmak
+ * istemcinin çözümleyicisini bozar — paket yanlış yerden ayrışır ve
+ * sonraki her bayt kayar.
+ *
+ * ⚠️ İKİ KOŞUL. lenHave == 0, çözümleyicinin paketler ARASINDA olduğunu
+ * söylüyor: önek tamamlanmışsa (4) gövdenin ortasındayız, kısmen gelmişse
+ * (1..3) önekin ortasındayız. got/need karşılaştırması bu bilgiyi tekrar
+ * etmekten ibaret.
+ *
+ * ⚠️ AMA "HİÇ BAŞLAMADIK" SINIR DEĞİL, ve bu ayrım ölçülebilir bir arızayı
+ * önlüyor: istemci INIT ile reddedilecek bir isteği boru hattıyla birlikte
+ * gönderirse, hedef daha VERSION'ı yollamadan cevabımızı yazardık.
+ * İstemcinin gördüğü ilk paket SSH_FXP_STATUS olurdu; OpenSSH'in sftp_init'i
+ * yalnızca VERSION kabul ediyor ve fatal ile çıkıyor.
+ *
+ * ⚠️ ÇAĞIRAN, İSTEMCİYE YAZMAYI SERİ HÂLE GETİREN KİLİDİ TUTMALI. Aksi
+ * hâlde cevap, yazılmış ama HENÜZ ÇÖZÜMLENMEMİŞ bir parçanın ardından
+ * gelir ve bu fonksiyon bayat bir cevap verir.
+ */
+func (s *Session) TargetAtBoundary() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.fromTarget.sawPacket && s.fromTarget.lenHave == 0
+}
+
 // FromTarget, hedef→istemci akışından gelen baytları verir.
 func (s *Session) FromTarget(p []byte) error {
 	s.mu.Lock()

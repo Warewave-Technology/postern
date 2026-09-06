@@ -89,7 +89,13 @@ func (b *Broker) beginSFTP(req *ssh.Request) bool {
 		b.logger.Warn("second sftp subsystem on one channel ignored")
 		return false
 	}
-	b.sftp.Store(sftpaudit.NewSession(b.sftpSink.Emit))
+	sess := sftpaudit.NewSession(b.sftpSink.Emit)
+	if b.sftpPolicy != nil {
+		// ⚠️ POLİTİKA OTURUMLA BİRLİKTE KURULUYOR. Sonradan takmak,
+		// kurulumla ilk paket arasında politikasız bir pencere bırakırdı.
+		sess.SetPolicy(b.sftpPolicy)
+	}
+	b.sftp.Store(sess)
 	b.logger.Info("sftp session audited")
 	return true
 }
@@ -124,6 +130,10 @@ func (b *Broker) finishSFTP() {
 
 // sftpTap, veri yolunun üstüne takılan kopya alıcı.
 type sftpTap struct {
+	// pass, bir parçada hedefe İLETİLECEK baytlar. Çözümleme bittikten
+	// sonra tek seferde yazılıyor; yeniden kullanılıyor.
+	pass []byte
+
 	dst io.Writer
 	// rec, SFTP AKTİF DEĞİLKEN yazılacak kayıt akışı; nil olabilir.
 	rec io.Writer
@@ -135,6 +145,142 @@ type sftpTap struct {
 }
 
 // feed, kopyayı çözümleyiciye taşıdığımız yöne göre verir.
+/*
+ * forwardClient, istemciden gelen parçayı çözümleyiciye veriyor ve
+ * İLETİMİ ONA BIRAKIYOR.
+ *
+ * ⚠️ NEDEN İLETİMİ ÇÖZÜMLEYİCİ YAPIYOR: politika bir isteği
+ * reddettiğinde o isteğin baytları hedefe HİÇ gitmemeli. Nerede
+ * başlayıp nerede bittiğini bilen tek yer paket sınırlarını çıkaran
+ * durum makinesi; burada ikinci bir uzunluk-öneki çözümleyicisi yazmak,
+ * sonsuza kadar bayta bayt anlaşmak zorunda iki kopya demekti.
+ *
+ * ⚠️ İKİ HATA TÜRÜ AYRI: çözümleyici hatası denetimin çöktüğü anlamına
+ * geliyor ve oturumu bitiriyor ("denetlenemeyen kanal geçmez"). İletim
+ * hatası ise sıradan bir yazma hatası; onu denetim arızası saymak,
+ * kopan bir bağlantıyı "denetim çöktü" diye kaydetmek olurdu.
+ */
+func (t *sftpTap) forwardClient(s *sftpaudit.Session, p []byte) (int, error) {
+	/*
+	 * ⚠️ GERİ ÇAĞRI AĞA YAZMIYOR, TOPLUYOR.
+	 *
+	 * ÖLÇÜLEN TEHLİKE: FromClientTo oturum kilidini TUTARAK çağırıyor.
+	 * Geri çağrının içinde hedefe yazsaydık, o kilit bir AĞ yazmasını
+	 * kapsardı — ve hedef okumayı bıraktığında sonsuza kadar tutulurdu.
+	 * Kapanış yolu (finishSFTP → Session.Finish) aynı kilidi istiyor,
+	 * yani Run hiç dönmezdi: sonlandırma, idle_timeout ve max_lifetime
+	 * üçü birden çalışmaz hâle gelirdi.
+	 *
+	 * Toplayıp sonra yazmak, bu özellikten önceki sırayı da geri
+	 * getiriyor: önce çözümle, sonra ilet.
+	 */
+	t.pass = t.pass[:0]
+
+	err := s.FromClientTo(p, func(b []byte) error {
+		t.pass = append(t.pass, b...)
+		return nil
+	})
+
+	/*
+	 * ⚠️ RETLER OTURUM KİLİDİ DIŞINDA GÖNDERİLİYOR. Karar veri yolunun
+	 * üstünde, s.mu altında veriliyor; istemciye o kilidi tutarken
+	 * yazmak, okumayı durduran bir istemcide hedef→istemci yönünü de
+	 * kilitlerdi. FromClientTo döndü, kilit bırakıldı, şimdi güvenli.
+	 *
+	 * Hata durumunda da gönderiliyor: ret UYGULANDI ve istemcinin
+	 * gerekçesini öğrenmesi, iletimin başarısına bağlı değil.
+	 */
+	t.sendRefusals(s)
+
+	if err != nil {
+		// Çözümleyici hatası: denetim çöktü, kanal geçmez.
+		t.b.abortAudit(err)
+		return 0, err
+	}
+
+	if len(t.pass) > 0 {
+		n, werr := t.dst.Write(t.pass)
+		if werr != nil {
+			return n, werr
+		}
+		if n < len(t.pass) {
+			// ⚠️ KISA YAZMA YUTULMUYOR. Sessizce "hepsi gitti" demek,
+			// gitmeyen baytları kaybetmenin yolu olurdu.
+			return n, io.ErrShortWrite
+		}
+	}
+
+	/*
+	 * ⚠️ len(p) DÖNÜYORUZ, sent DEĞİL. Politika bir paketi düşürdüyse
+	 * hedefe daha az bayt gitmiş oluyor; bunu io.Copy'ye kısa yazma diye
+	 * bildirmek, kasten yapılan bir reddi taşıma hatası gibi gösterip
+	 * oturumu koparırdı. Baytların tamamı TÜKETİLDİ; nereye gittikleri
+	 * politikanın kararı.
+	 */
+	return len(p), nil
+}
+
+/*
+ * forwardTarget, hedeften gelen parçayı istemciye yazıyor, çözümleyiciye
+ * veriyor ve bekleyen kendi cevaplarımızı boşaltıyor — HEPSİ TEK PARÇA
+ * hâlinde.
+ *
+ * ⚠️ ÜÇÜ DE AYNI KİLİT ALTINDA OLMAK ZORUNDA. Yazma ile çözümleme arasında
+ * kilidi bıraksaydık, o aralıkta gelen bir enjeksiyon "sınırdayım" cevabını
+ * BAYAT bir duruma sorardı: istemci baytları çoktan almış olur, çözümleyici
+ * ise henüz eski paketin sonunda görünürdü. Sonuç, istemcinin okuduğu
+ * paketin tam ortasına düşen bir cevap ve o noktadan sonra kayan bir akış.
+ */
+func (t *sftpTap) forwardTarget(s *sftpaudit.Session, p []byte) (int, error) {
+	t.b.downMu.Lock()
+	defer t.b.downMu.Unlock()
+
+	/*
+	 * ⚠️ ÖNCE ÇÖZÜMLE, SONRA YAZ — ve bu sıra ÖLÇÜLEN bir veri kaybını
+	 * önlüyor. Ters sırada, hedefin HANDLE cevabı istemciye ULAŞIYOR ama
+	 * tanıtıcı tablosuna HENÜZ girmemiş oluyor. Boru hattı yapan bir
+	 * istemcinin o aralıkta gönderdiği ilk WRITE, politika tarafından
+	 * "bu oturumda açılmamış tanıtıcı" diye reddediliyor ve yükleme
+	 * baytları düşüyordu.
+	 *
+	 * Bedeli açıkça kabul ediliyor: çözümleyici hata verirse baytlar
+	 * istemciye HİÇ gitmiyor. İstemci yönü zaten böyle çalışıyor —
+	 * "denetlenemeyen kanal geçmez" kuralının simetrisi.
+	 */
+	if ferr := t.feed(s, p); ferr != nil {
+		t.b.abortAudit(ferr)
+		return 0, ferr
+	}
+
+	n, err := t.dst.Write(p)
+	if err != nil {
+		return n, err
+	}
+
+	// Sınıra varmış olabiliriz: bekleyen ret varsa enjektör denesin.
+	t.b.pokeInjector()
+
+	return n, nil
+}
+
+/*
+ * sendRefusals, reddedilen isteklere postern'in kendi cevabını istemciye
+ * ulaştırır.
+ *
+ * ⚠️ NEDEN ŞART: reddedilen istek hedefe hiç gitmedi, dolayısıyla hedef onu
+ * hiçbir zaman cevaplamayacak. SFTP cevapları istek kimliğiyle eşliyor;
+ * cevapsız kalan bir kimlik, istemcinin sonsuza kadar beklemesi demek.
+ * Reddi UYGULAMAK yetmiyor, SÖYLEMEK de gerekiyor.
+ */
+func (t *sftpTap) sendRefusals(s *sftpaudit.Session) {
+	pkts := s.TakeDenials()
+	if len(pkts) == 0 {
+		return
+	}
+
+	t.b.queueRefusals(pkts)
+}
+
 func (t *sftpTap) feed(s *sftpaudit.Session, p []byte) error {
 	if t.dir == fromClient {
 		return s.FromClient(p)
@@ -203,11 +349,11 @@ func (t *sftpTap) Write(p []byte) (int, error) {
 	s := t.b.sftp.Load()
 
 	if s != nil && t.dir == fromClient {
-		if err := t.feed(s, p); err != nil {
-			t.b.abortAudit(err)
-			return 0, err
-		}
-		return t.dst.Write(p)
+		return t.forwardClient(s, p)
+	}
+
+	if s != nil && t.dir == fromTarget {
+		return t.forwardTarget(s, p)
 	}
 
 	n, err := t.dst.Write(p)

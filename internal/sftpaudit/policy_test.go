@@ -49,7 +49,7 @@ func TestDeniedOpenIsRefusedRecordedAndAnswered(t *testing.T) {
 	if len(out) != 0 {
 		t.Fatalf("reddedilen istekten %d bayt hedefe gitti", len(out))
 	}
-	if len(*got) != 1 || (*got)[0].Op != OpOpen || (*got)[0].OK {
+	if len(*got) != 1 || (*got)[0].Op != "denied."+OpOpen || (*got)[0].OK {
 		t.Fatalf("ret defterine düşmedi: %+v", *got)
 	}
 	if d := (*got)[0].Detail; !strings.Contains(d, "postern:") {
@@ -139,8 +139,11 @@ func TestMetadataIsCoveredButQuietWhenAllowed(t *testing.T) {
 	if !bytes.Equal(out, allowed) {
 		t.Fatal("izin verilen stat iletilmedi ya da reddedilen sızdı")
 	}
-	if len(*got) != 1 || (*got)[0].Op != OpStat || (*got)[0].OK {
+	if len(*got) != 1 || (*got)[0].Op != "denied."+OpStat || (*got)[0].OK {
 		t.Fatalf("yalnızca reddedilen stat satır yazmalıydı: %+v", *got)
+	}
+	if p := (*got)[0].Path; p != "/etc/shadow" {
+		t.Errorf("ret satırı yolu taşımıyor: %q", p)
 	}
 }
 
@@ -248,5 +251,94 @@ func TestNoPolicyMeansNoRefusals(t *testing.T) {
 	}
 	if len(s.TakeDenials()) != 0 {
 		t.Error("politika yokken cevap üretildi")
+	}
+}
+
+/*
+ * Reddin SEBEBİ doğru kodla söyleniyor.
+ *
+ * ⚠️ NEDEN ÖNEMLİ, ESTETİK DEĞİL: tanımadığımız bir uzantıya "izin yok"
+ * demek yalan — sorun yol değil, postern'in o fiili modellememesi. Taslak
+ * (draft-ietf-secsh-filexfer-02 §8) tanınmayan extended-request için
+ * OP_UNSUPPORTED'ı şart koşuyor, ve istemciler o kodu görünce postern'in
+ * DENETLEYEBİLDİĞİ standart işlemlere geri düşüyor. 3 dönseydik istemci
+ * yolu suçlar, geri düşmez, kullanıcı neden çalışmadığını anlamazdı.
+ *
+ * Yol reddinde ise 3 doğru kod: pkg/sftp onu os.ErrPermission'a,
+ * paramiko EACCES'e çeviriyor. FAILURE (4) bu makine-okunur sinyali
+ * tamamen kaybettiriyor.
+ */
+func TestRefusalUsesTheHonestStatusCode(t *testing.T) {
+	cases := []struct {
+		name string
+		pkt  []byte
+		want uint32
+	}{
+		{
+			name: "yol reddi",
+			pkt:  newPkt(fxpOpen).u32(1).str("/etc/shadow").u32(flagRead).u32(0).bytes(),
+			want: StatusPermissionDenied,
+		},
+		{
+			name: "tanınmayan uzantı",
+			pkt:  newPkt(fxpExtended).u32(2).str("vendor@example.com").bytes(),
+			want: StatusOpUnsupported,
+		},
+		{
+			name: "tanınmayan tür",
+			pkt:  newPkt(22).u32(3).str("h1").bytes(),
+			want: StatusOpUnsupported,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s, _, _ := runPolicy(t, denyPaths("/etc/shadow"), tc.pkt)
+
+			d := s.TakeDenials()
+			if len(d) != 1 {
+				t.Fatalf("cevap üretilmedi: %d", len(d))
+			}
+			_, _, code, _ := parseStatus(t, d[0], len(d[0]))
+			if code != tc.want {
+				t.Errorf("durum kodu %d, %d bekleniyordu", code, tc.want)
+			}
+		})
+	}
+}
+
+/*
+ * ⚠️ KİMLİĞİ OKUNAMAYAN İSTEĞE CEVAP UYDURULMUYOR.
+ *
+ * ÖLÇÜLEN ARIZA: uzunluğu 1 olan bir paket (yalnızca tip baytı) çerçeveden
+ * geçiyor — framer yalnızca sıfır uzunluğu reddediyor — ve kimlik alanı
+ * hiç yok. Kimliği okunamayan isteğe uydurma bir değerle (0) cevap
+ * yazılıyordu. İstemci o kimliği HİÇ göndermemişti: OpenSSH bunu
+ * fatal("ID mismatch") ile, boru hattı içindeyse
+ * fatal("Can't find request for ID") ile karşılıyor.
+ *
+ * Çözülemeyen bir akışa cevap vermek yerine oturum bitiyor — çözümleyici
+ * hatalarının zaten yaptığı şey.
+ */
+func TestUnreadableRequestIDEndsTheSessionInsteadOfAnswering(t *testing.T) {
+	s, got := collect(t)
+	s.SetPolicy(func(Request) (bool, string) { return true, "" })
+
+	// Uzunluk 1: tip baytı var, kimlik alanı yok.
+	err := s.fromClient.writeTo([]byte{0, 0, 0, 1, fxpOpen}, func([]byte) error { return nil })
+
+	if err == nil {
+		t.Fatal("kimliği okunamayan istek sessizce yutuldu")
+	}
+	if !strings.Contains(err.Error(), "request id") {
+		t.Errorf("hata sebebi açık değil: %v", err)
+	}
+	if d := s.TakeDenials(); len(d) != 0 {
+		_, id, _, _ := parseStatus(t, d[0], len(d[0]))
+		t.Fatalf("UYDURMA CEVAP ÜRETİLDİ (id=%d); istemci göndermediği bir "+
+			"isteğin cevabını alır ve çöker", id)
+	}
+	if len(*got) != 0 {
+		t.Errorf("cevaplanamayan istek için satır yazıldı: %+v", *got)
 	}
 }
