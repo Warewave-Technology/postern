@@ -35,9 +35,49 @@ type framer struct {
 	// BİLDİRİLEN değil GELEN baytları takip ediyor.
 	keep int
 
-	// deliver, tamamlanan her paket için çağrılıyor.
+	// deliver, tamamlanan ve İZİN VERİLEN her paket için çağrılıyor.
 	deliver func(typ byte, body *reader) error
+
+	/*
+	 * decide, bir isteğin hedefe geçip geçmeyeceğini söylüyor. nil ise
+	 * her şey geçiyor (bugünkü davranış).
+	 *
+	 * ⚠️ KARAR PAKET SONUNDA DEĞİL, YOL OKUNUR OKUNMAZ VERİLİYOR. Paket
+	 * sonunu beklemek iki kötü seçenekten birini dayatıyordu: ya paketin
+	 * TAMAMINI tut (1 MiB'a kadar, oturum başına), ya da kuyruğu önden
+	 * akıt ve reddi imkânsız kıl. İkincisi ölçülebilir bir baypastı:
+	 * onRequest okuduğu son alandan sonrasına bakmıyor, dolayısıyla bir
+	 * OPEN'ın ATTRS kuyruğu istenildiği kadar şişirilebiliyor ve uzunluk
+	 * alanını İSTEMCİ yazıyor. Kararı öne almak ikisini de gereksiz
+	 * kılıyor: tutulan bayt, paketin uzunluğuna değil YOLUN uzunluğuna
+	 * bağlı.
+	 *
+	 * decide, head'in O ANKİ hâlinden okuyor. Aradığı alan gelmemişse
+	 * okuyucu errShort veriyor; o durumda geri çağrının REDDETMESİ
+	 * gerekiyor (kapalı tarafa düş).
+	 *
+	 * ⚠️ decide BLOKLAMAMALI. Session'ın tek muteksi iki yönü birden
+	 * koruyor (FromClient/FromTarget), yani burada geçen her milisaniye
+	 * hedef→istemci akışını da durduruyor. Bellekteki bir önek eşlemesi
+	 * bunun için uygun; ağa ya da veritabanına giden bir kontrol değil.
+	 */
+	decide func(typ byte, body *reader) bool
+
+	// hold, kararı beklenen paketin ham tel baytları.
+	hold    []byte
+	decided bool
+	allow   bool
 }
+
+/*
+ * decisionBudget, karar için beklenen en fazla gövde baytı.
+ *
+ * İki PATH_MAX yolu (rename, symlink, link) artı alan başlıkları 8 KiB'ın
+ * altında kalıyor; 16 KiB rahat bir üst sınır. Bunu aşan bir istekte karar
+ * eksik gövdeyle veriliyor ve geri çağrı kapalı tarafa düşüyor — hedefte
+ * zaten ENAMETOOLONG ile dönecek bir isteği geçirmemenin bedeli yok.
+ */
+const decisionBudget = 16 << 10
 
 func newFramer(deliver func(byte, *reader) error) *framer {
 	return &framer{deliver: deliver}
@@ -50,15 +90,78 @@ func newFramer(deliver func(byte, *reader) error) *framer {
  * demektir ve sonraki her şey uydurma olur. Çağıran bunu oturumu
  * sonlandırmak için kullanıyor — "denetlenemeyen kanal geçmez" kuralı.
  */
-func (f *framer) write(p []byte) error {
-	for len(p) > 0 {
+func (f *framer) write(p []byte) error { return f.writeTo(p, nil) }
+
+/*
+ * writeTo, write ile aynı işi yapıyor ve AYRICA iletimi üstleniyor:
+ * hedefe gitmesi gereken bayt aralıklarını forward'a veriyor, reddedilen
+ * paketin baytlarını hiç vermiyor. forward nil ise hiçbir şey iletilmiyor
+ * (hedef yönü böyle çalışıyor).
+ *
+ * ⚠️ İLETİMİ FRAMER YAPIYOR, ÇAĞIRAN DEĞİL. Çağıranın kendi uzunluk-öneki
+ * çözümleyicisini yazması gerekseydi, aynı baytları yürüyen ve sonsuza
+ * kadar bayta bayt anlaşmak zorunda İKİ durum makinesi olurdu. Paket
+ * sınırı bilgisi tek yerde duruyor.
+ */
+func (f *framer) writeTo(p []byte, forward func([]byte) error) error {
+	// pass, iletilecek koşunun p içindeki başlangıcı; -1 ise koşu yok.
+	// Koşu biriktirmek, paketin her parçası için ayrı bir Write yapmamak
+	// içindir: sıradan bir akışta parça başına tek iletim oluyor.
+	pass := -1
+
+	flush := func(end int) error {
+		if pass < 0 {
+			return nil
+		}
+		b := p[pass:end]
+		pass = -1
+		if forward == nil || len(b) == 0 {
+			return nil
+		}
+		return forward(b)
+	}
+
+	/*
+	 * route, tüketilen [from,to) aralığını yönlendirir: karar
+	 * verilmemişse TUTUYOR, izin verildiyse koşuya ekliyor, reddedildiyse
+	 * atıyor.
+	 *
+	 * ⚠️ TUTULAN BAYTLAR KOPYALANIYOR. io.Copy tek bir 32 KiB'lık diziyi
+	 * yeniden kullanıyor; p'nin kendisini saklamak, bir sonraki okumada
+	 * içeriğin altımızdan değişmesi demekti.
+	 */
+	route := func(from, to int) error {
+		if forward == nil || from >= to {
+			return nil
+		}
+		if !f.decided {
+			if err := flush(from); err != nil {
+				return err
+			}
+			f.hold = append(f.hold, p[from:to]...)
+			return nil
+		}
+		if !f.allow {
+			return flush(from)
+		}
+		if pass < 0 {
+			pass = from
+		}
+		return nil
+	}
+
+	i := 0
+	for i < len(p) {
 		// 1) Uzunluk önekini topla.
 		if f.lenHave < 4 {
-			n := copy(f.lenBuf[f.lenHave:], p)
+			n := copy(f.lenBuf[f.lenHave:], p[i:])
+			if err := route(i, i+n); err != nil {
+				return err
+			}
 			f.lenHave += n
-			p = p[n:]
+			i += n
 			if f.lenHave < 4 {
-				return nil
+				break
 			}
 			length := binary.BigEndian.Uint32(f.lenBuf[:])
 			if length == 0 {
@@ -90,20 +193,36 @@ func (f *framer) write(p []byte) error {
 		// 2) Gövdeyi tüket. Saklanacak kadarını biriktir, gerisini say.
 		remain := f.need - f.got
 		take := remain
-		if take > len(p) {
-			take = len(p)
+		if take > len(p)-i {
+			take = len(p) - i
 		}
 		if space := f.keep - len(f.head); space > 0 {
 			n := take
 			if n > space {
 				n = space
 			}
-			f.head = append(f.head, p[:n]...)
+			f.head = append(f.head, p[i:i+n]...)
+		}
+		if err := route(i, i+take); err != nil {
+			return err
 		}
 		f.got += take
-		p = p[take:]
+		i += take
 
-		// 3) Paket tamamlandı mı?
+		// 3) Karar noktası: yolu okuyacak kadar gövde geldi mi?
+		if !f.decided {
+			want := f.need
+			if want > decisionBudget {
+				want = decisionBudget
+			}
+			if len(f.head) >= want || f.got == f.need {
+				if err := f.decideNow(forward); err != nil {
+					return err
+				}
+			}
+		}
+
+		// 4) Paket tamamlandı mı?
 		if f.got == f.need {
 			/*
 			 * body ile f.head aynı diziyi gösteriyor; f.head'i sıfır uzunluğa
@@ -116,11 +235,30 @@ func (f *framer) write(p []byte) error {
 			f.head = f.head[:0]
 			f.lenHave = 0
 			f.keep = 0
+
+			allowed := f.allow
+			f.decided = false
+			f.allow = false
+			f.hold = f.hold[:0]
+
 			if len(body) == 0 {
 				// Uzunluk sıfır olamayacağı için buraya düşülmemeli;
 				// yine de sessiz geçmiyoruz.
 				return fmt.Errorf("sftpaudit: empty packet body")
 			}
+
+			/*
+			 * ⚠️ REDDEDİLEN PAKET deliver'A GİRMİYOR. Girseydi bekleyenler
+			 * tablosuna HİÇ GELMEYECEK bir cevabı bekleyen bir kayıt açardı:
+			 * satır yazılmaz, kayıt sızar ve yeterince ret üst üste gelince
+			 * maxPending'e çarpıp denetimi çökertirdi — yani politika kararı,
+			 * çözümleyici arızası gibi görünürdü. Reddin denetim satırını
+			 * decide geri çağrısı yazıyor.
+			 */
+			if !allowed {
+				continue
+			}
+
 			typ := body[0]
 			r := &reader{buf: body[1:]}
 			if err := f.deliver(typ, r); err != nil {
@@ -128,5 +266,35 @@ func (f *framer) write(p []byte) error {
 			}
 		}
 	}
-	return nil
+
+	return flush(len(p))
+}
+
+/*
+ * decideNow, o ana kadar gelen gövdeden kararı alır ve tutulan baytları
+ * serbest bırakır.
+ *
+ * ⚠️ decide, head'i ELİNDE TUTAMAZ. head paketler arasında yeniden
+ * kullanılıyor; okunan dizgiler kopyalanmalı (protocol.go, str bunu
+ * yapıyor). deliver'ın sözleşmesiyle aynı.
+ */
+func (f *framer) decideNow(forward func([]byte) error) error {
+	f.decided = true
+	f.allow = true
+
+	if f.decide != nil && len(f.head) > 0 {
+		f.allow = f.decide(f.head[0], &reader{buf: f.head[1:]})
+	}
+
+	if forward == nil {
+		return nil
+	}
+
+	var err error
+	if f.allow && len(f.hold) > 0 {
+		err = forward(f.hold)
+	}
+	f.hold = f.hold[:0]
+
+	return err
 }
