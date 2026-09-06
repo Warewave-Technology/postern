@@ -10,6 +10,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/Warewave-Technology/postern/internal/config"
+	"github.com/Warewave-Technology/postern/internal/store"
 )
 
 // Bu dosya, ÖLÇÜLMÜŞ bir boşluğun kapandığını doğruluyor.
@@ -153,5 +154,92 @@ func TestDefaultEnvWhitelistRefusesArbitraryNames(t *testing.T) {
 
 	if err := sess.Setenv("POSTERN_ALLOWED", "sizdi"); err == nil {
 		t.Error("varsayılan whitelist rastgele bir adı geçirdi")
+	}
+}
+
+/*
+ * ⚠️ POSTERN'İN KENDİ REDDİ DENETİM DEFTERİNE DÜŞMELİ.
+ *
+ * ÖLÇÜLEN BOŞLUK: ret veriliyordu ama geriye yalnızca bir log satırı
+ * kalıyordu. session_files'taki ok=false satırlarının tamamı HEDEFİN
+ * cevabından üretiliyor — yani "reddedilen bir aktarım reddedilmiş olarak
+ * durur" cümlesi postern'in KENDİ kararı için doğru değildi ve "SFTP
+ * kapalıyken kim denedi" sorusunun cevabı defterde yoktu.
+ *
+ * Bu testin ayırt ediciliği: yukarıdaki TestSFTPSubsystemIsRefused reddin
+ * verildiğini ölçüyor, bu ise reddin İZ BIRAKTIĞINI. İkisi ayrı arızalar;
+ * ret çalışıp iz bırakmayan bir sürüm ilkini geçer, bunu geçmez.
+ */
+func TestPosternsOwnRefusalIsRecorded(t *testing.T) {
+	caKeyPath, caAuthorizedKey := newTestCA(t)
+
+	tgt := startCertTarget(t, caAuthorizedKey)
+	tc := tgt.target()
+	tc.Name = "web01"
+
+	srv, hostPub, signer, db := newBastionOpts(t, caKeyPath, false, tc)
+	addr := startBastion(t, srv)
+
+	client, err := ssh.Dial("tcp", addr, &ssh.ClientConfig{
+		User:            "yigit:web01",
+		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
+		HostKeyCallback: ssh.FixedHostKey(hostPub),
+		Timeout:         10 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer client.Close()
+
+	sess, err := client.NewSession()
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	if err := sess.RequestSubsystem("sftp"); err == nil {
+		t.Fatal("subsystem sftp kabul edildi")
+	}
+	sess.Close()
+	client.Close()
+
+	// Oturumun kapanıp satırın yazılması için kısa bir pencere.
+	var found *store.SessionFile
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		sessions, lerr := db.Sessions(t.Context(), "", 20)
+		if lerr != nil {
+			t.Fatal(lerr)
+		}
+		for _, s := range sessions {
+			files, ferr := db.SessionFiles(t.Context(), s.ID)
+			if ferr != nil {
+				t.Fatal(ferr)
+			}
+			for i := range files {
+				if strings.HasPrefix(files[i].Op, "denied.") {
+					found = &files[i]
+				}
+			}
+		}
+		if found != nil {
+			break
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+
+	if found == nil {
+		t.Fatal("ret defterde yok — 'kim sftp denedi' sorusunun cevabı yalnızca log'da")
+	}
+	if found.OK {
+		t.Error("ret satırı ok=true taşıyor")
+	}
+	if found.Op != "denied.subsystem" {
+		t.Errorf("op = %q, \"denied.subsystem\" bekleniyordu", found.Op)
+	}
+	if found.Detail == "" {
+		t.Error("ret sebebi yazılmamış; satır neden reddedildiğini söylemiyor")
+	}
+	// Yol BOŞ olmalı: reddedilen şey alt sistemin kendisi, bir dosya değil.
+	if found.Path != "" {
+		t.Errorf("path = %q, boş bekleniyordu", found.Path)
 	}
 }

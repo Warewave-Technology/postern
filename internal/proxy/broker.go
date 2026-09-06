@@ -47,6 +47,16 @@ type Broker struct {
 	// sftpSink nil olabilir: SFTP kapalıysa denetim de kurulmuyor ve
 	// süzgeç subsystem'i zaten reddediyor.
 	sftpSink SFTPSink
+
+	/*
+	 * onDeny, postern'in KENDİ reddettiği bir istek için çağrılıyor.
+	 *
+	 * ⚠️ NEDEN AYRI BİR KANCA, sftpSink DEĞİL. Günlükçü yalnızca
+	 * AllowSFTP açıkken kuruluyor (lifecycle.go) — ve kaydetmek
+	 * istediğimiz ret tam olarak KAPALIYKEN oluyor. Sink üzerinden
+	 * yazmak, kaydedilecek tek durumda sink'in var olmaması demekti.
+	 */
+	onDeny func(reqType, reason string)
 	// sftp, kanal SFTP'ye geçtiğinde dolan çözümleyici (sftp.go).
 	sftp sftpState
 	// abortOnce, denetim çökünce kanalı bir kez kapatmak için.
@@ -108,6 +118,12 @@ func New(down ssh.Channel, downR <-chan *ssh.Request, up ssh.Channel, upR <-chan
 // (varsayılan) çağıranların hiçbiri değişmiyor.
 func (b *Broker) WithSFTP(sink SFTPSink) *Broker {
 	b.sftpSink = sink
+	return b
+}
+
+// WithDenyLog, reddedilen istekleri deftere yazacak geri çağrıyı kurar.
+func (b *Broker) WithDenyLog(fn func(reqType, reason string)) *Broker {
+	b.onDeny = fn
 	return b
 }
 
@@ -462,6 +478,22 @@ func (b *Broker) relayOne(dst ssh.Channel, req *ssh.Request, dir direction, obse
 			"req.type", req.Type,
 			"reason", reason,
 		)
+
+		/*
+		 * ⚠️ DEFTERE ÖNCE, CEVAPTAN ÖNCE. İstemciye "hayır" demeden
+		 * yazıyoruz ki, ret ile onun izi arasında bir pencere kalmasın.
+		 *
+		 * ⚠️ YAZILAMAZSA YİNE REDDEDİYORUZ. Kayıt açılamadığında oturumu
+		 * reddeden kuralın (proxy.Open) tersi gibi görünüyor ama değil:
+		 * orada yazılamayan şey oturumun KENDİSİNİN kanıtı ve devam etmek
+		 * kayıtsız erişim demek. Burada eylem zaten REDDETMEK; yazamamak
+		 * yüzünden reddetmekten vazgeçmek, denetimi bozan birine kapıyı
+		 * açardı. Kayıp "denediğini bilmiyoruz", "girdi" değil — ve o
+		 * kayıp log'a Error olarak düşüyor.
+		 */
+		if b.onDeny != nil {
+			b.onDeny(req.Type, reason)
+		}
 
 		if req.WantReply {
 			if err := req.Reply(false, nil); err != nil {

@@ -755,6 +755,46 @@ func (s *Session) Run(ctx context.Context, down ssh.Channel, downR <-chan *ssh.R
 	b.idle = guard
 
 	/*
+	 * ⚠️ RET DEFTERİ HER ZAMAN KURULU, GÜNLÜKÇÜNÜN AKSİNE.
+	 *
+	 * ÖLÇÜLEN BOŞLUK: postern bir isteği reddettiğinde (broker.go) geriye
+	 * yalnızca bir log satırı kalıyordu. session_files'taki ok=false
+	 * satırlarının tamamı HEDEFİN cevabından üretiliyor — yani "reddedilen
+	 * bir aktarım reddedilmiş olarak durur" cümlesi, postern'in KENDİ
+	 * kararı için doğru değildi. "SFTP kapalıyken kim denedi" sorusunun
+	 * cevabı denetim defterinde yoktu.
+	 *
+	 * Satır session_files'a gidiyor: oturuma bağlı tek denetim tablosu o,
+	 * ve op'ta enum kısıtı yok. Yol BOŞ, çünkü ortada bir yol yok —
+	 * reddedilen şey alt sistemin kendisi. Yol düzeyindeki retler (rol
+	 * politikası geldiğinde) aynı tabloya gerçek bir yolla yazılacak.
+	 */
+	b.WithDenyLog(func(reqType, reason string) {
+		/*
+		 * ⚠️ WithoutCancel: ret, oturum kapanırken de gelebiliyor ve
+		 * çağıranın ctx'i o an iptal olmuş oluyor. İptal edilmiş bir ctx
+		 * ile yazmak, tam da kaydetmek istediğimiz olayı düşürürdü.
+		 */
+		wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+
+		id, err := record.NewSessionID()
+		if err != nil {
+			s.Log.Error("denial not recorded", "req.type", reqType, "error", err)
+			return
+		}
+
+		werr := s.deps.Store.AddSessionFiles(wctx, s.ID, []store.SessionFile{{
+			ID: id, SessionID: s.ID, At: time.Now(),
+			Op: "denied." + reqType, OK: false, Detail: reason,
+		}})
+		if werr != nil {
+			s.Log.Error("denial not recorded; the refusal still stands",
+				"req.type", reqType, "reason", reason, "error", werr)
+		}
+	})
+
+	/*
 	 * SFTP denetimi yalnızca kanal AÇIKKEN kuruluyor.
 	 *
 	 * ⚠️ Sıra tersine çevrilemez: süzgeç kapalıyken `subsystem sftp`
