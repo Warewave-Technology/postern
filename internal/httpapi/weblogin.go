@@ -498,6 +498,21 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		// kullanıcı 404 alır ve ekranda "[disconnected]" görür — yani
 		// olmayan bir özelliğin bozuk olduğunu sanır.
 		"terminal_enabled": s.proxyDeps != nil,
+		/*
+		 * Dosya tarayıcısı: terminalden AYRI bir bayrak.
+		 *
+		 * ⚠️ İKİSİ AYNI ŞEY DEĞİL ve panelin bunu bilmesi gerekiyor.
+		 * Tarayıcı yalnızca session.sftp_panel açıkken var; üstelik
+		 * açık olsa bile yol kuralı olmayan bir hesapta uç 403
+		 * veriyor. Panelin çizdiği düğme bu bayrağa bakmazsa,
+		 * kullanıcı basar ve sebebi göremediği bir kapanma görür —
+		 * terminalde ölçtüğümüz arızanın aynısı (terminal.go'daki
+		 * not: başarısız bir WS el sıkışmasının gövdesi JavaScript'e
+		 * verilmiyor).
+		 *
+		 * Asıl koruma uçta; bu yalnızca doğru ekranı çizmek için.
+		 */
+		"files_enabled": s.proxyDeps != nil && s.sftpPanel,
 		// Panel anahtar yönetimini buna göre çiziyor. Asıl koruma uçta.
 		"public_key_login": s.publicKeyLogin,
 

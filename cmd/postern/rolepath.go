@@ -22,16 +22,29 @@ func newRolePathCmd() *cobra.Command {
 		Long: "Rules decide which paths a role may reach over SFTP.\n\n" +
 			"A role with no rules is unrestricted, which is what every role is\n" +
 			"before you write the first one. Restriction starts when a rule is\n" +
-			"added, so upgrading does not change anybody's access.\n\n" +
-			"Access is the union of the user's roles: if any role allows a path,\n" +
-			"the user reaches it. One unrestricted role therefore keeps everything\n" +
-			"open — rules restrict a ROLE, not a user.\n\n" +
-			"The longest matching prefix wins, so a rule can carve a branch out of\n" +
-			"an allowed tree. Prefixes match at directory boundaries: /home/user\n" +
-			"does not match /home/username.\n\n" +
+			"added, so upgrading does not change anybody's access. One ruleless\n" +
+			"role therefore keeps everything open — rules restrict a ROLE, not a\n" +
+			"user — and the panel's file browser refuses to open at all until at\n" +
+			"least one rule exists.\n\n" +
+			"The rules of every role a user holds are pooled, and the LONGEST\n" +
+			"matching prefix decides. That is how a branch is carved out of an\n" +
+			"allowed tree. At equal length a --deny beats an --allow, including\n" +
+			"one written on a different role: an explicit refusal cannot be\n" +
+			"reopened by a second role granting the same prefix. A LONGER allow\n" +
+			"still wins, so a deny is not a blanket veto over everything beneath\n" +
+			"it — write the deny at or below the depth you mean.\n\n" +
+			"Prefixes match at directory boundaries: /home/user does not match\n" +
+			"/home/username.\n\n" +
+			"Two exceptions worth knowing:\n\n" +
+			"  - realpath on a relative path is answered without a rule. A client\n" +
+			"    asks it before it knows any absolute path at all, so refusing it\n" +
+			"    would end the session before the first rule could apply.\n" +
+			"  - rename, symlink and link are checked on BOTH paths. Checking one\n" +
+			"    would leave moving a file out of a denied tree wide open.\n\n" +
 			"What this cannot see: symbolic links. postern has no access to the\n" +
 			"target filesystem, so a link inside an allowed directory pointing\n" +
-			"elsewhere looks allowed.",
+			"elsewhere looks allowed. The rules constrain the path the CLIENT\n" +
+			"writes, not where the target resolves it.",
 	}
 	cmd.AddCommand(newRolePathSetCmd())
 	cmd.AddCommand(newRolePathListCmd())

@@ -9,6 +9,7 @@ import {
 } from "./common";
 import DataTable, { Column } from "./DataTable";
 import Modal from "./Modal";
+import PathRules from "./PathRules";
 
 export default function Roles() {
   const { items, error, denied, loading, failed, refresh, setError } =
@@ -26,6 +27,14 @@ export default function Roles() {
   // Seçim SATIR BAŞINA tutuluyor; tek ortak state, bir satırda seçilen
   // hedefi bütün satırlarda seçili gösterirdi.
   const [picked, setPicked] = useState<Record<string, string>>({});
+  /*
+   * Yol kuralları MODALDA ve satır başına.
+   *
+   * ⚠️ Tabloya bir sütun daha eklemek yanlış olurdu: kurallar birkaç
+   * satır tutabiliyor ve hepsini yan yana sıkıştırmak, asıl sorusu
+   * "hangi rol hangi hedefe eriyor" olan bu tabloyu okunmaz yapardı.
+   */
+  const [paths, setPaths] = useState("");
 
   // ⚠️ BAŞARIYI DÖNDÜRÜYOR. Hata durumunda modal AÇIK kalmalı: kapanan
   // bir modal, arkadaki hata satırını görmeyen kullanıcıya işlemin
@@ -153,14 +162,22 @@ export default function Roles() {
       srHeader: true,
       className: "actions",
       render: (r) => (
-        <ActionButton
-          variant="danger"
-          onClick={() => remove(r.name)}
-          confirm={deleteConfirm(r)}
-          label={`delete role ${r.name}`}
-        >
-          Delete
-        </ActionButton>
+        <>
+          <ActionButton
+            onClick={() => setPaths(r.name)}
+            label={`sftp path rules for role ${r.name}`}
+          >
+            Paths
+          </ActionButton>
+          <ActionButton
+            variant="danger"
+            onClick={() => remove(r.name)}
+            confirm={deleteConfirm(r)}
+            label={`delete role ${r.name}`}
+          >
+            Delete
+          </ActionButton>
+        </>
       ),
     },
   ];
@@ -212,6 +229,18 @@ export default function Roles() {
           searchPlaceholder="Search roles…"
         />
       )}
+
+      <Modal
+        open={paths !== ""}
+        onClose={() => setPaths("")}
+        title={`SFTP paths — ${paths}`}
+        description="Which paths this role may reach over SFTP. A role with no rules is unrestricted, and rules restrict a role rather than a user."
+      >
+        {/* key: modal başka bir role açıldığında bileşen SIFIRDAN
+            kuruluyor. Aksi hâlde önceki rolün kuralları bir an için
+            yenisininmiş gibi görünürdü. */}
+        {paths !== "" && <PathRules key={paths} role={paths} />}
+      </Modal>
 
       <Modal
         open={adding}

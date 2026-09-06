@@ -27,6 +27,7 @@ import { ToastHost } from "./toast";
 import Overview from "./admin/Overview";
 import Home from "./Home";
 import ShellPage, { shellTargetFromPath } from "./ShellPage";
+import FilesPage, { filesTargetFromPath } from "./FilesPage";
 import TargetPage, { targetFromPath } from "./TargetPage";
 import ThemeSwitch from "./theme/ThemeSwitch";
 import { useThemeMode } from "./theme/mode";
@@ -472,6 +473,9 @@ export default function App() {
   // sekme değiştirmek çalışan oturumu gizliyordu. Kendi sekmesinde
   // açılan bir kabuk, kullanıcının zaten alışkın olduğu şey.
   const shellTarget = shellTargetFromPath(window.location.pathname);
+  // /files/<ad>: dosya tarayıcısı, kabukla aynı kalıpta ve aynı
+  // gerekçeyle kendi sekmesinde.
+  const filesTarget = filesTargetFromPath(window.location.pathname);
   // /target/<ad>: hedefin kendi sayfası. Kabukla aynı yol kalıbı —
   // sunucu bilinmeyen yollara index.html döndüğü için ikisi de adres
   // çubuğundan açılabiliyor ve bağlantıları paylaşılabiliyor.
@@ -626,6 +630,12 @@ export default function App() {
         resolved={resolved}
       />
     );
+  }
+
+  // /files/<target>: tam ekran dosya tarayıcısı. Kabukla aynı kapı —
+  // kimlik kontrolü yukarıda yapıldı, adres çubuğundan atlanamaz.
+  if (filesTarget) {
+    return <FilesPage target={filesTarget} mode={mode} onMode={setMode} />;
   }
 
   // Home HERKESİN ekranı; geri kalan her şey yönetim ve Settings'in

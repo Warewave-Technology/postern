@@ -21,6 +21,7 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/cookiejar"
 	"strings"
@@ -237,5 +238,98 @@ func TestFileBrowserBrowsesAndRefusesWrites(t *testing.T) {
 	// 4. GEREKÇE KULLANICIYA ULAŞIYOR — "not found" değil, sebep.
 	if n := pipe.notices(); !strings.Contains(n, "read-only") {
 		t.Errorf("stderr gerekçesi salt-okunur demiyor: %q", n)
+	}
+}
+
+/*
+ * TestPathRulesWrittenFromThePanelOpenTheBrowser — DÖNGÜNÜN KAPANDIĞININ
+ * kanıtı.
+ *
+ * ⚠️ NİYE BU TEST VAR. Dosya tarayıcısı, yol kuralı olmayan bir hesapta
+ * kendini kapatıyor ve kullanıcıya "bir yöneticiden `postern role path
+ * set` çalıştırmasını isteyin" diyor. Kuralları yalnızca CLI yazabildiği
+ * sürece panel, kendi içinde çözülemeyen bir duvara götürüyordu:
+ * yöneticinin panelden çıkıp bir kabuk bulması gerekiyordu.
+ *
+ * Ölçülen şey, kuralın panelin KENDİ ucundan yazılabildiği ve yazıldığı
+ * anda tarayıcının açıldığı. İkisini ayrı ayrı bilmek yetmiyordu —
+ * arada duran şey (kuralın rolün adına doğru bağlanması) tam olarak
+ * sessizce yanlış olabilecek yer.
+ */
+func TestPathRulesWrittenFromThePanelOpenTheBrowser(t *testing.T) {
+	apiURL, db := browserBastionWithFileBrowser(t)
+
+	ctx := context.Background()
+	if err := db.SetUserAdmin(ctx, "yigit", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AllowIdentityBind(ctx, "yigit", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
+	browserSignIn(t, client, apiURL)
+
+	// Kural YOKKEN kapalı.
+	if conn, resp, err := dialFileBrowser(t, client, apiURL, "web01"); err == nil {
+		conn.CloseNow()
+		t.Fatal("kuralsızken açıldı")
+	} else if resp == nil || resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("beklenen 403 değil: %v", err)
+	}
+
+	// Panelin ucundan kuralı yaz.
+	if code, body := adminReq(t, client, "POST",
+		apiURL+"/api/admin/roles/ops/paths",
+		`{"prefix":"/tmp","allow":true,"can_write":false}`); code != http.StatusOK {
+		t.Fatalf("kural yazılamadı: %d %s", code, body)
+	}
+
+	// Uç, yazdığını geri veriyor.
+	code, body := adminReq(t, client, "GET", apiURL+"/api/admin/roles/ops/paths", "")
+	if code != http.StatusOK {
+		t.Fatalf("kurallar okunamadı: %d %s", code, body)
+	}
+	var rules []struct {
+		Prefix   string `json:"prefix"`
+		Allow    bool   `json:"allow"`
+		CanWrite bool   `json:"can_write"`
+	}
+	if err := json.Unmarshal([]byte(body), &rules); err != nil {
+		t.Fatalf("cevap çözülemedi: %v (%s)", err, body)
+	}
+	if len(rules) != 1 || rules[0].Prefix != "/tmp" || !rules[0].Allow || rules[0].CanWrite {
+		t.Fatalf("kural beklenen hâlde değil: %+v", rules)
+	}
+
+	// ARTIK AÇILIYOR — CLI'ye hiç gidilmeden.
+	conn, _, err := dialFileBrowser(t, client, apiURL, "web01")
+	if err != nil {
+		t.Fatalf("kural yazıldıktan sonra da açılmadı: %v", err)
+	}
+	defer conn.CloseNow()
+
+	/*
+	 * ⚠️ GÖRELİ ÖNEK REDDEDİLİYOR ve sebebi söylüyor. Şemada CHECK de
+	 * var; ama "constraint violation" dönen bir cevap, kuralı yazan
+	 * kişiye ne yapması gerektiğini söylemiyor.
+	 */
+	if code, body := adminReq(t, client, "POST",
+		apiURL+"/api/admin/roles/ops/paths",
+		`{"prefix":"var/log","allow":true}`); code != http.StatusBadRequest {
+		t.Errorf("göreli önek kabul edildi: %d %s", code, body)
+	} else if !strings.Contains(body, "absolute") {
+		t.Errorf("sebep söylenmiyor: %s", body)
+	}
+
+	// Silme önekı GÖVDEDEN alıyor: adres parçasına kaçırılmış bir yol,
+	// araya giren vekillerce normalleştirilip başkasını silebilirdi.
+	if code, body := adminReq(t, client, "DELETE",
+		apiURL+"/api/admin/roles/ops/paths", `{"prefix":"/tmp"}`); code != http.StatusOK {
+		t.Fatalf("kural silinemedi: %d %s", code, body)
+	}
+	if left, err := db.RolePaths(ctx, "ops"); err != nil || len(left) != 0 {
+		t.Fatalf("kural silinmedi: %v %v", left, err)
 	}
 }

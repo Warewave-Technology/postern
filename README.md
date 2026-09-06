@@ -691,6 +691,68 @@ that cannot be audited does not get to carry data. The raw transfer never
 enters the terminal recording — that shape is what kept the channel shut
 in the first place.
 
+### Browsing files from the panel
+
+The same channel backs a read-only file browser in the web panel, off by
+default and behind its own flag:
+
+```yaml
+session:
+  sftp: true                  # required — the browser is a client of it
+  sftp_panel: true            # off by default, and AND-ed with sftp
+```
+
+The browser is not a second route to the files. The panel speaks the SFTP
+wire protocol itself, over a websocket to `/api/sftp/{target}`, and every
+packet takes the path an SSH client's packets take: the same broker, the
+same path rules, the same `session_files` rows, the same recording. A
+helper endpoint holding a server-side SFTP client would have been less
+code and is the reason this took longer — it is also a path to target
+files that the audit does not see, so it was rejected.
+
+Three things are refused before the websocket is upgraded, so the reason
+reaches the person rather than a bare disconnect:
+
+- The flag being off.
+- **A session whose roles carry no path rules.** A role without rules is
+  unrestricted, and a fresh install has none. Opening a file browser
+  there would invert the argument that made it defensible — so it stays
+  shut until an administrator runs `postern role path set`.
+- Nothing at all, if the account cannot open the target in the first
+  place; that check is the one SSH already does.
+
+Writes are refused **on the server**, not by the panel. The browser never
+encodes a write packet, but that is a second lock rather than the first
+one: a stolen session can write the packet by hand. `FXP_WRITE` carries a
+handle and no path, so the path policy never sees it — read-only had to
+be a property of the session, checked on the way in.
+
+Rules themselves are written from the panel (**Roles → Paths**) or from
+the CLI:
+
+```bash
+postern role path set --role dev --prefix /home/dev --write
+postern role path set --role dev --prefix /home/dev/.ssh --deny
+```
+
+The rules of every role a user holds are pooled and the longest matching
+prefix decides, so the second line above carves `.ssh` out of an
+otherwise writable home. At equal length a denial beats an allow — including
+one written on a different role — so a refusal cannot be reopened by a
+second role granting the same prefix. A *longer* allow still wins, which
+is what makes the carve-out possible in the first place; write the denial
+at or below the depth you mean.
+
+What the rules cannot see is symbolic links. postern has no access to the
+target filesystem, so a link inside an allowed directory pointing
+somewhere else looks allowed: the rules constrain the path the client
+writes, not where the target resolves it.
+
+Downloading file contents is deliberately absent. What a recording should
+contain when a file leaves through a browser tab, and what the size limit
+is, are decisions that have not been made yet, and shipping the button
+first would have made them by accident.
+
 ### Large Active Directory groups
 
 AD stops sending `member` once a group passes about 1500 entries, and sends

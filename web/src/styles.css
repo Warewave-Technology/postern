@@ -2872,3 +2872,195 @@ a.tcard-name:focus-visible {
 .row-click:focus-within {
   background: var(--sunken);
 }
+
+/* ---------------------------------------------------------------- files
+   Dosya tarayıcısı. Kabuk sayfasının kabuğunu (.shell-page/.shell-bar)
+   paylaşıyor; buradakiler yalnızca listenin kendisi. */
+.fb {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--canvas);
+}
+.fb-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.9rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  flex: none;
+}
+.fb-crumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  min-width: 0;
+}
+.fb-crumb {
+  background: none;
+  border: 0;
+  padding: 0.1rem 0.25rem;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.fb-crumb:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--accent);
+}
+.fb-crumb:disabled {
+  cursor: default;
+}
+.fb-sep {
+  color: var(--faint);
+}
+.fb-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ⚠️ Hata ve gerekçe şeritleri LİSTENİN ÜSTÜNDE ve akışın içinde: üste
+   binen bir bildirim, ilk satırı örterdi ve kullanıcı reddedilen
+   dizinin yerine gördüğü listeyi doğru sanardı. */
+.fb-error,
+.fb-notice {
+  margin: 0;
+  padding: 0.5rem 0.9rem;
+  font-size: 12.5px;
+  flex: none;
+}
+.fb-error {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border-bottom: 1px solid var(--line);
+}
+.fb-notice {
+  background: var(--surface);
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+
+.fb-list-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.fb-empty {
+  padding: 1.6rem 0.9rem;
+  color: var(--faint);
+  font-size: 13px;
+  text-align: center;
+}
+.fb-list {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.fb-list th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  padding: 0.45rem 0.9rem;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+  font-weight: 600;
+}
+.fb-list td {
+  padding: 0.35rem 0.9rem;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--ink);
+  white-space: nowrap;
+}
+.fb-list tr:hover td {
+  background: var(--hover);
+}
+/* Rakamlar sütunda hizalansın: değişken genişlikli basamaklar,
+   boyutları göz kararı karşılaştırmayı imkânsız kılıyor. */
+.fb-list .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--mono);
+  color: var(--muted);
+}
+.fb-list .mono {
+  font-family: var(--mono);
+  color: var(--faint);
+  font-size: 12px;
+}
+.fb-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-family: var(--mono);
+  color: var(--ink);
+}
+.fb-name svg {
+  color: var(--faint);
+  flex: none;
+}
+.fb-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-family: var(--mono);
+  cursor: pointer;
+}
+.fb-link:hover:not(:disabled) {
+  color: var(--accent);
+}
+.fb-link:hover:not(:disabled) svg {
+  color: var(--accent);
+}
+.fb-list tr.is-dir .fb-name {
+  font-weight: 600;
+}
+
+/* Rol yol kuralları (admin/PathRules.tsx). */
+.pathrules-list {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.6rem 0 0.9rem;
+  font-size: 13px;
+}
+.pathrules-list th {
+  text-align: left;
+  padding: 0.3rem 0.5rem;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+  border-bottom: 1px solid var(--line);
+}
+.pathrules-list td {
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--line-soft);
+  vertical-align: middle;
+}
+.pathrules-list td.actions {
+  text-align: right;
+  white-space: nowrap;
+}
+.pathrules-hint {
+  margin: 0.9rem 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+.pathrules-hint code {
+  font-size: 11.5px;
+}

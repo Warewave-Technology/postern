@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -47,6 +48,19 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/admin/roles/{name}", admin(s.adminDeleteRole))
 	mux.Handle("POST /api/admin/roles/{name}/targets", admin(s.adminGrantTarget))
 	mux.Handle("DELETE /api/admin/roles/{name}/targets/{target}", admin(s.adminRevokeTarget))
+	/*
+	 * SFTP yol kuralları.
+	 *
+	 * ⚠️ ÖNEK YOL PARÇASI OLARAK TAŞINAMAZ. Kural "/var/log" gibi eğik
+	 * çizgi dolu bir dizge ve {prefix} tek bir yol parçası eşliyor;
+	 * kaçırılmış hâli de vekiller ve yönlendiriciler tarafından
+	 * normalleştirilip bozulabiliyor. O yüzden silme de GÖVDEDEN
+	 * okuyor ve DELETE bir gövde taşıyor — alışılmadık ama kaçırma
+	 * oyunundan güvenli.
+	 */
+	mux.Handle("GET /api/admin/roles/{name}/paths", admin(s.adminListRolePaths))
+	mux.Handle("POST /api/admin/roles/{name}/paths", admin(s.adminSetRolePath))
+	mux.Handle("DELETE /api/admin/roles/{name}/paths", admin(s.adminDeleteRolePath))
 	mux.Handle("GET /api/admin/targets", admin(s.adminListTargets))
 	mux.Handle("POST /api/admin/targets", admin(s.adminCreateTarget))
 	mux.Handle("DELETE /api/admin/targets/{name}", admin(s.adminDeleteTarget))
@@ -658,6 +672,125 @@ func (s *Server) adminRevokeTarget(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, "role.revoke", name, "target "+target)
 	ok(w)
+}
+
+// --- SFTP yol kuralları ---
+
+/*
+ * ⚠️ KURALSIZ ROL KISITSIZ ve bu uç onu GİZLEMİYOR: boş liste dönüyor
+ * ve panel "no rules — this role is unrestricted" yazıyor. Boş listeyi
+ * "erişim yok" diye çizmek, yöneticiye koymadığı bir korumayı koymuş
+ * gibi gösterirdi.
+ */
+func (s *Server) adminListRolePaths(w http.ResponseWriter, r *http.Request) {
+	rules, err := s.store.RolePaths(r.Context(), r.PathValue("name"))
+	if err != nil {
+		s.storeErr(w, "role.paths.list", err)
+		return
+	}
+
+	type row struct {
+		Prefix   string `json:"prefix"`
+		Allow    bool   `json:"allow"`
+		CanWrite bool   `json:"can_write"`
+	}
+	out := make([]row, 0, len(rules))
+	for _, p := range rules {
+		out = append(out, row{Prefix: p.Prefix, Allow: p.Allow, CanWrite: p.CanWrite})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) adminSetRolePath(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	var in struct {
+		Prefix   string `json:"prefix"`
+		Allow    bool   `json:"allow"`
+		CanWrite bool   `json:"can_write"`
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+
+	in.Prefix = strings.TrimSpace(in.Prefix)
+	if in.Prefix == "" {
+		writeErr(w, http.StatusBadRequest, "prefix is required")
+		return
+	}
+	if !strings.HasPrefix(in.Prefix, "/") {
+		// Mesaj SEBEBİ söylüyor: şema kısıtı da var, ama "constraint
+		// violation" yazan bir hata yöneticiye ne yapacağını
+		// söylemiyor.
+		writeErr(w, http.StatusBadRequest,
+			"prefix must be absolute: postern cannot resolve a relative path, "+
+				"because the client's working directory is on the target")
+		return
+	}
+	/*
+	 * ⚠️ RET + YAZMA ÇELİŞİYOR ve burada durduruluyor.
+	 *
+	 * Bir ret hiçbir şey vermiyor; üzerine "yazabilir" işaretlemek,
+	 * kaydedildikten sonra listede yazma izni veriyormuş gibi görünen
+	 * bir satır bırakırdı. CLI aynı çelişkiyi aynı sebeple
+	 * reddediyor (rolepath.go).
+	 */
+	if !in.Allow && in.CanWrite {
+		writeErr(w, http.StatusBadRequest,
+			"a denial grants nothing: clear write, or make the rule an allow")
+		return
+	}
+
+	if err := s.store.SetRolePath(r.Context(), name, in.Prefix, in.Allow, in.CanWrite); err != nil {
+		s.storeErr(w, "role.paths.set", err)
+		return
+	}
+
+	s.audit(r, "role.paths.set", name, rulePhrase(in.Prefix, in.Allow, in.CanWrite))
+	ok(w)
+}
+
+func (s *Server) adminDeleteRolePath(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	var in struct {
+		Prefix string `json:"prefix"`
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	if in.Prefix == "" {
+		writeErr(w, http.StatusBadRequest, "prefix is required")
+		return
+	}
+
+	if err := s.store.DeleteRolePath(r.Context(), name, in.Prefix); err != nil {
+		s.storeErr(w, "role.paths.delete", err)
+		return
+	}
+
+	/*
+	 * ⚠️ SON KURALIN SİLİNMESİ ROLÜ KISITSIZ YAPIYOR ve denetim satırı
+	 * bunu YAZIYOR. "removed /var/log" satırı, geriye dönüp bakan
+	 * birine bunun bir daraltma mı yoksa bütün kısıtın kalkması mı
+	 * olduğunu söylemiyor.
+	 */
+	detail := "removed " + in.Prefix
+	if left, err := s.store.RolePaths(r.Context(), name); err == nil && len(left) == 0 {
+		detail += " (last rule: role is now unrestricted)"
+	}
+	s.audit(r, "role.paths.delete", name, detail)
+	ok(w)
+}
+
+// rulePhrase, denetim satırındaki insan okuyacak özet.
+func rulePhrase(prefix string, allow, canWrite bool) string {
+	switch {
+	case !allow:
+		return "deny " + prefix
+	case canWrite:
+		return "allow " + prefix + " (read-write)"
+	default:
+		return "allow " + prefix + " (read-only)"
+	}
 }
 
 // --- hedefler ---

@@ -10,6 +10,9 @@ export type Me = {
   // hiç göstermez: olmayan bir kapıyı sunup 404 aldırmak, kullanıcıya
   // özelliğin BOZUK olduğunu düşündürür.
   terminal_enabled: boolean;
+  // Dosya tarayıcısı (session.sftp_panel) kurulu mu. Terminalden AYRI:
+  // terminal açıkken tarayıcı kapalı olabilir.
+  files_enabled: boolean;
   /** Anahtarla giriş açık mı (auth.public_key_login). Kapalıysa panel
    *  anahtar yönetimini hiç çizmiyor — asıl koruma sunucuda. */
   public_key_login: boolean;
@@ -161,6 +164,19 @@ export type User = {
   last_confirmed?: string;
 };
 export type Role = { name: string; targets: string[] };
+
+/**
+ * PathRule, bir rolün SFTP yol kuralı.
+ *
+ * ⚠️ BOŞ LİSTE "erişim yok" DEĞİL, "kısıt yok" DEMEK. Kuralsız bir rol
+ * kısıtsız; panel bunu böyle yazmak zorunda, yoksa yönetici koymadığı
+ * bir korumayı koymuş sanır.
+ */
+export type PathRule = {
+  prefix: string;
+  allow: boolean;
+  can_write: boolean;
+};
 export type Target = {
   name: string;
   host: string;
@@ -815,6 +831,28 @@ export const api = {
       "DELETE",
       `/api/admin/roles/${encodeURIComponent(role)}/targets/${encodeURIComponent(target)}`,
     ),
+
+  rolePaths: (role: string) =>
+    req<PathRule[]>(
+      "GET",
+      `/api/admin/roles/${encodeURIComponent(role)}/paths`,
+    ),
+  setRolePath: (role: string, rule: PathRule) =>
+    req<void>(
+      "POST",
+      `/api/admin/roles/${encodeURIComponent(role)}/paths`,
+      rule,
+    ),
+  /*
+   * ⚠️ ÖNEK GÖVDEDE, ADRESTE DEĞİL. Kural "/var/log" gibi eğik çizgi
+   * dolu; adres parçasına kaçırılmış hâli, araya giren vekiller
+   * tarafından normalleştirilip başka bir yolu silmeye dönüşebilir.
+   * Uç da bu yüzden gövdeden okuyor.
+   */
+  deleteRolePath: (role: string, prefix: string) =>
+    req<void>("DELETE", `/api/admin/roles/${encodeURIComponent(role)}/paths`, {
+      prefix,
+    }),
 
   targets: () => req<Target[]>("GET", "/api/admin/targets"),
   myTargets: () => req<MyTarget[]>("GET", "/api/targets"),

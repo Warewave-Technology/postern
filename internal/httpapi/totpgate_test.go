@@ -38,6 +38,7 @@ func TestTOTPEnrolmentAllowlistIsMinimal(t *testing.T) {
 		 * çalıştığı için yeni uç kendiliğinden kapalı geliyor; bu satır o
 		 * özelliği çiviliyor, yarın biri listeye eklerse test söylesin.
 		 */
+		"POST /api/admin/roles/{name}/paths",
 		"GET /api/sftp/{target}",
 		"GET /api/admin/users",
 		"GET /api/admin/settings",

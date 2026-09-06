@@ -30,6 +30,53 @@ audit rows into a shape it does not understand.
 
 ## Unreleased
 
+### Added
+
+- **A read-only file browser in the panel.** Targets now carry a `Files`
+  button next to `Shell`, opening a listing of the target's filesystem in
+  its own tab. It needs both `session.sftp` and the new
+  `session.sftp_panel`, and both are off by default:
+
+  ```yaml
+  session:
+    sftp: true
+    sftp_panel: true
+  ```
+
+  The panel speaks SFTP itself over a websocket; there is no server-side
+  SFTP client, and no second route to the files. Every packet goes through
+  the broker an SSH client's packets go through, so browsing writes the
+  same `session_files` rows, obeys the same role path rules, and is part
+  of the same recorded session — closing the tab ends it.
+
+  **It will refuse to open on an account whose roles carry no path rules,
+  and this is deliberate.** A role without rules is unrestricted; a fresh
+  install has none. Run `postern role path set` for the roles that should
+  reach files, and the button starts working for their holders. Until
+  then the panel says so instead of opening.
+
+  Writes are refused by the server, not by the page. Downloading file
+  contents is not included: what a recording should contain when a file
+  leaves through a browser tab is a decision that has not been made yet.
+
+- **Role path rules are editable from the panel.** Roles now carry a
+  `Paths` button opening the SFTP rules for that role: add a prefix as
+  read-only, read-write or a denial, and remove one. They were CLI-only
+  (`postern role path set`), which meant the file browser could send an
+  administrator to a wall the panel had no way to take down.
+
+  The screen says what an empty list means — **a role with no rules is
+  unrestricted** — and removing the last rule asks about that specifically
+  rather than about the line being removed. Both are the direction the
+  mistake falls in: a table that reads as "reaches nothing" would let
+  somebody believe they had written a restriction they had not.
+
+### Changed
+
+- **`/api/me` reports `files_enabled`.** Separate from `terminal_enabled`,
+  because a bastion can have the terminal on and the file browser off. No
+  action needed; the panel reads it to decide whether to draw the button.
+
 ## 1.1.0 — 2026-09-05
 
 ### Needs action if you unpacked a 1.0.2 archive

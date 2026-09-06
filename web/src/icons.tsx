@@ -258,3 +258,39 @@ export function IdPIcon({ size = 15 }: P) {
     </svg>
   );
 }
+
+/** FolderIcon, dizin girdisi. */
+export function FolderIcon({ size = 14 }: P) {
+  return (
+    <svg {...base(size)}>
+      <path d="M1.8 12.4V3.6a1 1 0 0 1 1-1h3.1l1.5 1.8h5.8a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H2.8a1 1 0 0 1-1-1Z" />
+    </svg>
+  );
+}
+
+/** FileIcon, sıradan dosya. */
+export function FileIcon({ size = 14 }: P) {
+  return (
+    <svg {...base(size)}>
+      <path d="M3.4 1.8h5.2l4 4v8.4a1 1 0 0 1-1 1H3.4a1 1 0 0 1-1-1V2.8a1 1 0 0 1 1-1Z" />
+      <path d="M8.6 1.8v4h4" />
+    </svg>
+  );
+}
+
+/**
+ * LinkIcon, sembolik bağ.
+ *
+ * ⚠️ AYRI BİR İKON GEREKİYOR, çünkü bağın işaret ettiği yer yol
+ * politikasının GÖRMEDİĞİ bir yer olabilir: politika istemcinin yazdığı
+ * yolu kısıtlıyor, hedefin o yolu nereye çözdüğünü değil. Kullanıcının
+ * bir girdinin bağ olduğunu görmesi, bu sınırın arayüzdeki karşılığı.
+ */
+export function LinkIcon({ size = 14 }: P) {
+  return (
+    <svg {...base(size)}>
+      <path d="M6.6 8.9a2.8 2.8 0 0 0 4.2.3l1.7-1.7a2.8 2.8 0 0 0-4-4l-1 1" />
+      <path d="M9.4 7.1a2.8 2.8 0 0 0-4.2-.3L3.5 8.5a2.8 2.8 0 0 0 4 4l1-1" />
+    </svg>
+  );
+}
