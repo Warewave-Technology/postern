@@ -155,9 +155,12 @@ function Brand({ size = 20 }: { size?: number }) {
  */
 function LocalSignIn({
   onDone,
+  onNotice,
   directory = false,
 }: {
   onDone: () => void;
+  /** Girişi engellemeyen, ama kullanıcının görmesi gereken bilgi. */
+  onNotice?: (msg: string) => void;
   /*
    * ⚠️ AYNI FORM, BAMBAŞKA BİR SIR.
    *
@@ -182,6 +185,25 @@ function LocalSignIn({
   const [needCode, setNeedCode] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  /*
+   * left: kod isteminin kalan saniyesi. undefined ise sunucu bir süre
+   * bildirmedi (pencere kapalı) ve geri sayım hiç çizilmiyor — olmayan
+   * bir süreyi saymak, kullanıcıya var olmayan bir baskı uygular.
+   */
+  const [left, setLeft] = useState<number | undefined>(undefined);
+
+  /*
+   * ⚠️ GERİ SAYIM YALNIZCA GÖSTERİM. Süreyi sunucu ölçüyor; buradaki
+   * sayaç sıfıra indiğinde tarayıcı kimseyi engellemiyor, yalnızca ne
+   * olduğunu söylüyor. Tersini yapsaydık — istemcide kesip isteği hiç
+   * göndermeseydik — sunucunun saydığı "geç gelen kod" olayı hiç
+   * oluşmazdı ve sayaç anlamını yitirirdi.
+   */
+  useEffect(() => {
+    if (left === undefined || left <= 0) return;
+    const t = setTimeout(() => setLeft((v) => (v === undefined ? v : v - 1)), 1000);
+    return () => clearTimeout(t);
+  }, [left]);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -195,7 +217,22 @@ function LocalSignIn({
           // Parola kutusu DOLU kalıyor: aynı istekte tekrar gönderilecek
           // ve kişiye iki kez yazdırmanın hiçbir faydası yok.
           setError(res.error ?? "");
+          setCode("");
+          setLeft(res.expiresIn);
           return;
+        }
+        if (res.failedAttempts) {
+          /*
+           * ⚠️ GİRİŞİ ENGELLEMİYOR, HABER VERİYOR. Kullanıcı zaten
+           * girdi; bu satır "yokluğunda hesabına N kez yanlış kod
+           * denendi" bilgisi. Sunucu bunu yalnızca sıfırdan büyükken
+           * gönderiyor, dolayısıyla her girişte çıkan bir gürültü değil.
+           */
+          onNotice?.(
+            res.failedAttempts === 1
+              ? "1 wrong code was tried on your account since your last sign-in."
+              : `${res.failedAttempts} wrong codes were tried on your account since your last sign-in.`,
+          );
         }
         onDone();
       })
@@ -236,6 +273,13 @@ function LocalSignIn({
             autoFocus
             onChange={(e) => setCode(e.target.value)}
           />
+          {left !== undefined && (
+            <span className="note">
+              {left > 0
+                ? `This request expires in ${left}s.`
+                : "This request has expired — sign in again."}
+            </span>
+          )}
         </label>
       )}
       <ErrorLine msg={error} />
@@ -271,6 +315,17 @@ export default function App() {
   // de giriş ekranını gösteriyor ama ikincisinde ne olduğunu söylemek
   // gerekiyor — yoksa kullanıcı çalışırken neden atıldığını bilmiyor.
   const [expired, setExpired] = useState(false);
+  /*
+   * signInNotice, girişi ENGELLEMEYEN ama kullanıcının görmesi gereken
+   * bilgi — bugün yalnızca "yokluğunda hesabına şu kadar yanlış kod
+   * denendi".
+   *
+   * ⚠️ GİRİŞ EKRANINDA DEĞİL, GİRDİKTEN SONRA GÖSTERİLİYOR. Giriş
+   * ekranında göstermek onu bir HATA gibi okutur ve kullanıcı girişinin
+   * başarısız olduğunu sanar; oysa girdi ve görmesi gereken şey
+   * yokluğunda olan bir şey.
+   */
+  const [signInNotice, setSignInNotice] = useState("");
   // methods, sunucunun HANGİ giriş yollarını sunduğu. null = henüz
   // sorulmadı; giriş ekranı bu cevaba göre çiziliyor, varsayıma göre
   // değil.
@@ -447,8 +502,12 @@ export default function App() {
             </a>
           )}
 
-          {methods?.local && <LocalSignIn onDone={loadMe} />}
-          {methods?.ldap && <LocalSignIn onDone={loadMe} directory />}
+          {methods?.local && (
+            <LocalSignIn onDone={loadMe} onNotice={setSignInNotice} />
+          )}
+          {methods?.ldap && (
+            <LocalSignIn onDone={loadMe} onNotice={setSignInNotice} directory />
+          )}
 
           {methods && !methods.oidc && !methods.local && !methods.ldap && (
             <p className="msg msg-warn" role="status">
@@ -499,6 +558,23 @@ export default function App() {
 
   return (
     <div className="shell">
+      {signInNotice && (
+        /*
+         * ⚠️ KAPATILABİLİR VE role="status". Bir uyarı değil bir bilgi:
+         * kullanıcı zaten girdi. role="alert" olsaydı ekran okuyucu onu
+         * acil bir arıza gibi okurdu.
+         */
+        <div className="msg msg-warn" role="status">
+          {signInNotice}
+          <button
+            className="btn btn-ghost"
+            onClick={() => setSignInNotice("")}
+            aria-label="Dismiss"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       {/*
         Geçici bildirimler kabuğun EN ÜSTÜNDE bir kez çiziliyor: her
         çağıran kendi kutusunu kurmasın, ve bildirim sayfa değişse de

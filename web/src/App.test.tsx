@@ -1147,3 +1147,86 @@ describe("profil sekmesi", () => {
     expect(screen.getByText("deploy")).toBeTruthy();
   });
 });
+
+/*
+ * ⚠️ KOD İSTEMİNİN SÜRESİ KULLANICIYA GÖRÜNÜYOR.
+ *
+ * Sunucu istemi süreyle sınırlıyor ve geç gelen kodu bir başarısızlık
+ * olarak sayıyor. Bunu söylemeyen bir arayüz, kullanıcının kodu geç girip
+ * "yanlış kod" cevabı almasına ve neden olduğunu anlamamasına yol açardı —
+ * üstelik o deneme sayacına yazılmış olurdu.
+ */
+describe("kod isteminin suresi", () => {
+  const localOnly = () => {
+    vi.spyOn(api, "me").mockRejectedValue(new ApiError(401, "unauthenticated"));
+    vi.spyOn(api, "authMethods").mockResolvedValue({
+      source: "local",
+      oidc: false,
+      local: true,
+      ldap: false,
+    });
+  };
+
+  it("geri sayimi gosterir ve suresi dolunca soyler", async () => {
+    localOnly();
+    vi.spyOn(api, "localLogin").mockResolvedValue({
+      ok: false,
+      totpRequired: true,
+      error: "enter the code from your authenticator",
+      expiresIn: 2,
+    });
+
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByLabelText(/postern password/i)).toBeInTheDocument(),
+    );
+    await userEvent.type(screen.getByLabelText(/Username/i), "ayse");
+    await userEvent.type(screen.getByLabelText(/postern password/i), "parola");
+    await userEvent.click(screen.getByRole("button", { name: /^Sign in$/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/expires in 2s/i)).toBeInTheDocument(),
+    );
+    await waitFor(
+      () => expect(screen.getByText(/has expired/i)).toBeInTheDocument(),
+      { timeout: 5000 },
+    );
+  });
+
+  /*
+   * ⚠️ BAŞARISIZ DENEMELER GİRİŞTEN SONRA SÖYLENİYOR.
+   *
+   * Giriş ekranında göstermek onu bir HATA gibi okutur ve kullanıcı
+   * girişinin başarısız olduğunu sanar. Oysa girdi; görmesi gereken şey
+   * yokluğunda hesabına ne yapıldığı.
+   */
+  it("girdikten sonra kac yanlis kod denendigini soyler", async () => {
+    vi.spyOn(api, "me")
+      .mockRejectedValueOnce(new ApiError(401, "unauthenticated"))
+      .mockResolvedValue(me);
+    vi.spyOn(api, "authMethods").mockResolvedValue({
+      source: "local",
+      oidc: false,
+      local: true,
+      ldap: false,
+    });
+    vi.spyOn(api, "myTargets").mockResolvedValue(myTargets);
+    vi.spyOn(api, "localLogin").mockResolvedValue({
+      ok: true,
+      totpRequired: false,
+      failedAttempts: 3,
+    });
+
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByLabelText(/postern password/i)).toBeInTheDocument(),
+    );
+    await userEvent.type(screen.getByLabelText(/Username/i), "ayse");
+    await userEvent.type(screen.getByLabelText(/postern password/i), "parola");
+    await userEvent.click(screen.getByRole("button", { name: /^Sign in$/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/3 wrong codes were tried/i)).toBeInTheDocument(),
+    );
+  });
+});

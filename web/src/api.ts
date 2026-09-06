@@ -953,25 +953,49 @@ export const api = {
     username: string,
     password: string,
     code?: string,
-  ): Promise<{ ok: boolean; totpRequired: boolean; error?: string }> => {
+  ): Promise<{
+    ok: boolean;
+    totpRequired: boolean;
+    error?: string;
+    /** Kod isteminin kaç saniye geçerli olduğu; pencere kapalıysa yok. */
+    expiresIn?: number;
+    /** Son başarılı girişten bu yanaki başarısız kod denemesi. Sunucu
+     *  bunu yalnızca sıfırdan büyükken gönderiyor. */
+    failedAttempts?: number;
+  }> => {
     const r = await fetch("/auth/local", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password, code: code ?? "" }),
     });
-    if (r.ok) return { ok: true, totpRequired: false };
+    if (r.ok) {
+      let failedAttempts: number | undefined;
+      try {
+        const b = await r.json();
+        if (typeof b.failed_code_attempts === "number") {
+          failedAttempts = b.failed_code_attempts;
+        }
+      } catch {
+        /* gövde okunamazsa giriş yine başarılı */
+      }
+      return { ok: true, totpRequired: false, failedAttempts };
+    }
 
     noteStatus(r.status);
     let msg = r.statusText;
     let totpRequired = false;
+    let expiresIn: number | undefined;
     try {
       const b = await r.json();
       msg = b.error ?? msg;
       totpRequired = b.totp_required === true;
+      if (typeof b.expires_in === "number") expiresIn = b.expires_in;
     } catch {
       /* gövde JSON değilse statusText kalır */
     }
-    if (totpRequired) return { ok: false, totpRequired: true, error: msg };
+    if (totpRequired) {
+      return { ok: false, totpRequired: true, error: msg, expiresIn };
+    }
     throw new ApiError(r.status, msg);
   },
   syncSettings: () => req<SyncSettings>("GET", "/api/admin/sync/settings"),
