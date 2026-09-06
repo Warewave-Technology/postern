@@ -60,7 +60,7 @@ func TestDeniedOpenIsRefusedRecordedAndAnswered(t *testing.T) {
 	if len(denials) != 1 {
 		t.Fatalf("istemciye cevap hazırlanmadı: %d", len(denials))
 	}
-	_, id, code, _ := parseStatus(t, denials[0], len(denials[0]))
+	_, id, code, _ := parseStatus(t, denials[0].Status, len(denials[0].Status))
 	if id != 7 {
 		t.Errorf("cevabın istek kimliği %d, 7 bekleniyordu — istemci eşleyemez", id)
 	}
@@ -119,7 +119,17 @@ func TestRelativePathIsRefused(t *testing.T) {
 func TestRealpathOfARelativeNameIsAllowed(t *testing.T) {
 	pkt := newPkt(fxpRealpath).u32(1).str(".").bytes()
 
-	_, got, out := runPolicy(t, denyPaths("/yok"), pkt)
+	/*
+	 * ⚠️ ÖLÇÜ EŞLEŞMEYENİ REDDEDEN BİR POLİTİKAYLA. İlk hâli her şeye izin
+	 * veren bir politika kullanıyordu ve arızayı kaçırdı: kod göreli yolu
+	 * politikaya SORUYORDU, izin veren politika da "evet" diyordu. Gerçek
+	 * bir kurulumda ret geliyor ve istemci "Need cwd" ile kırılıyor.
+	 */
+	strict := func(r Request) (bool, string) {
+		return strings.HasPrefix(r.Path, "/izinli"), "path is not permitted"
+	}
+
+	_, got, out := runPolicy(t, strict, pkt)
 
 	if !bytes.Equal(out, pkt) {
 		t.Fatal("realpath \".\" reddedildi; politika açık her oturum başlarken kırılırdı")
@@ -183,9 +193,65 @@ func TestUnrecognisedRequestsAreRefused(t *testing.T) {
 	}
 }
 
-// Zararsız ve yol taşımayan eklentiler geçiyor: reddetmek sıradan
-// istemcileri kırardı.
-func TestQuietExtensionsStillPass(t *testing.T) {
+/*
+ * Yol taşımayan zararsız eklentiler politikaya HİÇ sorulmuyor.
+ *
+ * ⚠️ ÖLÇÜ "HER ŞEYE İZİN VEREN" BİR POLİTİKAYLA YAPILAMAZ. Bu testin ilk
+ * hâli tam olarak öyleydi ve arızayı kaçırdı: kod bu eklentiler için boş
+ * yollu bir istek üretip politikaya soruyordu, izin veren politika da
+ * "evet" diyordu. Gerçek bir kurulumda politika boş yolu hiçbir kurala
+ * uyduramayıp reddediyor ve OpenSSH istemcisi daha bağlanırken
+ * "sftp_init: limits failed" ile kırılıyordu — demoda ölçüldü.
+ *
+ * Bu yüzden ölçü EŞLEŞMEYENİ REDDEDEN bir politikayla yapılıyor.
+ */
+func TestQuietExtensionsAreNeverAskedAboutAtAll(t *testing.T) {
+	// Yalnızca /izinli altını kabul eden, geri kalan her şeyi (boş yol
+	// dahil) reddeden politika.
+	strict := func(r Request) (bool, string) {
+		return strings.HasPrefix(r.Path, "/izinli"), "path is not permitted"
+	}
+
+	for _, name := range []string{
+		"fsync@openssh.com",
+		"limits@openssh.com",
+		"statvfs@openssh.com",
+		"expand-path@openssh.com",
+	} {
+		pkt := newPkt(fxpExtended).u32(1).str(name).str("h1").bytes()
+
+		s, got, out := runPolicy(t, strict, pkt)
+
+		if !bytes.Equal(out, pkt) {
+			t.Errorf("%s reddedildi; istemci oturumun başında kırılır", name)
+		}
+		if len(*got) != 0 {
+			t.Errorf("%s satır üretti: %+v", name, *got)
+		}
+		if n := len(s.TakeDenials()); n != 0 {
+			t.Errorf("%s için ret cevabı üretildi", name)
+		}
+	}
+}
+
+// copy-data yol taşımadan VERİ taşıyor: sessiz eklenti değil, reddedilmeli.
+func TestCopyDataIsNotQuiet(t *testing.T) {
+	strict := func(r Request) (bool, string) {
+		return strings.HasPrefix(r.Path, "/izinli"), "path is not permitted"
+	}
+	pkt := newPkt(fxpExtended).u32(1).str("copy-data@openssh.com").str("h1").bytes()
+
+	_, got, out := runPolicy(t, strict, pkt)
+
+	if len(out) != 0 {
+		t.Fatal("copy-data geçti: içerik yol taşımadan kopyalanabilir")
+	}
+	if len(*got) != 1 || (*got)[0].OK {
+		t.Fatalf("ret defterine düşmedi: %+v", *got)
+	}
+}
+
+func TestQuietExtensionsStillPassWithoutAPolicy(t *testing.T) {
 	pkt := newPkt(fxpExtended).u32(1).str("fsync@openssh.com").str("h1").bytes()
 
 	_, got, out := runPolicy(t, denyPaths(), pkt)
@@ -299,7 +365,7 @@ func TestRefusalUsesTheHonestStatusCode(t *testing.T) {
 			if len(d) != 1 {
 				t.Fatalf("cevap üretilmedi: %d", len(d))
 			}
-			_, _, code, _ := parseStatus(t, d[0], len(d[0]))
+			_, _, code, _ := parseStatus(t, d[0].Status, len(d[0].Status))
 			if code != tc.want {
 				t.Errorf("durum kodu %d, %d bekleniyordu", code, tc.want)
 			}
@@ -334,7 +400,7 @@ func TestUnreadableRequestIDEndsTheSessionInsteadOfAnswering(t *testing.T) {
 		t.Errorf("hata sebebi açık değil: %v", err)
 	}
 	if d := s.TakeDenials(); len(d) != 0 {
-		_, id, _, _ := parseStatus(t, d[0], len(d[0]))
+		_, id, _, _ := parseStatus(t, d[0].Status, len(d[0].Status))
 		t.Fatalf("UYDURMA CEVAP ÜRETİLDİ (id=%d); istemci göndermediği bir "+
 			"isteğin cevabını alır ve çöker", id)
 	}

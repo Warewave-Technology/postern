@@ -324,3 +324,62 @@ func TestRefusalWaitsForTheTargetToSpeakFirst(t *testing.T) {
 		t.Error("Run dönmedi")
 	}
 }
+
+/*
+ * ⚠️ REDDİN GEREKÇESİ KULLANICIYA ULAŞIYOR — stderr'den.
+ *
+ * ÖLÇÜLEN ARIZA: reddi uyguluyor ve deftere yazıyorduk, ama OpenSSH'in
+ * sftp istemcisi STATUS'un mesaj alanını hiç okumuyor ve başarısız bir
+ * stat'ı durum kodundan bağımsız olarak "not found" diye yazıyor. Yani
+ * engellenen kişi "engellendim" ile "dosya yok"u ayırt edemiyordu ve
+ * yazım hatası sanıp varyasyonlarla denemeye devam ederdi.
+ *
+ * stderr ayrı bir SSH mesaj türü: SFTP çerçevelemesini bozamaz, paket
+ * sınırı beklemek gerekmez.
+ */
+func TestRefusalReasonReachesTheUserOnStderr(t *testing.T) {
+	deny := func(r sftpaudit.Request) (bool, string) {
+		return r.Path != "/etc/shadow", "path is not permitted"
+	}
+
+	down, _, feedDown, _, _, stop := startPolicySession(t, deny)
+	defer stop()
+
+	feedDown.send(t, sftpPkt(3, uint32(11), "/etc/shadow", uint32(1), uint32(0)))
+
+	waitForContent(t, down.errW, "/etc/shadow")
+
+	got := down.errW.String()
+	if !strings.Contains(got, "postern:") {
+		t.Errorf("satır postern'den geldiğini söylemiyor: %q", got)
+	}
+	if !strings.Contains(got, "not permitted") {
+		t.Errorf("gerekçe yok: %q", got)
+	}
+}
+
+/*
+ * Aynı gerekçe iki kez yazılmıyor.
+ *
+ * ⚠️ NEDEN: tek bir `get` stat ve open olmak üzere iki ret üretebiliyor,
+ * `mget *` yüzlerce. Aynı satırı tekrar yazmak kullanıcının terminalini
+ * bizim doldurmamız olurdu.
+ */
+func TestRepeatedRefusalsAreNotRepeatedToTheUser(t *testing.T) {
+	deny := func(r sftpaudit.Request) (bool, string) {
+		return r.Path != "/etc/shadow", "path is not permitted"
+	}
+
+	down, _, feedDown, _, _, stop := startPolicySession(t, deny)
+	defer stop()
+
+	for i := 2; i < 6; i++ {
+		feedDown.send(t, sftpPkt(3, uint32(i), "/etc/shadow", uint32(1), uint32(0)))
+	}
+	waitForContent(t, down.errW, "/etc/shadow")
+	time.Sleep(100 * time.Millisecond)
+
+	if n := strings.Count(down.errW.String(), "/etc/shadow"); n != 1 {
+		t.Fatalf("aynı gerekçe %d kez yazıldı: %q", n, down.errW.String())
+	}
+}

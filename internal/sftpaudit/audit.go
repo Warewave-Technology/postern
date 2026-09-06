@@ -147,8 +147,8 @@ type Session struct {
 	// policy, isteklere karar veren geri çağrı (policy.go). nil olabilir.
 	policy Decider
 	// denials, reddedilen isteklere üretilen ve istemciye gönderilmeyi
-	// bekleyen STATUS paketleri.
-	denials [][]byte
+	// bekleyen cevaplar (paket + insan satırı).
+	denials []Denial
 
 	fromClient *framer
 	fromTarget *framer

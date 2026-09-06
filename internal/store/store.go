@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 	"time"
@@ -293,7 +294,126 @@ func (s *Store) User(ctx context.Context, username string) (model.User, error) {
 		return model.User{}, fmt.Errorf("store.User: %w", ErrNotFound)
 	}
 
+	/*
+	 * ⚠️ YOL KURALLARI AYRI SORGUDA. Yukarıdaki JOIN'e eklemek satırları
+	 * hedefler × kurallar kartezyeni kadar çoğaltır ve iki listenin de
+	 * tekilleştirilmesi gerekirdi — okuması zor, hata yapması kolay.
+	 */
+	if err := s.loadRolePaths(ctx, user.Roles); err != nil {
+		return model.User{}, err
+	}
+
 	return user, nil
+}
+
+/*
+ * loadRolePaths, rollerin SFTP yol kurallarını doldurur.
+ *
+ * ⚠️ KURALSIZ ROL BOŞ LİSTEYLE DÖNÜYOR, HATA DEĞİL. "Kuralı yok" bu
+ * modelde geçerli ve yaygın bir durum: kısıtlama kural EKLENDİĞİNDE
+ * başlıyor (bkz. policy.SFTPDecider).
+ */
+func (s *Store) loadRolePaths(ctx context.Context, roles []model.Role) error {
+	if len(roles) == 0 {
+		return nil
+	}
+
+	/*
+	 * ⚠️ DİZİ PARAMETRE OLARAK BAĞLANIYOR, SORGUYA GÖMÜLMÜYOR. İlk hâli
+	 * yer tutucuları elle üretip birleştiriyordu; gosec bunu G202 ile
+	 * işaretledi ve haklıydı — birleştirilen şey bugün güvenli olsa da
+	 * yarın birinin oraya değer koymasına açık bir kalıp.
+	 */
+	names := make([]string, 0, len(roles))
+	idx := make(map[string]int, len(roles))
+	for i, r := range roles {
+		names = append(names, r.Name)
+		idx[r.Name] = i
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT r.name, rp.prefix, rp.allow, rp.can_write
+		FROM role_paths rp
+		JOIN roles r ON r.id = rp.role_id
+		WHERE r.name = ANY($1)
+		ORDER BY r.name, LENGTH(rp.prefix), rp.prefix;
+	`, names)
+	if err != nil {
+		return translateErr("store.loadRolePaths", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var roleName string
+		var rule model.PathRule
+		if err := rows.Scan(&roleName, &rule.Prefix, &rule.Allow, &rule.CanWrite); err != nil {
+			return translateErr("store.loadRolePaths", err)
+		}
+		if i, ok := idx[roleName]; ok {
+			roles[i].Paths = append(roles[i].Paths, rule)
+		}
+	}
+
+	return translateErr("store.loadRolePaths", rows.Err())
+}
+
+/*
+ * SetRolePath, bir role yol kuralı ekler ya da var olanı günceller.
+ *
+ * ⚠️ ÖNEK MUTLAK OLMALI. Göreli bir kuralın neye göre olduğunu bilemeyiz —
+ * istemcinin çalışma dizini hedefte, bizde değil — ve politika da göreli
+ * yolları zaten reddediyor. Kabul etseydik hiçbir zaman eşleşmeyen bir
+ * kural yazdırırdık: yönetici koruma koyduğunu sanır, koymamış olurdu.
+ *
+ * Şemada da CHECK var; buradaki kontrol hatayı ANLAŞILIR kılmak için,
+ * kısıtın yerine geçmek için değil.
+ */
+func (s *Store) SetRolePath(ctx context.Context, roleName, prefix string, allow, canWrite bool) error {
+	if !strings.HasPrefix(prefix, "/") {
+		return fmt.Errorf("store.SetRolePath: prefix must be absolute: %q", prefix)
+	}
+	prefix = path.Clean(prefix)
+
+	res, err := s.db.ExecContext(ctx, `
+		INSERT INTO role_paths (role_id, prefix, allow, can_write)
+		SELECT r.id, $2, $3, $4 FROM roles r WHERE r.name = $1
+		ON CONFLICT (role_id, prefix)
+		DO UPDATE SET allow = EXCLUDED.allow, can_write = EXCLUDED.can_write;
+	`, roleName, prefix, allow, canWrite)
+	if err != nil {
+		return translateErr("store.SetRolePath", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("store.SetRolePath: %w", ErrNotFound)
+	}
+
+	return nil
+}
+
+// DeleteRolePath, bir yol kuralını kaldırır.
+func (s *Store) DeleteRolePath(ctx context.Context, roleName, prefix string) error {
+	res, err := s.db.ExecContext(ctx, `
+		DELETE FROM role_paths
+		WHERE prefix = $2 AND role_id = (SELECT id FROM roles WHERE name = $1);
+	`, roleName, path.Clean(prefix))
+	if err != nil {
+		return translateErr("store.DeleteRolePath", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("store.DeleteRolePath: %w", ErrNotFound)
+	}
+
+	return nil
+}
+
+// RolePaths, bir rolün yol kurallarını okur.
+func (s *Store) RolePaths(ctx context.Context, roleName string) ([]model.PathRule, error) {
+	role := []model.Role{{Name: roleName}}
+	if err := s.loadRolePaths(ctx, role); err != nil {
+		return nil, err
+	}
+
+	return role[0].Paths, nil
 }
 
 func (s *Store) CreateRole(ctx context.Context, name string) (string, error) {

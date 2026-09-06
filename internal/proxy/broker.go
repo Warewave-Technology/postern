@@ -124,7 +124,7 @@ type Broker struct {
 	 * demekti. Bunun yerine sıraya koyuluyor ve hedef yönü bir sonraki
 	 * paket sınırına vardığında boşaltılıyor.
 	 */
-	injectQ [][]byte
+	injectQ []sftpaudit.Denial
 	// injectMu, YALNIZCA kuyruğu koruyor.
 	//
 	// ⚠️ downMu'DAN AYRI OLMAK ZORUNDA. Retleri sıraya koyan goroutine,
@@ -132,6 +132,17 @@ type Broker struct {
 	// üzerinde bloke olabiliyor ve bekleyen goroutine istemciden OKUYAN
 	// goroutine'in ta kendisi. Okumayı durdurmak, istemcinin yazmalarını
 	// da durdurup ikisini birbirine kilitlerdi.
+	/*
+	 * noticeMu, kullanıcıya yazılan ret satırlarını koruyor.
+	 *
+	 * ⚠️ downMu'DAN AYRI: stderr farklı bir SSH mesaj türü ve veri
+	 * akışının paket sınırlarıyla ilgisi yok. Aynı kilide bağlamak,
+	 * insana bir cümle yazmayı veri akışının sırasına bağlamak olurdu.
+	 */
+	noticeMu      sync.Mutex
+	notices       map[string]bool
+	noticesCapped bool
+
 	injectMu  sync.Mutex
 	injectSig chan struct{}
 
@@ -201,7 +212,7 @@ func (b *Broker) pokeInjector() {
  * yazmalarını da durdurur ve iki yön birbirini kilitlerdi. Yazma işi
  * kendi goroutine'inde.
  */
-func (b *Broker) queueRefusals(pkts [][]byte) {
+func (b *Broker) queueRefusals(pkts []sftpaudit.Denial) {
 	b.injectMu.Lock()
 	b.injectQ = append(b.injectQ, pkts...)
 	b.injectMu.Unlock()
@@ -242,8 +253,8 @@ func (b *Broker) tryInject() {
 	b.injectQ = nil
 	b.injectMu.Unlock()
 
-	for _, pkt := range q {
-		if _, err := b.down.Write(pkt); err != nil {
+	for _, d := range q {
+		if _, err := b.down.Write(d.Status); err != nil {
 			/*
 			 * Yazılamadıysa kanal zaten kopuyor. Oturumu burada
 			 * bitirmiyoruz: ret UYGULANDI, iletilemeyen şey yalnızca
@@ -252,7 +263,54 @@ func (b *Broker) tryInject() {
 			b.logger.Error("refusal reply not delivered to the client", "error", err)
 			return
 		}
+		b.tellUser(d.Notice)
 	}
+}
+
+/*
+ * tellUser, reddin gerekçesini KULLANICIYA yazar — stderr'den.
+ *
+ * ⚠️ NEDEN VERİ AKIŞINDAN DEĞİL: stderr ayrı bir SSH mesaj türü
+ * (EXTENDED_DATA), dolayısıyla SFTP çerçevelemesini bozamıyor ve paket
+ * sınırı beklemek gerekmiyor. sayGoodbye'ın "SFTP açıkken insan cümlesi
+ * yazma" kuralı VERİ akışı için doğru; burası o akış değil.
+ *
+ * ⚠️ NEDEN GEREKLİ: OpenSSH'in sftp istemcisi STATUS'un mesaj alanını hiç
+ * okumuyor ve başarısız bir stat'ı "not found" diye yazıyor. Reddi
+ * uygulamak ve deftere yazmak yetmiyor; engellenen kişi engellendiğini
+ * BİLMELİ, yoksa yazım hatası sanıp varyasyonlarla denemeye devam eder.
+ *
+ * ⚠️ TEKRARLAR BASTIRILIYOR VE TOPLAM SINIRLI. Tek bir `get`, stat ve
+ * open olmak üzere iki ret üretebiliyor; `mget *` yüzlerce. Aynı satırı
+ * iki kez yazmak gürültü, sınırsız yazmak ise kullanıcının terminalini
+ * bizim doldurmamız olurdu.
+ */
+func (b *Broker) tellUser(line string) {
+	if line == "" {
+		return
+	}
+
+	b.noticeMu.Lock()
+	defer b.noticeMu.Unlock()
+
+	if b.notices == nil {
+		b.notices = map[string]bool{}
+	}
+	if b.notices[line] {
+		return
+	}
+	if len(b.notices) >= maxRefusalNotices {
+		if !b.noticesCapped {
+			b.noticesCapped = true
+			_, _ = b.down.Stderr().Write([]byte("postern: further refusals are not shown\r\n"))
+		}
+		return
+	}
+	b.notices[line] = true
+
+	// Yazma hatası yutuluyor: kanal kopuyorsa söylenecek bir şey kalmadı
+	// ve ret zaten uygulandı.
+	_, _ = b.down.Stderr().Write([]byte(line + "\r\n"))
 }
 
 /*
@@ -281,6 +339,17 @@ func (b *Broker) injector(ctx context.Context, stop <-chan struct{}) {
 		}
 	}
 }
+
+/*
+ * maxRefusalNotices, bir oturumda kullanıcıya yazılacak en fazla FARKLI
+ * ret satırı.
+ *
+ * Politikayla çakışan bir istemci (`mget *`) yüzlerce ret üretebiliyor;
+ * hepsini yazmak kullanıcının terminalini bizim doldurmamız olurdu.
+ * Yirmi farklı yol, neyin engellendiğini anlamaya fazlasıyla yetiyor ve
+ * defterin tamamı zaten yerinde duruyor.
+ */
+const maxRefusalNotices = 20
 
 // gate, başlangıç kapısını verir; ilk çağıran kuruyor.
 func (b *Broker) gate() chan struct{} {

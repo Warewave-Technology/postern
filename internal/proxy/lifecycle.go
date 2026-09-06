@@ -25,6 +25,7 @@ import (
 	"github.com/Warewave-Technology/postern/internal/model"
 	"github.com/Warewave-Technology/postern/internal/policy"
 	"github.com/Warewave-Technology/postern/internal/record"
+	"github.com/Warewave-Technology/postern/internal/sftpaudit"
 	"github.com/Warewave-Technology/postern/internal/store"
 	"github.com/Warewave-Technology/postern/internal/upstream"
 )
@@ -305,6 +306,18 @@ type Session struct {
 
 	// OSUser, policy'nin verdiği karar — çağıran log'a yazsın diye açık.
 	OSUser string
+
+	/*
+	 * sftpPolicy, bu kullanıcının rollerinden üretilen SFTP yol
+	 * politikası. nil ise kısıt yok.
+	 *
+	 * ⚠️ OTURUM AÇILIRKEN ÜRETİLİYOR, KANAL AÇILIRKEN DEĞİL. Roller
+	 * oturum açılışında tazeleniyor (FreshenRoles); politikayı da o anda
+	 * dondurmak, oturum ortasında değişen bir rolün açık bir kanalın
+	 * kurallarını altından değiştirmesini önlüyor. Değişiklik bir sonraki
+	 * oturumda geçerli — yetkilendirmenin geri kalanıyla aynı kural.
+	 */
+	sftpPolicy sftpaudit.Decider
 
 	// Log, oturumun alanları bağlanmış logger'ı (user, target, session_id,
 	// record_path). Çağıran kendi olaylarını bununla yazsın ki satırlar
@@ -642,7 +655,8 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 	opened = true
 	return &Session{
 		ID: id, OSUser: d.OSUser, Log: log,
-		deps: deps, conn: conn, up: up, upR: upR, rec: rec, start: start,
+		sftpPolicy: policy.SFTPDecider(u.Roles),
+		deps:       deps, conn: conn, up: up, upR: upR, rec: rec, start: start,
 		user: req.Username, target: req.TargetName, src: req.SrcIP,
 	}, nil
 }
@@ -808,6 +822,16 @@ func (s *Session) Run(ctx context.Context, down ssh.Channel, downR <-chan *ssh.R
 			b.abortAudit(err)
 		})
 		b.WithSFTP(journal)
+
+		/*
+		 * ⚠️ POLİTİKA YALNIZCA SFTP AÇIKKEN KURULUYOR. Kapalıyken
+		 * `subsystem sftp` zaten reddediliyor; politika kurmak boşuna bir
+		 * karar katmanı olurdu.
+		 */
+		if s.sftpPolicy != nil {
+			b.WithSFTPPolicy(s.sftpPolicy)
+			s.Log.Info("sftp path policy active")
+		}
 	}
 
 	err := b.Run(ctx)

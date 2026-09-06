@@ -20,6 +20,7 @@ func newRoleCmd() *cobra.Command {
 	cmd.AddCommand(newRoleAddCmd())
 	cmd.AddCommand(newRoleListCmd())
 	cmd.AddCommand(newRoleRevokeTargetCmd())
+	cmd.AddCommand(newRolePathCmd())
 	return cmd
 }
 

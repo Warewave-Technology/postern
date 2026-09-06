@@ -44,6 +44,27 @@ type Request struct {
  */
 type Decider func(Request) (allow bool, reason string)
 
+/*
+ * Denial, reddedilen bir isteğe verilecek iki cevap.
+ *
+ * ⚠️ İKİSİ AYRI KANALDAN GİDİYOR ve ikisi de gerekli. Status, SFTP veri
+ * akışında istemcinin PROTOKOL cevabı: onsuz istek kimliği açık kalır ve
+ * istemci sonsuza kadar bekler. Notice ise İNSANA giden satır, stderr'den.
+ *
+ * ⚠️ NEDEN İNSAN SATIRI DA ŞART: OpenSSH'in sftp istemcisi STATUS'un
+ * mesaj alanını hiç okumuyor (get_status yalnızca tip, kimlik ve kodu
+ * ayrıştırıp tamponu bırakıyor) ve `get`/`ls` öncesi yaptığı stat
+ * başarısız olunca "not found" yazıyor — durum kodundan bağımsız olarak.
+ * Yani reddi UYGULUYORUZ, defterine YAZIYORUZ, ama kullanıcı
+ * "engellendim" ile "dosya yok"u ayırt edemiyor. Ölçüldü.
+ */
+type Denial struct {
+	// Status, SFTP veri akışına yazılacak cevap paketi.
+	Status []byte
+	// Notice, stderr'e yazılacak insan satırı.
+	Notice string
+}
+
 // SetPolicy, isteklere karar verecek geri çağrıyı kurar. nil ise her istek
 // geçiyor.
 func (s *Session) SetPolicy(d Decider) {
@@ -65,7 +86,7 @@ func (s *Session) SetPolicy(d Decider) {
  * üstünde ve s.mu altında veriliyor; istemciye o kilidi tutarken yazmak,
  * okumayı durduran bir istemcide hedef→istemci yönünü de kilitlerdi.
  */
-func (s *Session) TakeDenials() [][]byte {
+func (s *Session) TakeDenials() []Denial {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -197,7 +218,24 @@ func (s *Session) policyView(req request) (policyResult, bool) {
 		}}, true
 
 	case fxpExtended:
-		return s.extendedView(req), true
+		return s.extendedView(req)
+	}
+
+	/*
+	 * ⚠️ GÖRELİ BİR AD ÜZERİNDEKİ REALPATH POLİTİKAYA HİÇ SORULMUYOR.
+	 *
+	 * ÖLÇÜLEN ARIZA: OpenSSH'in sftp istemcisi oturumun İLK isteği olarak
+	 * `realpath "."` gönderiyor. Bunu politikaya sormak, hiçbir kurala
+	 * uymayan bir yola sormak demek ve ret geliyor: istemci "Need cwd" ile
+	 * daha başlarken kırılıyor. Demoda ölçüldü.
+	 *
+	 * REALPATH bir ADI çözüyor, içeriğe dokunmuyor; ardından gelen açma
+	 * isteği mutlak yolla gelip karara bağlanıyor. Mutlak bir yol üzerinde
+	 * REALPATH ise normal şekilde sorulabiliyor — o zaman eşleşecek bir
+	 * şey var.
+	 */
+	if req.typ == fxpRealpath && !strings.HasPrefix(req.path, "/") {
+		return policyResult{}, false
 	}
 
 	// Yol taşıyan sıradan istekler.
@@ -213,38 +251,46 @@ func (s *Session) policyView(req request) (policyResult, bool) {
 }
 
 // extendedView, EXTENDED isteğini politikanın göreceği hâle çevirir.
-func (s *Session) extendedView(req request) policyResult {
+func (s *Session) extendedView(req request) (policyResult, bool) {
 	switch req.ext {
 	case extPosixRename, extHardlink:
 		return normalise(policyResult{req: Request{
 			Op: extendedOps[req.ext], Write: true,
 			Path: req.path, NewPath: req.newPath,
-		}}, req.typ)
+		}}, req.typ), true
 
 	case extLsetstat:
 		return normalise(policyResult{req: Request{
 			Op: extendedOps[req.ext], Write: true, Path: req.path,
-		}}, req.typ)
+		}}, req.typ), true
 	}
 
 	if quietExtensions[req.ext] {
 		/*
-		 * ⚠️ SESSİZ EKLENTİLER YOL TAŞIMIYOR ve içeriğe dokunmuyor
-		 * (fsync, statvfs, limits...). Politikaya soracak bir yol yok;
-		 * reddetmek sıradan istemcileri kırardı.
+		 * ⚠️ SESSİZ EKLENTİLER POLİTİKAYA HİÇ SORULMUYOR — yalnızca
+		 * "izin ver" denmiyor, SORU SORULMUYOR.
 		 *
-		 * copy-data@openssh.com bu listede DEĞİL ve olmamalı: iki
-		 * tanıtıcı alıp içeriği sunucu tarafında kopyalıyor, yani yol
-		 * taşımadan veri taşıyor. Aşağıdaki redde düşüyor.
+		 * ÖLÇÜLEN ARIZA: bunlar için boş yollu bir istek üretip politikaya
+		 * soruyorduk. Politika boş yolu hiçbir kurala uyduramayıp
+		 * reddediyordu ve OpenSSH istemcisi daha oturumun başında
+		 * "sftp_init: limits failed" ile kırılıyordu — limits@openssh.com
+		 * bağlanır bağlanmaz gönderiliyor.
+		 *
+		 * Bu eklentiler yol taşımıyor ve içeriğe dokunmuyor (fsync,
+		 * statvfs, limits, expand-path...). Sorulacak bir yol yok.
+		 *
+		 * copy-data@openssh.com bu listede DEĞİL ve olmamalı: iki tanıtıcı
+		 * alıp içeriği sunucu tarafında kopyalıyor, yani yol taşımadan veri
+		 * taşıyor. Aşağıdaki redde düşüyor.
 		 */
-		return policyResult{}
+		return policyResult{}, false
 	}
 
 	return policyResult{
 		req:         Request{Op: OpExtended},
 		deny:        "extension " + req.ext + " is not recognised",
 		unsupported: true,
-	}
+	}, true
 }
 
 // pathForHandle, tanıtıcıyı açılışta kaydedilen yola çevirir.
@@ -285,9 +331,6 @@ func normalise(pr policyResult, typ byte) policyResult {
 			return pr
 		}
 		if !strings.HasPrefix(*f, "/") {
-			if typ == fxpRealpath {
-				continue
-			}
 			pr.deny = "path is not absolute; postern cannot resolve it"
 			return pr
 		}
@@ -383,7 +426,14 @@ func (s *Session) refuseWith(id uint32, r Request, code uint32, reason string) b
 		Flags: r.flagsText(), OK: false, Status: code,
 		Detail: "postern: " + reason,
 	})
-	s.denials = append(s.denials, StatusPacket(id, code, "postern: "+reason))
+	notice := "postern: " + reason
+	if r.Path != "" {
+		notice = "postern: " + r.Path + ": " + reason
+	}
+	s.denials = append(s.denials, Denial{
+		Status: StatusPacket(id, code, "postern: "+reason),
+		Notice: notice,
+	})
 
 	return false
 }
