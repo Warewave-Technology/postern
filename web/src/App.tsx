@@ -8,6 +8,7 @@ import {
   toMessage,
 } from "./api";
 import { ErrorLine } from "./admin/common";
+import Modal from "./admin/Modal";
 import Users from "./admin/Users";
 import Targets from "./admin/Targets";
 import Roles from "./admin/Roles";
@@ -148,10 +149,11 @@ function Brand({ size = 20 }: { size?: number }) {
  * kez basıyordu. Yerel hesaplar artık kendi parolalarını seçiyor, yani
  * "sır" demek kullanıcıya yazdığı şeyin ne olduğunu yanlış anlatıyordu.
  *
- * ⚠️ KORUNMASI GEREKEN ŞEY AD DEĞİL, AYRIM. Endişe kullanıcının kurumsal
- * parolasını buraya yazması; onu engelleyen şey kutunun "password"
- * dememesi değil, KİMİN parolası olduğunun yazması. O yüzden etiket
- * "postern password" ile "Directory password" arasında ayrılıyor.
+ * ⚠️ KORUNMASI GEREKEN AYRIM, AÇIK OLAN TARAFTA DURUYOR. Endişe
+ * kullanıcının KURUMSAL parolasını buraya yazması; onu engelleyen şey
+ * yerel kutunun adı değil, dizin kutusunun "Directory password" demesi.
+ * Yerel kutuya da bir sıfat eklemek ("postern password") ekranı
+ * ağırlaştırıyordu ve ayrımı zaten taşımıyordu.
  */
 function LocalSignIn({
   onDone,
@@ -201,22 +203,54 @@ function LocalSignIn({
    */
   useEffect(() => {
     if (left === undefined || left <= 0) return;
-    const t = setTimeout(() => setLeft((v) => (v === undefined ? v : v - 1)), 1000);
+    const t = setTimeout(
+      () => setLeft((v) => (v === undefined ? v : v - 1)),
+      1000,
+    );
     return () => clearTimeout(t);
   }, [left]);
 
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
+  /*
+   * backToStart, kod adımından PAROLA adımına döner.
+   *
+   * ⚠️ YANLIŞ KOD BAŞA DÖNDÜRÜYOR. Kod kutusunda kalıp tekrar denetmek,
+   * parolayı bir kez kanıtlamış birine sınırsız kod denemesi vermek
+   * olurdu; her denemeyi paroladan geçirmek, tahmin eden tarafın her
+   * turda iki şeyi birden bilmesini şart koşuyor.
+   *
+   * Parola kutusu da temizleniyor: dolu bırakmak, ekranı açık unutan
+   * birinin parolasını tarayıcıda bırakır.
+   */
+  const backToStart = (msg: string) => {
+    setNeedCode(false);
+    setCode("");
+    setPassword("");
+    setLeft(undefined);
+    setError(msg);
+  };
+
+  const send = (withCode: string) => {
     setBusy(true);
     setError("");
     api
-      .localLogin(username.trim(), password, code)
+      .localLogin(username.trim(), password, withCode)
       .then((res) => {
         if (res.totpRequired) {
+          /*
+           * ⚠️ KOD İSTEMEK BİR HATA DEĞİL. Parola DOĞRU; sunucu ikinci
+           * faktörü soruyor. Bunu hata satırı olarak çizmek kullanıcıya
+           * girişinin başarısız olduğunu söylerdi — ekranda kırmızı bir
+           * "Error" ve doğru bir parola.
+           */
+          if (withCode) {
+            // Kod gönderdik ama sunucu yine istiyor: istem zamanaşımına
+            // uğradı. Baştan.
+            backToStart(
+              res.error ?? "that code request timed out; sign in again",
+            );
+            return;
+          }
           setNeedCode(true);
-          // Parola kutusu DOLU kalıyor: aynı istekte tekrar gönderilecek
-          // ve kişiye iki kez yazdırmanın hiçbir faydası yok.
-          setError(res.error ?? "");
           setCode("");
           setLeft(res.expiresIn);
           return;
@@ -236,72 +270,114 @@ function LocalSignIn({
         }
         onDone();
       })
-      .catch((err: unknown) => setError(toMessage(err)))
+      .catch((err: unknown) => {
+        // Kod adımındaki her hata başa döndürüyor; parola adımında
+        // kullanıcı zaten baştaydı.
+        if (withCode) backToStart(toMessage(err));
+        else setError(toMessage(err));
+      })
       .finally(() => setBusy(false));
   };
 
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    send("");
+  };
+
+  /*
+   * ⚠️ MODAL FORMUN DIŞINDA. İç içe <form> HTML'de geçersiz: iç formun
+   * gönderimi dıştakine düşüyor ve "Confirm" düğmesi kodu değil BOŞ bir
+   * istek gönderiyordu — ölçüldü, test bunu yakaladı.
+   */
   return (
-    <form className="local-signin" onSubmit={submit}>
-      <label>
-        Username
-        <input
-          value={username}
-          autoComplete="username"
-          onChange={(e) => setUsername(e.target.value)}
-        />
-      </label>
-      <label>
-        {directory ? "Directory password" : "postern password"}
-        <input
-          type="password"
-          value={password}
-          // ⚠️ Yerelde current-password DEĞİL: tarayıcının parola
-          // yöneticisine makine üretimi bir sırrı "parola" diye
-          // kaydettirmek, kullanıcıyı tam da kaçındığımız zihniyete
-          // iten ilk adım. Dizin kipinde ise gerçekten parola.
-          autoComplete={directory ? "current-password" : "one-time-code"}
-          onChange={(e) => setPassword(e.target.value)}
-        />
-      </label>
-      {needCode && (
+    <>
+      <form className="local-signin" onSubmit={submit}>
         <label>
-          Authenticator code
+          Username
           <input
-            value={code}
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            autoFocus
-            onChange={(e) => setCode(e.target.value)}
+            value={username}
+            autoComplete="username"
+            onChange={(e) => setUsername(e.target.value)}
           />
-          {left !== undefined && (
-            <span className="note">
-              {left > 0
-                ? `This request expires in ${left}s.`
-                : "This request has expired — sign in again."}
-            </span>
-          )}
         </label>
-      )}
-      <ErrorLine msg={error} />
-      <button
-        className="btn btn-primary"
-        disabled={busy || !username || !password}
+        <label>
+          {directory ? "Directory password" : "Password"}
+          <input
+            type="password"
+            value={password}
+            // ⚠️ Yerelde current-password DEĞİL: tarayıcının parola
+            // yöneticisine makine üretimi bir sırrı "parola" diye
+            // kaydettirmek, kullanıcıyı tam da kaçındığımız zihniyete
+            // iten ilk adım. Dizin kipinde ise gerçekten parola.
+            autoComplete={directory ? "current-password" : "one-time-code"}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </label>
+        <ErrorLine msg={error} />
+        <button
+          className="btn btn-primary"
+          disabled={busy || !username || !password}
+        >
+          {busy ? "Signing in…" : "Sign in"}
+        </button>
+        {directory ? (
+          <p className="note">
+            Your directory username and the password you use everywhere else.
+            postern checks it against the directory and never stores it. Your
+            SSH access does not use this password — that is your key.
+          </p>
+        ) : (
+          <p className="note">
+            Generated by <code>postern admin bootstrap</code> on the bastion
+            host. If this is a new install and you do not have one, run it
+            there.
+          </p>
+        )}
+      </form>
+
+      {/*
+        ⚠️ KOD KENDİ PENCERESİNDE, FORMUN İÇİNDE DEĞİL.
+        Satır içi bir kutu olarak eklendiğinde ekranda aynı anda parola ve
+        kod duruyordu; kullanıcı hangi adımda olduğunu ancak kutuların
+        varlığından çıkarabiliyordu. Ayrı bir pencere adımı tek başına
+        gösteriyor — ve kapatmak baştan başlamak demek, ki yanlış koddan
+        sonraki davranışla aynı.
+      */}
+      <Modal
+        open={needCode}
+        title="Authenticator code"
+        description={
+          left !== undefined && left > 0
+            ? `Enter the 6-digit code from your authenticator. This request expires in ${left}s.`
+            : left !== undefined
+              ? "This request has expired. Close this and sign in again."
+              : "Enter the 6-digit code from your authenticator."
+        }
+        onClose={() => backToStart("")}
       >
-        {busy ? "Signing in…" : "Sign in"}
-      </button>
-      {directory ? (
-        <p className="note">
-          Your directory username and the password you use everywhere else.
-          postern checks it against the directory and never stores it. Your SSH
-          access does not use this password — that is your key.
-        </p>
-      ) : (
-        <p className="note">
-          Generated by <code>postern admin bootstrap</code> on the bastion host.
-          If this is a new install and you do not have one, run it there.
-        </p>
-      )}
-    </form>
+        <form
+          className="local-signin"
+          onSubmit={(e) => {
+            e.preventDefault();
+            send(code);
+          }}
+        >
+          <label>
+            Code
+            <input
+              value={code}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              autoFocus
+              onChange={(e) => setCode(e.target.value)}
+            />
+          </label>
+          <button className="btn btn-primary" disabled={busy || !code}>
+            {busy ? "Checking…" : "Confirm"}
+          </button>
+        </form>
+      </Modal>
+    </>
   );
 }
 

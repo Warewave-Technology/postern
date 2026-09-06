@@ -377,7 +377,7 @@ describe("giris yollari", () => {
     render(<App />);
 
     await waitFor(() =>
-      expect(screen.getByLabelText(/postern password/i)).toBeInTheDocument(),
+      expect(screen.getByLabelText(/^Password$/i)).toBeInTheDocument(),
     );
     expect(
       screen.queryByText(/Sign in with your identity provider/i),
@@ -430,11 +430,11 @@ describe("giris yollari", () => {
 
     render(<App />);
     await waitFor(() =>
-      expect(screen.getByLabelText(/postern password/i)).toBeInTheDocument(),
+      expect(screen.getByLabelText(/^Password$/i)).toBeInTheDocument(),
     );
 
     await userEvent.type(screen.getByLabelText(/Username/i), "ops");
-    await userEvent.type(screen.getByLabelText(/postern password/i), "AAAA-BBBB");
+    await userEvent.type(screen.getByLabelText(/^Password$/i), "AAAA-BBBB");
     await userEvent.click(screen.getByRole("button", { name: /^Sign in$/i }));
 
     await waitFor(() =>
@@ -451,7 +451,12 @@ describe("giris yollari", () => {
    * hakkında bilgi vermek. Kutu ancak parola doğrulandıktan sonra
    * beliriyor.
    */
-  it("kod kutusu ancak sunucu isteyince beliriyor", async () => {
+  /*
+   * ⚠️ VARLIK DEĞİL AÇIKLIK sınanıyor: kapalı bir <dialog> çocuklarını
+   * DOM'da tutuyor, dolayısıyla "kutu yok" diye ölçmek yanlış cevap
+   * verir. (Aynı gerekçe Authenticator.test.tsx'te de yazılı.)
+   */
+  it("kod penceresi ancak sunucu isteyince aciliyor", async () => {
     vi.spyOn(api, "me").mockRejectedValue(new ApiError(401, "unauthenticated"));
     vi.spyOn(api, "authMethods").mockResolvedValue({
       source: "local",
@@ -465,36 +470,130 @@ describe("giris yollari", () => {
       error: "enter the code",
     });
 
-    render(<App />);
+    const { container } = render(<App />);
     await waitFor(() =>
-      expect(screen.getByLabelText(/postern password/i)).toBeInTheDocument(),
+      expect(screen.getByLabelText(/^Password$/i)).toBeInTheDocument(),
     );
-    expect(screen.queryByLabelText(/Authenticator code/i)).toBeNull();
+    expect(container.querySelector("dialog")!.open).toBe(false);
 
     await userEvent.type(screen.getByLabelText(/Username/i), "ayse");
-    await userEvent.type(screen.getByLabelText(/postern password/i), "hunter2");
+    await userEvent.type(screen.getByLabelText(/^Password$/i), "hunter2");
     await userEvent.click(screen.getByRole("button", { name: /^Sign in$/i }));
 
     await waitFor(() =>
-      expect(screen.getByLabelText(/Authenticator code/i)).toBeInTheDocument(),
+      expect(container.querySelector("dialog")!.open).toBe(true),
     );
 
     /*
-     * ⚠️ PAROLA KUTUSU DOLU KALIYOR. Kod aynı istekte gönderiliyor, yani
-     * temizlenirse ikinci gönderim parolasız gider ve kullanıcı sebebi
-     * anlaşılmayan bir "yanlış parola" görür.
+     * ⚠️ KOD İSTEMEK BİR HATA DEĞİL. Parola doğru; sunucu ikinci faktörü
+     * soruyor. Hata satırı olarak çizmek, ekranda doğru bir parolayla
+     * birlikte kırmızı bir "Error" göstermek olurdu ve kullanıcı
+     * girişinin başarısız olduğunu sanardı.
      */
-    expect(screen.getByLabelText(/postern password/i)).toHaveValue("hunter2");
+    expect(screen.queryByRole("alert")).toBeNull();
 
-    await userEvent.type(
-      screen.getByLabelText(/Authenticator code/i),
-      "123456",
-    );
-    await userEvent.click(screen.getByRole("button", { name: /^Sign in$/i }));
+    await userEvent.type(screen.getByLabelText(/^Code$/i), "123456");
+    await userEvent.click(screen.getByRole("button", { name: /Confirm/i }));
 
     await waitFor(() =>
       expect(login).toHaveBeenLastCalledWith("ayse", "hunter2", "123456"),
     );
+  });
+
+  /*
+   * ⚠️ SÜRESİ GEÇMİŞ İSTEM DE BAŞA DÖNDÜRÜYOR.
+   *
+   * Kod gönderdik ve sunucu YİNE kod istiyor: bu, istemin zaman aşımına
+   * uğradığı anlamına geliyor. Pencerede kalıp tekrar denetmek, geçersiz
+   * bir istemle uğraşmaya devam ettirirdi — sunucu o denemeyi zaten bir
+   * başarısızlık olarak saymış durumda.
+   */
+  it("suresi gecmis istem giris adimina dondurur", async () => {
+    vi.spyOn(api, "me").mockRejectedValue(new ApiError(401, "unauthenticated"));
+    vi.spyOn(api, "authMethods").mockResolvedValue({
+      source: "local",
+      oidc: false,
+      local: true,
+      ldap: false,
+    });
+    vi.spyOn(api, "localLogin")
+      .mockResolvedValueOnce({
+        ok: false,
+        totpRequired: true,
+        error: "enter the code",
+        expiresIn: 120,
+      })
+      .mockResolvedValue({
+        ok: false,
+        totpRequired: true,
+        error: "that code request timed out; sign in again",
+      });
+
+    const { container } = render(<App />);
+    await waitFor(() =>
+      expect(screen.getByLabelText(/^Password$/i)).toBeInTheDocument(),
+    );
+    await userEvent.type(screen.getByLabelText(/Username/i), "ayse");
+    await userEvent.type(screen.getByLabelText(/^Password$/i), "hunter2");
+    await userEvent.click(screen.getByRole("button", { name: /^Sign in$/i }));
+
+    await waitFor(() =>
+      expect(container.querySelector("dialog")!.open).toBe(true),
+    );
+    await userEvent.type(screen.getByLabelText(/^Code$/i), "123456");
+    await userEvent.click(screen.getByRole("button", { name: /Confirm/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/timed out/i)).toBeInTheDocument(),
+    );
+    expect(container.querySelector("dialog")!.open).toBe(false);
+  });
+
+  /*
+   * ⚠️ YANLIŞ KOD BAŞA DÖNDÜRÜYOR.
+   *
+   * Kod kutusunda kalıp tekrar denetmek, parolayı bir kez kanıtlamış
+   * birine sınırsız kod denemesi vermek olurdu. Her denemeyi paroladan
+   * geçirmek, tahmin eden tarafın her turda iki şeyi birden bilmesini
+   * şart koşuyor.
+   */
+  it("yanlis kod hata gosterir ve giris adimina dondurur", async () => {
+    vi.spyOn(api, "me").mockRejectedValue(new ApiError(401, "unauthenticated"));
+    vi.spyOn(api, "authMethods").mockResolvedValue({
+      source: "local",
+      oidc: false,
+      local: true,
+      ldap: false,
+    });
+    vi.spyOn(api, "localLogin")
+      .mockResolvedValueOnce({
+        ok: false,
+        totpRequired: true,
+        error: "enter the code",
+        expiresIn: 120,
+      })
+      .mockRejectedValue(new ApiError(401, "wrong code"));
+
+    const { container } = render(<App />);
+    await waitFor(() =>
+      expect(screen.getByLabelText(/^Password$/i)).toBeInTheDocument(),
+    );
+    await userEvent.type(screen.getByLabelText(/Username/i), "ayse");
+    await userEvent.type(screen.getByLabelText(/^Password$/i), "hunter2");
+    await userEvent.click(screen.getByRole("button", { name: /^Sign in$/i }));
+
+    await waitFor(() =>
+      expect(container.querySelector("dialog")!.open).toBe(true),
+    );
+    await userEvent.type(screen.getByLabelText(/^Code$/i), "000000");
+    await userEvent.click(screen.getByRole("button", { name: /Confirm/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/wrong code/i)).toBeInTheDocument(),
+    );
+    expect(container.querySelector("dialog")!.open).toBe(false);
+    // Parola da temizlendi: ekranı açık unutan birinin parolası kalmasın.
+    expect(screen.getByLabelText(/^Password$/i)).toHaveValue("");
   });
 
   it("yanlis sirda hata gosterir ve formda kalir", async () => {
@@ -511,17 +610,19 @@ describe("giris yollari", () => {
 
     render(<App />);
     await waitFor(() =>
-      expect(screen.getByLabelText(/postern password/i)).toBeInTheDocument(),
+      expect(screen.getByLabelText(/^Password$/i)).toBeInTheDocument(),
     );
 
     await userEvent.type(screen.getByLabelText(/Username/i), "ops");
-    await userEvent.type(screen.getByLabelText(/postern password/i), "yanlis");
+    await userEvent.type(screen.getByLabelText(/^Password$/i), "yanlis");
     await userEvent.click(screen.getByRole("button", { name: /^Sign in$/i }));
 
     await waitFor(() =>
-      expect(screen.getByText(/wrong username or password/i)).toBeInTheDocument(),
+      expect(
+        screen.getByText(/wrong username or password/i),
+      ).toBeInTheDocument(),
     );
-    expect(screen.getByLabelText(/postern password/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Password$/i)).toBeInTheDocument();
   });
 
   it("uc cevap vermezse dugme cizilmez", async () => {
@@ -564,7 +665,7 @@ describe("dizin kapisi", () => {
     await waitFor(() =>
       expect(screen.getByLabelText(/Directory password/i)).toBeInTheDocument(),
     );
-    expect(screen.queryByLabelText(/postern password/i)).toBeNull();
+    expect(screen.queryByLabelText(/^Password$/i)).toBeNull();
     // ⚠️ Ve bunun SSH'ı ilgilendirmediğini söylüyor: kullanıcı bu
     // parolayı ssh'ta denemeye kalkmasın.
     expect(
@@ -1178,10 +1279,10 @@ describe("kod isteminin suresi", () => {
 
     render(<App />);
     await waitFor(() =>
-      expect(screen.getByLabelText(/postern password/i)).toBeInTheDocument(),
+      expect(screen.getByLabelText(/^Password$/i)).toBeInTheDocument(),
     );
     await userEvent.type(screen.getByLabelText(/Username/i), "ayse");
-    await userEvent.type(screen.getByLabelText(/postern password/i), "parola");
+    await userEvent.type(screen.getByLabelText(/^Password$/i), "parola");
     await userEvent.click(screen.getByRole("button", { name: /^Sign in$/i }));
 
     await waitFor(() =>
@@ -1219,10 +1320,10 @@ describe("kod isteminin suresi", () => {
 
     render(<App />);
     await waitFor(() =>
-      expect(screen.getByLabelText(/postern password/i)).toBeInTheDocument(),
+      expect(screen.getByLabelText(/^Password$/i)).toBeInTheDocument(),
     );
     await userEvent.type(screen.getByLabelText(/Username/i), "ayse");
-    await userEvent.type(screen.getByLabelText(/postern password/i), "parola");
+    await userEvent.type(screen.getByLabelText(/^Password$/i), "parola");
     await userEvent.click(screen.getByRole("button", { name: /^Sign in$/i }));
 
     await waitFor(() =>
