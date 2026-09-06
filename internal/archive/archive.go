@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -299,7 +300,33 @@ func (a *Archiver) archiveOne(ctx context.Context, client *objstore.Client, p st
 
 	key := a.keyFor(p, path)
 
-	sum, err := client.Put(ctx, key, f, info.Size())
+	/*
+	 * ⚠️ ZİNCİR BAŞI NESNENİN ÜSTVERİSİNE GİDİYOR — ve asıl değeri
+	 * burada ortaya çıkıyor.
+	 *
+	 * Yereldeki baş veritabanında duruyor ve bastion'da root olan onu
+	 * kayıtla birlikte yeniden yazabilir. Kovadaki kopya o makinenin
+	 * ULAŞAMADIĞI yer: kova varsayılan saklama süresiyle (Object Lock)
+	 * korunuyorsa, yüklenmiş bir nesne saklama süresi boyunca ne
+	 * değiştirilebilir ne silinebilir — postern'in kimlik bilgisiyle bile.
+	 * Zincirin taşıdığı kanıt, bu kopyanın taşıdığı kanıttır.
+	 *
+	 * postern saklama süresini İSTEKLE dayatmıyor (bkz. objstore.Put);
+	 * kovanın öyle ayarlanmış olup olmadığını `postern archive check`
+	 * raporluyor.
+	 *
+	 * Zinciri olmayan kayıtta üstveri hiç yazılmıyor: boş bir baş
+	 * yüklemek, doğrulanamayan bir kaydı doğrulanmış göstermek olurdu.
+	 */
+	var meta map[string]string
+	if p.Chain != "" {
+		meta = map[string]string{
+			"Postern-Chain": p.Chain,
+			"Postern-Links": strconv.FormatInt(p.Links, 10),
+		}
+	}
+
+	sum, err := client.Put(ctx, key, f, info.Size(), meta)
 	if err != nil {
 		// ⚠️ gone=false: 403/404 gibi yapılandırma hataları kuyruktan
 		// ÇIKMIYOR — operatör düzeltince kuyruk boşalmalı.

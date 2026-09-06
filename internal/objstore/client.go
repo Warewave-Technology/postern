@@ -229,7 +229,20 @@ func isLoopbackHost(rest string) bool {
 //
 // Dönen sha256, gönderilen içeriğin özeti: çağıran bunu denetim
 // kaydına yazıyor.
-func (c *Client) Put(ctx context.Context, key string, f *os.File, size int64) (sha256hex string, err error) {
+/*
+ * Put, nesneyi yükler. meta, x-amz-meta-* başlıkları olarak gider.
+ *
+ * ⚠️ META NEDEN NESNENİN ÜSTÜNDE, AYRI BİR DOSYADA DEĞİL. Kayıt zinciri
+ * için iki seçenek vardı: yanına küçük bir nesne koymak, ya da nesnenin
+ * kendi üstveri alanına yazmak. İkincisi seçildi çünkü ayrı nesne, kovanın
+ * saklama ayarından bağımsız yaşar ve ikisinin senkron kalması kimsenin
+ * garantisi değil — biri silinip diğeri kalabilir. Üstveri, nesnenin
+ * kendisiyle aynı Object Lock saklama süresine tabi.
+ *
+ * SigV4 istekteki HER başlığı imzaladığı için (bkz. canonicalizeHeaders)
+ * üstveri de imzanın içinde; yolda değiştirilirse imza tutmaz.
+ */
+func (c *Client) Put(ctx context.Context, key string, f *os.File, size int64, meta map[string]string) (sha256hex string, err error) {
 	if size > maxSinglePut {
 		return "", fmt.Errorf("objstore.Put %s: %d bytes: %w", key, size, ErrTooLarge)
 	}
@@ -268,6 +281,17 @@ func (c *Client) Put(ctx context.Context, key string, f *os.File, size int64) (s
 	// gönderdiklerimizle aynı olduğunu bununla doğruluyor; bastion'ı ele
 	// geçiren biri her ikisini de üretebilir.
 	req.Header.Set("X-Amz-Checksum-Sha256", base64.StdEncoding.EncodeToString(digest))
+
+	/*
+	 * ⚠️ ÜSTVERİ ANAHTARLARI SABİT KÜMEDEN GELİYOR (çağıran kodda),
+	 * kullanıcı girdisinden değil. Buraya keyfi bir anahtar gelseydi
+	 * başlık enjeksiyonuna açık olurdu; Go'nun Header.Set'i satır sonunu
+	 * temizler ama imzanın kanonikleştirmesi ile sunucunun ayrıştırması
+	 * arasındaki her fark bir yüzeydir.
+	 */
+	for k, v := range meta {
+		req.Header.Set("X-Amz-Meta-"+k, v)
+	}
 
 	// Yalnızca operatör istediyse (bkz. Config.ServerSideEncryption).
 	if c.cfg.ServerSideEncryption != "" {

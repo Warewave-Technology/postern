@@ -21,6 +21,17 @@ type ArchivePending struct {
 	RecordingPath string
 	StartedAt     time.Time
 	Attempts      int
+
+	// Chain ve Links, kaydın zincir başı (göç 034). Yükleyici bunları
+	// nesnenin üstverisine yazıyor, böylece baş kayıtla AYNI nesnede ve
+	// aynı saklama süresine tabi duruyor.
+	//
+	// Boş olabilir: göç öncesi kapanmış ya da çökme sonrası süpürülmüş
+	// oturumların zinciri yok. O hâlde üstveri de yazılmıyor — boş bir
+	// başı yüklemek, doğrulanamayan bir kaydı doğrulanmış göstermenin
+	// yolu olurdu.
+	Chain string
+	Links int64
 }
 
 // ArchiveState, bir oturumun arşiv durumu.
@@ -103,9 +114,11 @@ func (s *Store) ClaimArchives(ctx context.Context, limit int, now time.Time,
 			LIMIT $4
 		)
 		RETURNING session_id,
-		          (SELECT recording_path FROM sessions WHERE id = session_id),
-		          (SELECT started_at     FROM sessions WHERE id = session_id),
-		          attempts;`,
+		          (SELECT recording_path  FROM sessions WHERE id = session_id),
+		          (SELECT started_at      FROM sessions WHERE id = session_id),
+		          attempts,
+		          (SELECT recording_chain FROM sessions WHERE id = session_id),
+		          (SELECT recording_links FROM sessions WHERE id = session_id);`,
 		nowUnix, staleClaim, retrySecs, limit, nowUnix)
 	if err != nil {
 		return nil, translateErr("store.ClaimArchives", err)
@@ -116,7 +129,8 @@ func (s *Store) ClaimArchives(ctx context.Context, limit int, now time.Time,
 	for rows.Next() {
 		var p ArchivePending
 		var startedAt int64
-		if err := rows.Scan(&p.SessionID, &p.RecordingPath, &startedAt, &p.Attempts); err != nil {
+		if err := rows.Scan(&p.SessionID, &p.RecordingPath, &startedAt, &p.Attempts,
+			&p.Chain, &p.Links); err != nil {
 			return nil, translateErr("store.ClaimArchives", err)
 		}
 		p.StartedAt = time.Unix(startedAt, 0)
