@@ -22,13 +22,19 @@ const (
 	fxpClose    = 4
 	fxpRead     = 5
 	fxpWrite    = 6
+	fxpLstat    = 7
+	fxpFstat    = 8
 	fxpSetstat  = 9
 	fxpFsetstat = 10
 	fxpOpendir  = 11
+	fxpReaddir  = 12
 	fxpRemove   = 13
 	fxpMkdir    = 14
 	fxpRmdir    = 15
+	fxpRealpath = 16
+	fxpStat     = 17
 	fxpRename   = 18
+	fxpReadlink = 19
 	fxpSymlink  = 20
 	fxpExtended = 200
 

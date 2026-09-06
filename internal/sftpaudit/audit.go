@@ -35,6 +35,8 @@ const (
 	OpOpendir  Op = "opendir"
 	OpLink     Op = "hardlink"
 	OpExtended Op = "extended"
+	// OpUnknown, TANIMADIĞIMIZ bir istek türü.
+	OpUnknown Op = "unknown"
 )
 
 // Event, denetim kaydına düşen tek satır.
@@ -242,10 +244,48 @@ func (s *Session) onRequest(typ byte, r *reader) error {
 		return s.addPending(id, pendingOp{typ: typ, path: path})
 	}
 
-	// Kalanlar (stat, lstat, readdir, realpath, readlink...) salt okuma
-	// üstverisi; dosya içeriğine dokunmuyorlar ve denetim satırı
-	// üretmiyorlar. Yine de akış çözümlenmeye devam ediyor.
-	return nil
+	/*
+	 * Tanıdığımız salt-okuma üstverisi: dosya içeriğine ya da ad uzayına
+	 * dokunmuyorlar, satır üretmiyorlar. Akış çözümlenmeye devam ediyor.
+	 */
+	if readOnlyRequests[typ] {
+		return nil
+	}
+
+	/*
+	 * ⚠️ TANIMADIĞIMIZ TÜR SESSİZCE GEÇMİYOR — EKLENTİLERDEKİYLE AYNI
+	 * GEREKÇE (bkz. onExtended). Burası eskiden her bilinmeyen türü
+	 * "salt okuma üstverisi" sayıyordu, yani ÖNCEDEN ONAYLIYORDU.
+	 *
+	 * ÖLÇÜLEN AÇIK: sürüm anlaşmasını izlemiyoruz (fxpInit'e bakılmıyor),
+	 * dolayısıyla hedef v6 konuşuyorsa SSH_FXP_LINK (21) — sabit dosya
+	 * bağlantısı YARATAN bir işlem — bu kovaya düşüp deftere hiç
+	 * girmiyordu. BLOCK (22) ve UNBLOCK (23) de öyle. "Yarın eklenen bir
+	 * tür önceden onaylanmış olmamalı" cümlesi eklentiler için yazılmıştı;
+	 * temel tür uzayında uygulanmamıştı.
+	 *
+	 * Gövdeyi çözemiyoruz (biçimini bilmiyoruz) ama isteğin KİMLİĞİNİ
+	 * okuyabiliyoruz: INIT dışında her istek onunla başlıyor. Kimlik,
+	 * hedefin cevabını bu satıra bağlamaya yetiyor — yani "bilinmeyen tür
+	 * 21 BAŞARILI oldu" yazabiliyoruz. Operatörün görmesi gereken satır bu.
+	 */
+	id, err := r.uint32()
+	if err != nil {
+		return err
+	}
+
+	return s.addPending(id, pendingOp{typ: typ})
+}
+
+// readOnlyRequests, satır ÜRETMEYEN istek türleri: hiçbiri içeriği ya da
+// ad uzayını değiştirmiyor. quietExtensions'ın temel tür karşılığı.
+var readOnlyRequests = map[byte]bool{
+	fxpLstat:    true,
+	fxpFstat:    true,
+	fxpReaddir:  true,
+	fxpRealpath: true,
+	fxpStat:     true,
+	fxpReadlink: true,
 }
 
 /*
@@ -353,6 +393,17 @@ func (s *Session) onReply(typ byte, r *reader) error {
 			s.write(Event{Op: OpOpendir, Path: p.path, OK: true})
 			return nil
 		}
+		/*
+		 * ⚠️ TANIMADIĞIMIZ TÜR TANITICI DÖNDÜRDÜYSE onu DOSYA olarak
+		 * kaydetmiyoruz. p.path boş olurdu ve sonraki READ/WRITE baytları
+		 * boş yola atfedilirdi — yani defter, olmayan bir dosyaya yapılmış
+		 * gerçek bir transfer gösterirdi. Yanlış satır, eksik satırdan kötü.
+		 */
+		if p.typ != fxpOpen && p.typ != fxpExtended {
+			s.write(Event{Op: OpUnknown, OK: true,
+				Detail: unknownDetail(p.typ, "returned a handle")})
+			return nil
+		}
 		if len(s.handles)+len(s.dirHandles) >= maxHandles {
 			return fmt.Errorf("sftpaudit: too many open handles (limit %d)", maxHandles)
 		}
@@ -455,10 +506,27 @@ func (s *Session) onStatus(p pendingOp, code uint32, msg string) {
 
 	op, ok2 := statusOps[p.typ]
 	if !ok2 {
+		/*
+		 * Buraya yalnızca TANIMADIĞIMIZ bir tür düşebiliyor: tanıdığımız
+		 * her istek ya yukarıdaki switch'te ya statusOps'ta karşılanıyor.
+		 * Türün numarası olayın kendisi — adını bilmediğimiz bir işlemin
+		 * hedefte ÇALIŞTIĞINI yazmak, hiç yazmamaktan iyi.
+		 */
+		s.write(Event{Op: OpUnknown, OK: ok, Status: code,
+			Detail: unknownDetail(p.typ, msg)})
 		return
 	}
 	s.write(Event{Op: op, Path: p.path, NewPath: p.newPath,
 		OK: ok, Status: code, Detail: msg})
+}
+
+// unknownDetail, bilinmeyen tür olayının detail alanını kurar.
+func unknownDetail(typ byte, msg string) string {
+	d := fmt.Sprintf("request type %d", typ)
+	if msg != "" {
+		d += ": " + msg
+	}
+	return d
 }
 
 // statusOps, cevabı STATUS olan istek tiplerini olay adına çevirir.
