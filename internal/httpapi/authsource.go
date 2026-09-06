@@ -255,7 +255,7 @@ func (s *Server) canSwitchTo(ctx context.Context, want auth.LoginSource) error {
 				return nil
 			}
 		}
-		return errors.New("no local administrator has a usable sign-in secret — " +
+		return errors.New("no local administrator has a usable sign-in password — " +
 			"run `postern admin issue --name <name>` on the bastion host first, " +
 			"otherwise switching to local sign-in closes the panel for everyone")
 

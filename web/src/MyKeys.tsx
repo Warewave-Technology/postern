@@ -244,7 +244,7 @@ export default function MyKeys({ canAdd = true }: { canAdd?: boolean }) {
               <label>
                 {byCode
                   ? "Code from your authenticator"
-                  : "Confirm with your sign-in secret"}
+                  : "Confirm with your sign-in password"}
                 <input
                   type={byCode ? "text" : "password"}
                   inputMode={byCode ? "numeric" : undefined}

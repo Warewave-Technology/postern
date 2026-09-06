@@ -34,7 +34,7 @@ describe("kendi anahtarlarim", () => {
     await openAddDialog();
     expect(screen.getByLabelText(/Public key/i)).toBeInTheDocument();
 
-    expect(screen.queryByLabelText(/sign-in secret/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/sign-in password/i)).not.toBeInTheDocument();
 
     await userEvent.type(
       screen.getByLabelText(/Public key/i),
@@ -62,7 +62,7 @@ describe("kendi anahtarlarim", () => {
 
     render(<MyKeys />);
     await openAddDialog();
-    expect(screen.getByLabelText(/sign-in secret/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/sign-in password/i)).toBeInTheDocument();
     expect(
       screen.getByText(/stolen session would keep access/i),
     ).toBeInTheDocument();
@@ -71,7 +71,7 @@ describe("kendi anahtarlarim", () => {
       screen.getByLabelText(/Public key/i),
       "ssh-ed25519 BBBB",
     );
-    await userEvent.type(screen.getByLabelText(/sign-in secret/i), "AAAA-BBBB");
+    await userEvent.type(screen.getByLabelText(/sign-in password/i), "AAAA-BBBB");
     await userEvent.click(screen.getByRole("button", { name: /Add key/i }));
 
     await waitFor(() =>
@@ -193,7 +193,7 @@ describe("kendi anahtarımı kaldırmak", () => {
 /*
  * ⚠️ HANGİ KANITIN İSTENDİĞİ EKRANDA DOĞRU YAZMALI.
  *
- * Kimlik doğrulayıcı bağlamış bir kullanıcıya "sign-in secret" sormak,
+ * Kimlik doğrulayıcı bağlamış bir kullanıcıya "sign-in password" sormak,
  * onu olmayan bir parolayı aramaya gönderir. Sunucu ayrımı yapıyor
  * (reauth_totp); ekranın da yapması gerekiyor.
  */
@@ -217,7 +217,7 @@ describe("yeniden doğrulama biçimi", () => {
     expect(
       screen.getByLabelText(/code from your authenticator/i),
     ).toBeInTheDocument();
-    expect(screen.queryByLabelText(/sign-in secret/i)).toBeNull();
+    expect(screen.queryByLabelText(/sign-in password/i)).toBeNull();
   });
 
   it("ikinci faktör yoksa eskisi gibi sır istiyor", async () => {
@@ -236,7 +236,7 @@ describe("yeniden doğrulama biçimi", () => {
     render(<MyKeys />);
     await openAddDialog();
 
-    expect(screen.getByLabelText(/sign-in secret/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/sign-in password/i)).toBeInTheDocument();
   });
 
   /*

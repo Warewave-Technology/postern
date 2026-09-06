@@ -28,7 +28,9 @@ import (
  *     kurulumun tek yöneticisini dışarıda tutan bir düğme verirdi.
  *   - Hız sınırı GÜVENLİK için değil, YÜK için: her deneme argon2id
  *     ile 19MB ayırtıyor.
- *   - Biçimi tutmayan değer KDF'e hiç ulaşmıyor (auth.NormalizeSecret).
+ *   - Biçimi tutmayan ÜRETİLMİŞ değer KDF'e hiç ulaşmıyor
+ *     (auth.NormalizeSecret). Kullanıcının SEÇTİĞİ parolada böyle bir
+ *     biçim yok; o yol password.go'dan geçiyor.
  */
 
 // localLoginSlots, aynı anda yürütülebilecek doğrulama sayısı.
@@ -82,14 +84,29 @@ func (l *localLimiter) allow(key string) bool {
 /*
  * handleLocalLogin: POST /auth/local
  *
- * Gövde: {"username": "...", "secret": "..."}
+ * Gövde: {"username": "...", "password": "..."}
  */
 func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 	log := s.logger.With("remote", r.RemoteAddr)
 
 	var in struct {
 		Username string `json:"username"`
-		Secret   string `json:"secret"`
+		/*
+		 * Password, postern'in KENDİ parolası.
+		 *
+		 * ⚠️ ESKİDEN "secret" DENİYORDU ve değişme sebebi bir olgunun
+		 * değişmesi: o ad, değerin makine üretimi olduğu ve kullanıcının
+		 * SEÇMEDİĞİ dönemden kalmaydı. Yerel hesaplar artık kendi
+		 * parolalarını seçiyor (Credential.Chosen → auth.VerifyPassword),
+		 * dolayısıyla "sır" demek kullanıcıya yazdığı şeyin ne olduğunu
+		 * yanlış anlatıyordu.
+		 *
+		 * ⚠️ AYRIM YİNE DE DURUYOR, YALNIZCA YERİ DEĞİŞTİ: arayüz "postern
+		 * password" ile "Directory password"ü ayırıyor. Korunmak istenen
+		 * şey kurumsal parolanın yerel kutuya yazılması; onu engelleyen,
+		 * alanın adı değil KİMİN parolası olduğunun yazması.
+		 */
+		Password string `json:"password"`
 		// Code, hesabın DOĞRULANMIŞ bir ikinci faktörü varsa istenen
 		// TOTP kodu. Aynı istekte gönderiliyor: iki adımlı bir akış,
 		// aradaki durumu taşıyacak bir ara belirteç gerektirirdi ve o
@@ -131,7 +148,7 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 	 */
 	switch src {
 	case auth.SourceLDAP:
-		s.directoryLogin(w, r, log, in.Username, in.Secret)
+		s.directoryLogin(w, r, log, in.Username, in.Password)
 		return
 	case auth.SourceOIDC:
 		/*
@@ -215,7 +232,7 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !verifyCredential(cred, in.Secret) {
+	if !verifyCredential(cred, in.Password) {
 		/*
 		 * ⚠️ GECİKME YALNIZCA PAROLA TUTAN HESAPLARA.
 		 *
@@ -255,11 +272,11 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 		log.Warn("local login refused", "account_known", err == nil)
 		if aerr := s.store.LogAdmin(r.Context(), store.AdminLogEntry{
 			Actor: "anonymous", Via: "local", Action: "auth.local_denied", Entity: entity,
-			Details: "wrong or malformed secret",
+			Details: "wrong or malformed password",
 		}); aerr != nil {
 			log.Error("audit write failed", "error", aerr)
 		}
-		writeErr(w, http.StatusUnauthorized, "wrong username or secret")
+		writeErr(w, http.StatusUnauthorized, "wrong username or password")
 		return
 	}
 
@@ -285,7 +302,7 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 	// ⚠️ Silinmiş hesap girişle geri gelmez (bkz. göç 023).
 	if derr := s.store.RefuseIfDeleted(r.Context(), in.Username); derr != nil {
 		log.Warn("local login denied: account is deleted", "user", in.Username)
-		writeErr(w, http.StatusUnauthorized, "wrong username or secret")
+		writeErr(w, http.StatusUnauthorized, "wrong username or password")
 		return
 	}
 
@@ -388,7 +405,7 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if aerr := s.store.LogAdmin(r.Context(), store.AdminLogEntry{
 		Actor: u.Name, Via: "local", Action: "auth.local_login", Entity: u.Name,
-		Details: "signed in with the local secret",
+		Details: "signed in with the local password",
 	}); aerr != nil {
 		log.Error("audit write failed", "error", aerr)
 	}

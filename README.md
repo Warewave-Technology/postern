@@ -873,7 +873,7 @@ postern serve --config postern.yaml
 authenticator secret, and it is what encrypts
 settings kept in the database — the archive credential and the directory bind
 password among them — so the panel cannot store those without it.
-`admin bootstrap` prints a sign-in secret once and never again; without it the
+`admin bootstrap` prints a sign-in password once and never again; without it the
 panel has nobody to let in.
 
 `db migrate` takes a PostgreSQL advisory lock, so running it from two

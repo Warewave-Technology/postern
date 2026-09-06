@@ -22,7 +22,7 @@ import (
 func secretFrom(t *testing.T, out string) string {
 	t.Helper()
 	for _, line := range strings.Split(out, "\n") {
-		if !strings.Contains(line, "sign-in secret:") {
+		if !strings.Contains(line, "sign-in password:") {
 			continue
 		}
 		parts := strings.Fields(line)
@@ -339,7 +339,7 @@ func TestBootstrapAdviceForALostSecretActuallyWorks(t *testing.T) {
 	if ierr != nil {
 		t.Fatalf("tavsiyenin ikinci adımı düştü: %v\n%s", ierr, iout)
 	}
-	if !strings.Contains(iout, "sign-in secret") {
+	if !strings.Contains(iout, "sign-in password") {
 		t.Errorf("issue taze bir sır basmadı; çıktı:\n%s", iout)
 	}
 }

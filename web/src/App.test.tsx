@@ -377,7 +377,7 @@ describe("giris yollari", () => {
     render(<App />);
 
     await waitFor(() =>
-      expect(screen.getByLabelText(/Sign-in secret/i)).toBeInTheDocument(),
+      expect(screen.getByLabelText(/postern password/i)).toBeInTheDocument(),
     );
     expect(
       screen.queryByText(/Sign in with your identity provider/i),
@@ -405,13 +405,14 @@ describe("giris yollari", () => {
   });
 
   /*
-   * Yerel kapı: sır doğruysa oturum açılır.
+   * Yerel kapı: parola doğruysa oturum açılır.
    *
-   * ⚠️ Metinler "password" değil "secret" diyor ve bu kasıtlı —
-   * kullanıcının buraya kurumsal parolasını yazma refleksini
-   * beslememek gerekiyor.
+   * ⚠️ ETİKET "postern password", yalnızca "Password" DEĞİL. Korunmak
+   * istenen şey kullanıcının kurumsal parolasını buraya yazması; onu
+   * engelleyen, kutunun adı değil KİMİN parolası olduğunun yazması.
+   * Dizin kapısı açıkken aynı form "Directory password" diyor.
    */
-  it("yerel sirla giris yapar", async () => {
+  it("yerel parolayla giris yapar", async () => {
     const meSpy = vi
       .spyOn(api, "me")
       .mockRejectedValueOnce(new ApiError(401, "unauthenticated"))
@@ -429,11 +430,11 @@ describe("giris yollari", () => {
 
     render(<App />);
     await waitFor(() =>
-      expect(screen.getByLabelText(/Sign-in secret/i)).toBeInTheDocument(),
+      expect(screen.getByLabelText(/postern password/i)).toBeInTheDocument(),
     );
 
     await userEvent.type(screen.getByLabelText(/Username/i), "ops");
-    await userEvent.type(screen.getByLabelText(/Sign-in secret/i), "AAAA-BBBB");
+    await userEvent.type(screen.getByLabelText(/postern password/i), "AAAA-BBBB");
     await userEvent.click(screen.getByRole("button", { name: /^Sign in$/i }));
 
     await waitFor(() =>
@@ -466,12 +467,12 @@ describe("giris yollari", () => {
 
     render(<App />);
     await waitFor(() =>
-      expect(screen.getByLabelText(/Sign-in secret/i)).toBeInTheDocument(),
+      expect(screen.getByLabelText(/postern password/i)).toBeInTheDocument(),
     );
     expect(screen.queryByLabelText(/Authenticator code/i)).toBeNull();
 
     await userEvent.type(screen.getByLabelText(/Username/i), "ayse");
-    await userEvent.type(screen.getByLabelText(/Sign-in secret/i), "hunter2");
+    await userEvent.type(screen.getByLabelText(/postern password/i), "hunter2");
     await userEvent.click(screen.getByRole("button", { name: /^Sign in$/i }));
 
     await waitFor(() =>
@@ -483,7 +484,7 @@ describe("giris yollari", () => {
      * temizlenirse ikinci gönderim parolasız gider ve kullanıcı sebebi
      * anlaşılmayan bir "yanlış parola" görür.
      */
-    expect(screen.getByLabelText(/Sign-in secret/i)).toHaveValue("hunter2");
+    expect(screen.getByLabelText(/postern password/i)).toHaveValue("hunter2");
 
     await userEvent.type(
       screen.getByLabelText(/Authenticator code/i),
@@ -505,22 +506,22 @@ describe("giris yollari", () => {
       ldap: false,
     });
     vi.spyOn(api, "localLogin").mockRejectedValue(
-      new ApiError(401, "wrong username or secret"),
+      new ApiError(401, "wrong username or password"),
     );
 
     render(<App />);
     await waitFor(() =>
-      expect(screen.getByLabelText(/Sign-in secret/i)).toBeInTheDocument(),
+      expect(screen.getByLabelText(/postern password/i)).toBeInTheDocument(),
     );
 
     await userEvent.type(screen.getByLabelText(/Username/i), "ops");
-    await userEvent.type(screen.getByLabelText(/Sign-in secret/i), "yanlis");
+    await userEvent.type(screen.getByLabelText(/postern password/i), "yanlis");
     await userEvent.click(screen.getByRole("button", { name: /^Sign in$/i }));
 
     await waitFor(() =>
-      expect(screen.getByText(/wrong username or secret/i)).toBeInTheDocument(),
+      expect(screen.getByText(/wrong username or password/i)).toBeInTheDocument(),
     );
-    expect(screen.getByLabelText(/Sign-in secret/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/postern password/i)).toBeInTheDocument();
   });
 
   it("uc cevap vermezse dugme cizilmez", async () => {
@@ -563,7 +564,7 @@ describe("dizin kapisi", () => {
     await waitFor(() =>
       expect(screen.getByLabelText(/Directory password/i)).toBeInTheDocument(),
     );
-    expect(screen.queryByLabelText(/Sign-in secret/i)).toBeNull();
+    expect(screen.queryByLabelText(/postern password/i)).toBeNull();
     // ⚠️ Ve bunun SSH'ı ilgilendirmediğini söylüyor: kullanıcı bu
     // parolayı ssh'ta denemeye kalkmasın.
     expect(

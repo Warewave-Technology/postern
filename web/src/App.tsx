@@ -143,12 +143,15 @@ function Brand({ size = 20 }: { size?: number }) {
 /*
  * LocalSignIn, postern'in kendi kapısı.
  *
- * ⚠️ BURASI BİR PAROLA KUTUSU DEĞİL. Değeri kullanıcı seçmiyor;
- * `postern admin bootstrap` üretiyor ve bir kez basıyor. Metinlerin
- * "password" değil "secret" demesi bu yüzden: kullanıcının buraya
- * kurumsal parolasını yazma refleksini beslememek gerekiyor. Sunucu
- * zaten biçimi tutmayan bir değeri hiç doğrulamıyor, ama arayüzün de
- * aynı şeyi söylemesi lazım.
+ * ⚠️ ESKİDEN "Sign-in secret" DİYORDU ve o ad, değeri kullanıcının
+ * SEÇMEDİĞİ dönemden kalmaydı: `postern admin bootstrap` üretiyor ve bir
+ * kez basıyordu. Yerel hesaplar artık kendi parolalarını seçiyor, yani
+ * "sır" demek kullanıcıya yazdığı şeyin ne olduğunu yanlış anlatıyordu.
+ *
+ * ⚠️ KORUNMASI GEREKEN ŞEY AD DEĞİL, AYRIM. Endişe kullanıcının kurumsal
+ * parolasını buraya yazması; onu engelleyen şey kutunun "password"
+ * dememesi değil, KİMİN parolası olduğunun yazması. O yüzden etiket
+ * "postern password" ile "Directory password" arasında ayrılıyor.
  */
 function LocalSignIn({
   onDone,
@@ -166,7 +169,7 @@ function LocalSignIn({
   directory?: boolean;
 }) {
   const [username, setUsername] = useState("");
-  const [secret, setSecret] = useState("");
+  const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   /*
    * needCode: sunucu ikinci faktör istedi.
@@ -185,7 +188,7 @@ function LocalSignIn({
     setBusy(true);
     setError("");
     api
-      .localLogin(username.trim(), secret, code)
+      .localLogin(username.trim(), password, code)
       .then((res) => {
         if (res.totpRequired) {
           setNeedCode(true);
@@ -211,16 +214,16 @@ function LocalSignIn({
         />
       </label>
       <label>
-        {directory ? "Directory password" : "Sign-in secret"}
+        {directory ? "Directory password" : "postern password"}
         <input
           type="password"
-          value={secret}
+          value={password}
           // ⚠️ Yerelde current-password DEĞİL: tarayıcının parola
           // yöneticisine makine üretimi bir sırrı "parola" diye
           // kaydettirmek, kullanıcıyı tam da kaçındığımız zihniyete
           // iten ilk adım. Dizin kipinde ise gerçekten parola.
           autoComplete={directory ? "current-password" : "one-time-code"}
-          onChange={(e) => setSecret(e.target.value)}
+          onChange={(e) => setPassword(e.target.value)}
         />
       </label>
       {needCode && (
@@ -238,7 +241,7 @@ function LocalSignIn({
       <ErrorLine msg={error} />
       <button
         className="btn btn-primary"
-        disabled={busy || !username || !secret}
+        disabled={busy || !username || !password}
       >
         {busy ? "Signing in…" : "Sign in"}
       </button>

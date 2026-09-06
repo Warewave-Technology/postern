@@ -210,7 +210,7 @@ export default function Authenticator({
             <form className="key-form" onSubmit={begin}>
               {!status.needs_fresh_login && (
                 <label>
-                  Confirm with your sign-in secret
+                  Confirm with your sign-in password
                   <input
                     type="password"
                     autoComplete="current-password"

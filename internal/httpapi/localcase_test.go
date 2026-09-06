@@ -49,7 +49,7 @@ func TestLocalDoorAcceptsCaseVariantWithCorrectSecret(t *testing.T) {
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	// Kullanıcı adı KÜÇÜK harfle, sır DOĞRU.
-	body := `{"username":"ayse","secret":"` + secret + `"}`
+	body := `{"username":"ayse","password":"` + secret + `"}`
 	r := httptest.NewRequest(http.MethodPost, "/auth/local", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("Sec-Fetch-Site", "same-origin")

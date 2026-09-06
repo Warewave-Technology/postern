@@ -311,7 +311,7 @@ func (s *Server) adminIssueCredential(w http.ResponseWriter, r *http.Request) {
 		"username": u.Name,
 		// ⚠️ TEK GÖSTERİM. Doğrulayıcı geri okunamaz; bu değer hiçbir
 		// yerde saklanmıyor ve bir daha üretilemez.
-		"secret":   secret,
+		"password": secret,
 		"replaced": replaced,
 	})
 }

@@ -480,8 +480,8 @@ export default function UserDetail({
                         {u.credential.kind === "password"
                           ? "a password they chose"
                           : u.credential.kind === "issued"
-                            ? "issued value — not changed yet"
-                            : "machine-generated secret (break-glass)"}
+                            ? "issued password — not changed yet"
+                            : "machine-generated password (break-glass)"}
                       </dd>
                       <dt>Issued</dt>
                       <dd>

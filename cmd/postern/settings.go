@@ -478,17 +478,17 @@ func explainLoginSource(cmd *cobra.Command, db *store.Store, ctx context.Context
 		// ⚠️ Yerele dönmek de kilitleyebilir ve sezgiye aykırı olduğu
 		// için asıl tehlikeli olan bu: yerel kapı yalnızca yerel
 		// kimlik bilgisi OLAN hesapları alıyor.
-		fmt.Fprintln(errOut, "warning: no local administrator has a sign-in secret — "+
+		fmt.Fprintln(errOut, "warning: no local administrator has a sign-in password — "+
 			"run `postern admin issue --name <name>` or nobody can sign in to the panel")
 
 	case auth.SourceOIDC:
 		fmt.Fprintln(out, "panel sign-in now goes through the identity provider; "+
-			"local secrets no longer open the panel")
+			"local passwords no longer open the panel")
 		fmt.Fprintln(out, "administrator comes from the group named in ldap.admin_group")
 
 	case auth.SourceLDAP:
 		fmt.Fprintln(out, "panel sign-in now uses directory usernames and passwords; "+
-			"local secrets no longer open the panel")
+			"local passwords no longer open the panel")
 		fmt.Fprintln(out, "the directory door does not create accounts: only directory "+
 			"users who already have a postern account can sign in")
 	default:

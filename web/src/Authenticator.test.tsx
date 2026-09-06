@@ -32,7 +32,7 @@ describe("kimlik doğrulayıcı", () => {
     // Parola kutusu ÇİZİLMEMELİ: bu hesabın postern'de parolası yok ve
     // boş bir kutu, kullanıcıyı asla geçemeyeceği bir alana bakmaya
     // zorlardı.
-    expect(screen.queryByLabelText(/sign-in secret/i)).toBeNull();
+    expect(screen.queryByLabelText(/sign-in password/i)).toBeNull();
     expect(screen.getByRole("button", { name: /continue/i })).toBeEnabled();
   });
 

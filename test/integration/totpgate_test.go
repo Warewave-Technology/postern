@@ -235,7 +235,7 @@ func TestSignInDemandsTheCodeBeforeItOpensASession(t *testing.T) {
 func localSignInWithCode(t *testing.T, client *http.Client, apiURL, user, secret, code string) (int, string) {
 	t.Helper()
 	body, _ := json.Marshal(map[string]string{
-		"username": user, "secret": secret, "code": code,
+		"username": user, "password": secret, "code": code,
 	})
 	req, err := http.NewRequest("POST", apiURL+"/auth/local", bytes.NewReader(body))
 	if err != nil {

@@ -149,7 +149,13 @@ func (s *Server) adminUserDetail(w http.ResponseWriter, r *http.Request) {
 		 * hesap giriyor ama paneli açamıyor — önce parolasını koyması
 		 * gerekiyor.
 		 */
-		kind := "secret"
+		/*
+		 * ⚠️ "generated", eskiden "secret" idi. Diğer her yer artık
+		 * "password" dediği için "secret" burada iki farklı şeyi
+		 * çağrıştırıyordu; tür adının söylemesi gereken şey değerin
+		 * KİM TARAFINDAN üretildiği.
+		 */
+		kind := "generated"
 		switch {
 		case p.CredChosen:
 			kind = "password"

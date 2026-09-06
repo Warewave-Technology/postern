@@ -407,7 +407,7 @@ func (s *Server) adminCreateUser(w http.ResponseWriter, r *http.Request) {
 		"ok":       true,
 		"username": in.Name,
 		// ⚠️ TEK GÖSTERİM: doğrulayıcı geri okunamaz.
-		"secret": secret,
+		"password": secret,
 	})
 }
 

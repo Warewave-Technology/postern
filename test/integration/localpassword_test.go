@@ -31,7 +31,7 @@ import (
 // localSignIn, /auth/local'e POST atar ve HTTP kodunu döner.
 func localSignIn(t *testing.T, client *http.Client, apiURL, user, secret string) (int, string) {
 	t.Helper()
-	body, _ := json.Marshal(map[string]string{"username": user, "secret": secret})
+	body, _ := json.Marshal(map[string]string{"username": user, "password": secret})
 	req, err := http.NewRequest("POST", apiURL+"/auth/local", bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
@@ -315,7 +315,7 @@ func TestCreatingAUserIssuesAWorkingSignInValue(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out struct {
-		Secret          string `json:"secret"`
+		Password        string `json:"password"`
 		CredentialError string `json:"credential_error"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&out)
@@ -324,7 +324,7 @@ func TestCreatingAUserIssuesAWorkingSignInValue(t *testing.T) {
 	if out.CredentialError != "" {
 		t.Fatalf("sır verilemedi: %s", out.CredentialError)
 	}
-	if out.Secret == "" {
+	if out.Password == "" {
 		t.Fatal("hesap açıldı ama cevap giriş bilgisi taşımıyor — " +
 			"yönetici, hiçbir şekilde giremeyen bir kullanıcı bırakır")
 	}
@@ -332,7 +332,7 @@ func TestCreatingAUserIssuesAWorkingSignInValue(t *testing.T) {
 	// ⚠️ ASIL ÖLÇÜM: değer GERÇEKTEN çalışıyor mu.
 	jar2, _ := cookiejar.New(nil)
 	c2 := &http.Client{Jar: jar2, Timeout: 30 * time.Second}
-	if code, msg := localSignIn(t, c2, apiURL, "ayse", out.Secret); code != http.StatusOK {
+	if code, msg := localSignIn(t, c2, apiURL, "ayse", out.Password); code != http.StatusOK {
 		t.Fatalf("verilen değerle giriş %d: %s", code, msg)
 	}
 	me, _ := fetchMe(t, c2, apiURL)
@@ -372,12 +372,12 @@ func TestCreatingAUserIssuesNothingWhenTheLocalDoorIsClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out struct {
-		Secret string `json:"secret"`
+		Password string `json:"password"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&out)
 	resp.Body.Close()
 
-	if out.Secret != "" {
+	if out.Password != "" {
 		t.Fatal("yerel kapı kapalıyken sır üretildi — kullanılamayan, " +
 			"yalnızca sızdırılabilecek fazladan bir değer")
 	}

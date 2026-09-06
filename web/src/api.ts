@@ -81,9 +81,9 @@ export type UserDetail = {
   /** Hesabın postern'de doğrulanabilir bir değeri varsa. Yoksa kimliği
    *  dizinden ya da kimlik sağlayıcıdan geliyor. */
   credential?: {
-    /** "secret" (makine üretimi, acil durum), "issued" (verildi, henüz
+    /** "generated" (makine üretimi, acil durum), "issued" (verildi, henüz
      *  değiştirilmedi) ya da "password" (kullanıcının seçtiği). */
-    kind: "secret" | "issued" | "password";
+    kind: "generated" | "issued" | "password";
     must_change: boolean;
     created_at: string;
     created_by: string;
@@ -951,13 +951,13 @@ export const api = {
    */
   localLogin: async (
     username: string,
-    secret: string,
+    password: string,
     code?: string,
   ): Promise<{ ok: boolean; totpRequired: boolean; error?: string }> => {
     const r = await fetch("/auth/local", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, secret, code: code ?? "" }),
+      body: JSON.stringify({ username, password, code: code ?? "" }),
     });
     if (r.ok) return { ok: true, totpRequired: false };
 
