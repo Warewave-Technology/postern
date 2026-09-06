@@ -38,6 +38,13 @@ const (
 	OpExtended Op = "extended"
 	// OpUnknown, TANIMADIĞIMIZ bir istek türü.
 	OpUnknown Op = "unknown"
+
+	// Aşağıdakiler yalnızca REDDEDİLDİKLERİNDE satır üretiyor: izin verilen
+	// üstveri istekleri sessiz kalmaya devam ediyor (bkz. readOnlyRequests).
+	OpStat     Op = "stat"
+	OpReaddir  Op = "readdir"
+	OpRealpath Op = "realpath"
+	OpReadlink Op = "readlink"
 )
 
 // Event, denetim kaydına düşen tek satır.
@@ -136,6 +143,12 @@ type Session struct {
 	handles map[string]*openFile
 	// dirHandles, OPENDIR ile açılanlar — transfer özeti üretmiyorlar.
 	dirHandles map[string]bool
+
+	// policy, isteklere karar veren geri çağrı (policy.go). nil olabilir.
+	policy Decider
+	// denials, reddedilen isteklere üretilen ve istemciye gönderilmeyi
+	// bekleyen STATUS paketleri.
+	denials [][]byte
 
 	fromClient *framer
 	fromTarget *framer
@@ -637,6 +650,7 @@ func (s *Session) Finish() {
 	 * kapandıktan sonra hiçbir işe yaramıyor.
 	 */
 	clear(s.pending)
+	s.denials = nil
 	s.fromClient.head = nil
 	s.fromClient.keep = 0
 	s.fromTarget.head = nil
