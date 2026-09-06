@@ -24,5 +24,16 @@ export default defineConfig({
     setupFiles: ["./src/test/setup.ts"],
     globals: true,
     css: true,
+
+    /*
+     * ⚠️ test-node/ AYRI BİR DİZİN ve sebebi tip hijyeni.
+     *
+     * Oradaki test gerçek bir sftp-server alt sürecine bağlanıyor, yani
+     * @types/node gerekiyor. Onu src'ye açsaydık Node globalleri
+     * (process, Buffer) TARAYICI kodunda da tip denetiminden geçerdi ve
+     * tarayıcıda var olmayan bir şeyi kullanmak derlenir hâle gelirdi.
+     * Ayrı dizin + ayrı tsconfig, o kapıyı kapalı tutuyor.
+     */
+    include: ["src/**/*.test.{ts,tsx}", "test-node/**/*.test.ts"],
   },
 });
