@@ -65,14 +65,47 @@ type Denial struct {
 	Notice string
 }
 
-// SetPolicy, isteklere karar verecek geri çağrıyı kurar. nil ise her istek
-// geçiyor.
+// SetPolicy, isteklere karar verecek geri çağrıyı kurar. nil ise yol
+// kuralı uygulanmıyor (salt-okuma kısıtı ayrı, bkz. SetReadOnly).
 func (s *Session) SetPolicy(d Decider) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.policy = d
-	if d == nil {
+	s.armLocked()
+}
+
+/*
+ * SetReadOnly, oturumu hedefte HİÇBİR ŞEYİ DEĞİŞTİREMEZ hâle getirir.
+ *
+ * ⚠️ YOL POLİTİKASINDAN AYRI BİR KISIT. Roldeki kurallar "nereye"
+ * sorusunu cevaplıyor; bu, "ne yapabilir" sorusunu. Bir kanalın
+ * salt-okunur olması kullanıcının yetkisiyle değil, o KANALIN ne için
+ * açıldığıyla ilgili.
+ *
+ * ⚠️ SARMALAYICI OLARAK YAZILAMAZDI ve sebebi ölçülebilir: FXP_WRITE
+ * politikaya HİÇ sorulmuyor — tanıtıcı üzerinden yazma, açılışta karara
+ * bağlandığı için politikaya götürülmüyor. Decider'ı saran bir kısıt o
+ * isteği hiç görmezdi. Yazma bayraklı OPEN reddedilirse yazma tanıtıcısı
+ * zaten oluşmaz; ama buna güvenmek, kısıtı HEDEFİN kendi kontrolüne
+ * bırakmak demek — bir bastion'ın tam olarak yapmaması gereken şey.
+ */
+func (s *Session) SetReadOnly(on bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.readOnly = on
+	s.armLocked()
+}
+
+/*
+ * armLocked, karar kancasını gerektiğinde kurar. s.mu tutulmalı.
+ *
+ * ⚠️ İKİ KISITTAN BİRİ YETİYOR. Kancayı yalnızca policy'ye bağlasaydık,
+ * politikasız ama salt-okunur bir oturum hiçbir şeyi kısıtlamazdı.
+ */
+func (s *Session) armLocked() {
+	if s.policy == nil && !s.readOnly {
 		s.fromClient.decide = nil
 		return
 	}
@@ -155,11 +188,22 @@ func (s *Session) decideRequest(typ byte, r *reader) (bool, error) {
 		return s.refuseWith(req.id, pr.req, code, pr.deny), nil
 	}
 
-	if allow, reason := s.policy(pr.req); !allow {
-		if reason == "" {
-			reason = "path is not permitted"
+	/*
+	 * ⚠️ SALT-OKUMA, YOL KURALINDAN ÖNCE. Rol o yola yazma hakkı verse
+	 * bile bu kanal yazamaz: kısıt kullanıcının yetkisinden değil,
+	 * kanalın ne için açıldığından geliyor.
+	 */
+	if s.readOnly && pr.req.Write {
+		return s.refuse(req.id, pr.req, "this session is read-only"), nil
+	}
+
+	if s.policy != nil {
+		if allow, reason := s.policy(pr.req); !allow {
+			if reason == "" {
+				reason = "path is not permitted"
+			}
+			return s.refuse(req.id, pr.req, reason), nil
 		}
-		return s.refuse(req.id, pr.req, reason), nil
 	}
 
 	return true, nil
@@ -193,6 +237,22 @@ func (s *Session) policyView(req request) (policyResult, bool) {
 		return policyResult{}, false
 
 	case fxpRead, fxpWrite:
+		/*
+		 * ⚠️ SALT-OKUNUR OTURUMDA FXP_WRITE AÇIKTAN REDDEDİLİYOR.
+		 *
+		 * Yazma bayraklı OPEN zaten reddedildiği için buraya bir yazma
+		 * tanıtıcısıyla gelinemez — ama o akıl yürütme, kısıtın HEDEFİN
+		 * açma kipini uygulamasına bağlı olması demek. Bastion kendi
+		 * kısıtını kendi uygulamalı.
+		 */
+		if s.readOnly && req.typ == fxpWrite {
+			path, _ := s.pathForHandle(req.handle)
+			return policyResult{
+				deny: "this session is read-only",
+				req:  Request{Op: OpTransfer, Path: path, Write: true},
+			}, true
+		}
+
 		/*
 		 * Tanıtıcı üzerinden okuma/yazma: yolu açan istek zaten karara
 		 * bağlandı. Tanıtığımız bir tanıtıcı değilse REDDEDİYORUZ —

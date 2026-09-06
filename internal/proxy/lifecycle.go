@@ -319,6 +319,9 @@ type Session struct {
 	 */
 	sftpPolicy sftpaudit.Decider
 
+	// sftpReadOnly, bu oturumun SFTP kanalının salt-okunur olduğu.
+	sftpReadOnly bool
+
 	// Log, oturumun alanları bağlanmış logger'ı (user, target, session_id,
 	// record_path). Çağıran kendi olaylarını bununla yazsın ki satırlar
 	// aynı oturumda birleşsin.
@@ -666,6 +669,22 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 // down/downR istemci tarafı: SSH'ta kabul edilmiş ssh.Channel, web'de
 // WebSocket'i ssh.Channel gibi giydiren adaptör. Broker ikisini ayırt
 // etmez — arayüz sözleşmesinin bütün faydası bu.
+/*
+ * SFTPPolicyActive, bu oturumda bir yol politikasının kurulu olup
+ * olmadığını söyler.
+ *
+ * ⚠️ ÇAĞIRAN BUNA GÖRE KAPALI TARAFA DÜŞEBİLİR. Kuralsız rol kısıtsız
+ * (bkz. policy.SFTPDecider) ve taze bir kurulumda hiçbir rolün kuralı
+ * yok. "Politika riski sınırlar" gerekçesine dayanan bir yüzey — panelin
+ * dosya tarayıcısı gibi — tam da o kurulumlarda hiçbir şeye dayanmıyor
+ * demektir; açılmaması gereken yer orası.
+ */
+func (s *Session) SFTPPolicyActive() bool { return s.sftpPolicy != nil }
+
+// SetSFTPReadOnly, oturumun SFTP kanalını salt-okunur yapar. Run'dan ÖNCE
+// çağrılmalı: kısıt kanal kurulurken okunuyor.
+func (s *Session) SetSFTPReadOnly(on bool) { s.sftpReadOnly = on }
+
 func (s *Session) Run(ctx context.Context, down ssh.Channel, downR <-chan *ssh.Request) error {
 	s.Log.Info("session started", "os_user", s.OSUser)
 	s.publish(events.SessionStarted, "os user "+s.OSUser)
@@ -831,6 +850,10 @@ func (s *Session) Run(ctx context.Context, down ssh.Channel, downR <-chan *ssh.R
 		if s.sftpPolicy != nil {
 			b.WithSFTPPolicy(s.sftpPolicy)
 			s.Log.Info("sftp path policy active")
+		}
+		if s.sftpReadOnly {
+			b.WithSFTPReadOnly(true)
+			s.Log.Info("sftp channel is read-only")
 		}
 	}
 

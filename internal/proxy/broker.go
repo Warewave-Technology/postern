@@ -65,6 +65,15 @@ type Broker struct {
 	 * çalışıyor.
 	 */
 	sftpPolicy sftpaudit.Decider
+
+	/*
+	 * sftpReadOnly, bu kanalın hedefte hiçbir şeyi değiştiremeyeceği.
+	 *
+	 * ⚠️ KANALA AİT, KULLANICIYA DEĞİL. Rolün yazma hakkı olabilir;
+	 * kısıt kanalın ne için açıldığından geliyor — panelin dosya
+	 * tarayıcısı gibi.
+	 */
+	sftpReadOnly bool
 	// sftp, kanal SFTP'ye geçtiğinde dolan çözümleyici (sftp.go).
 	sftp sftpState
 	// abortOnce, denetim çökünce kanalı bir kez kapatmak için.
@@ -366,6 +375,16 @@ func (b *Broker) openStartGate() { b.gateOnce.Do(func() { close(b.gate()) }) }
 // (varsayılan) çağıranların hiçbiri değişmiyor.
 func (b *Broker) WithSFTP(sink SFTPSink) *Broker {
 	b.sftpSink = sink
+	return b
+}
+
+// WithSFTPReadOnly, kanalı salt-okunur yapar.
+//
+// ⚠️ SUNUCU TARAFINDA, İSTEMCİDE DEĞİL. "Salt-okunur" panelin
+// JavaScript'inde yaşasaydı, çalınmış bir oturum FXP_WRITE'ı elle yazar
+// ve kısıt hiç var olmamış olurdu.
+func (b *Broker) WithSFTPReadOnly(on bool) *Broker {
+	b.sftpReadOnly = on
 	return b
 }
 

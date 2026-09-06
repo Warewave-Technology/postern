@@ -95,6 +95,9 @@ func (b *Broker) beginSFTP(req *ssh.Request) bool {
 		// kurulumla ilk paket arasında politikasız bir pencere bırakırdı.
 		sess.SetPolicy(b.sftpPolicy)
 	}
+	if b.sftpReadOnly {
+		sess.SetReadOnly(true)
+	}
 	b.sftp.Store(sess)
 	b.logger.Info("sftp session audited")
 	return true

@@ -156,6 +156,8 @@ type Session struct {
 
 	// policy, isteklere karar veren geri çağrı (policy.go). nil olabilir.
 	policy Decider
+	// readOnly, oturumun hedefte hiçbir şeyi değiştiremeyeceği.
+	readOnly bool
 	// denials, reddedilen isteklere üretilen ve istemciye gönderilmeyi
 	// bekleyen cevaplar (paket + insan satırı).
 	denials []Denial
