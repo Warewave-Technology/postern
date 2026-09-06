@@ -379,10 +379,17 @@ func TestWrongCodesAtSignInAreBounded(t *testing.T) {
 	/*
 	 * DOĞRU parola, YANLIŞ kod — üst üste.
 	 *
-	 * Dakikalık kota 10 ve kodlu bir deneme 2 jeton harcıyor, yani beş
-	 * denemede kota biter. Gecikme ise dördüncü denemede devreye giriyor
-	 * (backoffSteps: 0,0,0,2s). Aradaki fark, testin kota mesajını
-	 * gecikme mesajı sanmasını engelliyor.
+	 * ⚠️ SINIRIN HANGİSİ OLDUĞU DEĞİL, VAR OLDUĞU ÖLÇÜLÜYOR. Üç ayrı
+	 * katman var ve hangisinin önce çarptığı yapılandırmaya bağlı:
+	 * dakikalık kota (10 jeton, kodlu deneme 2 harcıyor → beş deneme),
+	 * artan gecikme (dördüncü denemede), ve hesap kilidi (varsayılan
+	 * eşik 3). Bugün üçüncü yanlış koddan sonra KİLİT geliyor ve o 403
+	 * dönüyor; eşik yükseltilirse 429'lardan biri öne geçer.
+	 *
+	 * Test bunların hangisi olduğunu şart koşmuyor: koşulan şey
+	 * "parolayı ele geçiren biri altı haneyi SERBESTÇE deneyemesin".
+	 * Tek bir kodu şart koşmak, katmanların sırası değiştiğinde gerçek
+	 * bir gerilemeyi değil bir yapılandırma tercihini bildirirdi.
 	 */
 	jar2, _ := cookiejar.New(nil)
 	client := &http.Client{Jar: jar2, Timeout: 30 * time.Second}
@@ -393,7 +400,8 @@ func TestWrongCodesAtSignInAreBounded(t *testing.T) {
 		if code == http.StatusOK {
 			t.Fatalf("%d. denemede yanlış kodla girildi: %s", i, body)
 		}
-		if code == http.StatusTooManyRequests {
+		// 429: kota ya da gecikme. 403: hesap kilitlendi. İkisi de sınır.
+		if code == http.StatusTooManyRequests || code == http.StatusForbidden {
 			bounded = true
 			break
 		}
@@ -407,9 +415,10 @@ func TestWrongCodesAtSignInAreBounded(t *testing.T) {
 	}
 
 	/*
-	 * Doğru kodun ardından girilebildiğini burada SINAMIYORUZ: kota
-	 * dolduğu için bir sonraki deneme zaten 429 alır ve testin bir dakika
-	 * beklemesi gerekirdi. O yol TestSignInDemandsTheCodeBeforeItOpensASession
-	 * içinde temiz bir kovayla ölçülüyor.
+	 * Doğru kodun ardından girilebildiğini burada SINAMIYORUZ: sınıra
+	 * çarpıldığı için bir sonraki deneme zaten reddedilir ve testin ya
+	 * bir dakika ya da kilit süresi kadar beklemesi gerekirdi. O yol
+	 * TestSignInDemandsTheCodeBeforeItOpensASession içinde temiz bir
+	 * kovayla ölçülüyor.
 	 */
 }
