@@ -9,20 +9,38 @@ package httpapi
 // io.Writer arkasına koyduğumuzda öğrendiğimiz şeyin büyük ölçekli hâli:
 // dar bir arayüz, iki dünyayı birbirine tanıtmadan bağlar.
 //
-// PROTOKOL (plan S4 sözleşmesi):
+// PROTOKOL:
 //
-//	binary frame  (her iki yön)   : terminal verisi
+//	binary frame  (istemci→sunucu): ham kanal verisi, etiketsiz
+//	binary frame  (sunucu→istemci): [1 bayt akış etiketi][ham bayt]
 //	text/JSON     (istemci→sunucu): {"type":"resize","cols":120,"rows":30}
 //	text/JSON     (sunucu→istemci): {"type":"exit","status":0}
 //
-// Neden ikisi ayrı: terminal verisi ham bayttır ve içinde her şey olabilir
-// (kaçış dizileri, UTF-8 parçaları). Kontrol mesajlarını aynı akışa
-// gömseydik, çıktının içinde geçen bir metni komut sanma riski doğardı —
-// SSH'ın veri ve request'i ayrı taşımasının sebebi de bu.
+// Neden veri ile kontrol ayrı: kanal verisi ham bayttır ve içinde her şey
+// olabilir (kaçış dizileri, UTF-8 parçaları). Kontrol mesajlarını aynı
+// akışa gömseydik, çıktının içinde geçen bir metni komut sanma riski
+// doğardı — SSH'ın veri ve request'i ayrı taşımasının sebebi de bu.
+//
+// ⚠️ SUNUCU→İSTEMCİ YÖNÜNDE AKIŞ ETİKETİ VAR, ÇÜNKÜ İKİ AKIŞ VAR.
+//
+// SSH'ta stderr AYRI bir akış (EXTENDED_DATA). Burası eskiden ikisini de
+// aynı binary frame'e yazıyordu ve terminal için bu doğruydu: pty zaten
+// stdout ile stderr'i birleştiriyor, o akış pratikte boş kalıyor.
+//
+// Ama bu kanal terminalden başka bir şey taşıyacaksa — SFTP gibi ikili ve
+// uzunluk-önekli bir protokol — birleştirmek ÖLÜMCÜL: postern'in kendi
+// uyarı satırları ve hedefin stderr'i, istemcinin protokol baytları
+// sanacağı yere düşer ve çerçeveleme o noktadan sonra kayar. Bir baytlık
+// etiket, SSH'ın kendi ayrımını tel üzerinde koruyor.
+//
+// İstemci→sunucu yönü ETİKETSİZ ve bu asimetri kasıtlı: SSH'ta extended
+// data yalnızca hedeften istemciye akıyor. Simetri uğruna kullanılmayan
+// bir etiket eklemek, okuyana var olmayan bir yön vaat ederdi.
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"sync"
 
@@ -30,6 +48,14 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/Warewave-Technology/postern/internal/proxy"
+)
+
+// Akış etiketleri: sunucu→istemci binary frame'in İLK baytı.
+const (
+	// wsStreamData, kanal verisi (SSH'ta CHANNEL_DATA).
+	wsStreamData byte = 0
+	// wsStreamStderr, genişletilmiş veri (SSH'ta EXTENDED_DATA).
+	wsStreamStderr byte = 1
 )
 
 // wsChannel, ssh.Channel arayüzünü WebSocket üzerinde karşılar.
@@ -47,6 +73,10 @@ type wsChannel struct {
 	// Artığı saklamazsak o baytlar kaybolur — record.Writer'daki eksik
 	// UTF-8 dizisini bekletme fikrinin aynısı, başka bir sınırda.
 	pending []byte
+
+	// frame, etiketli çerçeveyi kuran ve YENİDEN KULLANILAN tampon.
+	// writeMu tarafından korunuyor.
+	frame []byte
 
 	// writeMu, eşzamanlı yazmaları serileştirir. Broker çıktıyı bir
 	// goroutine'den yazarken SendRequest başka birinden gelebilir;
@@ -164,17 +194,35 @@ func (c *wsChannel) Read(p []byte) (int, error) {
 
 		typ, data, err := c.conn.Read(c.ctx)
 		if err != nil {
-			// Bağlantı kapandı: broker için bu normal bir sonlanma.
-			// io.EOF, "kullanıcı çıktı" demenin akış dilindeki karşılığı.
-			//
-			// Request kanalını da burada kapatıyoruz: broker downR'ı
-			// range ile dinliyor, kapanmayan kanal o goroutine'i sonsuza
-			// dek yaşatırdı.
+			// Request kanalını burada kapatıyoruz: broker downR'ı range
+			// ile dinliyor, kapanmayan kanal o goroutine'i sonsuza dek
+			// yaşatırdı.
 			c.closeReqs.Do(func() { close(c.reqs) })
 			if c.onEOF != nil {
 				c.eofOnce.Do(c.onEOF)
 			}
-			return 0, io.EOF
+
+			/*
+			 * ⚠️ HER HATA "KULLANICI ÇIKTI" DEĞİL.
+			 *
+			 * Burası eskiden hatanın türüne bakmadan io.EOF dönüyordu.
+			 * Sonuç: okuma boyutu aşımı, protokol ihlali ya da ağ arızası
+			 * — hepsi log'da temiz bir sonlanma gibi görünüyordu ve
+			 * "oturum neden bitti" sorusunun cevabı hiçbir yerde yoktu.
+			 *
+			 * Normal kapanışta io.EOF doğru: akış dilinde "bitti" demek.
+			 * Geri kalanı olduğu gibi dönüyor ve broker'ın boru hattı
+			 * onu sebebiyle birlikte log'a yazıyor (bkz. proxy.pipe).
+			 */
+			switch websocket.CloseStatus(err) {
+			case websocket.StatusNormalClosure, websocket.StatusGoingAway:
+				return 0, io.EOF
+			}
+			if errors.Is(err, context.Canceled) || errors.Is(err, io.EOF) {
+				return 0, io.EOF
+			}
+
+			return 0, err
 		}
 
 		if typ == websocket.MessageText {
@@ -185,14 +233,39 @@ func (c *wsChannel) Read(p []byte) (int, error) {
 	}
 }
 
-// Write, terminal çıktısını istemciye binary frame olarak gönderir.
+// Write, kanal verisini istemciye gönderir.
 func (c *wsChannel) Write(p []byte) (int, error) {
+	return c.writeStream(wsStreamData, p)
+}
+
+/*
+ * writeStream, bir baytı akış etiketiyle birlikte gönderir.
+ *
+ * ⚠️ ETİKET VE VERİ TEK ÇERÇEVEDE. İki ayrı çerçeve göndermek, araya
+ * başka bir yazma girdiğinde etiketi yanlış veriye bağlardı — writeMu
+ * bunu engelliyor ama kilidi unutan bir gelecekteki çağıran için sessiz
+ * bir tuzak olurdu. Tek çerçeve, ayrımı taşınabilir kılıyor.
+ *
+ * ⚠️ TAMPON YENİDEN KULLANILIYOR. Her yazmada yeni dilim ayırmak,
+ * terminal çıktısının sıcak yolunda paket başına bir ayırma demekti.
+ * Kilit zaten tutuluyor, dolayısıyla tampon tek sahipli.
+ */
+func (c *wsChannel) writeStream(tag byte, p []byte) (int, error) {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 
-	if err := c.conn.Write(c.ctx, websocket.MessageBinary, p); err != nil {
+	need := len(p) + 1
+	if cap(c.frame) < need {
+		c.frame = make([]byte, need)
+	}
+	c.frame = c.frame[:need]
+	c.frame[0] = tag
+	copy(c.frame[1:], p)
+
+	if err := c.conn.Write(c.ctx, websocket.MessageBinary, c.frame); err != nil {
 		return 0, err
 	}
+
 	return len(p), nil
 }
 
@@ -238,15 +311,25 @@ func (c *wsChannel) SendRequest(name string, wantReply bool, payload []byte) (bo
 	return false, nil
 }
 
-// Stderr, SSH'ta ayrı bir akıştır (extended data). Terminalde karşılığı
-// yok: xterm.js tek akış gösterir ve pty modunda hedef stderr'i zaten
-// aynı akışa yazar. Yazılanı stdout'a yönlendiriyoruz, okuma tarafı boş.
+/*
+ * Stderr, SSH'ta AYRI bir akış (extended data) ve burada da ayrı kalıyor.
+ *
+ * ⚠️ ESKİDEN VERİYLE AYNI AKIŞA YAZIYORDU. Terminal için doğruydu — pty
+ * stdout ile stderr'i birleştiriyor ve bu akış pratikte boş. Ama kanal
+ * SFTP taşıdığında postern'in uyarı satırları istemcinin protokol
+ * baytları sanacağı yere düşüyor ve çerçeveleme kayıyor: yol politikasının
+ * kullanıcıya gerekçe yazan yarısı, koruduğu istemciyi bozuyor.
+ *
+ * Okuma tarafı boş: SSH'ta istemci stderr'e yazmıyor.
+ */
 func (c *wsChannel) Stderr() io.ReadWriter { return stderrAdapter{c} }
 
 type stderrAdapter struct{ c *wsChannel }
 
-func (s stderrAdapter) Write(p []byte) (int, error) { return s.c.Write(p) }
-func (s stderrAdapter) Read([]byte) (int, error)    { return 0, io.EOF }
+func (s stderrAdapter) Write(p []byte) (int, error) {
+	return s.c.writeStream(wsStreamStderr, p)
+}
+func (s stderrAdapter) Read([]byte) (int, error) { return 0, io.EOF }
 
 // wsChannel'ın ssh.Channel'ı gerçekten karşıladığını DERLEME ZAMANINDA
 // doğrula: imza değişirse hata testte değil derlemede çıksın.

@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * eksiklerine bağlar ve ölçtüğümüz şeyi bulanıklaştırırdı.
  */
 const written: string[] = [];
+const bytes: Uint8Array[] = [];
 
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
@@ -19,7 +20,11 @@ vi.mock("@xterm/xterm", () => ({
     loadAddon() {}
     open() {}
     focus() {}
-    write() {}
+    write(d: Uint8Array | string) {
+      // Etiket ayıklamasını ölçebilmek için ham baytlar da tutuluyor.
+      if (typeof d === "string") written.push(d);
+      else bytes.push(new Uint8Array(d));
+    }
     writeln(s: string) {
       written.push(s);
     }
@@ -120,5 +125,47 @@ describe("terminal kapanışı", () => {
     const ws = mount();
     ws.onclose?.({});
     expect(written.join("\n")).toContain("[disconnected]");
+  });
+
+  /*
+   * ⚠️ İLK BAYT AKIŞ ETİKETİ, EKRANA YAZILMAZ.
+   *
+   * Sunucu kanal verisini (0) ve stderr'i (1) ayrı etiketlerle gönderiyor —
+   * ayrım SSH'ın kendi ayrımı ve bu kanal ileride SFTP taşıyacak. Etiketi
+   * ayıklamayan bir istemci her çerçevenin başına görünmez bir karakter
+   * yazar: terminalde göze çarpmaz, ikili bir protokolde çerçevelemeyi
+   * kaydırır.
+   */
+  it("akis etiketini ayiklayip yaziyor", () => {
+    bytes.length = 0;
+    render(<Terminal target="web01" theme="dark" />);
+
+    const frame = new Uint8Array([0, 0x68, 0x69]); // etiket 0 + "hi"
+    FakeWS.last!.onmessage!({ data: frame.buffer });
+
+    expect(bytes).toHaveLength(1);
+    expect(Array.from(bytes[0])).toEqual([0x68, 0x69]);
+  });
+
+  it("stderr cercevesi de terminale yaziliyor", () => {
+    bytes.length = 0;
+    render(<Terminal target="web01" theme="dark" />);
+
+    // Etiket 1 = stderr. Terminalde ikisi de aynı yere gidiyor: pty zaten
+    // birleştiriyor ve kullanıcının gördüğü tek akış.
+    FakeWS.last!.onmessage!({ data: new Uint8Array([1, 0x21]).buffer });
+
+    expect(bytes).toHaveLength(1);
+    expect(Array.from(bytes[0])).toEqual([0x21]);
+  });
+
+  // Boş çerçeve çökertmemeli: etiket bile yoksa yazacak bir şey yok.
+  it("bos cerceveyi yok sayiyor", () => {
+    bytes.length = 0;
+    render(<Terminal target="web01" theme="dark" />);
+
+    FakeWS.last!.onmessage!({ data: new Uint8Array([]).buffer });
+
+    expect(bytes).toHaveLength(0);
   });
 });

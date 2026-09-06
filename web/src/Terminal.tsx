@@ -77,7 +77,22 @@ export default function Terminal({
         }
         return;
       }
-      term.write(new Uint8Array(ev.data));
+      /*
+       * ⚠️ İLK BAYT AKIŞ ETİKETİ, VERİ DEĞİL.
+       *
+       * Sunucu kanal verisini (0) ve stderr'i (1) AYRI etiketlerle
+       * gönderiyor. Ayrım SSH'ın kendi ayrımı ve tel üzerinde durmak
+       * zorunda: bu kanal ileride SFTP gibi ikili ve uzunluk-önekli bir
+       * protokol taşıdığında, birleştirilmiş bir akış protokol baytlarının
+       * arasına uyarı metni sokar ve çerçeveleme o noktadan sonra kayar.
+       *
+       * Terminalde ikisi de aynı yere yazılıyor — pty zaten stdout ile
+       * stderr'i birleştiriyor ve kullanıcının gördüğü tek akış. Ayrım
+       * telde duruyor, ekranda değil.
+       */
+      const frame = new Uint8Array(ev.data);
+      if (frame.length < 1) return;
+      term.write(frame.subarray(1));
     };
 
     /*
