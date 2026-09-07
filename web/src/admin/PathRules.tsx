@@ -147,15 +147,20 @@ export default function PathRules({ role }: { role: string }) {
       </div>
 
       {/*
-        ⚠️ İKİ SÜRPRİZ BURADA YAZILI, çünkü ikisi de kural yazarken
-        fark edilmiyor ve sonradan "neden çalışmıyor" diye geliyor.
+        ⚠️ ÜÇ SÜRPRİZ BURADA YAZILI, çünkü üçü de kural yazarken fark
+        edilmiyor ve sonradan "neden çalışmıyor" diye geliyor. Üçüncüsü —
+        kuralsız rolün her şeyi açması — bağımsız bir denetimde eksik
+        bulundu: README onu yazıyordu, kuralın YAZILDIĞI ekran yazmıyordu.
       */}
       <p className="pathrules-hint">
         The longest matching prefix wins, so <code>/home/dev/.ssh</code> as a
         deny carves a hole in an allowed <code>/home/dev</code>. Rules from all
         of a user's roles are pooled, and at equal length a deny beats an allow.
-        Symbolic links are not followed: postern constrains the path the client
-        writes, not where the target resolves it.
+        A role with <strong>no rules at all is unrestricted</strong>, and one
+        such role among a user's roles switches every rule here off.{" "}
+        <strong>Links are resolved by the target, not by postern</strong>: a
+        rule constrains the path the client writes, so a link inside an allowed
+        directory can still lead somewhere no rule names.
       </p>
     </div>
   );

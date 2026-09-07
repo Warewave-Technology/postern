@@ -80,10 +80,15 @@ There is one release line. Fixes land on it; there are no long-term branches.
   or root on the bastion — those are the trust roots, not a boundary
 - the limits postern states plainly in
   [the documentation](https://postern.warewave.tech/docs/#limits): no port
-  forwarding, no clustering, TOTP as the only second factor, no integrity seal
-  on recordings. Telling us that recordings can be edited by someone with root
-  on the bastion is telling us something we wrote down first. Telling us how to
-  do it *without* root is very much in scope.
+  forwarding, no clustering, TOTP as the only second factor. Recordings now
+  carry a SHA-256 chain, and its limit is written down beside it: someone with
+  root on the bastion can rewrite a `.cast` file *and* the head stored next to
+  it, so telling us that is telling us something we said first. Telling us how
+  to break the chain *without* root — or how to make `postern session verify`
+  report an altered recording as verified — is very much in scope, and so is
+  defeating the copy of the head that each archived recording carries as object
+  metadata. SFTP activity is recorded in the `session_files` ledger rather than
+  in the chained `.cast`, and that is stated too.
 
 ## Safe harbour
 

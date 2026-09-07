@@ -30,7 +30,59 @@ audit rows into a shape it does not understand.
 
 ## Unreleased
 
+### Needs action if you rely on recordings as evidence
+
+- **Recordings now carry a tamper-evident chain, and three schema migrations
+  land with this release (034–036).** Run `postern db migrate` before starting
+  the new binary; the bastion refuses to start against a schema it does not
+  match rather than writing audit rows into a shape it does not understand.
+
+  Sessions that closed **before** migration 034 have no chain, and
+  `postern session verify` reports them as *cannot be verified* — not as
+  failures. That distinction is deliberate and load-bearing: collapsing it
+  would either accuse old recordings of tampering or quietly bless them.
+
+- **What was written down as a limit is no longer true, and the new limit is
+  narrower.** Earlier releases stated plainly that there was no integrity seal
+  on recordings. There is one now — but what it proves on its own is that a
+  file was not altered after it was written. Someone with root on the bastion
+  can rewrite the file *and* the head stored beside it. The copy that closes
+  that gap is the head each archived recording carries as object metadata, and
+  **reading it back is not automated yet**: `postern session verify` checks
+  against the database, on the bastion. If you depend on the off-box copy, you
+  compare it by hand today. The panel does not show chain state at all.
+
 ### Added
+
+- **Recordings are chained as they are written.** Each line extends a SHA-256
+  chain; the head and link count are stored with the session, and the head
+  travels to the archive as object metadata.
+
+  ```bash
+  postern session verify <session-id>
+  ```
+
+  Answers verified, failed, or cannot-be-verified.
+
+- **Roles carry SFTP path rules.** A role can be granted or refused a path
+  prefix, read-only or read-write:
+
+  ```bash
+  postern role path set --role dev --prefix /home/dev --write
+  postern role path set --role dev --prefix /home/dev/.ssh --deny
+  postern role path list --role dev
+  ```
+
+  Rules from all of a user's roles are pooled and the longest matching prefix
+  decides; at equal length a denial wins. **A role with no rules is
+  unrestricted, and one such role among a user's roles switches every rule
+  off** — writing rules restricts a role, not a person. Refused requests are
+  answered by postern with the reason on stderr, so the user sees why rather
+  than a bare failure, and each refusal is recorded.
+
+- **`postern admin unlock`.** Wrong authenticator codes now lock an account
+  (see below); this clears the lock and the counter without forcing a
+  re-enrolment. `postern admin reset-totp` remains the answer for a lost phone.
 
 - **A read-only file browser in the panel.** Targets now carry a `Files`
   button next to `Shell`, opening a listing of the target's filesystem in
@@ -46,8 +98,17 @@ audit rows into a shape it does not understand.
   The panel speaks SFTP itself over a websocket; there is no server-side
   SFTP client, and no second route to the files. Every packet goes through
   the broker an SSH client's packets go through, so browsing writes the
-  same `session_files` rows, obeys the same role path rules, and is part
-  of the same recorded session — closing the tab ends it.
+  same `session_files` rows and obeys the same role path rules, and closing
+  the tab ends the session.
+
+  **Be precise about what a browsing session leaves behind.** SFTP bytes
+  have never gone into the terminal recording — that is the rule that kept
+  the channel shut in the first place — so the `.cast` file for a browsing
+  session holds its header and nothing else. What records the browsing is
+  the `session_files` ledger: one row per directory opened, plus a row for
+  every refusal. Those rows are database rows, and the tamper-evident chain
+  covers `.cast` files only. So a file browser session is audited, and it
+  is not sealed the way a shell session is.
 
   **It will refuse to open on an account whose roles carry no path rules,
   and this is deliberate.** A role without rules is unrestricted; a fresh
@@ -73,9 +134,53 @@ audit rows into a shape it does not understand.
 
 ### Changed
 
+- **The code prompt at sign-in is bounded, counted, and locks.** The prompt
+  lives for two minutes. Wrong or expired attempts are counted, and at three
+  the account locks for fifteen minutes. All three are settings, and the
+  defaults are what a fresh install gets:
+
+  ```yaml
+  auth:
+    totp_window: 2m
+    totp_max_failures: 3
+    totp_lock_for: 15m
+  ```
+
+  The lock expires on its own, so nobody is stranded; `postern admin unlock`
+  lifts it now. The first successful sign-in after failures says how many
+  there were, which is the point of counting them. Attempts refused by the
+  per-IP rate limit are deliberately **not** counted — the code was never
+  checked, and counting them would let anyone lock an account by burning its
+  quota.
+
+- **The sign-in credential is called a password everywhere.** It used to be
+  "sign-in secret", which stopped being accurate once local accounts chose
+  their own. Internal names describing the *generated* value's shape were
+  left alone on purpose.
+
+- **A denied SFTP request now gets an answer.** postern used to drop refused
+  requests, and the client waited for a reply that was never coming; it now
+  writes its own status packet, at a packet boundary.
+
 - **`/api/me` reports `files_enabled`.** Separate from `terminal_enabled`,
   because a bastion can have the terminal on and the file browser off. No
   action needed; the panel reads it to decide whether to draw the button.
+
+### Fixed
+
+- **Listing an allowed directory over SFTP.** Directory handles did not
+  remember their path, so `READDIR` reached the path policy with an empty
+  path and every listing was refused — on every install using an allow list,
+  including the example the CLI documents. Found in review; the demo had
+  missed it because `ls` had only been tried in a *refused* directory.
+
+- **A file transfer no longer stalls the session.** The session lock covered
+  writing to the target, so a target that stopped reading could keep `Run`
+  from ever returning, taking termination and timeouts down with it.
+
+- **Uploads no longer lose their first packet**, and unknown SFTP request
+  types are no longer treated as read-only — v6 `LINK`, which *creates* a
+  link, was reaching the ledger as nothing at all.
 
 ## 1.1.0 — 2026-09-05
 

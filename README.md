@@ -556,25 +556,52 @@ recording is about the size of the terminal output it captured, so the
 5 GB limit is not reachable by realistic sessions; one that exceeds it
 is kept locally and reported rather than silently dropped.
 
-### What the recordings are not
+### What the recordings prove, and what they do not
 
-A recording is evidence of what happened, not a seal that proves it was
-not changed afterwards. There is no hash chain and no signature.
+Every recording is sealed with a SHA-256 chain as it is written. Each
+line extends the chain, the head and the link count are stored with the
+session, and `postern session verify` recomputes it:
 
-That is a decision, not an omission. The files are `0600` and owned by
-the service user; anyone who can rewrite them already owns the bastion,
-and a chain postern computes and stores on the same machine is one that
-attacker can recompute. It would catch a careless operator, not an
-adversary, and it would read like a guarantee.
+```bash
+postern session verify <session-id>
+```
 
-Archiving changes the shape of this rather than the reasoning. The
-checksum sent with each upload is a corruption control — it proves the
-bytes arrived intact, not that they were honest when they left. What
-actually protects the archive from someone who owns the bastion is the
-bucket: versioning, and Object Lock in compliance mode with a default
-retention. `postern archive check` reports whether those are on, and
-says plainly that it cannot verify them from the machine an attacker
-would be standing on.
+It answers with one of three things, and the difference matters:
+**verified**, **failed** — the bytes on disk are not the bytes postern
+wrote — or **cannot be verified**, for sessions that closed before the
+chain existed or were swept after a crash. A tool that collapsed the
+third case into either of the other two would be worse than no tool.
+
+**What the chain proves on its own is narrow.** It shows the file was
+not altered after it was written. Someone with root on the bastion can
+rewrite the file *and* the head stored beside it; that is not a hole the
+chain closes by itself, and this is the same limit every product in this
+category has — Teleport's own documentation says its eBPF recording is
+not a substitute for a Linux Security Module, and Boundary's says session
+recording can be defeated by manipulating `PATH` or the shell.
+
+What closes it is the head also living where the machine cannot reach.
+Each archived recording carries its chain head as object metadata, so the
+bucket holds a copy postern cannot rewrite — and the bucket's own
+controls, versioning and Object Lock in compliance mode with a default
+retention, are what stop it being replaced. `postern archive check`
+reports whether those are on, and says plainly that it cannot verify them
+from the machine an attacker would be standing on.
+
+**Reading that copy back is not automated yet.** `postern session verify`
+checks the file against the head in the database, on the bastion. The
+off-box copy is written on every upload and has to be compared by hand
+today; until that is closed, the chain's strongest claim needs a human to
+make it. The panel does not show chain state at all, so a verified and an
+unverified recording look identical there.
+
+**SFTP sessions are the other gap, and it is a different one.** Transfer
+bytes have never entered the terminal recording — that shape is what kept
+the channel shut in the first place — so an SFTP session's `.cast` holds
+its header and nothing more, and the chain seals exactly that. What
+records an SFTP session is the `session_files` ledger, which is database
+rows and carries no chain. So file activity is audited and is not sealed;
+a shell session is both.
 
 ### Limits
 
@@ -743,16 +770,30 @@ second role granting the same prefix. A *longer* allow still wins, which
 is what makes the carve-out possible in the first place; write the denial
 at or below the depth you mean.
 
+**One thing does reopen it, and it is the surprise worth knowing.** A role
+carrying no rules at all is unrestricted, and if a user holds *any* such
+role, no policy is installed for that session — every rule written on
+their other roles stops applying, denials included. That is consistent
+with what a rule means here (writing rules restricts a *role*, not a
+person), but it means the sentence above holds only among roles that
+carry rules. `postern role path list` per role is how you check, and the
+panel says the same thing on the Paths screen. The file browser refuses
+to open in exactly this situation, which is the one place postern makes
+the condition visible on its own.
+
 Symbolic links are listed with their own icon and can be followed. What
 gets checked is the path the client writes — `/home/dev/current` — which
-is exactly the path a rule can name; where the target resolves it is the
-target's business. Following a link that points at a file says so rather
-than showing the target's raw errno.
+is exactly the path a rule can name. Where the target resolves it is the
+target's business and postern cannot see it: a link inside an allowed
+directory can point anywhere, and it still reads as allowed. Following a
+link that points at a file says so rather than showing the target's raw
+errno.
 
-What the rules cannot see is symbolic links. postern has no access to the
-target filesystem, so a link inside an allowed directory pointing
-somewhere else looks allowed: the rules constrain the path the client
-writes, not where the target resolves it.
+One request is answered without consulting the rules at all: `realpath`
+on a relative name. An SFTP client sends it before it knows any absolute
+path, so refusing it would end every session at the first packet. It
+resolves a *name*; the open that follows arrives with an absolute path
+and is decided normally.
 
 Downloading file contents is deliberately absent. What a recording should
 contain when a file leaves through a browser tab, and what the size limit
@@ -845,6 +886,32 @@ postern admin reset-totp --name admin --config postern.yaml
 That grants nothing new — whoever can run it already holds the database
 credentials — but it leaves an audit line, which editing the row by hand does
 not.
+
+**Wrong codes lock the account, and there is a way back.** The code prompt
+lives for two minutes; wrong or expired attempts are counted, and at three
+the account is locked for fifteen. All three are settings:
+
+```yaml
+auth:
+  totp_window: 2m           # how long the code prompt lives
+  totp_max_failures: 3      # attempts before the lock
+  totp_lock_for: 15m        # how long the lock lasts
+```
+
+The lock expires by itself, so nobody is stranded permanently. To lift it
+now:
+
+```bash
+postern admin unlock --name suheda --config postern.yaml
+```
+
+That clears the counter along with the lock — leaving the counter would let
+the next wrong code lock the account again immediately. It is deliberately
+*not* `reset-totp`: "I typed the wrong code too many times" and "I lost my
+phone" are different problems, and only the second one should cost an
+enrolment. The first successful sign-in after a lock says how many failed
+attempts happened while the person was away, which is the point of counting
+them.
 
 The codes themselves are RFC 6238, checked against the RFC's own published
 vectors — so what postern computes is what your phone computes, not merely what
