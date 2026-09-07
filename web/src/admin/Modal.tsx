@@ -23,6 +23,7 @@ export default function Modal({
   description,
   onClose,
   narrow = false,
+  wide = false,
   children,
 }: {
   open: boolean;
@@ -32,6 +33,12 @@ export default function Modal({
   /** Tek kısa alan taşıyan modallar için dar kip. Varsayılan genişlik,
    *  birkaç alanı yan yana alan yönetim formları için. */
   narrow?: boolean;
+  /*
+   * Geniş kip: iki panelli dosya aktarımı için. Varsayılan genişlik iki
+   * dosya listesini yan yana taşımıyor ve alt alta koymak, "sol taraf
+   * senin bilgisayarın" düzenini yok ederdi.
+   */
+  wide?: boolean;
   children: React.ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -89,7 +96,7 @@ export default function Modal({
   return (
     <dialog
       ref={ref}
-      className={narrow ? "modal modal-narrow" : "modal"}
+      className={`modal${narrow ? " modal-narrow" : ""}${wide ? " modal-wide" : ""}`}
       aria-labelledby={titleID}
       // Boşluğa tıklayınca kapansın: <dialog> bunu kendiliğinden
       // yapmıyor. Hedef kontrolü ŞART — form içindeki bir tıklama da

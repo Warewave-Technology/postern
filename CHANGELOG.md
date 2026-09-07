@@ -114,10 +114,12 @@ audit rows into a shape it does not understand.
   (see below); this clears the lock and the counter without forcing a
   re-enrolment. `postern admin reset-totp` remains the answer for a lost phone.
 
-- **A read-only file browser in the panel.** Targets now carry a `Files`
-  button next to `Shell`, opening a listing of the target's filesystem in
-  its own tab. It needs both `session.sftp` and the new
-  `session.sftp_panel`, and both are off by default:
+- **File transfer in the panel.** Open a shell and press **Files**: a
+  two-pane view opens over it — your computer on the left, the host on the
+  right — with drag-and-drop between them, per-file progress, and a
+  completed-or-why-not line for each transfer. It needs both
+  `session.sftp` and the new `session.sftp_panel`, and both are off by
+  default:
 
   ```yaml
   session:
@@ -139,9 +141,23 @@ audit rows into a shape it does not understand.
   reach files, and the button starts working for their holders. Until
   then the panel says so instead of opening.
 
-  Writes are refused by the server, not by the page. Downloading file
-  contents is not included: what a recording should contain when a file
-  leaves through a browser tab is a decision that has not been made yet.
+  **Uploading is a third setting, `session.sftp_panel_write`, also off by
+  default.** Leaving it off keeps the channel read-only on the server, so
+  browsing and downloading work and nothing can be written. Turning it on
+  lifts that lock only: where a file may be written is still the role's
+  path rules, and every write is checked against the path behind the
+  handle rather than inferred from how the file was opened.
+
+  The transfer view lives in the shell window rather than on its own page,
+  which also means one session instead of two for what a person thinks of
+  as one piece of work.
+
+  **The local pane is a tray, not a file manager.** A page can browse your
+  disk only through the File System Access API, which WebKit closed as
+  "oppose" and Firefox does not ship; downloads go to the browser's own
+  download folder. Files over 2 GiB are refused with a sentence naming an
+  SFTP client, because a browser holds a download in memory until it is
+  saved.
 
 - **Role path rules are editable from the panel.** Roles now carry a
   `Paths` button opening the SFTP rules for that role: add a prefix as

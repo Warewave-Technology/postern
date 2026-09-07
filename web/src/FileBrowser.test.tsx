@@ -199,7 +199,7 @@ beforeEach(() => {
 
 describe("FileBrowser", () => {
   it("açılışta ev dizinini listeler, dizinleri önce sıralar", async () => {
-    render(<FileBrowser target="web01" />);
+    render(<FileBrowser target="web01" canWrite />);
     const ws = FakeWS.last!;
 
     await handshake(ws, "/home/yigit", [
@@ -225,7 +225,7 @@ describe("FileBrowser", () => {
    * yalnızca okuma BAŞARIRSA değişiyor.
    */
   it("reddedilen dizine girmiyor ve sebebi yazıyor", async () => {
-    render(<FileBrowser target="web01" />);
+    render(<FileBrowser target="web01" canWrite />);
     const ws = FakeWS.last!;
 
     await handshake(ws, "/home/yigit", [entry("gizli", DIR)]);
@@ -270,7 +270,7 @@ describe("FileBrowser", () => {
    * okuyucu ise gerekçe metnini paket sanardı.
    */
   it("stderr'i listeye değil gerekçe şeridine yazıyor", async () => {
-    render(<FileBrowser target="web01" />);
+    render(<FileBrowser target="web01" canWrite />);
     const ws = FakeWS.last!;
 
     await handshake(ws, "/home/yigit", [entry("a.txt", FILE)]);
@@ -288,7 +288,7 @@ describe("FileBrowser", () => {
   });
 
   it("dizin boyutu göstermiyor", async () => {
-    render(<FileBrowser target="web01" />);
+    render(<FileBrowser target="web01" canWrite />);
     const ws = FakeWS.last!;
 
     // Hedef dizin girdisine 4096 diyor; panel bunu yazarsa kullanıcı
@@ -302,7 +302,7 @@ describe("FileBrowser", () => {
   });
 
   it("gizli dosyalar varsayılan gizli, düğmeyle açılıyor", async () => {
-    render(<FileBrowser target="web01" />);
+    render(<FileBrowser target="web01" canWrite />);
     const ws = FakeWS.last!;
 
     await handshake(ws, "/home/yigit", [
@@ -318,7 +318,7 @@ describe("FileBrowser", () => {
   });
 
   it("soket kapanınca sebebi gösteriyor", async () => {
-    render(<FileBrowser target="web01" />);
+    render(<FileBrowser target="web01" canWrite />);
     const ws = FakeWS.last!;
     await handshake(ws, "/home/yigit", []);
 
@@ -368,7 +368,7 @@ describe("sebep metni", () => {
  */
 describe("sembolik bağlar", () => {
   it("bağ tıklanabilir ve girildiğinde yol değişiyor", async () => {
-    render(<FileBrowser target="web01" />);
+    render(<FileBrowser target="web01" canWrite />);
     const ws = FakeWS.last!;
 
     await handshake(ws, "/home/yigit", [entry("guncel", LINK)]);
@@ -386,7 +386,7 @@ describe("sembolik bağlar", () => {
   });
 
   it("dosyaya işaret eden bağda sebebi anlaşılır yazıyor", async () => {
-    render(<FileBrowser target="web01" />);
+    render(<FileBrowser target="web01" canWrite />);
     const ws = FakeWS.last!;
 
     await handshake(ws, "/home/yigit", [entry("kisayol", LINK)]);
@@ -412,5 +412,170 @@ describe("sembolik bağlar", () => {
     expect(screen.getByRole("alert").textContent).toMatch(
       /cannot show file contents/,
     );
+  });
+});
+
+/*
+ * ---- aktarım ----
+ *
+ * ⚠️ Buradaki iddialar protokol hakkında DEĞİL: onlar gerçek bir
+ * sftp-server'a karşı ölçülüyor (test-node/sftp.real.test.ts). Burada
+ * ölçülen şey ARAYÜZÜN SÖZLERİ: yükleme kapalıyken düğme basılamaz,
+ * yarım kalan aktarım tamamlandı görünmez, bir hata kuyruğu durdurmaz.
+ */
+
+/** localFile, bir <input type="file"> olayına konacak sahte dosya. */
+function localFile(name: string, size: number): File {
+  return new File([new Uint8Array(size)], name);
+}
+
+describe("aktarım", () => {
+  /**
+   * ⚠️ YÜKLEME KAPALIYKEN DÜĞME BASILAMAZ OLMALI.
+   *
+   * Basılabilir görünüp her denemede reddedilen bir düğme, özelliğin
+   * bozuk olduğunu düşündürür. Asıl kısıt sunucuda (salt-okunur kanal);
+   * buradaki, kullanıcıya yalan söylememek.
+   */
+  it("yükleme kapalıyken düğme kapalı ve sebebi yazıyor", async () => {
+    render(<FileBrowser target="web01" canWrite={false} />);
+    const ws = FakeWS.last!;
+    await handshake(ws, "/home/yigit", []);
+
+    /*
+     * ⚠️ ÖNCE DOSYA SEÇİLİYOR — ve bu, testin bir şey ölçmesinin şartı.
+     *
+     * İlk hâli seçim yapmadan düğmenin kapalı olduğunu iddia ediyordu ve
+     * GEÇİYORDU: seçim yokken düğme zaten kapalı. Yani canWrite kontrolü
+     * kaldırılsa bile test yeşil kalıyordu. Mutasyon bunu gösterdi.
+     */
+    const input = screen.getByLabelText(/choose files from this computer/i);
+    await userEvent.upload(input, localFile("yedek.tar", 32));
+    await userEvent.click(screen.getByLabelText("select yedek.tar"));
+
+    const btn = screen.getByRole("button", { name: /Upload/ });
+    expect(btn).toBeDisabled();
+    expect(btn.getAttribute("title")).toMatch(/sftp_panel_write/);
+
+    // Karşı kanıt: yükleme AÇIKKEN aynı seçim düğmeyi açıyor.
+    expect(screen.getByRole("button", { name: /Download/ })).toBeDisabled();
+  });
+
+  it("yükleme açıkken seçim düğmeyi etkinleştiriyor", async () => {
+    render(<FileBrowser target="web01" canWrite />);
+    const ws = FakeWS.last!;
+    await handshake(ws, "/home/yigit", []);
+
+    const input = screen.getByLabelText(/choose files from this computer/i);
+    await userEvent.upload(input, localFile("yedek.tar", 32));
+    await userEvent.click(screen.getByLabelText("select yedek.tar"));
+
+    expect(screen.getByRole("button", { name: /Upload/ })).toBeEnabled();
+  });
+
+  it("indirme seçimi olmadan basılamıyor", async () => {
+    render(<FileBrowser target="web01" canWrite />);
+    const ws = FakeWS.last!;
+    await handshake(ws, "/home/yigit", [entry("a.txt", FILE, 10)]);
+
+    expect(screen.getByRole("button", { name: /Download/ })).toBeDisabled();
+  });
+
+  /**
+   * Dizinler seçilemiyor: özyineli indirme ayrı bir karar ve verilmedi.
+   * Seçilebilir görünüp indirilmeyen bir kutu, verilmemiş bir söz olurdu.
+   */
+  it("dizin için seçim kutusu çizilmiyor", async () => {
+    render(<FileBrowser target="web01" canWrite />);
+    const ws = FakeWS.last!;
+    await handshake(ws, "/home/yigit", [
+      entry("proje", DIR),
+      entry("a.txt", FILE, 10),
+    ]);
+
+    expect(screen.queryByLabelText("select proje")).toBeNull();
+    expect(screen.getByLabelText("select a.txt")).toBeTruthy();
+  });
+
+  it("yerel dosya seçilince listede boyutuyla görünüyor", async () => {
+    render(<FileBrowser target="web01" canWrite />);
+    const ws = FakeWS.last!;
+    await handshake(ws, "/home/yigit", []);
+
+    const input = screen.getByLabelText(/choose files from this computer/i);
+    await userEvent.upload(input, localFile("yedek.tar", 2048));
+
+    expect(screen.getByText("yedek.tar")).toBeTruthy();
+    expect(screen.getByText("2.0 KiB")).toBeTruthy();
+    // Seçilene kadar yükleme düğmesi kapalı.
+    expect(screen.getByRole("button", { name: /Upload/ })).toBeDisabled();
+  });
+
+  /**
+   * ⚠️ REDDEDİLEN AKTARIM "tamamlandı" GÖRÜNMEMELİ ve sebebi satırında
+   * olmalı. "Failed" tek başına kullanıcının ne yapacağını söylemiyor.
+   */
+  it("reddedilen yükleme sebebiyle düşüyor", async () => {
+    render(<FileBrowser target="web01" canWrite />);
+    const ws = FakeWS.last!;
+    await handshake(ws, "/home/yigit", []);
+
+    const input = screen.getByLabelText(/choose files from this computer/i);
+    await userEvent.upload(input, localFile("gizli.txt", 16));
+    await userEvent.click(screen.getByLabelText("select gizli.txt"));
+    await userEvent.click(screen.getByRole("button", { name: /Upload/ }));
+
+    // İstemci dosyayı açmaya çalışıyor; postern reddediyor.
+    const od = await next(ws, FXP.OPEN);
+    await ws.deliver(
+      0,
+      packet(
+        FXP.STATUS,
+        ...u32(idOf(ws.body(od))),
+        ...u32(FX.PERMISSION_DENIED),
+        ...str("postern: this path is read-only"),
+      ),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText(/this path is read-only/)).toBeTruthy(),
+    );
+    expect(screen.queryByText(/completed/)).toBeNull();
+  });
+
+  /**
+   * ⚠️ BİR AKTARIMIN HATASI KUYRUĞU DURDURMAMALI. Beş dosya seçip
+   * birinde izin hatası almak, kalan dördünün de iptal olması demek
+   * değil.
+   */
+  it("düşen aktarımdan sonra sıradaki koşuyor", async () => {
+    render(<FileBrowser target="web01" canWrite />);
+    const ws = FakeWS.last!;
+    await handshake(ws, "/home/yigit", []);
+
+    const input = screen.getByLabelText(/choose files from this computer/i);
+    await userEvent.upload(input, [
+      localFile("bir.txt", 8),
+      localFile("iki.txt", 8),
+    ]);
+    await userEvent.click(screen.getByLabelText("select bir.txt"));
+    await userEvent.click(screen.getByLabelText("select iki.txt"));
+    await userEvent.click(screen.getByRole("button", { name: /Upload/ }));
+
+    // Birincisi reddediliyor.
+    const first = await next(ws, FXP.OPEN);
+    await ws.deliver(
+      0,
+      packet(
+        FXP.STATUS,
+        ...u32(idOf(ws.body(first))),
+        ...u32(FX.PERMISSION_DENIED),
+        ...str("postern: refused"),
+      ),
+    );
+
+    // İkincisi yine de DENENİYOR: kuyruk durmadı.
+    const second = await next(ws, FXP.OPEN);
+    expect(idOf(ws.body(second))).not.toBe(idOf(ws.body(first)));
   });
 });

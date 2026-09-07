@@ -818,10 +818,39 @@ path, so refusing it would end every session at the first packet. It
 resolves a *name*; the open that follows arrives with an absolute path
 and is decided normally.
 
-Downloading file contents is deliberately absent. What a recording should
-contain when a file leaves through a browser tab, and what the size limit
-is, are decisions that have not been made yet, and shipping the button
-first would have made them by accident.
+Transfers happen in the shell window rather than on a page of their own:
+open a shell, press **Files**, and a two-pane view opens — your computer on
+the left, the host on the right. Select and press the button, or drag
+between the panes. Each transfer gets its own progress line and ends as
+completed or with the reason it did not.
+
+**Uploading needs its own setting**, off by default:
+
+```yaml
+session:
+  sftp: true
+  sftp_panel: true
+  sftp_panel_write: true    # off by default
+```
+
+Turning it on lifts the channel's read-only lock and nothing more. Where a
+file may be written is still the role's path rules, decided in postern:
+every write is checked against the path behind the handle, so `can_write`
+is not a promise kept by the target's file permissions.
+
+**The left pane is a tray, not a file manager, and that is a browser
+limit rather than a choice.** A page can only browse your disk through the
+File System Access API, which WebKit closed as "oppose" in 2023 and
+Firefox does not ship — so it exists in Chromium and nowhere else. What
+every browser does allow is picking files and folders, dropping them, and
+reading them in chunks. Downloads go to your browser's download folder;
+the page cannot choose where. Rather than shipping a real explorer in one
+browser and something different in the rest, the same tray is shown
+everywhere.
+
+Files larger than 2 GiB are refused with a sentence naming an SFTP client,
+because the browser holds a download in memory until it is saved and a tab
+that hits that wall dies without telling anyone.
 
 ### Large Active Directory groups
 

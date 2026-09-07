@@ -3084,3 +3084,165 @@ a.tcard-name:focus-visible {
 .pathrules-hint code {
   font-size: 11.5px;
 }
+
+/* ---- iki panelli aktarım (FileBrowser modal içinde) ---- */
+/* ⚠️ Geniş kip: iki dosya listesi yan yana durmalı. Varsayılan modal
+   genişliği ikisini alt alta iterdi ve "sol taraf senin bilgisayarın"
+   düzeni yok olurdu. */
+.modal-wide {
+  max-width: min(72rem, 94vw);
+  width: 72rem;
+}
+.modal-wide .modal-body {
+  padding-top: 0;
+}
+
+.fb-panes {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 0.75rem;
+  align-items: stretch;
+  min-height: 0;
+}
+/* Dar pencerede yan yana durmuyor: sıkıştırılmış iki liste ikisini de
+   okunmaz yapardı. Aktarım düğmeleri araya değil altına geçiyor. */
+@media (max-width: 62rem) {
+  .fb-panes {
+    grid-template-columns: 1fr;
+  }
+}
+
+.fb-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 16rem;
+  max-height: 26rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  overflow: hidden;
+}
+/* Bırakma hedefi görünür olmalı: nereye bırakıldığı belirsizse
+   kullanıcı yanlış panele bırakır ve dosya sessizce yüklenir. */
+.fb-pane.is-drop {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.fb-pane-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+.fb-pane-head h4 {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+  flex: 1;
+}
+/* Dosya seçtiren <label>: içindeki input gizli ama erişilebilir kalmalı
+   (ekran okuyucu ve klavye için display:none kullanılmıyor). */
+.fb-pick {
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+}
+.fb-pick input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.fb-actions {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0 0.25rem;
+}
+@media (max-width: 62rem) {
+  .fb-actions {
+    flex-direction: row;
+    justify-content: center;
+  }
+}
+
+.fb-list .pick,
+.fb-list th.pick {
+  width: 2.2rem;
+  padding-right: 0;
+  text-align: center;
+}
+
+/* ---- aktarım kuyruğu ---- */
+.fb-queue {
+  margin-top: 0.85rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.6rem;
+  max-height: 11rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.fb-job {
+  display: grid;
+  grid-template-columns: 1rem minmax(6rem, 1fr) minmax(0, 12rem) auto;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 12.5px;
+}
+.fb-job-dir {
+  color: var(--faint);
+  font-family: var(--mono);
+}
+.fb-job-name {
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fb-job-state {
+  color: var(--muted);
+  justify-self: end;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.fb-job.is-done .fb-job-state {
+  color: var(--ok);
+}
+.fb-job.is-failed .fb-job-state,
+.fb-job.is-cancelled .fb-job-state {
+  color: var(--danger);
+}
+/* Başarısız satır adıyla da ayrılmalı: rengi ayırt edemeyen biri için
+   durum yalnızca metinde kalıyor ve o metin sağda. */
+.fb-job.is-failed .fb-job-name {
+  text-decoration: line-through;
+  text-decoration-color: var(--danger);
+}
+
+.fb-bar-track {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--line-soft);
+  overflow: hidden;
+}
+.fb-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.15s linear;
+}
+
+/* Kabuk çubuğundaki Files düğmesi */
+.shell-files {
+  gap: 0.35rem;
+}

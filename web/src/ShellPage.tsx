@@ -1,6 +1,9 @@
+import { useState } from "react";
 import Terminal from "./Terminal";
 import ThemeSwitch from "./theme/ThemeSwitch";
-import { GateMark } from "./icons";
+import Modal from "./admin/Modal";
+import FileBrowser from "./FileBrowser";
+import { GateMark, FolderIcon } from "./icons";
 import type { Resolved, ThemeMode } from "./theme/mode";
 
 /**
@@ -21,12 +24,33 @@ export default function ShellPage({
   mode,
   onMode,
   resolved,
+  filesEnabled,
+  filesWriteEnabled,
 }: {
   target: string;
   mode: ThemeMode;
   onMode: (m: ThemeMode) => void;
   resolved: Resolved;
+  /** Dosya tarayıcısı açık mı (session.sftp_panel). */
+  filesEnabled?: boolean;
+  /** Yükleme açık mı (session.sftp_panel_write). */
+  filesWriteEnabled?: boolean;
 }) {
+  /*
+   * ⚠️ DOSYALAR KABUĞUN İÇİNDE, AYRI BİR SEKMEDE DEĞİL.
+   *
+   * Önce kendi sayfası vardı (/files/<hedef>) ve hedef kartında ayrı bir
+   * düğmesi. Yanlış yerdi: dosyalara bakmak, bağlandığın makinede
+   * yaptığın bir şey — bağlanmadan önce verilen bir karar değil. Ayrıca
+   * ayrı sekme, AYRI BİR OTURUM açıyordu: aynı makineye iki kayıt, iki
+   * denetim satırı, ve kullanıcının tek iş sandığı şey için iki giriş.
+   *
+   * ⚠️ MODAL AÇILINCA KANAL AÇILIYOR, kapanınca kapanıyor: bileşen
+   * yalnızca açıkken çiziliyor. Arka planda açık duran bir SFTP kanalı,
+   * kullanıcının kapattığını sandığı bir şeyin canlı kalması olurdu.
+   */
+  const [files, setFiles] = useState(false);
+
   return (
     <div className="shell-page">
       <header className="shell-bar">
@@ -37,11 +61,38 @@ export default function ShellPage({
         <span className="shell-target">{target}</span>
         <span className="badge badge-ok">recording</span>
         <span className="shell-spacer" />
+        {filesEnabled && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm shell-files"
+            onClick={() => setFiles(true)}
+          >
+            <FolderIcon />
+            Files
+          </button>
+        )}
         <span className="shell-hint">closing this tab ends the session</span>
         <ThemeSwitch mode={mode} onChange={onMode} />
       </header>
 
       <Terminal target={target} theme={resolved} fullScreen />
+
+      <Modal
+        open={files}
+        onClose={() => setFiles(false)}
+        title={`Files — ${target}`}
+        description={
+          filesWriteEnabled
+            ? "Your computer on the left, the host on the right. Drag between them, or select and use the buttons."
+            : "Read-only: this bastion allows browsing and downloading, not uploading."
+        }
+        wide
+      >
+        {/* key: kapanınca bileşen SÖKÜLÜYOR, yani kanal da kapanıyor. */}
+        {files && (
+          <FileBrowser target={target} canWrite={Boolean(filesWriteEnabled)} />
+        )}
+      </Modal>
     </div>
   );
 }
