@@ -187,5 +187,6 @@ func (j *sftpJournal) Close() int {
 
 	j.mu.Lock()
 	defer j.mu.Unlock()
+
 	return j.total
 }

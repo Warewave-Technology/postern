@@ -89,7 +89,15 @@ func (b *Broker) beginSFTP(req *ssh.Request) bool {
 		b.logger.Warn("second sftp subsystem on one channel ignored")
 		return false
 	}
-	sess := sftpaudit.NewSession(b.sftpSink.Emit)
+	/*
+	 * ⚠️ SİNK DOĞRUDAN DEĞİL, SARMALANARAK bağlanıyor: emitSFTP olayı
+	 * hem deftere hem oturum KAYDINA yazıyor. Doğrudan bağlamak,
+	 * kaydın hangi sink'in takıldığına bağlı olması demekti — ve
+	 * gerçekten öyleydi: ilk hâlde kayıt yazımı sftpJournal'ın
+	 * içindeydi ve başka bir sink takan her yerde oturum sessizce
+	 * mühürsüz kalıyordu.
+	 */
+	sess := sftpaudit.NewSession(b.emitSFTP)
 	if b.sftpPolicy != nil {
 		// ⚠️ POLİTİKA OTURUMLA BİRLİKTE KURULUYOR. Sonradan takmak,
 		// kurulumla ilk paket arasında politikasız bir pencere bırakırdı.

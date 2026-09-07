@@ -682,9 +682,22 @@ table {
   width: 100%;
 }
 
+/* ⚠️ DOLGU VARSAYILAN, SIFIR İSTİSNA — ve bu yön bir düzeltme.
+   Eskiden tersiydi: `th { padding: 0 }` ve dolguyu `.th-pad` ya da
+   tam-alan sıralama düğmesi taşıyordu. Yani düz yazılmış her `<th>Ad</th>`
+   dolgusuz çıkıyor, başlık altındaki değerlerle HİZALANMIYORDU.
+
+   ÖLÇÜLDÜ: altı dosyada yirmiden fazla başlık böyleydi — hedef sayfası,
+   denetim tablosu, dosya tarayıcısı, yol kuralları — ve UserDetail'de
+   AYNI tablonun bir başlığı dolguluyken ikisi değildi. Gözle bakarken
+   fark edilmiyor, çünkü hata "biraz sola kaymış metin" gibi görünüyor.
+
+   Bu yönde yazınca düz `<th>` kendiliğinden doğru; sıfırlanan şey ise
+   dolgusunu ZATEN taşıyan bir çocuk barındıran hücre. Yeni yazılan bir
+   başlık artık bozulmuyor. */
 th {
   text-align: left;
-  padding: 0;
+  padding: 0.62rem 1.15rem;
   background: var(--sunken);
   border-bottom: 1px solid var(--line);
   color: var(--muted);
@@ -693,6 +706,13 @@ th {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   white-space: nowrap;
+}
+/* Tam-alan çocuk kendi dolgusunu taşıyor: hücreninki sıfırlanıyor.
+   :has() desteklenmezse kural düşer ve ortaya İKİ KAT dolgu çıkar —
+   gereğinden ferah, ama hizalı; bozulan bir yerleşim değil. */
+th:has(> .th-pad),
+th:has(> button.sort) {
+  padding: 0;
 }
 th .th-pad {
   display: block;

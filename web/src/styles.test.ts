@@ -74,3 +74,52 @@ describe("gruvbox paleti", () => {
     expect(missing).toEqual([]);
   });
 });
+
+/**
+ * Başlık dolgusunun YÖNÜ çivileniyor.
+ *
+ * ⚠️ NEDEN BÖYLE BİR TEST: bu kural bir kez ters yazıldı ve altı dosyada
+ * yirmiden fazla başlık sessizce dolgusuz kaldı — başlık metni, altındaki
+ * değerlerle hizalanmıyordu. Kusur "biraz sola kaymış yazı" gibi göründüğü
+ * için gözle bakan kimse yakalamadı; UserDetail'de aynı tablonun bir
+ * başlığı dolguluyken ikisi değildi ve o da fark edilmemişti.
+ *
+ * Ölçülen şey: düz bir <th> dolgu ALIR, ve sıfırlama yalnızca dolgusunu
+ * kendisi taşıyan bir çocuk barındıran hücreye uygulanır. Ters çevrilirse
+ * bu test düşer.
+ */
+describe("tablo başlığı dolgusu", () => {
+  /*
+   * ⚠️ AÇILIŞ PARANTEZİ SEÇİCİNİN İÇİNDE ARANIYOR, SONRASINDA DEĞİL.
+   *
+   * İlk hâli `at + selector.length`'ten sonra '{' arıyordu; seçici zaten
+   * '{' içerdiği için bu, BİR SONRAKİ kuralın gövdesini okuyordu. Sonuç
+   * iki yanlış: düz th testi başka bir kuralın `padding: 0`'ını görüp
+   * düştü, :has testi ise `padding: 0.62rem`'i "padding:0" alt dizgisi
+   * sanıp YANLIŞ SEBEPTEN geçti. İkincisi daha kötü olanı.
+   */
+  function bodyOf(selector: string): string {
+    const at = css.indexOf(selector);
+    if (at === -1) throw new Error(`seçici bulunamadı: ${selector}`);
+    const open = css.indexOf("{", at);
+    const close = css.indexOf("}", open);
+    return css.slice(open + 1, close);
+  }
+
+  it("düz th dolgu alıyor", () => {
+    const body = bodyOf("\nth {");
+    const padding = /padding:\s*([^;]+);/.exec(body)?.[1]?.trim();
+    expect(padding).toBeTruthy();
+    expect(padding).not.toBe("0");
+  });
+
+  it("sıfırlama yalnızca tam-alan çocuk taşıyan hücrede", () => {
+    // Kural varsa dolgusunu çocuk taşıyor demektir; yoksa sıralanabilir
+    // başlıkta çift dolgu olurdu.
+    expect(css).toContain("th:has(> .th-pad)");
+    expect(css).toContain("th:has(> button.sort)");
+    // Tam eşleşme: "padding: 0.62rem" de "padding:0" ALT DİZGİSİNİ taşıyor.
+    const zeroed = bodyOf("th:has(> button.sort) {");
+    expect(/padding:\s*0\s*;/.test(zeroed)).toBe(true);
+  });
+});

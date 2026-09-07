@@ -595,13 +595,36 @@ today; until that is closed, the chain's strongest claim needs a human to
 make it. The panel does not show chain state at all, so a verified and an
 unverified recording look identical there.
 
-**SFTP sessions are the other gap, and it is a different one.** Transfer
-bytes have never entered the terminal recording — that shape is what kept
-the channel shut in the first place — so an SFTP session's `.cast` holds
-its header and nothing more, and the chain seals exactly that. What
-records an SFTP session is the `session_files` ledger, which is database
-rows and carries no chain. So file activity is audited and is not sealed;
-a shell session is both.
+**SFTP sessions are sealed too, and the shape of it is worth knowing.**
+Transfer bytes still never enter the recording — that is what kept the
+channel shut in the first place, and a `.cast` full of binary protocol
+under an `80x24` header is unreadable and unplayable. What goes in
+instead is the decoded narrative:
+
+```
+postern: subsystem sftp
+postern sftp: opendir /home/dev
+postern sftp: get rapor.pdf (1.2 MiB)
+postern sftp: denied opendir /etc — path is not allowed by your role
+postern sftp: 4 events, digest sha256:…
+```
+
+So the chain covers what the session did, the session replays in the
+same player as a shell, and one `session verify` answers for both kinds.
+The closing digest is not a second seal — someone who can rewrite the
+file recomputes the chain anyway — it answers a narrower question the
+chain cannot: whether a line was removed from the *middle* of a recording
+whose chain was then recomputed, which is the cheapest tampering there is.
+
+Two things about this are deliberate. Filenames and the target's own error
+text are **stripped of control bytes** before they are written: a recording
+is replayed into a terminal, so a filename carrying an escape sequence
+could repaint the auditor's screen or erase the lines above it. And the
+file contents themselves are still never recorded — only that a transfer
+happened, in which direction, and how many bytes crossed.
+
+The `session_files` table remains the searchable, queryable copy. The
+recording is the sealed one.
 
 ### Limits
 

@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/cookiejar"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -34,6 +35,7 @@ import (
 
 	"github.com/Warewave-Technology/postern/internal/config"
 	"github.com/Warewave-Technology/postern/internal/httpapi"
+	"github.com/Warewave-Technology/postern/internal/record"
 	"github.com/Warewave-Technology/postern/internal/store"
 )
 
@@ -467,5 +469,131 @@ func TestBrowsingCostsOneRowPerDirectory(t *testing.T) {
 	if total != rounds+1 {
 		t.Errorf("toplam %d satır, %d bekleniyordu (%d listeleme + 1 ret)",
 			total, rounds+1, rounds)
+	}
+}
+
+/*
+ * TestBrowsingSessionIsSealed — "kanıt açığı" maddesinin kapandığının
+ * UÇTAN UCA kanıtı.
+ *
+ * ⚠️ AÇIK NEYDİ: SFTP baytları terminal kaydına hiç girmiyor (kanalı
+ * baştan kapalı tutan kural buydu ve duruyor), dolayısıyla bir tarama
+ * oturumunun .cast dosyası YALNIZCA başlık satırından ibaretti. Zincir o
+ * boşluğu mühürlüyor, oturumun gerçek kanıtı olan session_files satırları
+ * ise zincirin hiç uzanmadığı bir yerde duruyordu. Yani dosya etkinliği
+ * denetleniyor, mühürlenmiyordu.
+ *
+ * ÖLÇÜLEN: kayıt artık oturumun ANLATISINI taşıyor ve zincir onu
+ * kapsıyor. `postern session verify`'ın doğruladığı dosya, oturumda ne
+ * olduğunu söyleyen dosya.
+ */
+func TestBrowsingSessionIsSealed(t *testing.T) {
+	apiURL, db := browserBastionWithFileBrowser(t)
+
+	ctx := context.Background()
+	if err := db.SetRolePath(ctx, "ops", "/tmp", true, false); err != nil {
+		t.Fatalf("SetRolePath: %v", err)
+	}
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
+	browserSignIn(t, client, apiURL)
+
+	conn, _, err := dialFileBrowser(t, client, apiURL, "web01")
+	if err != nil {
+		t.Fatalf("dosya tarayıcısı açılamadı: %v", err)
+	}
+	conn.SetReadLimit(2 << 20)
+
+	dialCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	pipe := &wsPipe{ctx: dialCtx, c: conn}
+	defer pipe.Close()
+
+	cli, err := sftp.NewClientPipe(pipe, pipe)
+	if err != nil {
+		t.Fatalf("SFTP el sıkışması: %v", err)
+	}
+	if _, err := cli.ReadDir("/tmp"); err != nil {
+		t.Fatalf("/tmp listelenemedi: %v", err)
+	}
+	// Bir de reddedilen bir istek: kayıt "denedi ve reddedildi"yi de
+	// göstermeli.
+	_, _ = cli.ReadDir("/etc")
+	pipe.Close()
+
+	// Oturumun kapanmasını ve kaydın yazılmasını bekle.
+	var sid, castPath string
+	for i := 0; i < 80; i++ {
+		time.Sleep(250 * time.Millisecond)
+		sessions, err := db.Sessions(ctx, "", 0)
+		if err != nil || len(sessions) == 0 {
+			continue
+		}
+		if sessions[0].EndedAt.IsZero() {
+			continue
+		}
+		sid = sessions[0].ID
+		castPath = sessions[0].RecordingPath
+		if castPath != "" {
+			break
+		}
+	}
+	if sid == "" || castPath == "" {
+		t.Fatalf("oturum kapanmadı ya da kaydı yok (id=%q path=%q)", sid, castPath)
+	}
+
+	body, err := os.ReadFile(castPath)
+	if err != nil {
+		t.Fatalf("kayıt okunamadı: %v", err)
+	}
+	cast := string(body)
+
+	/*
+	 * ⚠️ ÜÇ ŞEY BİRDEN: oturumun SFTP olduğu, ne yapıldığı, ve neyin
+	 * reddedildiği. Üçü de eskiden kayıtta YOKTU.
+	 */
+	for _, want := range []string{
+		"postern: subsystem sftp",
+		"postern sftp: opendir /tmp",
+		"postern sftp: denied opendir /etc",
+		"digest sha256:",
+	} {
+		if !strings.Contains(cast, want) {
+			t.Errorf("kayıtta yok: %q\n---\n%s", want, cast)
+		}
+	}
+
+	// Ve zincir bu kaydı DOĞRULUYOR: satırlar dosyanın parçası,
+	// sonradan yapıştırılmış bir ek değil.
+	/*
+	 * ⚠️ Sessions() zincir sütunlarını SEÇMİYOR; tek oturumu okuyan
+	 * Session() seçiyor. İlk hâlde listeden okunuyordu ve baş her
+	 * zaman boş çıkıyordu — yani test, zincir yazılmışken
+	 * "yazılmamış" diyordu.
+	 */
+	se, err := db.Session(ctx, sid)
+	if err != nil {
+		t.Fatalf("Session: %v", err)
+	}
+	head, links := se.RecordingChain, se.RecordingLinks
+	if head == "" {
+		t.Fatal("zincir başı yazılmamış")
+	}
+	if links < 4 {
+		t.Errorf("zincir %d halka — anlatı kapsanmıyor", links)
+	}
+
+	f, err := os.Open(castPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	ok, got, err := record.VerifyChain(f, head)
+	if err != nil {
+		t.Fatalf("VerifyChain: %v", err)
+	}
+	if !ok {
+		t.Errorf("zincir tutmadı (%d halka okundu, %d bekleniyordu)", got, links)
 	}
 }

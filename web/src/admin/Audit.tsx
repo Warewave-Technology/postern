@@ -31,11 +31,16 @@ const LOG_CAP = 500;
 /*
  * SessionFiles, bir oturumda dokunulan dosyaları listeler.
  *
- * ⚠️ NİYE OYNATICININ YANINDA DURUYOR: SFTP oturumunun terminal kaydı
- * BOŞTUR — protokol ham ikili aktığı için kayda hiç yazılmıyor
- * (proxy/sftp.go). Bu tablo olmasa denetçi boş bir oynatıcı görür ve
- * "bu oturumda bir şey olmamış" sonucuna varırdı; oysa tam o oturumda
- * dosya taşınmış olabilir.
+ * ⚠️ NİYE OYNATICININ YANINDA DURUYOR. Eskiden gerekçe "SFTP oturumunun
+ * terminal kaydı BOŞTUR" idi ve artık doğru değil: kayıt oturumun
+ * çözülmüş anlatısını taşıyor ve zincir onu mühürlüyor
+ * (proxy/sftpcast.go). Tablo yine de duruyor, çünkü iki farklı soruya
+ * cevap veriyorlar. Kayıt MÜHÜRLÜ olan: "bu dosya yazıldığından beri
+ * değişmedi" diyen şey o. Tablo ARANABİLİR olan: "bu yola kim dokundu",
+ * "kaç bayt çıktı", "hangi istekler reddedildi" sorularının cevabı bir
+ * oynatıcıyı baştan sona izlemeden alınabilsin diye burada.
+ *
+ * Yani biri diğerinin yerine geçmiyor; kayıt kanıt, tablo sorgu.
  */
 function SessionFiles({
   files,

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Me, MyTargetDetail, api, toMessage } from "./api";
 import { ErrorLine } from "./admin/common";
-import { HostIcon, FolderIcon } from "./icons";
+import { HostIcon } from "./icons";
 import ShellMenu from "./ShellMenu";
 
 /*
@@ -88,23 +88,6 @@ export default function TargetPage({ me, name }: { me: Me; name: string }) {
             Every session through this host is recorded.
           </p>
         </div>
-        {/*
-          ⚠️ DÜĞME YALNIZCA UÇ AÇIKSA ÇİZİLİYOR. Kapalı bir özelliğin
-          düğmesini göstermek, basan kullanıcıya sebebi göremediği bir
-          kapanma yaşatır: tarayıcı, başarısız bir WebSocket el
-          sıkışmasının gövdesini JavaScript'e vermiyor.
-        */}
-        {me.files_enabled && (
-          <a
-            className="btn btn-ghost btn-shell"
-            href={`/files/${encodeURIComponent(t.name)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <FolderIcon />
-            Files
-          </a>
-        )}
         <ShellMenu
           target={t.name}
           user={me.name}

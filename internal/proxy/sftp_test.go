@@ -169,6 +169,24 @@ func TestSFTPBytesStayOutOfTheRecording(t *testing.T) {
 			"reddedilmesine sebep olan kusur geri gelmiş")
 	}
 
+	/*
+	 * ⚠️ İÇERİK GİRMİYOR AMA OLAY GİRİYOR — ve bu ayrım özelliğin
+	 * tamamı. Kayıt eskiden BOŞTU: bir SFTP oturumunun .cast'i
+	 * yalnızca başlık satırından ibaretti ve kurcalama-kanıtlı zincir
+	 * o boşluğu mühürlüyordu. Şimdi zincir oturumun anlatısını
+	 * kapsıyor; kapsamadığı tek şey, hiç kapsamaması gereken şey:
+	 * dosyanın içeriği.
+	 *
+	 * Alt sistem satırı da burada: kaydı açan denetçi, oturumun SFTP
+	 * olduğunu ilk satırda görmeli.
+	 */
+	if !strings.Contains(cast, "postern: subsystem sftp") {
+		t.Errorf("kayıt oturumun SFTP olduğunu söylemiyor:\n%s", cast)
+	}
+	if !strings.Contains(cast, "/etc/shadow") {
+		t.Errorf("dosyaya erişildiği kayda düşmemiş:\n%s", cast)
+	}
+
 	// ...ve yerine dosya seviyesinde denetim çıkmış olmalı.
 	var transfer *sftpaudit.Event
 	for i, e := range files.all() {

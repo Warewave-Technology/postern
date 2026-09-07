@@ -54,6 +54,36 @@ audit rows into a shape it does not understand.
 
 ### Added
 
+- **SFTP sessions are recorded and sealed.** Until now the `.cast` file for
+  an SFTP session held its header and nothing else: transfer bytes never
+  enter a terminal recording, which is what kept the channel shut in the
+  first place, and the chain therefore sealed an empty file. What records
+  the session now is the decoded narrative:
+
+  ```
+  postern: subsystem sftp
+  postern sftp: opendir /home/dev
+  postern sftp: get rapor.pdf (1.2 MiB)
+  postern sftp: denied opendir /etc — path is not allowed by your role
+  postern sftp: 4 events, digest sha256:…
+  ```
+
+  File contents are still never recorded. The chain now covers what the
+  session did, an SFTP session replays in the same player as a shell, and
+  `postern session verify` answers for both. Filenames and the target's own
+  error text are stripped of control bytes on the way in: a recording is
+  replayed into a terminal, and a filename carrying an escape sequence
+  could otherwise repaint an auditor's screen.
+
+  **Nothing changes for shell sessions**, and there is a test that compares
+  a shell recording made with SFTP enabled against one made with it
+  disabled, event for event.
+
+  Recordings of SFTP sessions are no longer near-empty, so they now take
+  space in proportion to how much the session did — a few hundred bytes per
+  directory opened or file transferred. If you prune recordings by size,
+  that assumption has changed.
+
 - **Recordings are chained as they are written.** Each line extends a SHA-256
   chain; the head and link count are stored with the session, and the head
   travels to the archive as object metadata.
@@ -101,14 +131,7 @@ audit rows into a shape it does not understand.
   same `session_files` rows and obeys the same role path rules, and closing
   the tab ends the session.
 
-  **Be precise about what a browsing session leaves behind.** SFTP bytes
-  have never gone into the terminal recording — that is the rule that kept
-  the channel shut in the first place — so the `.cast` file for a browsing
-  session holds its header and nothing else. What records the browsing is
-  the `session_files` ledger: one row per directory opened, plus a row for
-  every refusal. Those rows are database rows, and the tamper-evident chain
-  covers `.cast` files only. So a file browser session is audited, and it
-  is not sealed the way a shell session is.
+  A browsing session is recorded and sealed like any other — see below.
 
   **It will refuse to open on an account whose roles carry no path rules,
   and this is deliberate.** A role without rules is unrestricted; a fresh

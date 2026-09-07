@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"io"
 	"log/slog"
@@ -44,6 +45,21 @@ type Broker struct {
 
 	// idle nil olabilir: boşta kalma sınırı kapalıysa sarmalayıcı yok.
 	idle *idleGuard
+
+	/*
+	 * castMu/castEvents/castDigest, SFTP olaylarının oturum KAYDINA
+	 * yazılmasının durumu.
+	 *
+	 * ⚠️ SİNK'İN İÇİNDE DEĞİL, BROKER'DA — ve bu bir düzeltme. İlk hâli
+	 * kayıt satırını sftpJournal.Emit'e koyuyordu; o katman depoyla
+	 * ilgili, kayıtla değil. Sonuç: başka bir sink takılan her yerde
+	 * (testler dahil) oturum sessizce mühürsüz kalıyordu. `b.rec`'in
+	 * sahibi broker, dolayısıyla sarmalanacak yer de burası —
+	 * chainWriter'ın "kanca koymak yerine sarmala" gerekçesinin aynısı.
+	 */
+	castMu     sync.Mutex
+	castEvents int64
+	castDigest [sha256.Size]byte
 
 	// sftpSink nil olabilir: SFTP kapalıysa denetim de kurulmuyor ve
 	// süzgeç subsystem'i zaten reddediyor.
@@ -752,6 +768,16 @@ func (b *Broker) Run(ctx context.Context) error {
 	 * görünür kılıyor — abortAudit de abortErr'i close'dan önce
 	 * yazıyor. Kapanmamışsa alana hiç dokunmuyoruz.
 	 */
+	/*
+	 * ⚠️ MÜHÜR SATIRI BURADA, Run DÖNMEDEN ÖNCE. Kaydı lifecycle
+	 * kapatıyor ve bunu Run döndükten SONRA yapıyor; sıra tersine
+	 * dönerse mühür kaydın DIŞINDA kalır ve hiçbir şeyi mühürlemez.
+	 *
+	 * Oturum bir arızayla bittiyse de yazılıyor: yarım kalmış bir
+	 * oturumun kaç olay taşıdığı, tam bitmiş olanınki kadar bir bulgu.
+	 */
+	b.sealSFTPCast()
+
 	select {
 	case <-b.aborted:
 		return b.abortErr
@@ -1072,6 +1098,24 @@ func (b *Broker) recordIntent(req *ssh.Request) {
 
 	case "signal":
 		line = "postern: signal"
+
+	/*
+	 * ⚠️ ALT SİSTEM DE YAZILIYOR ve eksikliği ölçülmüş bir yanlış
+	 * izlenimdi: bir SFTP oturumunun kaydı, oturumun SFTP olduğunu
+	 * bile söylemiyordu. Kaydı açan denetçi boş bir dosya görüyor ve
+	 * "kimse bir şey yapmamış" diye okuyordu.
+	 *
+	 * Ad KARŞI TARAFTAN geliyor: istemci ne yazarsa o. Bu yüzden
+	 * temizlenerek yazılıyor — kayda giren metin oynatıldığında
+	 * terminalde çalışır (sftpcast.go'daki gerekçe).
+	 */
+	case "subsystem":
+		var sub SubsystemRequest
+		if err := ssh.Unmarshal(req.Payload, &sub); err != nil {
+			line = "postern: subsystem (unparsable)"
+		} else {
+			line = "postern: subsystem " + castSafe(sub.Name)
+		}
 
 	default:
 		return
