@@ -704,3 +704,139 @@ func TestMovingTheRecordingsDirDoesNotWriteOffIntactRecordings(t *testing.T) {
 		t.Fatalf("kayıt dosyası kaybolmuş: %v", ferr)
 	}
 }
+
+/*
+ * ⚠️ BELİRLEYİCİ TEST: ZİNCİR BAŞI KOVAYA GİDİYOR VE GERİ OKUNABİLİYOR.
+ *
+ * Baş nesnenin üstverisine yazılıyordu ama Head yalnızca boyut
+ * döndürdüğü için hiç kimse onu OKUMUYORDU. Yazılan ama okunmayan bir
+ * kanıt, kanıt değil: zincirin bütün değeri, bastion'da root olan birinin
+ * ulaşamadığı bir kopyanın var olmasında ve o kopyaya BAKILABİLMESİNDE.
+ *
+ * Burada iddia veritabanındaki bir bayrak değil: gerçek bir depoya
+ * yükleyip HEAD ile geri okuyoruz.
+ */
+func TestChainHeadTravelsToTheBucketAndComesBack(t *testing.T) {
+	endpoint := minioURL(t)
+	bucket := newBucket(t, endpoint)
+	db := newDB(t)
+	dir := t.TempDir()
+
+	const id = "cccc1111dddd2222eeee3333ffff4444"
+	content := "{\"version\":2,\"width\":80,\"height\":24}\n[0.5,\"o\",\"merhaba\"]\n"
+	seedFinishedSession(t, db, dir, id, content)
+
+	ctx := context.Background()
+	const head = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	if err := db.SetRecordingChain(ctx, id, head, 2); err != nil {
+		t.Fatal(err)
+	}
+
+	a := newArchiver(t, db, dir, endpoint, bucket)
+	a.RunOnce(ctx)
+
+	st, found, err := db.ArchiveStateOf(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || !st.Archived {
+		t.Fatalf("arşivlenmedi: %+v (son hata: %s)", st, st.LastError)
+	}
+
+	client, err := objstore.New(objstore.Config{
+		Endpoint: endpoint, Bucket: bucket, Region: "us-east-1",
+		Credentials: objstore.Credentials{
+			AccessKeyID: minioUser, SecretAccessKey: minioPass,
+		},
+		Timeout: 15 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := client.Head(ctx, st.ObjectKey)
+	if err != nil {
+		t.Fatalf("Head: %v", err)
+	}
+
+	if got := info.Meta[objstore.MetaChain]; got != head {
+		t.Fatalf("kovadaki zincir başı = %q, %q bekleniyordu", got, head)
+	}
+	if got := info.Meta[objstore.MetaLinks]; got != "2" {
+		t.Errorf("halka sayısı = %q, 2 bekleniyordu", got)
+	}
+
+	/*
+	 * ⚠️ ASIL SENARYO: BASTION'DA ROOT OLAN BİRİ DOSYAYI VE
+	 * VERİTABANINI BİRLİKTE YENİDEN YAZAR.
+	 *
+	 * Yerel doğrulama o hâlde "OK" der — dosya ile veritabanı
+	 * tutuyor. Kovadaki baş ise ESKİ olanı taşımaya devam ediyor ve
+	 * uyuşmazlık ortaya çıkıyor. Zincirin kapattığı şey tam olarak bu
+	 * ve kapatabilmesinin şartı, o kopyanın okunması.
+	 */
+	const rewritten = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+	if err := db.SetRecordingChain(ctx, id, rewritten, 2); err != nil {
+		t.Fatal(err)
+	}
+
+	after, found, err := db.ArchiveStateOf(ctx, id)
+	if err != nil || !found {
+		t.Fatal(err)
+	}
+	info2, err := client.Head(ctx, after.ObjectKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info2.Meta[objstore.MetaChain] == rewritten {
+		t.Fatal("kovadaki baş da değişti — kopya bağımsız değil")
+	}
+	if info2.Meta[objstore.MetaChain] != head {
+		t.Errorf("kovadaki baş = %q, ORİJİNAL %q olmalıydı",
+			info2.Meta[objstore.MetaChain], head)
+	}
+	t.Logf("veritabanı yeniden yazıldı (%s…), kovadaki baş değişmedi (%s…)",
+		rewritten[:12], info2.Meta[objstore.MetaChain][:12])
+}
+
+/*
+ * Zinciri OLMAYAN kayıtta üstveri hiç yazılmamalı: boş bir baş
+ * yüklemek, doğrulanamayan bir kaydı doğrulanmış göstermek olurdu.
+ */
+func TestRecordingWithoutAChainUploadsNoMetadata(t *testing.T) {
+	endpoint := minioURL(t)
+	bucket := newBucket(t, endpoint)
+	db := newDB(t)
+	dir := t.TempDir()
+
+	const id = "1111aaaa2222bbbb3333cccc4444dddd"
+	seedFinishedSession(t, db, dir, id, "{\"version\":2}\n")
+
+	ctx := context.Background()
+	a := newArchiver(t, db, dir, endpoint, bucket)
+	a.RunOnce(ctx)
+
+	st, found, err := db.ArchiveStateOf(ctx, id)
+	if err != nil || !found || !st.Archived {
+		t.Fatalf("arşivlenmedi: %+v", st)
+	}
+
+	client, err := objstore.New(objstore.Config{
+		Endpoint: endpoint, Bucket: bucket, Region: "us-east-1",
+		Credentials: objstore.Credentials{
+			AccessKeyID: minioUser, SecretAccessKey: minioPass,
+		},
+		Timeout: 15 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := client.Head(ctx, st.ObjectKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Meta[objstore.MetaChain]; got != "" {
+		t.Errorf("zinciri olmayan kayda baş yazılmış: %q", got)
+	}
+}

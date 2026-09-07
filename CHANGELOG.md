@@ -84,6 +84,23 @@ audit rows into a shape it does not understand.
   directory opened or file transferred. If you prune recordings by size,
   that assumption has changed.
 
+- **`postern session verify` now reads the archived copy of the chain
+  head.** The head has been travelling to the bucket as object metadata
+  since 1.1; nothing read it back, so the chain's strongest claim needed a
+  person to make it by hand. Verify now answers four states — the archived
+  copy CONFIRMS, DISAGREES, carries NO CHAIN, or was NOT CHECKED.
+
+  **DISAGREES is the case this exists for.** A file that matches this
+  host's database while the archived head differs means both were
+  rewritten together, which takes root here and which the bucket does not
+  follow while its retention lasts. The command exits non-zero and names
+  the archived head as the one to trust.
+
+  Not being able to check is not a failure — an unreachable bucket is not
+  evidence of tampering — but it never reads as confirmation either. For
+  scripts that must distinguish them, `--require-archive` turns
+  "not checked" into a non-zero exit.
+
 - **Recordings are chained as they are written.** Each line extends a SHA-256
   chain; the head and link count are stored with the session, and the head
   travels to the archive as object metadata.

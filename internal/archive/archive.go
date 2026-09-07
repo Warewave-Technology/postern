@@ -340,16 +340,30 @@ func (a *Archiver) archiveOne(ctx context.Context, client *objstore.Client, p st
 	 * DEPONUN KENDİSİNDEN duyuyoruz. Kendi istemcimizin "başarılı"
 	 * demesiyle deponun "duruyor" demesi aynı şey değil.
 	 */
-	size, err := client.Head(ctx, key)
+	head, err := client.Head(ctx, key)
 	if err != nil {
 		a.fail(ctx, p.SessionID, log, fmt.Errorf("verify: %w", err),
 			errors.Is(err, objstore.ErrTransient), false)
 		return
 	}
-	if size >= 0 && size != info.Size() {
+	if head.Size >= 0 && head.Size != info.Size() {
 		a.fail(ctx, p.SessionID, log,
-			fmt.Errorf("verify: stored %d bytes, sent %d", size, info.Size()), true, false)
+			fmt.Errorf("verify: stored %d bytes, sent %d", head.Size, info.Size()), true, false)
 		return
+	}
+
+	/*
+	 * ⚠️ ÜSTVERİ DE GERİ OKUNUYOR. Zincir başını yazmak, onun oraya
+	 * ULAŞTIĞI anlamına gelmiyor: bazı S3 uyumlu depolar kullanıcı
+	 * üstverisini sessizce düşürüyor ve sonuç, kimsenin fark etmediği
+	 * bir "kopya var ama boş" durumu olurdu. Kopya taşımıyorsa
+	 * yükleme yine başarılı sayılıyor — kayıt orada ve budayıcı onu
+	 * silebilir — ama operatör bunu log'da görüyor.
+	 */
+	if p.Chain != "" && head.Meta[objstore.MetaChain] != p.Chain {
+		log.Warn("archived object does not carry the chain head; "+
+			"off-box verification will not be possible for this recording",
+			"object", key, "stored", head.Meta[objstore.MetaChain])
 	}
 
 	if err := a.db.MarkArchived(ctx, p.SessionID, client.Bucket(), key,

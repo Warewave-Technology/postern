@@ -588,12 +588,36 @@ retention, are what stop it being replaced. `postern archive check`
 reports whether those are on, and says plainly that it cannot verify them
 from the machine an attacker would be standing on.
 
-**Reading that copy back is not automated yet.** `postern session verify`
-checks the file against the head in the database, on the bastion. The
-off-box copy is written on every upload and has to be compared by hand
-today; until that is closed, the chain's strongest claim needs a human to
-make it. The panel does not show chain state at all, so a verified and an
-unverified recording look identical there.
+**`session verify` reads that copy back.** It answers four states, and
+the difference between the last two is the point:
+
+```
+off-box copy   CONFIRMS (bucket/key)         the archived head matches
+off-box copy   DISAGREES (bucket/key)        treat this host as compromised
+off-box copy   NO CHAIN — …                  uploaded before chains existed
+off-box copy   NOT CHECKED — …               archiving off, or not uploaded yet
+```
+
+**DISAGREES is the case the chain exists for.** If the file matches the
+database and the archived head does not, then the file *and* the database
+were rewritten together — which needs root on this host, and which the
+bucket copy does not follow while its retention lasts. The command exits
+non-zero and says to trust the archived head over this machine.
+
+"Not checked" never reads as confirmation, and it does not fail the
+command either: being unable to reach a bucket is not evidence of
+tampering. For a script that must tell the two apart, `--require-archive`
+turns it into a failure.
+
+This check runs on the bastion, and that limit is worth stating: someone
+holding this host can change the command too. What it closes is narrower
+and real — rewriting the recording and the database to agree with each
+other. For a reading that trusts this host with nothing, compare the same
+head from somewhere else; the bucket credential and the session id are all
+it takes.
+
+The panel still does not show chain state, so a verified and an unverified
+recording look identical there.
 
 **SFTP sessions are sealed too, and the shape of it is worth knowing.**
 Transfer bytes still never enter the recording — that is what kept the

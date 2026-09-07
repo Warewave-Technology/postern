@@ -327,26 +327,69 @@ func (c *Client) Put(ctx context.Context, key string, f *os.File, size int64, me
  * duymak istiyoruz — bizim istemcimizin başarı dediği şeyden bağımsız
  * bir teyit. Sıra: yükle → doğrula → damgala → silmeye izin ver.
  */
-func (c *Client) Head(ctx context.Context, key string) (size int64, err error) {
+/*
+ * ObjectInfo, HEAD cevabından okunan nesne bilgisi.
+ *
+ * ⚠️ ÜSTVERİ DE DÖNÜYOR ve sebebi tek bir kullanıcı: kayıt zincirinin
+ * başı yüklenirken nesnenin üstverisine yazılıyor (archive.go). O kopya,
+ * bastion'da root olan birinin ULAŞAMADIĞI tek yer — kova saklama
+ * süresiyle korunuyorsa. Ama yazılan bir şeyi okuyan yoksa taşıdığı
+ * kanıt da yok: Head yalnızca boyut döndürdüğü sürece o kopya
+ * doğrulamaya hiç girmiyordu.
+ */
+type ObjectInfo struct {
+	Size int64
+
+	/*
+	 * Meta, x-amz-meta-* başlıkları — ÖNEKSİZ ve KÜÇÜK HARF anahtarlarla.
+	 *
+	 * ⚠️ ANAHTARLAR NORMALLEŞTİRİLİYOR. S3 kullanıcı üstverisini
+	 * küçük harfe çeviriyor ("Postern-Chain" → "postern-chain") ve
+	 * araya giren vekiller başlık kutusunu da değiştirebiliyor.
+	 * Çağıranın yazdığı adla arayabilmesi için tek biçime indiriliyor;
+	 * aksi hâlde "üstveri yok" ile "adı farklı yazılmış" karışırdı ve
+	 * ikincisi sessizce "doğrulanamıyor" diye okunurdu.
+	 */
+	Meta map[string]string
+}
+
+// MetaChain/MetaLinks, zincir başının üstverideki adları (öneksiz).
+const (
+	MetaChain = "postern-chain"
+	MetaLinks = "postern-links"
+)
+
+func (c *Client) Head(ctx context.Context, key string) (info ObjectInfo, err error) {
 	u := *c.base
 	u.Path = "/" + c.cfg.Bucket + "/" + strings.TrimLeft(key, "/")
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, u.String(), nil)
 	if err != nil {
-		return 0, fmt.Errorf("objstore.Head %s: %w", key, err)
+		return ObjectInfo{}, fmt.Errorf("objstore.Head %s: %w", key, err)
 	}
 	sign(req, c.cfg.Credentials, c.cfg.Region, "s3", sha256Hex(nil), time.Now())
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return 0, fmt.Errorf("objstore.Head %s: %w: %v", key, ErrTransient, err)
+		return ObjectInfo{}, fmt.Errorf("objstore.Head %s: %w: %v", key, ErrTransient, err)
 	}
 	defer resp.Body.Close()
 
 	if err := classify(key, resp); err != nil {
-		return 0, err
+		return ObjectInfo{}, err
 	}
-	return resp.ContentLength, nil
+
+	meta := map[string]string{}
+	const prefix = "x-amz-meta-"
+	for name, values := range resp.Header {
+		lower := strings.ToLower(name)
+		if !strings.HasPrefix(lower, prefix) || len(values) == 0 {
+			continue
+		}
+		meta[strings.TrimPrefix(lower, prefix)] = values[0]
+	}
+
+	return ObjectInfo{Size: resp.ContentLength, Meta: meta}, nil
 }
 
 /*

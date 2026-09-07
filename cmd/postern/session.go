@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"text/tabwriter"
 	"time"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/Warewave-Technology/postern/internal/config"
 	"github.com/Warewave-Technology/postern/internal/model"
+	"github.com/Warewave-Technology/postern/internal/objstore"
 	"github.com/Warewave-Technology/postern/internal/record"
 	"github.com/Warewave-Technology/postern/internal/store"
 )
@@ -233,6 +235,7 @@ func newSessionShowCmd() *cobra.Command {
  */
 func newSessionVerifyCmd() *cobra.Command {
 	var configPath string
+	var requireArchive bool
 
 	cmd := &cobra.Command{
 		Use:   "verify <session-id>",
@@ -288,6 +291,16 @@ func newSessionVerifyCmd() *cobra.Command {
 				return err
 			}
 
+			/*
+			 * ⚠️ KUTU DIŞI KOPYA HER İKİ SONUÇTA DA OKUNUYOR.
+			 *
+			 * Yerel doğrulama düşse bile kovadaki başı göstermek işe
+			 * yarıyor: dosya değişmişse, kovadaki baş "olması gereken"i
+			 * söylüyor. Yalnızca başarı yolunda bakmak, en çok
+			 * ihtiyaç duyulan anda susmak olurdu.
+			 */
+			off := checkOffBox(ctx, cfg, db, s.ID, s.RecordingChain)
+
 			if !ok {
 				/*
 				 * Halka sayısı burada asıl bilgi: "bozuk" demek yetmiyor,
@@ -301,28 +314,246 @@ func newSessionVerifyCmd() *cobra.Command {
 					fmt.Fprintf(out, "  the file is short by %d lines\n",
 						s.RecordingLinks-links)
 				}
+				printOffBox(out, off)
 
 				return errRecordingChanged
 			}
 
+			/*
+			 * ⚠️ YEREL DOĞRULAMA GEÇTİ AMA KOVA BAŞKA ŞEY SÖYLÜYORSA,
+			 * BU EN GÜÇLÜ KURCALAMA İŞARETİ — ve komut BAŞARISIZ dönmeli.
+			 *
+			 * Dosya veritabanındaki başla tutuyor, ama kovadaki kopya
+			 * başka bir baş taşıyor. İkisini birden üretebilmenin tek
+			 * yolu bu makineyi elinde tutmak; kovadaki nesne ise
+			 * saklama süresi boyunca oradan değiştirilemiyor. Yani bu,
+			 * "dosya ve veritabanı birlikte yeniden yazıldı" demek.
+			 */
+			if off.state == offBoxMismatch {
+				fmt.Fprintf(out, "FAILED  %s\n", s.ID)
+				fmt.Fprintf(out, "  the file matches this host's database, but the\n")
+				fmt.Fprintf(out, "  archived copy carries a different chain head.\n")
+				printOffBox(out, off)
+				fmt.Fprintf(out, "\n")
+				fmt.Fprintf(out, "Both the recording and the stored chain on this host can be\n")
+				fmt.Fprintf(out, "rewritten by whoever holds root here; the archived copy\n")
+				fmt.Fprintf(out, "cannot, while its retention lasts. Treat the archived head\n")
+				fmt.Fprintf(out, "as the one to trust, and this host as compromised.\n")
+
+				return errArchiveDisagrees
+			}
+
+			if requireArchive && off.state != offBoxMatch {
+				fmt.Fprintf(out, "FAILED  %s\n", s.ID)
+				fmt.Fprintf(out, "  the local chain is intact, but the off-box copy could\n")
+				fmt.Fprintf(out, "  not confirm it and --require-archive was given.\n")
+				printOffBox(out, off)
+
+				return errArchiveUnverified
+			}
+
 			fmt.Fprintf(out, "OK  %s\n", s.ID)
 			fmt.Fprintf(out, "  %d links, chain %s\n", links, s.RecordingChain)
+			printOffBox(out, off)
 			fmt.Fprintf(out, "\n")
+
+			if off.state == offBoxMatch {
+				fmt.Fprintf(out, "The recording matches its chain, and the copy in the archive\n")
+				fmt.Fprintf(out, "carries the same head. Rewriting the file and this host's\n")
+				fmt.Fprintf(out, "database together would not have produced that agreement,\n")
+				fmt.Fprintf(out, "as long as the bucket keeps versioning and Object Lock on —\n")
+				fmt.Fprintf(out, "`postern archive check` reports whether it does.\n")
+				fmt.Fprintf(out, "\n")
+				fmt.Fprintf(out, "This check ran on the bastion. For a reading that does not\n")
+				fmt.Fprintf(out, "trust this host at all, compare the same head from elsewhere;\n")
+				fmt.Fprintf(out, "the bucket credential and the session id are all it takes.\n")
+
+				return nil
+			}
+
 			fmt.Fprintf(out, "This proves the file was not changed after postern wrote it.\n")
 			fmt.Fprintf(out, "It does not prove more than that: whoever holds root on this\n")
 			fmt.Fprintf(out, "host could rewrite the file and this chain together. The chain\n")
-			fmt.Fprintf(out, "is worth what its copy elsewhere is worth — the archive bucket,\n")
-			fmt.Fprintf(out, "and any endpoint you push it to.\n")
+			fmt.Fprintf(out, "is worth what its copy elsewhere is worth — and that copy was\n")
+			fmt.Fprintf(out, "not consulted here (see above).\n")
 
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
+	/*
+	 * ⚠️ BETİKTEN ÇAĞIRAN İÇİN. Varsayılan davranışta kutu dışı kopyaya
+	 * ulaşılamaması komutu düşürmüyor — ulaşılamamak kurcalanmışlık
+	 * değil. Ama bir olay müdahalesi betiği "kova onayladı" ile "kovaya
+	 * bakamadım"ı ayırt etmek zorunda ve sessiz bir sıfır çıkış kodu o
+	 * ayrımı kaybettirir.
+	 */
+	cmd.Flags().BoolVar(&requireArchive, "require-archive", false,
+		"fail unless the archived copy confirms the chain")
 
 	return cmd
+}
+
+/*
+ * printOffBox, kutu dışı kopyanın durumunu yazar.
+ *
+ * ⚠️ HER DURUMDA BİR SATIR YAZILIYOR, sessizlik yok. "Bakılmadı"
+ * yazılmazsa okuyan kişi bakıldığını ve tuttuğunu varsayar — ve bu
+ * varsayım tam olarak zincirin değerini abartan varsayım.
+ */
+func printOffBox(out io.Writer, r offBoxResult) {
+	switch r.state {
+	case offBoxMatch:
+		fmt.Fprintf(out, "  off-box copy   CONFIRMS (%s)\n", r.object)
+	case offBoxMismatch:
+		fmt.Fprintf(out, "  off-box copy   DISAGREES (%s)\n", r.object)
+		fmt.Fprintf(out, "    archived chain %s over %s links\n", r.chain, r.links)
+	case offBoxNoChain:
+		fmt.Fprintf(out, "  off-box copy   NO CHAIN — %s\n", r.detail)
+	default:
+		fmt.Fprintf(out, "  off-box copy   NOT CHECKED — %s\n", r.detail)
+	}
 }
 
 // errRecordingChanged, doğrulamanın BAŞARISIZ olduğunu çağırana sıfırdan
 // farklı bir çıkış koduyla bildiriyor: bu komut betikten çağrılacak ve
 // "değişmiş" hâli 0 dönmemeli.
 var errRecordingChanged = errors.New("recording does not match its chain")
+
+/*
+ * errArchiveDisagrees, yerel doğrulama geçtiği hâlde arşivdeki kopyanın
+ * farklı bir baş taşıması. Ayrı bir hata, çünkü ayrı bir olay: dosyanın
+ * bozulması değil, BU MAKİNENİN ele geçirilmiş olması.
+ */
+var errArchiveDisagrees = errors.New(
+	"the archived copy carries a different chain head; treat this host as compromised")
+
+// errArchiveUnverified, --require-archive verilmişken kutu dışı kopyanın
+// onaylayamaması.
+var errArchiveUnverified = errors.New(
+	"the off-box copy did not confirm the chain")
+
+/*
+ * Kutu dışı kopyanın doğrulanması.
+ *
+ * ⚠️ NİYE ZİNCİRİN ASIL DEĞERİ BURADA. Yereldeki baş veritabanında
+ * duruyor ve kayıt dosyası diskte; bastion'da root olan İKİSİNİ DE
+ * yeniden yazabilir ve doğrulama yine "OK" der. O yüzden zincirin tek
+ * başına kanıtladığı şey dar: dosya yazıldıktan sonra değişmedi.
+ *
+ * Kovadaki kopya o makinenin ULAŞAMADIĞI yer — kova sürümleme ve Object
+ * Lock ile korunuyorsa, yüklenmiş bir nesne saklama süresi boyunca
+ * postern'in kendi kimlik bilgisiyle bile değiştirilemiyor. Zincir başı
+ * yüklenirken nesnenin üstverisine yazılıyor; buradaki kod onu GERİ
+ * OKUYOR.
+ *
+ * ⚠️ BU KONTROL BASTION'DA KOŞUYOR ve o sınır burada yazılı olmalı:
+ * saldırgan bu makineyi elinde tutuyorsa komutun kendisini de
+ * değiştirebilir. Kapattığı şey daha dar ve gerçek — dosyayı ve
+ * veritabanını yeniden yazıp doğrulamayı kandırmak. O senaryoda kovadaki
+ * baş artık tutmuyor ve komut bunu söylüyor. Tam bağımsızlık için aynı
+ * karşılaştırma başka bir makineden yapılmalı; kova kimlik bilgisi ve
+ * oturumun başı bunun için yeterli.
+ */
+type offBoxState int
+
+const (
+	// offBoxMatch, kovadaki baş veritabanındakiyle AYNI.
+	offBoxMatch offBoxState = iota
+	// offBoxMismatch, kovadaki baş FARKLI — en güçlü kurcalama işareti.
+	offBoxMismatch
+	// offBoxNoChain, nesne var ama zincir başı taşımıyor.
+	offBoxNoChain
+	// offBoxUnchecked, bakılamadı (arşiv kapalı, henüz yüklenmemiş,
+	// ulaşılamadı). ⚠️ "Doğrulandı" ile karıştırılmaması gereken durum.
+	offBoxUnchecked
+)
+
+type offBoxResult struct {
+	state  offBoxState
+	detail string
+	chain  string
+	links  string
+	object string
+}
+
+// checkOffBox, arşivdeki kopyanın taşıdığı zincir başını okur.
+func checkOffBox(ctx context.Context, cfg *config.Config, db *store.Store,
+	sessionID, wantChain string) offBoxResult {
+	ac := cfg.Recording.Archive
+	if !ac.Enabled() {
+		return offBoxResult{state: offBoxUnchecked,
+			detail: "archiving is not configured (recording.archive.endpoint is empty)"}
+	}
+
+	st, found, err := db.ArchiveStateOf(ctx, sessionID)
+	switch {
+	case err != nil:
+		return offBoxResult{state: offBoxUnchecked,
+			detail: fmt.Sprintf("could not read the archive state: %v", err)}
+	case !found || !st.Archived:
+		/*
+		 * ⚠️ "HENÜZ YÜKLENMEDİ" BİR ARIZA DEĞİL ama sessiz de
+		 * geçilmemeli: bu kaydın kutu dışı bir kopyası YOK, yani
+		 * zincirin taşıdığı kanıt şu an yalnızca bu makinede.
+		 */
+		return offBoxResult{state: offBoxUnchecked,
+			detail: "this recording has not been archived yet"}
+	}
+
+	creds, _, cerr := resolveArchiveCreds(ctx, cfg)
+	if cerr != nil {
+		return offBoxResult{state: offBoxUnchecked,
+			detail: fmt.Sprintf("no archive credential: %v", cerr)}
+	}
+
+	client, err := objstore.New(objstore.Config{
+		Endpoint: ac.Endpoint, Region: ac.Region, Bucket: ac.Bucket,
+		CAFile: ac.CAFile, Timeout: ac.Timeout,
+		ServerSideEncryption: ac.ServerSideEncryption,
+		Credentials:          creds,
+	})
+	if err != nil {
+		return offBoxResult{state: offBoxUnchecked,
+			detail: fmt.Sprintf("could not build the archive client: %v", err)}
+	}
+
+	head, err := client.Head(ctx, st.ObjectKey)
+	if err != nil {
+		return offBoxResult{state: offBoxUnchecked,
+			detail: fmt.Sprintf("could not read %s: %v", st.ObjectKey, err)}
+	}
+
+	res := offBoxResult{
+		chain:  head.Meta[objstore.MetaChain],
+		links:  head.Meta[objstore.MetaLinks],
+		object: st.Bucket + "/" + st.ObjectKey,
+	}
+	res.state, res.detail = offBoxVerdict(res.chain, wantChain)
+
+	return res
+}
+
+/*
+ * offBoxVerdict, arşivdeki başın ne söylediğine karar verir.
+ *
+ * I/O'dan AYRI, çünkü asıl iddia burada ve bir kovaya ihtiyaç duymadan
+ * sınanabiliyor: hangi durum "farklı", hangisi "yok".
+ */
+func offBoxVerdict(archived, want string) (offBoxState, string) {
+	switch {
+	case archived == "":
+		/*
+		 * ⚠️ ÜÇÜNCÜ DURUM, "farklı" DEĞİL. Zincirlerden önce yüklenmiş
+		 * bir nesne ya da üstveriyi düşüren bir depo, kurcalanmış bir
+		 * kayıtla aynı şey değil — ikisini birleştirmek, kimsenin
+		 * dokunmadığı eski kayıtları suçlamak olurdu.
+		 */
+		return offBoxNoChain, "the archived copy carries no chain head — it was " +
+			"uploaded before chains existed, or the object store dropped the metadata"
+	case archived != want:
+		return offBoxMismatch, ""
+	default:
+		return offBoxMatch, ""
+	}
+}
