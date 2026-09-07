@@ -224,22 +224,37 @@ describe("SFTPClient", () => {
   });
 
   /**
-   * ⚠️ KAPSAM KİLİDİ. Salt-okunur olmak, yazma paketlerini GÖNDERMEMEK
-   * değil; onları hiç KODLAYAMAMAK. Bu test, birinin yarın "küçük bir
-   * yükleme düğmesi" eklerken protokol tablosunu genişletmek zorunda
-   * kalmasını sağlıyor — sessizce sızabilecek bir değişiklik değil.
+   * ⚠️ KAPSAM KİLİDİ — SINIR DEĞİŞTİ, KİLİT DURUYOR.
+   *
+   * Önceki hâli "yazma paketleri hiç tanımlı değil" diyordu. Yükleme
+   * eklendiği için o cümle artık yanlış; yanlış bir gerekçenin altında
+   * kod değiştirmek bu depoda kabul edilen bir şey değil, o yüzden sınır
+   * yeniden çizildi.
+   *
+   * Yeni sınır AD UZAYINDAN geçiyor: dosya okunabiliyor ve yazılabiliyor,
+   * ama silmek, taşımak, dizin yaratmak, izin değiştirmek ve bağ kurmak
+   * kodlanmıyor. Panelden bir dosyayı SİLMEK, bilinçli bir protokol işi
+   * olmak zorunda kalsın — sessizce eklenebilecek bir düğme olmasın.
    */
-  it("yazma paket tipleri hiç tanımlı değil", () => {
+  it("ad uzayını değiştiren paket tipleri hiç tanımlı değil", () => {
     for (const name of [
-      "OPEN",
-      "WRITE",
-      "MKDIR",
-      "RMDIR",
       "REMOVE",
       "RENAME",
+      "MKDIR",
+      "RMDIR",
       "SETSTAT",
+      "FSETSTAT",
+      "SYMLINK",
     ]) {
       expect(FXP).not.toHaveProperty(name);
+    }
+  });
+
+  // Okuma ve yazma ise TANIMLI olmalı: aktarım onlara dayanıyor ve
+  // eksikliği sessiz bir arıza olurdu.
+  it("aktarım için gereken tipler tanımlı", () => {
+    for (const name of ["OPEN", "READ", "WRITE", "DATA", "CLOSE"]) {
+      expect(FXP).toHaveProperty(name);
     }
   });
 });

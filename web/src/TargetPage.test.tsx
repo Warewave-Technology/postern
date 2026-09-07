@@ -10,6 +10,7 @@ const me: Me = {
   targets: [],
   terminal_enabled: true,
   files_enabled: false,
+  files_write_enabled: false,
   public_key_login: true,
   ssh_host: "bastion.io",
   ssh_port: 2222,

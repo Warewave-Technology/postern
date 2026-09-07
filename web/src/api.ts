@@ -13,6 +13,12 @@ export type Me = {
   // Dosya tarayıcısı (session.sftp_panel) kurulu mu. Terminalden AYRI:
   // terminal açıkken tarayıcı kapalı olabilir.
   files_enabled: boolean;
+  /*
+   * Yükleme açık mı (session.sftp_panel_write). files_enabled'dan AYRI:
+   * tarayıcı açık ama salt-okunur olabilir. Panel bunu bilmezse
+   * basılabilir görünen ama her denemede reddedilen bir düğme çizer.
+   */
+  files_write_enabled: boolean;
   /** Anahtarla giriş açık mı (auth.public_key_login). Kapalıysa panel
    *  anahtar yönetimini hiç çizmiyor — asıl koruma sunucuda. */
   public_key_login: boolean;

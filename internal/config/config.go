@@ -500,11 +500,32 @@ type SessionConfig struct {
 	 * yüzeyi tam da o gerekçenin boş olduğu kurulumda açmak, korumayı
 	 * iddia edip vermemek olurdu.
 	 *
-	 * Kanal her hâlükârda SALT-OKUNUR: sunucu tarafında, panelin
-	 * JavaScript'inde değil (bkz. Broker.WithSFTPReadOnly). İndirme ayrı
-	 * bir karar ve bu bayrağın kapsamında değil.
+	 * Kanal varsayılan olarak SALT-OKUNUR: sunucu tarafında, panelin
+	 * JavaScript'inde değil (bkz. Broker.WithSFTPReadOnly). Yüklemeyi
+	 * açan ayrı bir bayrak var (SFTPPanelWrite) ve o da tek başına
+	 * yetmiyor.
 	 */
 	SFTPPanel bool `yaml:"sftp_panel"`
+
+	/*
+	 * SFTPPanelWrite, panelden YÜKLEMEYE izin verir. VARSAYILAN KAPALI
+	 * ve SFTPPanel ile VE'li.
+	 *
+	 * ⚠️ AÇMAK "HER YERE YAZILABİLİR" DEMEK DEĞİL. Bayrak yalnızca
+	 * kanalın salt-okunur kilidini kaldırıyor; hangi yola yazılabileceği
+	 * yine rolün yol kurallarındaki can_write'a bağlı ve karar
+	 * postern'de veriliyor — yazma isteği tanıtıcının yolu üzerinden
+	 * politikaya soruluyor (sftpaudit/policy.go). Kuralları olmayan bir
+	 * hesapta tarayıcı zaten hiç açılmıyor.
+	 *
+	 * ⚠️ NEDEN AYRI BİR BAYRAK VE NEDEN VARSAYILAN KAPALI. Gezinmek ile
+	 * yazmak aynı karar değil: birincisi bir okuma yüzeyi, ikincisi
+	 * hedefteki dosyaları DEĞİŞTİREBİLEN bir yüzey. Yükseltmenin,
+	 * operatörün istemediği bir yeteneği sessizce açmaması gerekiyor —
+	 * `sftp_panel`'i dosya görmek için açan biri, yazma yetkisini
+	 * istemediği hâlde almış olmamalı.
+	 */
+	SFTPPanelWrite bool `yaml:"sftp_panel_write"`
 
 	// MaxLifetime, oturumun mutlak ömrü. VARSAYILAN KAPALI (0).
 	//

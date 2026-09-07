@@ -513,6 +513,16 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		 * Asıl koruma uçta; bu yalnızca doğru ekranı çizmek için.
 		 */
 		"files_enabled": s.proxyDeps != nil && s.sftpPanel,
+		/*
+		 * Yükleme açık mı. files_enabled'dan AYRI: tarayıcı açık ama
+		 * salt-okunur olabilir ve panel o hâlde yükleme düğmesini hiç
+		 * çizmemeli — basılabilir görünen bir düğmenin her denemede
+		 * reddedilmesi, özelliğin bozuk olduğunu düşündürür.
+		 *
+		 * Asıl koruma uçta ve politikada; bu yalnızca doğru ekranı
+		 * çizmek için.
+		 */
+		"files_write_enabled": s.proxyDeps != nil && s.sftpPanel && s.sftpPanelWrite,
 		// Panel anahtar yönetimini buna göre çiziyor. Asıl koruma uçta.
 		"public_key_login": s.publicKeyLogin,
 

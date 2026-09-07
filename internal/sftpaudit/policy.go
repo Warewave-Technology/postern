@@ -519,11 +519,42 @@ func (s *Session) refuseWith(id uint32, r Request, code uint32, reason string) b
 	 * (bkz. lifecycle.go, "denied."+reqType). Yeni bir sütun eklemek
 	 * göç gerektirirdi; bu alan zaten serbest.
 	 */
-	s.write(Event{
-		Op: "denied." + r.Op, Path: r.Path, NewPath: r.NewPath,
-		Flags: r.flagsText(), OK: false, Status: code,
-		Detail: "postern: " + reason,
-	})
+	/*
+	 * ⚠️ ARDIŞIK AYNI RET TEK SATIRA KATLANIYOR.
+	 *
+	 * ÖLÇÜLEN TEHLİKE: bir aktarım 32 KiB'lık parçalara bölünüyor ve
+	 * reddedilen her parça bir denetim satırı yazıyor. Yazamayacağı bir
+	 * yola 300 MB gönderen bir istemci on binin üzerinde satır üretir;
+	 * proxy tarafındaki journalCap (10000) aşılınca oturum ÖLÜR. Yani
+	 * "yazmaya iznin yok" cevabı, oturumu düşüren bir arızaya
+	 * dönüşüyordu — üstelik kullanıcının kendi eliyle.
+	 *
+	 * Katlama ARDIŞIK ve AYNI anahtarla sınırlı: farklı bir yol ya da
+	 * farklı bir işlem geldiği an yeni satır açılıyor. Yani kaybolan
+	 * bilgi "aynı şey kaç kez denendi" değil — o sayı özet satırında
+	 * duruyor; kaybolan tek şey aynı cümlenin binlerce kopyası.
+	 *
+	 * Aynı ders stderr tarafında zaten öğrenilmişti (broker.go
+	 * tellUser); defter tarafında öğrenilmemişti.
+	 */
+	key := string(r.Op) + "\x00" + r.Path + "\x00" + reason
+	if key == s.lastDenyKey {
+		s.lastDenyCount++
+	} else {
+		s.flushDenyRunLocked()
+		s.lastDenyKey = key
+		s.lastDenyCount = 0
+		s.write(Event{
+			Op: "denied." + r.Op, Path: r.Path, NewPath: r.NewPath,
+			Flags: r.flagsText(), OK: false, Status: code,
+			Detail: "postern: " + reason,
+		})
+		s.lastDenyEvent = Event{
+			Op: "denied." + r.Op, Path: r.Path, NewPath: r.NewPath,
+			Flags: r.flagsText(), OK: false, Status: code,
+		}
+		s.lastDenyReason = reason
+	}
 	notice := "postern: " + reason
 	if r.Path != "" {
 		notice = "postern: " + r.Path + ": " + reason
@@ -534,4 +565,27 @@ func (s *Session) refuseWith(id uint32, r Request, code uint32, reason string) b
 	})
 
 	return false
+}
+
+/*
+ * flushDenyRunLocked, katlanmış ardışık retlerin özetini yazar.
+ *
+ * ⚠️ SAYIYI YAZMAK ŞART. "Reddedildi" satırı tek başına, bir kez mi
+ * yoksa on bin kez mi denendiğini söylemiyor — ve ikisi bir denetçi için
+ * çok farklı iki bulgu: ilki yanlış tıklama, ikincisi ısrar.
+ *
+ * s.mu TUTULUYOR OLMALI.
+ */
+func (s *Session) flushDenyRunLocked() {
+	if s.lastDenyCount == 0 {
+		return
+	}
+
+	e := s.lastDenyEvent
+	e.Detail = fmt.Sprintf("postern: %s (%d further identical refusals)",
+		s.lastDenyReason, s.lastDenyCount)
+	s.write(e)
+
+	s.lastDenyCount = 0
+	s.lastDenyKey = ""
 }

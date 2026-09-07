@@ -13,6 +13,7 @@ const me: Me = {
   targets: ["web01"],
   terminal_enabled: true,
   files_enabled: false,
+  files_write_enabled: false,
   public_key_login: true,
   ssh_host: "bastion.io",
   ssh_port: 2222,
@@ -860,6 +861,7 @@ describe("zorunlu parola değişikliği", () => {
       targets: [],
       terminal_enabled: true,
       files_enabled: false,
+      files_write_enabled: false,
       public_key_login: true,
       must_change_password: true,
       password_policy: { min_length: 12, max_length: 256, min_distinct: 5 },
@@ -886,6 +888,7 @@ describe("zorunlu parola değişikliği", () => {
       targets: [],
       terminal_enabled: true,
       files_enabled: false,
+      files_write_enabled: false,
       public_key_login: true,
       setup_required: true,
       must_change_password: true,
@@ -914,6 +917,7 @@ describe("zorunlu ikinci faktör kaydı", () => {
       targets: [],
       terminal_enabled: true,
       files_enabled: false,
+      files_write_enabled: false,
       public_key_login: true,
       must_enrol_totp: true,
     });
@@ -940,6 +944,7 @@ describe("zorunlu ikinci faktör kaydı", () => {
       targets: [],
       terminal_enabled: true,
       files_enabled: false,
+      files_write_enabled: false,
       public_key_login: true,
       must_change_password: true,
       must_enrol_totp: true,
@@ -967,6 +972,7 @@ describe("zorunlu ikinci faktör kaydı", () => {
       targets: [],
       terminal_enabled: true,
       files_enabled: false,
+      files_write_enabled: false,
       public_key_login: true,
       must_enrol_totp: true,
       password_policy: { min_length: 12, max_length: 256, min_distinct: 5 },
@@ -1006,6 +1012,7 @@ describe("zorunlu ikinci faktör kaydı", () => {
       targets: [],
       terminal_enabled: true,
       files_enabled: false,
+      files_write_enabled: false,
       public_key_login: true,
       setup_required: true,
       must_enrol_totp: true,
@@ -1036,6 +1043,7 @@ describe("kimlik sağlayıcı ekranı", () => {
     targets: [],
     terminal_enabled: true,
     files_enabled: false,
+    files_write_enabled: false,
     public_key_login: true,
   };
 
@@ -1107,6 +1115,7 @@ describe("profil sekmesi", () => {
       targets: [],
       terminal_enabled: false,
       files_enabled: false,
+      files_write_enabled: false,
       public_key_login: true,
     });
     vi.spyOn(api, "myKeys").mockResolvedValue({
@@ -1141,6 +1150,7 @@ describe("profil sekmesi", () => {
       targets: [],
       terminal_enabled: false,
       files_enabled: false,
+      files_write_enabled: false,
       public_key_login: false,
     });
     render(<App />);
@@ -1169,6 +1179,7 @@ describe("profil sekmesi", () => {
       targets: [],
       terminal_enabled: false,
       files_enabled: false,
+      files_write_enabled: false,
       public_key_login: false,
     });
     vi.spyOn(api, "myKeys").mockResolvedValue({
@@ -1210,6 +1221,7 @@ describe("profil sekmesi", () => {
       targets: [],
       terminal_enabled: false,
       files_enabled: false,
+      files_write_enabled: false,
       public_key_login: false,
       can_change_password: false,
     });
@@ -1232,6 +1244,7 @@ describe("profil sekmesi", () => {
       targets: [],
       terminal_enabled: false,
       files_enabled: false,
+      files_write_enabled: false,
       public_key_login: false,
       can_change_password: true,
       password_policy: { min_length: 14, max_length: 200, min_distinct: 5 },
@@ -1263,6 +1276,7 @@ describe("profil sekmesi", () => {
       targets: [],
       terminal_enabled: false,
       files_enabled: false,
+      files_write_enabled: false,
       public_key_login: false,
       can_change_password: false,
     });

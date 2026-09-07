@@ -138,6 +138,16 @@ type openFile struct {
  * istemci kopyaları paralel akıyor), bu yüzden durum kilit altında.
  */
 type Session struct {
+	/*
+	 * lastDeny*, ardışık aynı retlerin katlanması (policy.go
+	 * refuseWith). Reddedilen bir aktarımın her parçası ayrı satır
+	 * yazsaydı journalCap aşılır ve oturum ölürdü.
+	 */
+	lastDenyKey    string
+	lastDenyCount  int
+	lastDenyEvent  Event
+	lastDenyReason string
+
 	mu      sync.Mutex
 	emit    func(Event)
 	now     func() time.Time
@@ -636,6 +646,9 @@ func (s *Session) Finish() {
 		return
 	}
 	s.closed = true
+	// Katlanmış retlerin özeti oturum biterken yazılıyor; yoksa son
+	// dizinin sayısı kaybolurdu.
+	s.flushDenyRunLocked()
 	for h, f := range s.handles {
 		delete(s.handles, h)
 		s.write(Event{Op: OpTransfer, Path: f.path, Flags: flagsString(f.flags),

@@ -181,3 +181,104 @@ func TestAllowedWritesDoNotWriteALinePerChunk(t *testing.T) {
 		t.Errorf("yazılan bayt = %d, %d bekleniyordu", total, want)
 	}
 }
+
+/*
+ * ⚠️ REDDEDİLEN AKTARIM DEFTERİ BOĞMAMALI.
+ *
+ * Yazma izni olmayan bir yola 300 MB gönderen istemci, 32 KiB'lık
+ * parçalar hâlinde on binin üzerinde ret üretir. Her biri satır yazsaydı
+ * proxy'deki journalCap (10000) aşılır ve OTURUM ÖLÜRDÜ — yani "yazma
+ * iznin yok" cevabı, kullanıcının kendi eliyle tetiklediği bir arızaya
+ * dönüşürdü.
+ *
+ * Katlama ardışık ve aynı anahtarla sınırlı; sayı özet satırında duruyor,
+ * çünkü "bir kez denendi" ile "on bin kez denendi" bir denetçi için
+ * apayrı iki bulgu.
+ */
+func TestRepeatedRefusalsAreFoldedIntoOneLine(t *testing.T) {
+	s, events := collect(t)
+	s.SetPolicy(func(r Request) (bool, string) {
+		if r.Write {
+			return false, "this path is read-only"
+		}
+
+		return true, ""
+	})
+
+	feedClient(t, s, newPkt(fxpInit).u32(3).bytes())
+	feedTarget(t, s, newPkt(fxpVersion).u32(3).bytes())
+
+	// Okuma için açılıyor (izinli), sonra aynı tanıtıcıya ısrarla yazılıyor.
+	feedClient(t, s, newPkt(fxpOpen).u32(1).str("/tmp/x").u32(flagRead).u32(0).bytes())
+	feedTarget(t, s, newPkt(fxpHandle).u32(1).str("h1").bytes())
+
+	const tries = 500
+	for i := range tries {
+		feedClient(t, s, newPkt(fxpWrite).u32(uint32(100+i)).str("h1").
+			u64(uint64(i)*4).str("veri").bytes())
+	}
+	/*
+	 * ⚠️ RETLER Finish'TEN ÖNCE OKUNUYOR. Finish onları bilerek
+	 * temizliyor (kanal gitmiş, gönderilecek yer yok) — sonra okumak
+	 * "istemciye hiç cevap gitmedi" diye yanlış bir sonuç verir.
+	 * Katlanan şey DEFTER satırı; protokol cevabı her istek için
+	 * gidiyor, aksi hâlde cevapsız kalan istek istemciyi kilitlerdi.
+	 */
+	if got := len(s.TakeDenials()); got != tries {
+		t.Errorf("istemciye %d cevap gitti, %d bekleniyordu", got, tries)
+	}
+
+	s.Finish()
+
+	denials := 0
+	var summary string
+	for _, e := range *events {
+		if strings.HasPrefix(string(e.Op), "denied.") {
+			denials++
+			if strings.Contains(e.Detail, "further identical refusals") {
+				summary = e.Detail
+			}
+		}
+	}
+
+	// İlk ret + özet: iki satır. Beş yüz değil.
+	if denials > 5 {
+		t.Errorf("%d ret satırı yazıldı — katlama çalışmıyor, journalCap aşılır", denials)
+	}
+	if denials == 0 {
+		t.Fatal("hiç ret satırı yazılmadı — ret görünmez oldu")
+	}
+	if summary == "" {
+		t.Fatal("özet satırı yok: kaç kez denendiği kayboldu")
+	}
+	if !strings.Contains(summary, "499") {
+		t.Errorf("özet sayıyı yanlış yazıyor: %q", summary)
+	}
+
+}
+
+// Farklı yol yeni satır açmalı: katlama "aynı şey" ile sınırlı.
+func TestDifferentRefusalsAreNotFolded(t *testing.T) {
+	s, events := collect(t)
+	s.SetPolicy(func(Request) (bool, string) { return false, "not allowed" })
+
+	feedClient(t, s, newPkt(fxpInit).u32(3).bytes())
+	feedTarget(t, s, newPkt(fxpVersion).u32(3).bytes())
+
+	for _, path := range []string{"/a", "/b", "/c"} {
+		feedClient(t, s, newPkt(fxpOpendir).u32(1).str(path).bytes())
+	}
+	s.Finish()
+
+	seen := map[string]bool{}
+	for _, e := range *events {
+		if strings.HasPrefix(string(e.Op), "denied.") {
+			seen[e.Path] = true
+		}
+	}
+	for _, path := range []string{"/a", "/b", "/c"} {
+		if !seen[path] {
+			t.Errorf("%q reddi kayboldu — katlama fazla geniş", path)
+		}
+	}
+}

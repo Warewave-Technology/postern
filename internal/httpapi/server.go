@@ -175,6 +175,15 @@ type Server struct {
 	 */
 	sftpPanel bool
 
+	/*
+	 * sftpPanelWrite, panelden yüklemeye izin verilip verilmediği
+	 * (session.sftp_panel_write). Kapalıyken kanal salt-okunur
+	 * KURULUYOR — panelin çizdiği düğmeye değil, sunucudaki kısıta
+	 * bağlı. Açıkken de hangi yola yazılabileceğine rol yol kuralları
+	 * karar veriyor.
+	 */
+	sftpPanelWrite bool
+
 	totpWindow      time.Duration
 	totpMaxFailures int
 	totpLockFor     time.Duration
@@ -243,6 +252,10 @@ func (s *Server) SetPublicKeyLogin(on bool) { s.publicKeyLogin = on }
 
 // SetSFTPPanel, panelin dosya tarayıcısını açar/kapatır.
 func (s *Server) SetSFTPPanel(on bool) { s.sftpPanel = on }
+
+// SetSFTPPanelWrite, panelden yüklemeyi açar. SetSFTPPanel ile VE'li
+// olduğu varsayılıyor: çağıran (serve.go) ikisini birlikte hesaplıyor.
+func (s *Server) SetSFTPPanelWrite(on bool) { s.sftpPanelWrite = on }
 
 // SetSSHEndpoint, panelin göstereceği ssh adresini bildirir.
 // Dinlemeye başlamadan ÖNCE çağrılmalı: alan kilitsiz.

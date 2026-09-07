@@ -32,6 +32,7 @@ declare module "node:fs" {
   export function mkdtempSync(prefix: string): string;
   export function mkdirSync(path: string): void;
   export function writeFileSync(path: string, data: string | Uint8Array): void;
+  export function readFileSync(path: string): Uint8Array;
   export function symlinkSync(target: string, path: string): void;
   export function rmSync(
     path: string,

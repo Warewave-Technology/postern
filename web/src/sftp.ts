@@ -9,10 +9,16 @@
  * (internal/sftpaudit) geçiyor: yol politikası, defter ve kayıt zinciri
  * kendiliğinden çalışıyor.
  *
- * ⚠️ KAPSAM KASTEN DAR. Yalnızca okuma istekleri kodlanıyor. Yazma
- * paketleri sunucuda zaten reddediliyor (SetSFTPReadOnly), ama onları
- * BURADA hiç yazmamak ikinci bir kilit: ileride birinin "küçük bir
- * yükleme düğmesi" eklemesi, bilinçli bir protokol işi olmak zorunda.
+ * ⚠️ KAPSAM DAR VE SINIRI AD UZAYINDAN GEÇİYOR. Dosya okumak ve yazmak
+ * kodlanıyor; AD UZAYINI değiştiren hiçbir şey kodlanmıyor — silme,
+ * yeniden adlandırma, dizin yaratma, izin değiştirme, bağ kurma. Bu bir
+ * kolaylık değil, ikinci bir kilit: panelden bir dosyayı silmek ya da
+ * taşımak, bilinçli bir protokol işi olmak zorunda kalsın.
+ *
+ * Yazmanın kendisi sunucuda ayrıca kararlı: kanal varsayılan olarak
+ * salt-okunur (session.sftp_panel_write) ve açık olduğunda bile her
+ * yazma isteği rolün yol kurallarına soruluyor. Buradaki kısıt onun
+ * yerine geçmiyor, üstüne biniyor.
  *
  * Sürüm 3 (draft-ietf-secsh-filexfer-02) — OpenSSH'in sftp-server'ının
  * konuştuğu sürüm.
@@ -21,7 +27,10 @@
 export const FXP = {
   INIT: 1,
   VERSION: 2,
+  OPEN: 3,
   CLOSE: 4,
+  READ: 5,
+  WRITE: 6,
   OPENDIR: 11,
   READDIR: 12,
   REALPATH: 16,
@@ -29,8 +38,25 @@ export const FXP = {
   READLINK: 19,
   STATUS: 101,
   HANDLE: 102,
+  DATA: 103,
   NAME: 104,
   ATTRS: 105,
+} as const;
+
+/**
+ * FXF, SSH_FXP_OPEN bayrakları (sürüm 3).
+ *
+ * ⚠️ EXCL BİLEREK YOK. Yükleme var olan bir dosyanın üzerine yazıyor
+ * (TRUNC) — EXCL eklemek "dosya varsa hata ver" demek olurdu ve
+ * kullanıcının gördüğü şey, aynı adı ikinci kez yüklediğinde sebebi
+ * anlaşılmayan bir ret olurdu. Üzerine yazmanın kendisi zaten yol
+ * kuralına tabi.
+ */
+export const FXF = {
+  READ: 0x1,
+  WRITE: 0x2,
+  CREAT: 0x8,
+  TRUNC: 0x10,
 } as const;
 
 export const FX = {
@@ -113,6 +139,18 @@ class Writer {
     this.need(b.length);
     this.buf.set(b, this.n);
     this.n += b.length;
+  }
+
+  /**
+   * u64, 64 bitlik alan yazar (dosya konumu).
+   *
+   * ⚠️ Number ile: 2^53'ün üstündeki konumlar kayıplı olurdu, ama o
+   * 8 petabaytlık bir dosya demek. BigInt'i bütün çağrı zincirine
+   * taşımak, ulaşılmayacak bir sınır için ödenmiş bir bedel olurdu.
+   */
+  u64(v: number) {
+    this.u32(Math.floor(v / 0x100000000));
+    this.u32(v >>> 0);
   }
 
   /** raw, uzunluk önekli ham baytları yazar (tutamak için). */
@@ -417,6 +455,190 @@ export class SFTPClient {
     return r.str();
   }
 
+  /**
+   * open, bir dosyayı açar ve tutamağını döner.
+   *
+   * ⚠️ ATTRS ALANI BOŞ GİDİYOR (bayrak yok). Sürüm 3'te OPEN'ın sonunda
+   * bir öznitelik yapısı var; izin/boyut göndermek, hedefin kendi
+   * umask'ını ve var olan dosyanın kipini EZERDİ. Yeni dosyanın izinleri
+   * hedefin kararı olsun.
+   */
+  private async openFile(path: string, flags: number): Promise<Uint8Array> {
+    const { r } = await this.request((w, id) => {
+      w.u8(FXP.OPEN);
+      w.u32(id);
+      w.str(path);
+      w.u32(flags);
+      w.u32(0);
+    });
+
+    return r.bytes();
+  }
+
+  private closeHandle(handle: Uint8Array) {
+    /*
+     * Tutamağı KAPAT — hata yolunda da. Sızdırılan bir tutamak hedefteki
+     * sftp-server'da açık kalıyor; sunucunun tutamak sayısı sınırlı ve
+     * sızıntının sonu "dosya açılamıyor" oluyor.
+     */
+    this.request((w, id) => {
+      w.u8(FXP.CLOSE);
+      w.u32(id);
+      w.raw(handle);
+    }).catch(() => {
+      // Kapatma hatası kullanıcıya söylenecek bir şey değil.
+    });
+  }
+
+  /**
+   * download, bir dosyayı okur ve parçalarını sırayla verir.
+   *
+   * ⚠️ PARÇALAR ÇAĞIRANA VERİLİYOR, BELLEKTE BİRİKTİRİLMİYOR. Tamamını
+   * bir Blob'a toplamak 1 GB'lık bir dosyada sekmeyi düşürür; çağıran
+   * parçaları aldığı gibi diske ya da bir akışa yazabilsin.
+   *
+   * ⚠️ İSTEKLER BORU HATTINDA AMA SIRALI TESLİM EDİLİYOR. Aynı anda
+   * maxInFlight kadar READ uçuyor (yoksa her parça için tam bir gidiş
+   * dönüş beklenir ve hız ağ gecikmesine kilitlenir), ama cevaplar
+   * konumlarına göre sıraya diziliyor: dosyayı yazan taraf parçaları
+   * karışık sırada alırsa dosya bozulur.
+   */
+  async download(
+    path: string,
+    onChunk: (b: Uint8Array) => void | Promise<void>,
+    onProgress?: (p: Progress) => void,
+    total?: number,
+  ): Promise<number> {
+    const handle = await this.openFile(path, FXF.READ);
+    let done = 0;
+
+    try {
+      let offset = 0;
+      let eof = false;
+      const inflight = new Map<number, Promise<Uint8Array | null>>();
+
+      const fire = (at: number) => {
+        const pr = this.request((w, id) => {
+          w.u8(FXP.READ);
+          w.u32(id);
+          w.raw(handle);
+          w.u64(at);
+          w.u32(chunkSize);
+        })
+          .then((reply) => (reply.typ === FXP.DATA ? reply.r.bytes() : null))
+          .catch((e: unknown) => {
+            // EOF, hata değil: dosyanın sonu STATUS ile bildiriliyor.
+            if (e instanceof SFTPError && e.code === FX.EOF) return null;
+            throw e;
+          });
+        inflight.set(at, pr);
+      };
+
+      while (!eof || inflight.size > 0) {
+        while (!eof && inflight.size < maxInFlight) {
+          fire(offset);
+          offset += chunkSize;
+        }
+
+        // Sıradaki konumun cevabını bekle: teslim SIRALI olmak zorunda.
+        const next = Math.min(...inflight.keys());
+        const chunk = await inflight.get(next)!;
+        inflight.delete(next);
+
+        if (chunk === null || chunk.length === 0) {
+          /*
+           * ⚠️ EOF GÖRÜLDÜ: DAHA SONRAKİ KONUMLAR ATILIYOR.
+           *
+           * Boru hattı EOF'un ötesine istek göndermiş olabilir; onların
+           * cevaplarını beklemek gereksiz, ama daha ÖNEMLİSİ, gelen
+           * veriyi dosyaya eklemek yanlış olurdu: EOF'tan sonrası
+           * dosyanın parçası değil.
+           */
+          eof = true;
+          inflight.clear();
+          break;
+        }
+
+        await onChunk(chunk);
+        done += chunk.length;
+        onProgress?.({ done, total });
+
+        /*
+         * ⚠️ KISA CEVAP EOF DEĞİL. Sunucu istenenden az bayt
+         * döndürebiliyor; bunu dosya sonu saymak, dosyayı sessizce
+         * kırpardı — sessiz bozulma, hata vermekten kötü.
+         */
+        if (chunk.length < chunkSize) {
+          eof = eof || false;
+        }
+      }
+    } finally {
+      this.closeHandle(handle);
+    }
+
+    return done;
+  }
+
+  /**
+   * upload, bir dosyayı hedefe yazar.
+   *
+   * ⚠️ HER PARÇANIN CEVABI BEKLENİYOR (pencere içinde). Cevap beklemeden
+   * yazmak, WebSocket gönderme kuyruğuna dosyanın tamamını yığmak
+   * demek — tarayıcı belleği dosyayla birlikte büyür. Pencere sabit.
+   *
+   * ⚠️ TRUNC VAR, EXCL YOK: aynı adı ikinci kez yüklemek üzerine yazıyor.
+   * EXCL, kullanıcının sebebini anlamayacağı bir ret üretirdi; üzerine
+   * yazma yetkisi zaten yol kuralına tabi.
+   */
+  async upload(
+    path: string,
+    read: () => Promise<Uint8Array | null>,
+    onProgress?: (p: Progress) => void,
+    total?: number,
+  ): Promise<number> {
+    const handle = await this.openFile(path, FXF.WRITE | FXF.CREAT | FXF.TRUNC);
+    let done = 0;
+
+    try {
+      let offset = 0;
+      const inflight: Promise<unknown>[] = [];
+
+      for (;;) {
+        const chunk = await read();
+        if (chunk === null) break;
+        if (chunk.length === 0) continue;
+
+        const at = offset;
+        offset += chunk.length;
+
+        inflight.push(
+          this.request((w, id) => {
+            w.u8(FXP.WRITE);
+            w.u32(id);
+            w.raw(handle);
+            w.u64(at);
+            w.raw(chunk);
+          }).then(() => {
+            done += chunk.length;
+            onProgress?.({ done, total });
+          }),
+        );
+
+        if (inflight.length >= maxInFlight) {
+          await inflight.shift();
+        }
+      }
+
+      // Kalan pencereyi boşalt: biri düşerse hata BURADAN çıkmalı,
+      // yoksa "tamamlandı" yazıp yarım dosya bırakırdık.
+      await Promise.all(inflight);
+    } finally {
+      this.closeHandle(handle);
+    }
+
+    return done;
+  }
+
   /** readdir, bir dizini baştan sona okur. */
   async readdir(path: string): Promise<Entry[]> {
     const opened = await this.request((w, id) => {
@@ -456,24 +678,42 @@ export class SFTPClient {
         }
       }
     } finally {
-      /*
-       * Tutamağı KAPAT — hata yolunda da.
-       *
-       * ⚠️ Sızdırılan bir dizin tutamağı hedefteki sftp-server'da açık
-       * kalıyor ve oturum boyunca birikiyor; sunucunun tutamak sayısı
-       * sınırlı, yani sızıntının sonu "dizin açılamıyor" oluyor.
-       */
-      this.request((w, id) => {
-        w.u8(FXP.CLOSE);
-        w.u32(id);
-        w.raw(handle);
-      }).catch(() => {
-        // Kapatma hatası kullanıcıya söylenecek bir şey değil.
-      });
+      this.closeHandle(handle);
     }
 
     return out;
   }
+}
+
+/**
+ * chunkSize, aktarımın parça boyu.
+ *
+ * ⚠️ TAVANIN ÇOK ALTINDA VE BİLEREK. Protokol sınırı 1 MiB (maxPacket,
+ * her iki uçta), ama tavana yakın parçalar iki şeyi birden kötüleştiriyor:
+ * ilerleme çubuğu sıçraya sıçraya ilerliyor (bir parça ya hep ya hiç), ve
+ * tek bir parçanın tarayıcıda tamponlanması ölçülebilir bir bellek
+ * sıçraması oluyor. 32 KiB, OpenSSH'in kendi sftp istemcisinin de
+ * kullandığı büyüklük.
+ */
+export const chunkSize = 32 * 1024;
+
+/**
+ * maxInFlight, aynı anda cevabı beklenen istek sayısı.
+ *
+ * ⚠️ SINIRSIZ BORU HATTI TARAYICIYI ŞİŞİRİR. İstekleri cevap beklemeden
+ * sıraya koymak hızlı görünüyor ama WebSocket gönderme kuyruğu dosyanın
+ * TAMAMINI belleğe alabilir — ve sunucu tarafında da bekleyenler tablosu
+ * dolu tutulur. Sabit bir pencere, hızın çoğunu veriyor ve iki tarafta da
+ * sınırı belirli tutuyor.
+ */
+export const maxInFlight = 16;
+
+/** Transfer, süren bir aktarımın ilerlemesi. */
+export interface Progress {
+  /** Taşınan bayt. */
+  done: number;
+  /** Toplam bayt; bilinmiyorsa undefined (ilerleme yüzdesi çizilemez). */
+  total?: number;
 }
 
 /** statusText, sunucu mesaj göndermediğinde kullanılan karşılık. */

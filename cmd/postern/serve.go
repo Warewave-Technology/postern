@@ -635,6 +635,10 @@ func newServeCmd() *cobra.Command {
 				 * göstermek olurdu.
 				 */
 				webAPI.SetSFTPPanel(cfg.Session.SFTP && cfg.Session.SFTPPanel)
+				// Yükleme, tarayıcının kendisiyle VE'li: kapalı bir
+				// tarayıcıda yazma bayrağının anlamı yok.
+				webAPI.SetSFTPPanelWrite(cfg.Session.SFTP &&
+					cfg.Session.SFTPPanel && cfg.Session.SFTPPanelWrite)
 				webAPI.SetTOTPLimits(
 					cfg.Auth.TOTPPromptWindow(),
 					cfg.Auth.TOTPFailureLimit(),

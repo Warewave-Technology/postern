@@ -6,13 +6,14 @@ import {
   existsSync,
   mkdtempSync,
   writeFileSync,
+  readFileSync,
   mkdirSync,
   symlinkSync,
   rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SFTPClient } from "../src/sftp";
+import { SFTPClient, chunkSize } from "../src/sftp";
 
 /*
  * ⚠️ BU DOSYANIN VAR OLMA SEBEBİ, sftp.test.ts'in KENDİ KENDİNİ
@@ -63,7 +64,9 @@ function findServer(): string {
  * kalıyordu. Asıl yol (websocket) ise paketi kolayca bölüyor.
  */
 function startServer(chunk?: number) {
-  const proc = spawn(findServer(), ["-e"], { stdio: ["pipe", "pipe", "pipe"] as const });
+  const proc = spawn(findServer(), ["-e"], {
+    stdio: ["pipe", "pipe", "pipe"] as const,
+  });
   const c = new SFTPClient({
     send: (frame) => {
       proc.stdin.write(frame);
@@ -208,4 +211,115 @@ describe("bayt bayt beslenen akış", () => {
       proc.kill();
     }
   }, 30_000);
+});
+
+/*
+ * ⚠️ AKTARIM, SAHTE HEDEFE KARŞI ÖLÇÜLEMEZ.
+ *
+ * İndirme ve yükleme boru hattı, kısa cevaplar, EOF'un STATUS ile
+ * gelmesi ve parça sınırları — hepsi sunucunun DAVRANIŞINA bağlı.
+ * Kendi kurduğum paketlerle sınamak, kendi varsayımlarımı doğrulamak
+ * olurdu; buradaki cevapları OpenSSH veriyor.
+ */
+describe("aktarım", () => {
+  it("dosyayı bayt bayt aynı indiriyor", async () => {
+    const path = join(dir, "indir.bin");
+    // Parça sınırının ÜSTÜNDE ve tam katı DEĞİL: hem boru hattı hem de
+    // son kısa parça yolu çalışsın.
+    const src = new Uint8Array(chunkSize * 3 + 517);
+    for (let i = 0; i < src.length; i++) src[i] = (i * 31) % 251;
+    writeFileSync(path, src);
+
+    const parts: Uint8Array[] = [];
+    let lastProgress = 0;
+    const n = await client.download(
+      path,
+      (b) => {
+        parts.push(b);
+      },
+      (p) => {
+        lastProgress = p.done;
+      },
+      src.length,
+    );
+
+    expect(n).toBe(src.length);
+    expect(lastProgress).toBe(src.length);
+
+    const got = new Uint8Array(n);
+    let at = 0;
+    for (const part of parts) {
+      got.set(part, at);
+      at += part.length;
+    }
+    expect(got).toEqual(src);
+  }, 30_000);
+
+  it("boş dosyayı indirebiliyor", async () => {
+    const path = join(dir, "bos.bin");
+    writeFileSync(path, new Uint8Array(0));
+
+    const parts: Uint8Array[] = [];
+    const n = await client.download(path, (b) => {
+      parts.push(b);
+    });
+    expect(n).toBe(0);
+  }, 20_000);
+
+  it("olmayan dosyayı indirirken sebebiyle düşüyor", async () => {
+    await expect(
+      client.download(join(dir, "yok.bin"), () => {}),
+    ).rejects.toThrow();
+  }, 20_000);
+
+  /*
+   * ⚠️ YÜKLEME, DİSKTEKİ SONUÇLA DOĞRULANIYOR. "Sunucu hata vermedi"
+   * demek dosyanın doğru yazıldığı anlamına gelmiyor: yanlış konuma
+   * yazan bir boru hattı da hatasız çalışır ve dosyayı sessizce bozar.
+   */
+  it("dosyayı bayt bayt aynı yüklüyor", async () => {
+    const path = join(dir, "yukle.bin");
+    const src = new Uint8Array(chunkSize * 2 + 999);
+    for (let i = 0; i < src.length; i++) src[i] = (i * 17 + 7) % 253;
+
+    let at = 0;
+    let lastProgress = 0;
+    const n = await client.upload(
+      path,
+      async () => {
+        if (at >= src.length) return null;
+        const end = Math.min(at + chunkSize, src.length);
+        const part = src.subarray(at, end);
+        at = end;
+
+        return part;
+      },
+      (p) => {
+        lastProgress = p.done;
+      },
+      src.length,
+    );
+
+    expect(n).toBe(src.length);
+    expect(lastProgress).toBe(src.length);
+    expect(new Uint8Array(readFileSync(path))).toEqual(src);
+  }, 30_000);
+
+  // Aynı adı ikinci kez yüklemek ÜZERİNE yazmalı ve dosya KISALMALI:
+  // TRUNC yoksa eski dosyanın kuyruğu kalır ve sonuç sessizce bozuk olur.
+  it("üzerine yazarken dosyayı kısaltıyor", async () => {
+    const path = join(dir, "ustune.bin");
+    writeFileSync(path, new Uint8Array(5000).fill(9));
+
+    const src = new Uint8Array(10).fill(1);
+    let sent = false;
+    await client.upload(path, async () => {
+      if (sent) return null;
+      sent = true;
+
+      return src;
+    });
+
+    expect(new Uint8Array(readFileSync(path))).toEqual(src);
+  }, 20_000);
 });

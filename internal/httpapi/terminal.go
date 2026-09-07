@@ -177,9 +177,17 @@ func (s *Server) serveChannel(w http.ResponseWriter, r *http.Request, sftp bool)
 	}
 
 	if sftp {
-		// ⚠️ SALT-OKUNUR, SUNUCU TARAFINDA. Panelin JavaScript'i bu
-		// kısıtı taşıyamaz: çalınmış bir oturum FXP_WRITE'ı elle yazar.
-		sess.SetSFTPReadOnly(true)
+		/*
+		 * ⚠️ KISIT SUNUCU TARAFINDA. Panelin JavaScript'i bunu
+		 * taşıyamaz: çalınmış bir oturum FXP_WRITE'ı elle yazar.
+		 *
+		 * Yükleme kapalıyken kanal salt-okunur. Açıkken salt-okuma
+		 * kalkıyor ama yazma serbest kalmıyor: her yazma isteği,
+		 * tanıtıcının yolu üzerinden rol yol kurallarına soruluyor
+		 * (sftpaudit/policy.go). Yani bu bayrak "kilidi aç" diyor,
+		 * "her yere yaz" demiyor.
+		 */
+		sess.SetSFTPReadOnly(!s.sftpPanelWrite)
 	}
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
