@@ -22,6 +22,7 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"os"
@@ -96,6 +97,45 @@ func (p *wsPipe) Write(b []byte) (int, error) {
 // olabilir ve o hâlde Close beş saniye boşuna bekliyor.
 func (p *wsPipe) Close() error { return p.c.CloseNow() }
 
+/*
+ * waitForNotice, gerekçenin gelmesini BEKLER.
+ *
+ * ⚠️ TEK SEFERLİK OKUMA YARIŞ. Gerekçe stderr akışından asenkron
+ * geliyor: istemcinin isteği hata ile dönmüş olsa bile, o metin henüz
+ * websocket'ten çıkmamış olabilir. Ölçüldü — testler tek başına
+ * geçiyordu, CI'da yükün altında üçü birden düşüyordu ve mesaj "gerekçe
+ * salt-okunur demiyor: \"\"" idi. Yani test, sunucunun söylediğini
+ * duymadan sormuştu.
+ */
+func waitForNotice(t *testing.T, pipe *wsPipe, want string) string {
+	t.Helper()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if n := pipe.notices(); strings.Contains(n, want) {
+			return n
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	return pipe.notices()
+}
+
+// takeNotices, biriken gerekçeleri OKUYUP TEMİZLER.
+//
+// ⚠️ Var olma sebebi ölçüldü: bir testin ÖNCEKİ adımı "read-only"
+// gerekçesi üretiyorsa, sonraki adımın iddiası onu bulup YANLIŞ SEBEPTEN
+// geçiyor. Aradaki sınırı çizmenin tek yolu biriken notları almak.
+func (p *wsPipe) takeNotices() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	out := p.stderr.String()
+	p.stderr.Reset()
+
+	return out
+}
+
 func (p *wsPipe) notices() string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -117,10 +157,26 @@ var tuneWebAPI func(*httpapi.Server)
 func browserBastionWithFileBrowser(t *testing.T) (apiURL string, db *store.Store) {
 	t.Helper()
 
+	return browserBastionWithFiles(t, false)
+}
+
+// browserBastionWithUploads, yüklemenin de AÇIK olduğu düzenek.
+func browserBastionWithUploads(t *testing.T) (apiURL string, db *store.Store) {
+	t.Helper()
+
+	return browserBastionWithFiles(t, true)
+}
+
+func browserBastionWithFiles(t *testing.T, write bool) (apiURL string, db *store.Store) {
+	t.Helper()
+
 	// session.sftp olmadan alt sistem kapalı; panel bayrağı serve.go'da
 	// zaten onunla VE'leniyor, burada ikisini de açıyoruz.
 	tuneConfig = func(c *config.Config) { c.Session.SFTP = true }
-	tuneWebAPI = func(s *httpapi.Server) { s.SetSFTPPanel(true) }
+	tuneWebAPI = func(s *httpapi.Server) {
+		s.SetSFTPPanel(true)
+		s.SetSFTPPanelWrite(write)
+	}
 	t.Cleanup(func() { tuneConfig = nil; tuneWebAPI = nil })
 
 	_, apiURL, _, db = oobBastionWithTerminal(t)
@@ -595,5 +651,223 @@ func TestBrowsingSessionIsSealed(t *testing.T) {
 	}
 	if !ok {
 		t.Errorf("zincir tutmadı (%d halka okundu, %d bekleniyordu)", got, links)
+	}
+}
+
+// panelClient, panelin SFTP kanalını açıp bir istemci kurar.
+func panelClient(t *testing.T, apiURL string) (*sftp.Client, *wsPipe) {
+	t.Helper()
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
+	browserSignIn(t, client, apiURL)
+
+	conn, _, err := dialFileBrowser(t, client, apiURL, "web01")
+	if err != nil {
+		t.Fatalf("dosya tarayıcısı açılamadı: %v", err)
+	}
+	conn.SetReadLimit(2 << 20)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	t.Cleanup(cancel)
+
+	pipe := &wsPipe{ctx: ctx, c: conn}
+	cli, err := sftp.NewClientPipe(pipe, pipe)
+	if err != nil {
+		t.Fatalf("SFTP el sıkışması: %v (gerekçe: %q)", err, pipe.notices())
+	}
+
+	return cli, pipe
+}
+
+/*
+ * TestUploadWorksWhenTheFlagAndTheRuleBothAllowIt — yüklemenin UÇTAN UCA
+ * kanıtı.
+ *
+ * ⚠️ İKİ KOŞUL BİRDEN gerekiyor ve bu ayrım özelliğin tamamı:
+ * session.sftp_panel_write kanalın salt-okunur kilidini açıyor, rolün
+ * can_write kuralı ise HANGİ yola yazılabileceğini söylüyor. Birini
+ * diğerinin yerine geçirmek, "yüklemeyi açtım" diyen bir operatöre
+ * hedefin tamamını vermek olurdu.
+ */
+func TestUploadWorksWhenTheFlagAndTheRuleBothAllowIt(t *testing.T) {
+	apiURL, db := browserBastionWithUploads(t)
+
+	ctx := context.Background()
+	if err := db.SetRolePath(ctx, "ops", "/tmp", true, true); err != nil {
+		t.Fatalf("SetRolePath: %v", err)
+	}
+
+	cli, pipe := panelClient(t, apiURL)
+	defer pipe.Close()
+
+	const body = "postern-yukleme-kaniti"
+	f, err := cli.Create("/tmp/postern-upload.txt")
+	if err != nil {
+		t.Fatalf("dosya yaratılamadı: %v (gerekçe: %q)", err, pipe.notices())
+	}
+	if _, err := f.Write([]byte(body)); err != nil {
+		t.Fatalf("yazılamadı: %v (gerekçe: %q)", err, pipe.notices())
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("kapatılamadı: %v", err)
+	}
+
+	// Hedefte GERÇEKTEN var mı: "sunucu hata vermedi" yeterli değil.
+	back, err := cli.Open("/tmp/postern-upload.txt")
+	if err != nil {
+		t.Fatalf("geri okunamadı: %v", err)
+	}
+	got, err := io.ReadAll(back)
+	back.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != body {
+		t.Errorf("içerik = %q, %q bekleniyordu", got, body)
+	}
+}
+
+/*
+ * ⚠️ BAYRAK KAPALIYKEN YÜKLEME GEÇMEMELİ — panelin JavaScript'i ne
+ * çizerse çizsin. Kısıt sunucuda; çalınmış bir oturum FXP_WRITE'ı elle
+ * yazar ve buradaki test tam olarak onu taklit ediyor (gerçek bir SFTP
+ * istemcisi, panelin kodundan bağımsız).
+ */
+func TestUploadIsRefusedWhenTheFlagIsOff(t *testing.T) {
+	apiURL, db := browserBastionWithFileBrowser(t) // yükleme KAPALI
+
+	ctx := context.Background()
+	// Yol kuralı yazmaya İZİNLİ: reddin tek sebebi bayrak olabilir.
+	if err := db.SetRolePath(ctx, "ops", "/tmp", true, true); err != nil {
+		t.Fatalf("SetRolePath: %v", err)
+	}
+
+	cli, pipe := panelClient(t, apiURL)
+	defer pipe.Close()
+
+	f, err := cli.Create("/tmp/postern-should-not-exist.txt")
+	if err == nil {
+		_, werr := f.Write([]byte("x"))
+		cerr := f.Close()
+		if werr == nil && cerr == nil {
+			t.Fatal("yükleme kapalıyken dosya yazıldı")
+		}
+	}
+
+	if n := waitForNotice(t, pipe, "read-only"); !strings.Contains(n, "read-only") {
+		t.Errorf("gerekçe salt-okunur demiyor: %q", n)
+	}
+}
+
+/*
+ * ⚠️ BAYRAK AÇIK OLSA BİLE KURAL YAZMAYA İZİN VERMİYORSA GEÇMEMELİ.
+ *
+ * can_write bir söz ve postern onu kendisi uygulamalı. Yazma isteği
+ * tanıtıcının yolu üzerinden politikaya soruluyor; sorulmasaydı kısıtı
+ * uygulayan tek şey hedefin dosya izinleri olurdu.
+ */
+func TestUploadIsRefusedWhenTheRuleIsReadOnly(t *testing.T) {
+	apiURL, db := browserBastionWithUploads(t) // yükleme AÇIK
+
+	ctx := context.Background()
+	// Okumaya izinli, YAZMAYA değil.
+	if err := db.SetRolePath(ctx, "ops", "/tmp", true, false); err != nil {
+		t.Fatalf("SetRolePath: %v", err)
+	}
+
+	cli, pipe := panelClient(t, apiURL)
+	defer pipe.Close()
+
+	// Gezinme çalışmalı: kural okumaya izinli.
+	if _, err := cli.ReadDir("/tmp"); err != nil {
+		t.Fatalf("/tmp listelenemedi: %v (gerekçe: %q)", err, pipe.notices())
+	}
+
+	f, err := cli.Create("/tmp/postern-readonly-rule.txt")
+	if err == nil {
+		_, werr := f.Write([]byte("x"))
+		cerr := f.Close()
+		if werr == nil && cerr == nil {
+			t.Fatal("kural salt-okunurken dosya yazıldı")
+		}
+	}
+
+	if n := waitForNotice(t, pipe, "read-only"); !strings.Contains(n, "read-only") {
+		t.Errorf("gerekçe: %q", n)
+	}
+}
+
+/*
+ * TestWriteOnAReadHandleIsRefusedEndToEnd — asıl deliğin kanıtı.
+ *
+ * ⚠️ NİYE AYRI BİR TEST GEREKİYOR. Sıradan bir yükleme (Create) dosyayı
+ * YAZMA bayrağıyla açıyor, dolayısıyla kural yazmaya izin vermiyorsa
+ * AÇILIŞ reddediliyor ve yazma hiç denenmiyor. Ölçüldü: FXP_WRITE'ın
+ * politikaya sorulmasını kaldıran mutasyon, Create kullanan testten
+ * GEÇİYOR — o test deliği hiç görmüyor.
+ *
+ * Delik şu: yolu OKUMA bayrağıyla açmak (kural izinli), sonra AYNI
+ * tanıtıcı üzerine FXP_WRITE göndermek. Eskiden tanıdık tanıtıcı görülüp
+ * istek politikaya hiç sorulmadan geçiyordu; kısıtı uygulayan tek şey
+ * hedefin açma kipiydi — bastion kendi kuralını hedefe emanet ediyordu.
+ *
+ * ⚠️ TESTİN İKİ TUZAĞI VAR ve ikisi de ölçülerek bulundu:
+ *
+ *   1. Gerçek bir DOSYA gerekiyor. Dizin açıp yazmayı denemek, hedefin
+ *      kendi hatasını üretiyor ve postern hiç konuşmadan test geçiyor.
+ *   2. Gerekçe SIFIRLANMALI. Önceki adımlar "read-only" notu bırakıyor;
+ *      sıfırlamayan bir iddia onu bulup yanlış sebepten geçiyor.
+ */
+func TestWriteOnAReadHandleIsRefusedEndToEnd(t *testing.T) {
+	apiURL, db := browserBastionWithUploads(t) // yükleme AÇIK
+
+	ctx := context.Background()
+	/*
+	 * Kök okumaya izinli, YAZMAYA değil. Kökten veriyoruz ki hedefte
+	 * kesin var olan ve okunabilir bir DOSYA açabilelim (/etc/hostname);
+	 * dizin açmak hedefin kendi hatasını üretir ve postern'i hiç
+	 * konuşturmaz.
+	 */
+	if err := db.SetRolePath(ctx, "ops", "/", true, false); err != nil {
+		t.Fatalf("SetRolePath: %v", err)
+	}
+
+	cli, pipe := panelClient(t, apiURL)
+	defer pipe.Close()
+
+	rf, err := cli.OpenFile("/etc/hostname", os.O_RDONLY)
+	if err != nil {
+		t.Fatalf("okuma için açılamadı: %v (gerekçe: %q)", err, pipe.notices())
+	}
+	defer rf.Close()
+
+	// Buraya kadar biriken her şeyi at: sonraki iddia YALNIZCA yazmanın
+	// ürettiği gerekçeye bakmalı.
+	pipe.takeNotices()
+
+	if _, err := rf.Write([]byte("bu yazma reddedilmeli")); err == nil {
+		t.Fatal("okuma tanıtıcısına yazma GEÇTİ — kısıt hedefin açma kipine bırakılmış")
+	}
+
+	/*
+	 * Gerekçe asenkron geliyor: yazmanın hata ile dönmesi, metnin
+	 * websocket'ten çıktığı anlamına gelmiyor.
+	 */
+	notice := ""
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		notice += pipe.takeNotices()
+		if strings.Contains(notice, "read-only") {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if !strings.Contains(notice, "postern:") {
+		t.Fatalf("reddi postern vermedi (hedefin kendi hatası olabilir): %q", notice)
+	}
+	if !strings.Contains(notice, "read-only") {
+		t.Errorf("gerekçe salt-okunur demiyor: %q", notice)
 	}
 }
