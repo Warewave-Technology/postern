@@ -254,10 +254,44 @@ func (s *Session) policyView(req request) (policyResult, bool) {
 		}
 
 		/*
-		 * Tanıtıcı üzerinden okuma/yazma: yolu açan istek zaten karara
-		 * bağlandı. Tanıtığımız bir tanıtıcı değilse REDDEDİYORUZ —
-		 * politika açıkken "nereden geldiğini bilmediğimiz tanıtıcı"
-		 * kabul edilebilir bir şey değil.
+		 * ⚠️ YAZMA, TANITICININ YOLU ÜZERİNDEN POLİTİKAYA SORULUYOR.
+		 *
+		 * Eskiden sorulmuyordu: tanıdık bir tanıtıcı görüldüğü an istek
+		 * politikasız geçiyordu, gerekçesi de "yolu açan istek zaten
+		 * karara bağlandı" idi. Açma isteği gerçekten karara bağlanıyor
+		 * — ama YAZMA BAYRAKLI bir açma olarak. İstemci yolu OKUMA
+		 * bayrağıyla açıp (politika izin verir) aynı tanıtıcı üzerine
+		 * FXP_WRITE gönderdiğinde, kısıtı uygulayan tek şey HEDEFİN
+		 * açma kipi oluyordu.
+		 *
+		 * Bu, hemen yukarıdaki salt-okuma dalının kendisi için yazdığı
+		 * gerekçenin aynısı: "bastion kendi kısıtını kendi uygulamalı".
+		 * Aynı cümle rol yol kuralları için de geçerli — can_write bir
+		 * söz ve onu hedefin insafına bırakamayız.
+		 *
+		 * ⚠️ İZİN VERİLEN YAZMA SATIR ÜRETMİYOR: karar true dönerse
+		 * defterde iz kalmıyor, aktarımın toplamı tanıtıcı kapanırken
+		 * tek bir satır olarak yazılıyor. Yani parça başına bir denetim
+		 * satırı yok. Reddedilen yazma satır üretiyor ve orası ayrı bir
+		 * sınır (bkz. denyFlood).
+		 */
+		if req.typ == fxpWrite {
+			p, ok := s.pathForHandle(req.handle)
+			if !ok {
+				return policyResult{deny: "handle was not opened through this session",
+					req: Request{Op: OpTransfer, Write: true}}, true
+			}
+
+			return policyResult{req: Request{
+				Op: OpTransfer, Path: p, Write: true,
+			}}, true
+		}
+
+		/*
+		 * Okuma: yolu açan istek karara bağlandı ve okuma yetkisi o
+		 * kararın içinde. Tanıtığımız bir tanıtıcı değilse
+		 * REDDEDİYORUZ — politika açıkken "nereden geldiğini
+		 * bilmediğimiz tanıtıcı" kabul edilebilir bir şey değil.
 		 */
 		if _, ok := s.handles[req.handle]; ok {
 			return policyResult{}, false

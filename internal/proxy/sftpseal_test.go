@@ -45,6 +45,10 @@ func TestShellRecordingIsUnchangedBySFTPSealing(t *testing.T) {
 		go func() { done <- b.Run(ctx) }()
 
 		downR <- &ssh.Request{Type: "shell"}
+		// İstek satırının kayda düşmesini bekle: recordIntent istek
+		// döngüsünde çalışıyor ve hemen ardından çıktı beslersek
+		// ikisinin sırası koşudan koşuya değişiyor.
+		waitForRecorded(t, sink, "postern: shell")
 
 		/*
 		 * ⚠️ HER OLAYIN KAYDA DÜŞMESİ BEKLENİYOR, sonra sonraki
