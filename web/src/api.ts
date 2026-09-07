@@ -621,11 +621,62 @@ export type SessionDetail = Session & {
       sha256: string;
       archived_at: string;
     };
+    /*
+     * ⚠️ ZİNCİR BAŞININ VARLIĞI "DOĞRULANDI" DEMEK DEĞİL.
+     *
+     * Bu alan yalnızca oturum kapanırken bir baş YAZILDIĞINI söylüyor;
+     * dosyanın o başla tutup tutmadığını söylemiyor. Bunu ancak
+     * verifyRecording() cevaplıyor ve dosyanın tamamını okuyor. Alanı
+     * yeşil bir onay gibi çizmek, hiç doğrulanmamış bir kaydı
+     * doğrulanmış göstermek olurdu — göç 034'ün engellemek istediği şey.
+     */
+    chain?: string;
+    links?: number;
   };
   files: SessionFile[];
   // files_error: liste okunamadı. Boş liste ile karıştırılmamalı —
   // "dokunulmadı" ile "bakamadık" farklı şeyler.
   files_error?: boolean;
+};
+
+/**
+ * Zincir doğrulamasının sonucu.
+ *
+ * ⚠️ İKİ EKSEN AYRI: yerel zincirin tutması ile arşivdeki kopyanın
+ * onaylaması iki ayrı iddia. Tek bir alanda birleştirmek, "yerel tuttu
+ * ama arşiv çelişiyor" durumunu gizlerdi — ki o, en güçlü kurcalama
+ * işareti.
+ */
+export type VerifyResult = {
+  /*
+   * "verified" DIŞINDAKİLERİN HİÇBİRİ ONAY DEĞİL.
+   *   verified     — dosya zincirle tutuyor (tek yeşil durum)
+   *   changed      — tutmuyor
+   *   unsealed     — baş yok (034 öncesi ya da yeni kapanmış); ALARM DEĞİL
+   *   in_progress  — oturum sürüyor, baş kapanışta yazılıyor
+   *   no_local_copy— arşivlenip budanmış; baytlar burada değil
+   *   not_recorded — kayıt hiç tutulmamış
+   *   error        — okunamadı
+   */
+  local:
+    | "verified"
+    | "changed"
+    | "unsealed"
+    | "in_progress"
+    | "no_local_copy"
+    | "not_recorded"
+    | "error";
+  detail?: string;
+  chain?: string;
+  stored_links?: number;
+  links?: number;
+  off_box: {
+    state: "match" | "mismatch" | "no_chain" | "unchecked";
+    detail?: string;
+    chain?: string;
+    links?: string;
+    object?: string;
+  };
 };
 
 /** Kayıt diski ve arşiv kuyruğunun durumu.
@@ -1127,6 +1178,17 @@ export const api = {
   // alınıyor (bkz. reqText).
   sessionRecording: (id: string) =>
     reqText("GET", `/api/admin/sessions/${encodeURIComponent(id)}/recording`),
+  /*
+   * ⚠️ POST: sunucuda iş yaptırıyor (dosyanın tamamını okuyor) ve denetim
+   * defterine satır yazdırıyor. GET olsaydı önbelleğe alınır ve sayfa
+   * açılışında kendiliğinden çağrılırdı — kullanıcının basmadığı bir
+   * düğme için deftere satır yazdırarak.
+   */
+  verifyRecording: (id: string) =>
+    req<VerifyResult>(
+      "POST",
+      `/api/admin/sessions/${encodeURIComponent(id)}/verify`,
+    ),
   /** Kullanıcının ikinci faktörünü sıfırla — telefonunu kaybedenin yolu. */
   resetUserTOTP: (name: string) =>
     req<void>(

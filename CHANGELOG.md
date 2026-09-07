@@ -48,9 +48,8 @@ audit rows into a shape it does not understand.
   file was not altered after it was written. Someone with root on the bastion
   can rewrite the file *and* the head stored beside it. The copy that closes
   that gap is the head each archived recording carries as object metadata, and
-  **reading it back is not automated yet**: `postern session verify` checks
-  against the database, on the bastion. If you depend on the off-box copy, you
-  compare it by hand today. The panel does not show chain state at all.
+  `postern session verify` now reads it, and the panel shows chain state on
+  each session (both below).
 
 ### Added
 
@@ -84,6 +83,29 @@ audit rows into a shape it does not understand.
   directory opened or file transferred. If you prune recordings by size,
   that assumption has changed.
 
+- **The panel shows the recording chain.** Opening a session in the audit
+  view gives its chain its own card, with a **Verify** button. Migration 034
+  asked for this: until now a verified recording and one that had never been
+  checked looked identical.
+
+  Before you press it, the card says only what is known — whether a chain
+  was stored when the session closed. That is deliberately not drawn as a
+  green tick: a stored head is not a file that still matches it, and only
+  recomputing the chain can say which. Pressing Verify reports two separate
+  lines, the local result and what the archived copy says, and they are
+  never merged — "the file matches this host but the archive disagrees" is
+  the pair's most important answer and a single badge would bury it.
+
+  Sessions with no chain — everything that closed before this release, and
+  everything still running — read as neutral rather than as an alarm.
+
+  Verifying writes an audit line (`session.verify`) before it reads
+  anything, and if that line cannot be written the verification does not
+  run: the same rule replaying a recording already follows. Three
+  verifications run at once; a fourth is told to try again rather than
+  queued, and the archive lookup gets a short timeout of its own instead of
+  the uploader's thirty seconds.
+
 - **`postern session verify` now reads the archived copy of the chain
   head.** The head has been travelling to the bucket as object metadata
   since 1.1; nothing read it back, so the chain's strongest claim needed a
@@ -100,6 +122,14 @@ audit rows into a shape it does not understand.
   evidence of tampering — but it never reads as confirmation either. For
   scripts that must distinguish them, `--require-archive` turns
   "not checked" into a non-zero exit.
+
+  **A recording that was archived and then pruned still gets an answer.**
+  Verify used to fail on the missing file before it ever looked at the
+  bucket — which is precisely the case where the archived copy is the only
+  evidence left. It now reports `NO LOCAL COPY` and says what the archived
+  head shows. That is deliberately not called "verified": the heads
+  agreeing means the database was not rewritten, and the bytes were not
+  checked, because they are not on this host.
 
 - **Recordings are chained as they are written.** Each line extends a SHA-256
   chain; the head and link count are stored with the session, and the head

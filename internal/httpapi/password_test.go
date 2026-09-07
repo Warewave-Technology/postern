@@ -31,6 +31,7 @@ func TestRestrictedSessionCannotReachKeyEndpoints(t *testing.T) {
 		 * özelliği çiviliyor, yarın biri listeye eklerse test söylesin.
 		 */
 		"GET /api/sftp/{target}",
+		"POST /api/admin/sessions/{id}/verify",
 		"POST /api/admin/roles/{name}/paths",
 		"GET /api/admin/users",
 		"POST /api/admin/users/{name}/credential",

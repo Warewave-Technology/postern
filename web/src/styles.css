@@ -3246,3 +3246,30 @@ a.tcard-name:focus-visible {
 .shell-files {
   gap: 0.35rem;
 }
+
+/* Kayıt zinciri durumu (admin/ChainStatus.tsx). */
+.chain-card {
+  margin-top: 1rem;
+}
+.chain-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin: 0 0 0.5rem;
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+.chain-line .badge {
+  flex: none;
+}
+/* ⚠️ Rozetin yanındaki cümle rozetin YERİNE GEÇMİYOR, onu açıyor:
+   durum adı rozette YAZILI olduğu için rengi ayırt edemeyen biri de
+   sonucu okuyabiliyor. */
+.chain-line span:last-child {
+  color: var(--muted);
+  min-width: 0;
+}
+.chain-note {
+  margin-top: 0.4rem;
+  max-width: 62ch;
+}

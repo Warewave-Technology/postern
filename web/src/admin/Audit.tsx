@@ -11,6 +11,7 @@ import {
   useList,
 } from "./common";
 import CastPlayer from "./CastPlayer";
+import ChainStatus from "./ChainStatus";
 import DataTable, { Column } from "./DataTable";
 import type { Resolved } from "../theme/mode";
 
@@ -139,6 +140,16 @@ export function Sessions({ theme }: { theme: Resolved }) {
   // kaydı olmayan bir oturumun bile dosya olayları olabilir.
   const [files, setFiles] = useState<SessionFile[]>([]);
   const [filesFailed, setFilesFailed] = useState(false);
+  /*
+   * chainOf, açılan oturumun zincir başı (varsa) ve kimliği.
+   *
+   * ⚠️ OYNATICIYA BAĞLI DEĞİL. SFTP oturumunda oynatıcı açılmayabiliyor
+   * ve arşivlenmiş kayıtta hiç açılmıyor; zincir durumunu oynatıcının
+   * içine koymak, tam da en çok merak edilen oturumlarda gizlerdi.
+   */
+  const [chainOf, setChainOf] = useState<{ id: string; chain?: string } | null>(
+    null,
+  );
 
   /*
    * ⚠️ OYNATMADAN ÖNCE KAYDIN DURUMU SORULUYOR.
@@ -166,6 +177,7 @@ export function Sessions({ theme }: { theme: Resolved }) {
         // orada bunlar oluyor.
         setFiles(d.files ?? []);
         setFilesFailed(Boolean(d.files_error));
+        setChainOf({ id, chain: d.recording.chain });
         const hasFiles = (d.files ?? []).length > 0;
         switch (d.recording.state) {
           case "none":
@@ -296,6 +308,7 @@ export function Sessions({ theme }: { theme: Resolved }) {
             setPlaying(null);
             setFiles([]);
             setFilesFailed(false);
+            setChainOf(null);
           }}
         />
       )}
@@ -305,6 +318,8 @@ export function Sessions({ theme }: { theme: Resolved }) {
         olduğu için oynatıcı hiç açılmayabiliyor; tabloyu oynatıcının
         içine koymak, tam da onun gerektiği oturumlarda gizlerdi.
       */}
+      {chainOf && <ChainStatus sessionId={chainOf.id} chain={chainOf.chain} />}
+
       <SessionFiles files={files} failed={filesFailed} />
 
       <ListState

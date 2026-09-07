@@ -616,8 +616,25 @@ other. For a reading that trusts this host with nothing, compare the same
 head from somewhere else; the bucket credential and the session id are all
 it takes.
 
-The panel still does not show chain state, so a verified and an unverified
-recording look identical there.
+**The panel shows it too.** Open a session in the audit view and its
+recording chain gets its own card. Before you press anything it says only
+what is actually known — whether a chain was stored — because a stored
+head is not the same thing as a file that still matches it, and drawing
+the first as a green tick would show an unverified recording as verified.
+Pressing **Verify** makes the server recompute the chain and reports it on
+two separate lines: the local result, and what the archived copy says.
+They are never merged into one badge, because "the file matches this host
+but the archive disagrees" is the single most important thing the pair can
+tell you, and a merged badge would hide it behind the green one.
+
+A session with no chain — anything that closed before this release, and
+anything still running — is shown in a neutral tone rather than as an
+alarm. On the first upgrade that is every recording you already have, and
+nobody did anything wrong.
+
+Verifying is an admin action and it writes an audit line before it reads
+anything, the same rule replaying a recording follows: a read of a
+recording's contents that cannot be traced does not happen.
 
 **SFTP sessions are sealed too, and the shape of it is worth knowing.**
 Transfer bytes still never enter the recording — that is what kept the

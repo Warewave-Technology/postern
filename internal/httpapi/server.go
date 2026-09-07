@@ -19,6 +19,7 @@ import (
 	"github.com/Warewave-Technology/postern/internal/proxy"
 	"github.com/Warewave-Technology/postern/internal/record"
 	"github.com/Warewave-Technology/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/verify"
 )
 
 // Server, HTTP uçlarını taşır. TLS/dinleme çağıranın işi (serve kuruyor);
@@ -184,6 +185,19 @@ type Server struct {
 	 */
 	sftpPanelWrite bool
 
+	/*
+	 * verifySlots, eşzamanlı zincir doğrulaması tavanı (verify.go).
+	 * Kanal olarak tutuluyor: dolu olduğunda beklemek yerine ANINDA
+	 * reddedebilmek için.
+	 */
+	verifySlots chan struct{}
+
+	/*
+	 * archiveClient, arşivdeki zincir başını okumak için. nil ise arşiv
+	 * yapılandırılmamış ve doğrulama "bakılmadı" diyor.
+	 */
+	archiveClient verify.HeadReader
+
 	totpWindow      time.Duration
 	totpMaxFailures int
 	totpLockFor     time.Duration
@@ -332,6 +346,7 @@ func New(o *auth.OIDCHolder, logins *auth.Logins, db *store.Store, logger *slog.
 		localLimit:   newLocalLimiter(),
 		guessBackoff: newGuessBackoff(),
 		bindSlots:    make(chan struct{}, directoryBindSlots),
+		verifySlots:  make(chan struct{}, verifySlots),
 
 		totpWindow:      2 * time.Minute,
 		totpMaxFailures: 3,

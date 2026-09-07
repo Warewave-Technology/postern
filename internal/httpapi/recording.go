@@ -73,6 +73,13 @@ func (s *Server) registerRecordingRoutes(mux *http.ServeMux, admin func(http.Han
 	}
 	mux.Handle("GET /api/admin/sessions/{id}", admin(s.adminSessionDetail))
 	mux.Handle("GET /api/admin/sessions/{id}/recording", admin(s.adminSessionRecording))
+	/*
+	 * ⚠️ POST: iş yapıyor (dosyayı baştan sona okuyor) ve denetim satırı
+	 * yazıyor. GET olsaydı önbelleğe alınır, tekrarlanır, ve sayfa
+	 * açılışında kendiliğinden çağrılırdı — kullanıcının basmadığı bir
+	 * düğme için deftere satır yazdırarak.
+	 */
+	mux.Handle("POST /api/admin/sessions/{id}/verify", admin(s.handleVerifyRecording))
 }
 
 // sessionRecording, oturumun kaydını açar ve durumunu sınıflandırır.
@@ -180,7 +187,22 @@ func (s *Server) adminSessionDetail(w http.ResponseWriter, r *http.Request) {
  * bütün arşivi tek bir ele geçirmeyle dışarı çıkarılabilir yapardı.
  */
 func recordingBlock(r *http.Request, s *Server, sess model.Session, state string, size int64) map[string]any {
-	out := map[string]any{"state": state, "size": size}
+	/*
+	 * ⚠️ ZİNCİR ALANLARI BURADA, VE MALİYETİ SIFIR. Göç 034'ün panelden
+	 * istediği ayrım — "doğrulanabilir" ile "doğrulanamaz" — yalnızca
+	 * başın dolu olup olmamasına bakıyor; hiçbir hash yeniden
+	 * hesaplanmıyor. Veri Session()'da zaten vardı ve JSON'a hiç
+	 * konmuyordu: 034'ün açığı tam olarak buradaydı.
+	 *
+	 * ⚠️ BU ALANLAR "DOĞRULANDI" DEMEK DEĞİL. Baş kayıtlı olabilir ve
+	 * dosya yine de değişmiş olabilir; bunu ancak /verify söyler. Panel
+	 * bu alanı yeşil bir onay gibi çizerse, hiç doğrulanmamış bir kaydı
+	 * doğrulanmış gösterir.
+	 */
+	out := map[string]any{
+		"state": state, "size": size,
+		"chain": sess.RecordingChain, "links": sess.RecordingLinks,
+	}
 	if state != recArchived {
 		return out
 	}
