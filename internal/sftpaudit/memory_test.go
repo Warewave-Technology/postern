@@ -77,7 +77,9 @@ func TestStoredPathIsBounded(t *testing.T) {
 	if !ok {
 		t.Fatal("istek bekleyenlere girmedi")
 	}
-	if len(p.path) > maxPath+len(" (truncated)") {
+	// ⚠️ İŞARET DE SINIRIN İÇİNDE: sınır artık deftere sığmanın sınırı
+	// (bkz. storable_test.go), yolun bittiği yer değil.
+	if len(p.path) > maxPath {
 		t.Fatalf("saklanan yol %d bayt, sınır %d", len(p.path), maxPath)
 	}
 	if !strings.HasSuffix(p.path, "(truncated)") {

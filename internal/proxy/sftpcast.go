@@ -3,15 +3,12 @@ package proxy
 // SFTP olaylarının oturum KAYDINA yazılması.
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
-	"unicode/utf8"
 
 	"github.com/Warewave-Technology/postern/internal/sftpaudit"
+	"github.com/Warewave-Technology/postern/internal/sftpcast"
 )
 
 /*
@@ -38,180 +35,16 @@ import (
  *   3. Tek bir doğrulama komutu ("session verify") iki oturum türü için
  *      de aynı şeyi söylüyor.
  *
- * ⚠️ BU DOSYANIN ASIL İŞİ TEMİZLEMEK. Yol ve gerekçe metinleri KARŞI
- * TARAFTAN geliyor: dosya adını hedefteki kullanıcı koyuyor, gerekçe
- * metnini hedefin sftp-server'ı yazıyor. Bir terminal kaydına giren metin
- * OYNATILDIĞINDA TERMİNALDE ÇALIŞIR — içinde ESC dizisi olan bir dosya
- * adı, kaydı izleyen denetçinin ekranını boyayabilir, imleci oynatabilir,
- * satırları silebilir. Yani kaydı okunmaz ya da YANILTICI kılabilir.
- * Kayda giren her metin bu yüzden buradan geçiyor.
- */
-
-// maxCastField, kayda yazılan tek bir alanın tavanı.
-//
-// ⚠️ Yol uzunluğu zaten sınırlı (sftpaudit.maxPath) ama gerekçe metni
-// hedeften geliyor ve sınırı hedef koyuyor. Kayıt satırının uzunluğu
-// zincire giren bayt sayısıdır; sınırsız bırakmak, tek bir isteğin
-// kaydı şişirmesine izin vermek olurdu.
-const maxCastField = 512
-
-/*
- * castSafe, karşı taraftan gelen metni bir terminal kaydına konabilir
- * hâle getirir.
+ * ⚠️ SATIRIN BİÇİMİ VE MÜHÜR ARTIK internal/sftpcast'TE. Taşınmasının
+ * sebebi ikinci bir okuyucu: defterdeki satırların mührü yeniden
+ * hesaplanıyor (internal/verify) ve iki taraf AYNI BAYTLARI üretmek
+ * zorunda. Biçimi burada tutup orada bir kez daha yazmak, bir gün
+ * sessizce ayrışan iki uygulama demekti — ve ayrıştıkları gün kontrol,
+ * dokunulmamış her oturumu "değiştirilmiş" diye raporlardı.
  *
- * ⚠️ YAZDIRILABİLİR OLMAYAN HER ŞEY ATILIYOR, kaçırılmıyor. Kaçırmak
- * (örneğin "\x1b" yazmak) metni okunur tutardı ama satırı uzatır ve
- * "gerçekten ne vardı" sorusunu cevaplamaz; atmak, ekranda görünenin
- * dosyada olanla aynı olmasını sağlıyor. Atılan bir şey olduğunu
- * kaybetmemek için sonuna işaret konuyor.
+ * Burada kalan şey BROKER'IN İŞİ: satırı kayda yazmak, kilidi tutmak,
+ * ve mührü oturum kapanırken çağırana vermek.
  */
-func castSafe(s string) string {
-	var b strings.Builder
-	b.Grow(len(s))
-
-	dropped := false
-	for _, r := range s {
-		switch {
-		case r == utf8.RuneError:
-			// Bozuk UTF-8: hedefin dosya adı geçerli UTF-8 olmak
-			// zorunda değil.
-			dropped = true
-		case r < 0x20 || r == 0x7f:
-			// C0 kontrol baytları ve DEL: ESC, CR, LF, BS burada.
-			dropped = true
-		case r >= 0x80 && r <= 0x9f:
-			// C1: tek baytlık ESC eşdeğerleri. UTF-8 çözümünden sonra
-			// bunlar ancak kasten konmuş olabilir.
-			dropped = true
-		case r == 0x200e || r == 0x200f ||
-			(r >= 0x202a && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069):
-			/*
-			 * ⚠️ İKİ YÖNLÜ YAZI DENETİMLERİ: SATIRI BOYAMIYOR, YALAN
-			 * SÖYLETİYOR.
-			 *
-			 * Kaçış dizileri ekranı yeniden yazıyor; bunlar daha
-			 * sinsi — satır olduğu gibi duruyor ama BAŞKA okunuyor.
-			 * "fatura<U+202E>gnp.exe" adlı bir dosyayı alan bir
-			 * oturumun kaydında satır "fatura exe.png ... (0 B)" diye
-			 * görünüyor: denetçi bir resim indirildiğini sanıyor.
-			 * Kayıt, "kim hangi dosyayı aldı" sorusunun cevabı; o
-			 * cevabın yanlış OKUNMASI, kaydın okunmaz olmasından kötü.
-			 *
-			 * Canlı denemede bulundu: dosya adı panelin arşivinde
-			 * temizleniyordu ama kayda olduğu gibi giriyordu.
-			 */
-			dropped = true
-		default:
-			if b.Len() >= maxCastField {
-				dropped = true
-				continue
-			}
-			b.WriteRune(r)
-		}
-	}
-
-	out := b.String()
-	if out == "" {
-		// ⚠️ BOŞLUK KONTROLÜ ATMA İŞARETİNDEN ÖNCE. Tersi sırada
-		// tümüyle atılmış bir alan "…" olarak çıkıyordu — teknik
-		// olarak boş değil ama denetçiye hiçbir şey söylemiyor.
-		// Tümü atıldıysa alanın VAR OLDUĞUNU söyle: boş bırakmak
-		// "yol yoktu" demek olurdu.
-		return "(unprintable)"
-	}
-	if dropped {
-		out += "…"
-	}
-
-	return out
-}
-
-// castVerb, olayı kayıtta görünecek fiile çevirir.
-//
-// ⚠️ Transfer YÖNÜYLE yazılıyor: "transfer" tek başına, bir dosyanın
-// hedefe mi gittiğini yoksa hedeften mi geldiğini söylemiyor — ve bir
-// denetçinin ilk sorduğu şey o.
-func castVerb(e sftpaudit.Event) string {
-	if denied, ok := strings.CutPrefix(string(e.Op), "denied."); ok {
-		return "denied " + denied
-	}
-	if e.Op == sftpaudit.OpTransfer {
-		switch {
-		case e.Wrote > 0 && e.Read > 0:
-			return "transfer"
-		case e.Wrote > 0:
-			return "put"
-		case e.Read > 0:
-			return "get"
-		default:
-			// Açılmış ama tek bayt taşınmamış dosya. "get 0 B" demek
-			// bir aktarım olduğunu düşündürürdü.
-			return "opened"
-		}
-	}
-
-	return string(e.Op)
-}
-
-// castBytes, taşınan baytı okunur hâle getirir.
-func castBytes(n int64) string {
-	const unit = 1024
-	if n < unit {
-		return strconv.FormatInt(n, 10) + " B"
-	}
-	div, exp := int64(unit), 0
-	for n/div >= unit && exp < 4 {
-		div *= unit
-		exp++
-	}
-
-	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGT"[exp])
-}
-
-/*
- * castLine, bir denetim olayının kayda yazılacak satırı.
- *
- * Biçim kasten sabit ve okunur: "postern sftp: <fiil> <yol>[ → <yeni>]
- * [(<bayt>)][ — <gerekçe>]". Satır sonu "\r\n" çünkü kayıt bir TERMİNAL
- * kaydı ve oynatıcı satır başı bekliyor (recordIntent'teki kalıbın aynısı).
- */
-func castLine(e sftpaudit.Event) string {
-	var b strings.Builder
-	b.WriteString("postern sftp: ")
-	b.WriteString(castVerb(e))
-
-	if e.Path != "" {
-		b.WriteString(" ")
-		b.WriteString(castSafe(e.Path))
-	}
-	if e.NewPath != "" {
-		b.WriteString(" → ")
-		b.WriteString(castSafe(e.NewPath))
-	}
-
-	switch {
-	case e.Read > 0 && e.Wrote > 0:
-		b.WriteString(" (↓" + castBytes(e.Read) + " ↑" + castBytes(e.Wrote) + ")")
-	case e.Read > 0:
-		b.WriteString(" (" + castBytes(e.Read) + ")")
-	case e.Wrote > 0:
-		b.WriteString(" (" + castBytes(e.Wrote) + ")")
-	}
-
-	// ⚠️ BAŞARISIZLIK GÖRÜNÜR OLMAK ZORUNDA. "Kimse denemedi" ile
-	// "denedi ve reddedildi" ayrı bulgular ve kayıt ikincisini
-	// göstermezse denetçi ilkini varsayar.
-	if !e.OK && !strings.HasPrefix(string(e.Op), "denied.") {
-		b.WriteString(" [failed]")
-	}
-	if e.Detail != "" {
-		b.WriteString(" — ")
-		b.WriteString(castSafe(e.Detail))
-	}
-	b.WriteString("\r\n")
-
-	return b.String()
-}
 
 /*
  * castStderr, HEDEFİN stderr'inin kayda giden kopyası.
@@ -278,7 +111,7 @@ func newCastStderr(b *Broker) *castStderr { return &castStderr{b: b} }
  * yapan bir hedefin kayıtta ne yazdığı zaten castSafe'in tavanına
  * takılıyor, ama tamponun kendisi süreçte duruyor.
  */
-const maxCastStderrLine = 4 * maxCastField
+const maxCastStderrLine = 4 * sftpcast.MaxField
 
 func (w *castStderr) Write(p []byte) (int, error) {
 	w.mu.Lock()
@@ -437,7 +270,7 @@ func (w *castStderr) emitLine() {
 	line, over := string(w.line), w.over
 	w.line, w.over = w.line[:0], false
 
-	text := castSafe(line)
+	text := sftpcast.Safe(line)
 	if over {
 		/*
 		 * castSafe kendi tavanına takıldıysa işareti zaten koydu; buraya
@@ -497,7 +330,7 @@ func (b *Broker) castSFTP(e sftpaudit.Event) {
 		return
 	}
 
-	line := castLine(e)
+	line := sftpcast.Line(e)
 
 	b.castMu.Lock()
 	defer b.castMu.Unlock()
@@ -506,19 +339,12 @@ func (b *Broker) castSFTP(e sftpaudit.Event) {
 	_, _ = b.rec.OutputStream().Write([]byte(line))
 
 	/*
-	 * ⚠️ ÖZET SIRADAN BAĞIMSIZ: her satırın kendi özeti XOR'lanıyor,
-	 * zincirlenmiyor. Sebebi defterin kendisi — satırlar toplu yazılıyor
-	 * ve `id` ile sıralanıyor, yani aynı olay kümesi farklı sırada
-	 * okunabiliyor. Sıraya bağlı bir özet, hiçbir şey değişmemişken
-	 * tutmayabilirdi. Özetin cevapladığı soru "aynı olaylar mı";
-	 * "aynı sırada mı" değil — sıranın kanıtı zaten satırların kendisi
-	 * ve onları zincir kapsıyor.
+	 * ⚠️ MÜHÜRE YAZILAN ŞEY, KAYDA YAZILAN SATIRIN AYNISI — aynı
+	 * değişkenden. İki ayrı çağrıyla üretilseydi, biçimi değiştiren bir
+	 * düzeltme ikisini ayırabilirdi ve mühür, dosyada duran satırları
+	 * değil başka bir şeyi mühürlerdi.
 	 */
-	sum := sha256.Sum256([]byte(line))
-	for i := range b.castDigest {
-		b.castDigest[i] ^= sum[i]
-	}
-	b.castEvents++
+	b.seal.Add(line)
 }
 
 /*
@@ -539,13 +365,40 @@ func (b *Broker) sealSFTPCast() {
 
 	b.castMu.Lock()
 	defer b.castMu.Unlock()
-	if b.castEvents == 0 {
+	if b.seal.Events() == 0 {
 		// Olay yoksa mühür de yok: boş bir özet satırı, olmayan bir
 		// oturumu varmış gibi gösterirdi.
 		return
 	}
 
-	_, _ = fmt.Fprintf(b.rec.OutputStream(),
-		"postern sftp: %d events, digest sha256:%s\r\n",
-		b.castEvents, hex.EncodeToString(b.castDigest[:]))
+	_, _ = b.rec.OutputStream().Write([]byte(b.seal.Line()))
+}
+
+/*
+ * SFTPSeal, kaydın mühür satırındaki iki sayı: kaç olay ve özetleri.
+ *
+ * ⚠️ RUN DÖNDÜKTEN SONRA OKUNMALI: mühür satırı Run'ın içinde yazılıyor
+ * (sealSFTPCast) ve daha önce okunan değer, o oturumun son olaylarını
+ * saymaz.
+ *
+ * ⚠️ MÜHÜRÜN TÜKETİCİSİ VARDI AMA PROGRAMATİK DEĞİLDİ: satır yalnızca
+ * .cast dosyasının içinde duruyordu, yani ona bakmanın tek yolu kaydı
+ * açıp gözle okumaktı. Defterin eksik ya da DEĞİŞTİRİLMİŞ olup
+ * olmadığını söyleyen kontrol (verify.JournalOf) bu iki sayıyı istiyor;
+ * oturumun satırına yazılmaları buradan başlıyor.
+ *
+ * ⚠️ OLAY YOKKEN ÖZET BOŞ DÖNÜYOR, SIFIRLARIN ONALTILIĞI DEĞİL. Kayda
+ * mühür satırı da yazılmıyor (yukarısı); veritabanına bir özet yazmak,
+ * dosyada karşılığı olmayan bir değeri "kayıt böyle diyor" diye
+ * saklamak olurdu.
+ */
+func (b *Broker) SFTPSeal() (events int64, digest string) {
+	b.castMu.Lock()
+	defer b.castMu.Unlock()
+
+	if b.seal.Events() == 0 {
+		return 0, ""
+	}
+
+	return b.seal.Events(), b.seal.Head()
 }

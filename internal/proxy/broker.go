@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"io"
 	"log/slog"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/Warewave-Technology/postern/internal/record"
 	"github.com/Warewave-Technology/postern/internal/sftpaudit"
+	"github.com/Warewave-Technology/postern/internal/sftpcast"
 )
 
 // requestSender, üzerine request gönderilebilen uç (ssh.Channel bunu sağlar).
@@ -69,8 +69,8 @@ type Broker struct {
 	idle *idleGuard
 
 	/*
-	 * castMu/castEvents/castDigest, SFTP olaylarının oturum KAYDINA
-	 * yazılmasının durumu.
+	 * castMu/seal, SFTP olaylarının oturum KAYDINA yazılmasının durumu:
+	 * kaç satır yazıldı ve hangileri (internal/sftpcast).
 	 *
 	 * ⚠️ SİNK'İN İÇİNDE DEĞİL, BROKER'DA — ve bu bir düzeltme. İlk hâli
 	 * kayıt satırını sftpJournal.Emit'e koyuyordu; o katman depoyla
@@ -79,9 +79,8 @@ type Broker struct {
 	 * sahibi broker, dolayısıyla sarmalanacak yer de burası —
 	 * chainWriter'ın "kanca koymak yerine sarmala" gerekçesinin aynısı.
 	 */
-	castMu     sync.Mutex
-	castEvents int64
-	castDigest [sha256.Size]byte
+	castMu sync.Mutex
+	seal   sftpcast.Seal
 
 	// sftpSink nil olabilir: SFTP kapalıysa denetim de kurulmuyor ve
 	// süzgeç subsystem'i zaten reddediyor.
@@ -1225,7 +1224,7 @@ func (b *Broker) recordIntent(req *ssh.Request) {
 		if err := ssh.Unmarshal(req.Payload, &sub); err != nil {
 			line = "postern: subsystem (unparsable)"
 		} else {
-			line = "postern: subsystem " + castSafe(sub.Name)
+			line = "postern: subsystem " + sftpcast.Safe(sub.Name)
 		}
 
 	default:

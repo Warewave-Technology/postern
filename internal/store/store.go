@@ -2086,6 +2086,46 @@ func (s *Store) SetRecordingChain(ctx context.Context, id, head string, links in
 	return nil
 }
 
+/*
+ * MarkSFTPJournal, oturum kapanırken defterin durumunu yazar.
+ *
+ * ⚠️ SetRecordingChain'DEN AYRI, VE AYNI GEREKÇEYLE. Zincir başı gibi
+ * bu da yalnızca broker'ın Run'ı döndükten sonra bilinebiliyor; ikisini
+ * EndSession'a katmak, çökme sonrası süpürmenin (CloseOrphanSessions)
+ * elinde olmayan bir sayıyı yazmasını gerektirirdi. O yolda mühür
+ * sayısı YOK ve olmaması doğru: kaydı kapatan süreç ölmüş, kaç olay
+ * saydığını kimse bilmiyor.
+ *
+ * ⚠️ BAŞARISIZLIĞI OTURUMU DÜŞÜRMÜYOR — oturum zaten bitti. Yazılamayan
+ * bir işaret o oturumun defterini DOĞRULANAMAZ yapar (Measured false),
+ * ama var olan hiçbir satırı bozmaz. Çağıran hatayı Error olarak
+ * log'luyor: sessiz kalmak, kontrolün neden çalışmadığını sonradan
+ * anlaşılamaz kılardı.
+ */
+func (s *Store) MarkSFTPJournal(ctx context.Context, id string, j model.SFTPJournal) error {
+	/*
+	 * ⚠️ ÖLÇÜLMEMİŞSE NULL YAZILIYOR, SIFIR DEĞİL. Kaydı olmayan bir
+	 * oturumda mühür de yok; oraya 0 yazmak, satırı olan bir oturumu
+	 * "mühür sıfır olay diyor, defterde N satır var" diye suçlardı.
+	 */
+	var events any
+	if j.Measured {
+		events = j.Events
+	}
+
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE sessions SET sftp_events=$2, sftp_lost=$3, sftp_digest=$4 WHERE id=$1;`,
+		id, events, j.Lost, j.Digest)
+	if err != nil {
+		return translateErr("store.MarkSFTPJournal", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("store.MarkSFTPJournal[%s]: %w", id, ErrNotFound)
+	}
+
+	return nil
+}
+
 func (s *Store) EndSession(ctx context.Context, id string, endedAt time.Time) error {
 	var sessionID string
 	queryStr := `
@@ -2121,7 +2161,10 @@ func (s *Store) Session(ctx context.Context, id string) (model.Session, error) {
 	       s.ended_at,
 	       s.recording_path,
 	       s.recording_chain,
-	       s.recording_links
+	       s.recording_links,
+	       s.sftp_events,
+	       s.sftp_lost,
+	       s.sftp_digest
 		FROM sessions s
 		JOIN users   u ON u.id = s.user_id
 		JOIN targets t ON t.id = s.target_id
@@ -2131,15 +2174,21 @@ func (s *Store) Session(ctx context.Context, id string) (model.Session, error) {
 	var session model.Session
 	var startedAt int64
 	var endedAt sql.NullInt64
+	// ⚠️ NULL, "sıfır olay" DEĞİL "ölçülmedi" demek (göç 037).
+	var sftpEvents sql.NullInt64
 
 	err := s.db.QueryRowContext(ctx, queryStr, id).Scan(
 		&session.ID, &session.User, &session.Target, &session.OSUser,
 		&session.SrcIP, &startedAt, &endedAt, &session.RecordingPath,
 		&session.RecordingChain, &session.RecordingLinks,
+		&sftpEvents, &session.SFTPJournal.Lost, &session.SFTPJournal.Digest,
 	)
 	if err != nil {
 		return model.Session{}, translateErr("store.Session", err)
 	}
+
+	session.SFTPJournal.Measured = sftpEvents.Valid
+	session.SFTPJournal.Events = sftpEvents.Int64
 
 	session.StartedAt = time.Unix(startedAt, 0)
 	if endedAt.Valid {

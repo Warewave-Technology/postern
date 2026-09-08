@@ -683,6 +683,69 @@ and the target's stdout already goes in verbatim.
 The `session_files` table remains the searchable, queryable copy. The
 recording is the sealed one.
 
+**And the two are now compared.** The seal line carries both an event
+count and a digest of the lines it counted, and both are stored with the
+session — so `postern session verify` and the panel's session view can
+ask two questions neither could ask before. Is there still a row for
+every event the recording sealed? And do those rows still *say* what the
+recording says?
+
+```
+JOURNAL  ROWS MISSING
+  3 events in the recording's seal, 1 row in the journal
+  the journal has no row for 2 events the recording's seal counts
+```
+
+The second question is the one a row count cannot answer. Deleting a row
+leaves a gap; changing one — an `UPDATE` that turns `/etc/shadow` into
+`/tmp/notes` — leaves a journal that counts correctly and reads like a
+complete audit trail. To check it, the rows are turned back into the
+lines they were written as and their digest is recomputed:
+
+```
+JOURNAL  ROWS ALTERED
+  1 event in the recording's seal, 1 row in the journal
+  the rows are all there but their digest does not match the recording: at
+  least one row's contents were changed after it was written
+```
+
+The line format lives in one package for exactly this reason — the
+bastion writing a recording and the check recomputing a digest must
+produce the same bytes, and two copies of that format would drift into a
+check that accuses untouched sessions.
+
+The digest is order-independent (each line's hash is XORed in) because
+the journal returns rows in its own order and a chained digest would fail
+on nothing at all. The price of XOR is that an even number of *identical*
+lines cancel out — which is why the count is still compared: deleting a
+matched pair changes it by two. Neither half is redundant.
+
+More answers than yes or no, and the distinctions are the point. **OK**
+means every sealed event still has a row, and — when the seal carried a
+digest — that the rows still say what the recording says; the output
+tells you which of those two it checked. **Incomplete** means postern
+itself could not write the rows — its write buffer overflowed, or the
+database went away — and it says so with the number it lost, because that
+is its own failure and not tampering. **Rows missing** means the journal
+is shorter than postern can account for, which is what deleting rows
+looks like. **Rows altered** means the count is right and the contents
+are not. **Not checked** is for sessions that closed before this release
+and for sessions that were never recorded: there is no seal to compare
+against, and calling that "fine" would be the same mistake as calling an
+unchained recording verified.
+
+A missing row is not a lost event: the event is still a line in the
+recording, and the recording is the sealed copy. What this check adds is
+that touching the queryable copy is no longer free — before it, a `DELETE`
+or an `UPDATE` against `session_files` left a recording that still
+verified and a file list that looked complete.
+
+All of it is read from this host's database, so root here can still
+rewrite the rows, the count and the digest together. What it closes is
+narrower and real: editing a row is far cheaper than rewriting a
+recording and recomputing its chain, and until now nothing at all looked
+at it.
+
 ### Limits
 
 Nothing bounded the listener until recently: it accepted in an unbounded
@@ -791,6 +854,13 @@ Three details decide whether that record is worth anything:
 - **Failed operations are kept.** "Nobody tried" and "they tried and were
   refused" are different findings, and only one of them means the target
   is configured correctly.
+- **A path the ledger cannot hold is shortened, and says so.** The index
+  behind "who touched this file" refuses a key past roughly 2.7 KB, so a
+  longer path is stored cut and marked ` (truncated)`; bytes the database
+  cannot store at all — a filename that is not valid UTF-8, which POSIX
+  allows — are dropped and marked the same way. The words in parentheses
+  are postern's, not the file's. Searching the parent directory still
+  finds the row, which is why the path is cut rather than the row dropped.
 
 If the stream cannot be decoded, or the events cannot be written, the
 session ends. That is the same rule recording already follows: a channel

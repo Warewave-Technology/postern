@@ -400,12 +400,11 @@ describe("hedefin ürettiği tuzaklar", () => {
   });
 
   /*
-   * ⚠️ UZUN YOL DENETİM SATIRINI ZEHİRLİYOR. session_files.path btree
-   * ile indeksli ve PostgreSQL ~2704 baytta reddediyor; postern ise yolu
-   * 4096 bayta kadar saklıyor. Aradaki bir yol INSERT'i düşürüyor, o da
-   * oturumu öldürüp satırı tamponun BAŞINA geri koyuyor — sonraki her
-   * boşaltma aynı satıra çarpıyor. Hedefte iç içe dizin açan biri bunu
-   * üretebilir.
+   * ⚠️ SUNUCU ARTIK KENDİNİ KORUYOR, BU TAVAN BAŞKA BİR ŞEY SÖYLÜYOR.
+   * Uzun yolun denetim satırını zehirlemesi sunucuda kapatıldı
+   * (sftpaudit yolu 2692 bayta indiriyor ve işaretliyor). Buradaki tavan
+   * o sınırın altında kalıyor: panelin indirdiği bir dosyanın defterdeki
+   * yolu KESİLMEMİŞ olsun, denetçi tam yolu görsün.
    */
   it("kaydedilemeyecek kadar uzun yol atlanıyor", async () => {
     const long = "u".repeat(maxPathBytes + 10);

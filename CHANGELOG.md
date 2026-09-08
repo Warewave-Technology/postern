@@ -32,8 +32,8 @@ audit rows into a shape it does not understand.
 
 ### Needs action if you rely on recordings as evidence
 
-- **Recordings now carry a tamper-evident chain, and three schema migrations
-  land with this release (034–036).** Run `postern db migrate` before starting
+- **Recordings now carry a tamper-evident chain, and four schema migrations
+  land with this release (034–037).** Run `postern db migrate` before starting
   the new binary; the bastion refuses to start against a schema it does not
   match rather than writing audit rows into a shape it does not understand.
 
@@ -145,6 +145,73 @@ audit rows into a shape it does not understand.
   space in proportion to how much the session did — a few hundred bytes per
   directory opened or file transferred. If you prune recordings by size,
   that assumption has changed.
+
+- **The file journal is now checked against the recording that sealed it, and
+  a journal that lost events says so.** Two things were wrong, and they were
+  the same thing seen from either end.
+
+  When the write buffer for file events overflowed — a database too slow or
+  gone, a client moving thousands of small files — postern dropped the event
+  and ended the session. Ending it was right. Dropping it silently was not:
+  the drop was written nowhere, and because the session is only killed once,
+  every drop after the first left no trace at all. The event was already in
+  the recording by then, so what remained was a recording that counted an
+  event the journal had no row for, and nothing that compared the two.
+
+  Now every drop is counted, the count is written to the session when it
+  closes, and the bastion's log says the journal is incomplete rather than
+  only that the audit failed. One case cannot reach that count and says so
+  instead: an event arriving *after* the journal has closed is refused and
+  logged, because the number it would belong to was written when the
+  session closed. It is no longer swallowed — it used to go into a buffer
+  nobody would read again. The recording's seal line — its event count
+  **and** the digest of the lines it counted — is stored with the session
+  as well, so it finally has a reader:
+
+  ```
+  JOURNAL  ROWS MISSING
+    3 events in the recording's seal, 1 row in the journal
+    the journal has no row for 2 events the recording's seal counts
+  ```
+
+  **The digest catches what a count cannot.** Deleting a row leaves a gap;
+  changing one — an `UPDATE` that turns `/etc/shadow` into `/tmp/notes` —
+  leaves a journal that counts correctly and reads like a complete audit
+  trail. The rows are turned back into the lines they were written as and
+  their digest is recomputed, so that edit is reported as **rows altered**
+  rather than passing as intact. The digest is order-independent, because
+  the journal returns rows in its own order; the price is that an even
+  number of identical lines cancel out, which is what the count is still
+  there for.
+
+  The output says which of the two it checked: sessions sealed before the
+  digest existed can be reported as counting correctly, never as having
+  contents that match.
+
+  `postern session verify` prints that block on every path and exits
+  non-zero when the two disagree, with an error separate from a changed
+  recording — the file can be intact while the journal is not. The panel's
+  session view says it above the file list, including when that list is
+  **empty**, which is exactly the case that used to read as "this session
+  touched no files".
+
+  **What it separates.** *Incomplete* is postern's own loss, reported with
+  the number it lost. *Rows missing* is a journal shorter than postern can
+  account for — what deleting rows looks like. *Rows altered* is a journal
+  of the right length whose contents no longer match. *Not checked* covers every
+  session that closed before this release and every session that was never
+  recorded; there is no seal to compare against, and treating that as "fine"
+  would be the same mistake as calling an unchained recording verified. On
+  your first upgrade that is every session you already have, and no alarm is
+  raised for any of them.
+
+  **What it does not prove.** The rows, the count and the digest all live in
+  this host's database and root here can rewrite them together, the same
+  limit the chain has. What it closes is narrower and real: a `DELETE` or an
+  `UPDATE` against `session_files` used to leave a recording that still
+  verified and a file list that looked complete. Editing a row is far
+  cheaper than rewriting a recording and recomputing its chain, and until
+  now nothing looked at it at all.
 
 - **The panel shows the recording chain.** Opening a session in the audit
   view gives its chain its own card, with a **Verify** button. Migration 034
@@ -316,6 +383,64 @@ audit rows into a shape it does not understand.
   action needed; the panel reads it to decide whether to draw the button.
 
 ### Fixed
+
+- **A single file could empty a session's whole file record.** The audit
+  ledger indexes `session_files.path`, and PostgreSQL refuses a b-tree key
+  past 2704 bytes; postern kept paths up to 4096. A path in between —
+  ordinary nested directories, no exotic client needed — made the `INSERT`
+  fail. Because a flush is one transaction, what was lost was not that row
+  but **every file event buffered with it**, `/etc/shadow` included; the
+  session was then killed, and the rejected row was put back at the *head*
+  of the buffer, so every later flush hit the same wall. The same failure
+  had a second, easier trigger: a filename that is not valid UTF-8 —
+  latin-1 names are common on real servers, and POSIX permits them — or one
+  carrying a NUL byte.
+
+  Paths are now cut to what the ledger holds and marked ` (truncated)`;
+  bytes PostgreSQL cannot store are removed and marked
+  ` (invalid bytes removed)`. Both words are postern's, not the file's. The
+  path is cut rather than the row dropped so that searching the parent
+  directory still finds it — the question investigations actually ask.
+
+  **Pre-flight.** The ledger cannot tell you whether you were hit: the rows
+  were never written. The log can, and it is the only place the loss was
+  recorded:
+
+  ```
+  grep -e 'sftp audit rows could not be written' -e 'exceeds btree' postern.log
+  ```
+
+  How close your own environment runs to the wall, and — from this release
+  on — whether anything was dropped:
+
+  ```sql
+  SELECT max(octet_length(path)) AS longest_path FROM session_files;
+  SELECT at, op, path, detail FROM session_files WHERE op LIKE 'dropped.%';
+  ```
+
+- **A refused request can no longer erase its own audit row.** postern
+  writes its own denials to `session_files`, with the SSH request type in
+  `op`. That type is raw bytes off the wire, so a client sending an invalid
+  one made the row unstorable: the request was still refused, but "who
+  tried" left no trace. The type is now put through the same filter the
+  recording uses.
+
+- **A row the database will never accept no longer blocks the ledger.** A
+  failed write used to go back to the front of the buffer and be retried
+  forever, which is right for a database that is briefly down and wrong for
+  a row that will never be accepted. The two are now told apart by what
+  PostgreSQL says: a value it rejects is isolated by halving the batch, so
+  the rest of the session's events land, and the offending row is dropped,
+  counted, and replaced by a `dropped.*` row carrying the event's time and
+  operation. A dropped row is still an audit loss and still ends the
+  session — the rule has not changed; what changed is that the other rows
+  survive it. A connection failure still puts everything back, untouched.
+
+- **The target no longer decides how large an audit row is.** The status
+  message it sends on a failed open went into `detail` unbounded — a single
+  transaction could carry tens of kilobytes per row. It is now cut to 512
+  bytes, the same limit the terminal recording uses, so both surfaces show
+  the same sentence.
 
 - **Listing an allowed directory over SFTP.** Directory handles did not
   remember their path, so `READDIR` reached the path policy with an empty

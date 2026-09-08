@@ -564,6 +564,17 @@ export type SessionFile = {
   wrote: number;
   ok: boolean;
   detail?: string;
+  /*
+   * in_recording: bu olayın oturum KAYDINDA da bir satırı var ve kaydın
+   * mühürü onu sayıyor.
+   *
+   * ⚠️ HER SATIRDA TRUE DEĞİL. Kanal düzeyindeki retler (`denied.x11-req`
+   * gibi) deftere giriyor ama kayda girmiyor; onları mühürle
+   * karşılaştırmaya katmak, x11 isteği reddedilmiş her SFTP oturumunu
+   * "defterde fazlalık var" diye gösterirdi. Sayımı sunucu yapıyor
+   * (internal/httpapi), alan burada çünkü aynı satırlar panele geliyor.
+   */
+  in_recording?: boolean;
 };
 
 /*
@@ -637,6 +648,50 @@ export type SessionDetail = Session & {
   // files_error: liste okunamadı. Boş liste ile karıştırılmamalı —
   // "dokunulmadı" ile "bakamadık" farklı şeyler.
   files_error?: boolean;
+
+  /*
+   * journal: yukarıdaki listenin EKSİKSİZ olup olmadığı.
+   *
+   * ⚠️ LİSTE KENDİ BAŞINA BU SORUYU CEVAPLAMIYOR ve cevapladığı
+   * sanılıyordu. Kaydın mühür satırı oturumun kaç dosya olayı
+   * ürettiğini söylüyor; defterden düşen (postern'in tamponu taştı) ya
+   * da sonradan silinen bir satır, ekranda yalnızca daha kısa bir liste
+   * olarak görünürdü — ve kısa bir liste, tam bir listeden ayırt
+   * edilemez.
+   *
+   * Satırlar okunamadıysa alan HİÇ GELMİYOR: sıfır satırı "hepsi
+   * silinmiş" diye raporlamak, bir veritabanı arızasını kurcalama diye
+   * bildirmek olurdu. O durumu files_error söylüyor.
+   */
+  journal?: SessionJournal;
+};
+
+/**
+ * Defterin kaydın mührüyle karşılaştırılması (internal/verify).
+ *
+ * ⚠️ "intact" DIŞINDAKİLERİN HİÇBİRİ ONAY DEĞİL, "unmeasured" DAHİL:
+ *   intact      — mühürdeki her olayın bir satırı var
+ *   incomplete  — postern satırları KENDİ kaybetti ve bunu biliyor
+ *   missing     — satırlar postern'in kaybıyla açıklanamayacak kadar az
+ *   altered     — sayı tutuyor ama satırların İÇERİĞİ kayıttakinden farklı
+ *   extra       — mühürün saymadığından fazla satır var
+ *   unmeasured  — karşılaştıracak sayı yok; ALARM DEĞİL, ama onay da değil
+ */
+export type SessionJournal = {
+  state: "intact" | "incomplete" | "missing" | "altered" | "extra" | "unmeasured";
+  events: number;
+  rows: number;
+  lost: number;
+  detail: string;
+  /*
+   * digest_checked: satırların İÇERİĞİ de karşılaştırıldı mı.
+   *
+   * ⚠️ "intact" TEK BAŞINA YETMİYOR. Mühürde özet olmayan oturumlar var
+   * (sayı, özetten önce yazılmaya başlandı); onlar için söylenebilecek
+   * şey "sayısı tuttu", "içeriği de tuttu" DEĞİL. İkisini aynı yeşil
+   * satırda göstermek, yapılmamış bir kontrolü yapılmış saymak olurdu.
+   */
+  digest_checked: boolean;
 };
 
 /**

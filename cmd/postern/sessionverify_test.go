@@ -10,6 +10,8 @@ import (
 
 	"github.com/Warewave-Technology/postern/internal/model"
 	"github.com/Warewave-Technology/postern/internal/record"
+	"github.com/Warewave-Technology/postern/internal/sftpaudit"
+	"github.com/Warewave-Technology/postern/internal/sftpcast"
 	"github.com/Warewave-Technology/postern/internal/store"
 )
 
@@ -102,6 +104,16 @@ func TestSessionVerifyPassesForAnUntouchedRecording(t *testing.T) {
 	if !strings.Contains(out, "root") {
 		t.Error("çıktı, host'ta root olanın ikisini birden yazabileceğini söylemiyor")
 	}
+
+	/*
+	 * ⚠️ DEFTER SATIRI HER YOLDA BASILIYOR — printOffBox'la aynı
+	 * gerekçeyle. Bu oturum göç 037'den önce kapanmış bir oturum gibi:
+	 * karşılaştıracak sayı yok. Sessiz geçilseydi okuyan kişi kontrolün
+	 * yapıldığını ve tuttuğunu varsayardı.
+	 */
+	if !strings.Contains(out, "JOURNAL  NOT CHECKED") {
+		t.Errorf("ölçülmemiş defter için satır basılmadı: %s", out)
+	}
 }
 
 /*
@@ -152,5 +164,212 @@ func TestSessionVerifySaysWhenThereIsNoChain(t *testing.T) {
 	}
 	if strings.Contains(out, "OK") {
 		t.Errorf("zincirsiz kayıt için OK yazıldı: %s", out)
+	}
+}
+
+/*
+ * ⚠️ DEFTERDEN SATIR SİLMEK, KAYDI YENİDEN YAZMAKTAN ÇOK DAHA UCUZ.
+ *
+ * Zincir dosyayı koruyor ve `session verify` onu doğruluyordu; aynı
+ * oturumun `session_files` satırları ise hiçbir şeyle karşılaştırılmıyordu.
+ * Kaydın mühür satırı kaç dosya olayı olduğunu SÖYLÜYOR (proxy/sftpcast.go)
+ * ama o sayının programatik bir tüketicisi yoktu — yani bir DELETE,
+ * doğrulaması geçen bir kaydın altında iz bırakmadan duruyordu.
+ */
+func TestSessionVerifySaysWhenJournalRowsAreMissing(t *testing.T) {
+	e := newEnv(t)
+	const id = "dddddddddddddddddddddddddddddddd"
+	kayitliOturum(t, e, id, true)
+
+	ctx := context.Background()
+	// Oturum üç dosya olayı üretmiş ve postern hiçbirini kaybetmemiş.
+	if err := e.db.MarkSFTPJournal(ctx, id,
+		model.SFTPJournal{Measured: true, Events: 3}); err != nil {
+		t.Fatal(err)
+	}
+	// Deftere yalnızca biri duruyor: ikisi silinmiş.
+	if err := e.db.AddSessionFiles(ctx, id, []store.SessionFile{{
+		At: time.Now(), Op: "open", Path: "/etc/shadow", OK: true, InRecording: true,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := e.run(t, newSessionCmd(), "verify", id)
+	if err == nil {
+		t.Fatalf("EKSİK DEFTER SIFIR ÇIKIŞ KODU VERDİ: %s", out)
+	}
+	if !strings.Contains(out, "ROWS MISSING") {
+		t.Errorf("çıktı eksik satırları söylemiyor: %s", out)
+	}
+	// Kayıt DEĞİŞMEDİ: iki bulgu ayrı kalmalı, yoksa olay müdahalesi
+	// betiği yanlış olaya bakar.
+	if strings.Contains(out, "FAILED") {
+		t.Errorf("dokunulmamış kayıt için FAILED yazıldı: %s", out)
+	}
+	if !strings.HasPrefix(out, "OK") {
+		t.Errorf("zincir raporu kayboldu: %s", out)
+	}
+}
+
+/*
+ * ⚠️ POSTERN'İN KENDİ KAYBI, MÜDAHALEDEN AYRI RAPORLANMALI.
+ *
+ * Aritmetiği aynı (satır sayısı mühürden eksik) ama olayı bambaşka.
+ * İkisini tek cümleye indirmek, tampon taşması yaşamış her oturumu
+ * kurcalanmış diye bildirirdi — ve o alarm birkaç kez yanlış çıktıktan
+ * sonra kimse gerçeğine bakmaz.
+ */
+func TestSessionVerifySaysWhenPosternLostTheEventsItself(t *testing.T) {
+	e := newEnv(t)
+	const id = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	kayitliOturum(t, e, id, true)
+
+	ctx := context.Background()
+	if err := e.db.MarkSFTPJournal(ctx, id,
+		model.SFTPJournal{Measured: true, Events: 3, Lost: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.db.AddSessionFiles(ctx, id, []store.SessionFile{{
+		At: time.Now(), Op: "open", Path: "/etc/shadow", OK: true, InRecording: true,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := e.run(t, newSessionCmd(), "verify", id)
+	// Çıkış kodu YİNE sıfırdan farklı: kanıt eksik, sebebi ne olursa
+	// olsun. Betikten çağıran "eksiksiz" ile "eksik ama sebebi belli"yi
+	// ayırt etmek zorunda değil; ikisi de tam bir defter değil.
+	if err == nil {
+		t.Fatalf("eksik defter sıfır çıkış kodu verdi: %s", out)
+	}
+	if !strings.Contains(out, "INCOMPLETE") {
+		t.Errorf("çıktı postern'in kendi kaybını söylemiyor: %s", out)
+	}
+	if strings.Contains(out, "ROWS MISSING") {
+		t.Errorf("BİLİNEN KAYIP MÜDAHALE DİYE RAPORLANDI: %s", out)
+	}
+}
+
+/*
+ * Defteri tam olan oturum: kontrolün ÇALIŞTIĞI da yazılmalı. Yalnızca
+ * kötü haberde konuşan bir kontrol, hiç koşmadığında da sessiz kalır ve
+ * ikisi ayırt edilemez.
+ */
+func TestSessionVerifyReportsAnIntactJournal(t *testing.T) {
+	e := newEnv(t)
+	const id = "ffffffffffffffffffffffffffffffff"
+	kayitliOturum(t, e, id, true)
+
+	ctx := context.Background()
+	if err := e.db.MarkSFTPJournal(ctx, id,
+		model.SFTPJournal{Measured: true, Events: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.db.AddSessionFiles(ctx, id, []store.SessionFile{
+		{At: time.Now(), Op: "open", Path: "/tmp/a", OK: true, InRecording: true},
+		{At: time.Now(), Op: "transfer", Path: "/tmp/a", Read: 9, OK: true, InRecording: true},
+		// ⚠️ KANAL DÜZEYİNDEKİ RET SAYIMA GİRMEMELİ: kayda girmiyor.
+		// Sayılsaydı bu oturum "mühürden fazla satır var" diye
+		// raporlanırdı — yani doğru çalışan bir bastion, kontrolün
+		// yanlış alarmıyla suçlanırdı.
+		{At: time.Now(), Op: "denied.x11-req", OK: false, Detail: "x11 forwarding is off"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := e.run(t, newSessionCmd(), "verify", id)
+	if err != nil {
+		t.Fatalf("defteri tam oturum düştü: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "JOURNAL  OK") {
+		t.Errorf("çıktı defterin kontrol edildiğini söylemiyor: %s", out)
+	}
+	if !strings.Contains(out, "2 events in the recording's seal, 2 rows") {
+		t.Errorf("çıktı karşılaştırılan sayıları vermiyor: %s", out)
+	}
+}
+
+/*
+ * ⚠️ SAYIYA BAKAN BİR KONTROL, DEĞİŞTİRİLMİŞ SATIRI GÖREMEZ.
+ *
+ * Defterden satır silmek bir boşluk bırakıyor ve sayım onu görüyor. Bir
+ * satırı değiştirmek — "/etc/shadow" yazan yolu "/tmp/notlar" yapan bir
+ * UPDATE — hiçbir boşluk bırakmıyor: liste tam görünüyor, sayı tutuyor,
+ * ve müdahale tam bir denetim kaydı gibi duruyor. Onu gören tek şey,
+ * mühürdeki özet.
+ */
+func TestSessionVerifySeesAChangedJournalRow(t *testing.T) {
+	e := newEnv(t)
+	const id = "11111111111111111111111111111111"
+	kayitliOturum(t, e, id, true)
+
+	ctx := context.Background()
+
+	// Oturumda gerçekten olan olay: /etc/shadow açıldı.
+	gercek := sftpaudit.Event{Op: sftpaudit.OpOpen, Path: "/etc/shadow", OK: true}
+	var seal sftpcast.Seal
+	seal.Add(sftpcast.Line(gercek))
+
+	if err := e.db.MarkSFTPJournal(ctx, id, model.SFTPJournal{
+		Measured: true, Events: 1, Digest: seal.Head(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Deftere yazılan satır ise başka bir yol gösteriyor: satır sayısı
+	// doğru, içeriği değil.
+	if err := e.db.AddSessionFiles(ctx, id, []store.SessionFile{{
+		At: time.Now(), Op: "open", Path: "/tmp/notlar", OK: true, InRecording: true,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := e.run(t, newSessionCmd(), "verify", id)
+	if err == nil {
+		t.Fatalf("DEĞİŞTİRİLMİŞ DEFTER SIFIR ÇIKIŞ KODU VERDİ: %s", out)
+	}
+	if !strings.Contains(out, "ROWS ALTERED") {
+		t.Errorf("çıktı değiştirilmiş satırı söylemiyor: %s", out)
+	}
+	if !strings.Contains(out, "1 event in the recording's seal, 1 row in the journal") {
+		t.Errorf("çıktı sayıların TUTTUĞUNU göstermiyor; okuyan kişi eksik satır arar: %s", out)
+	}
+}
+
+/*
+ * Defteri tam olan oturumda çıktı, ÖZETİN DE karşılaştırıldığını
+ * söylemeli. "OK" tek başına, yalnızca sayıya bakılmış bir kontrolle
+ * ikisine birden bakılmış bir kontrolü aynı gösterir.
+ */
+func TestSessionVerifySaysTheDigestWasChecked(t *testing.T) {
+	e := newEnv(t)
+	const id = "22222222222222222222222222222222"
+	kayitliOturum(t, e, id, true)
+
+	ctx := context.Background()
+
+	olay := sftpaudit.Event{Op: sftpaudit.OpOpendir, Path: "/tmp", OK: true}
+	var seal sftpcast.Seal
+	seal.Add(sftpcast.Line(olay))
+
+	if err := e.db.MarkSFTPJournal(ctx, id, model.SFTPJournal{
+		Measured: true, Events: 1, Digest: seal.Head(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.db.AddSessionFiles(ctx, id, []store.SessionFile{{
+		At: time.Now(), Op: string(olay.Op), Path: olay.Path, OK: true, InRecording: true,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := e.run(t, newSessionCmd(), "verify", id)
+	if err != nil {
+		t.Fatalf("dokunulmamış defter düştü: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "JOURNAL  OK") {
+		t.Errorf("çıktı defterin kontrol edildiğini söylemiyor: %s", out)
+	}
+	if !strings.Contains(out, "digest matches") {
+		t.Errorf("çıktı özetin de tuttuğunu söylemiyor: %s", out)
 	}
 }

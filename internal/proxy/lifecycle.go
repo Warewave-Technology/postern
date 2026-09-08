@@ -26,6 +26,7 @@ import (
 	"github.com/Warewave-Technology/postern/internal/policy"
 	"github.com/Warewave-Technology/postern/internal/record"
 	"github.com/Warewave-Technology/postern/internal/sftpaudit"
+	"github.com/Warewave-Technology/postern/internal/sftpcast"
 	"github.com/Warewave-Technology/postern/internal/store"
 	"github.com/Warewave-Technology/postern/internal/upstream"
 )
@@ -817,10 +818,8 @@ func (s *Session) Run(ctx context.Context, down ssh.Channel, downR <-chan *ssh.R
 			return
 		}
 
-		werr := s.deps.Store.AddSessionFiles(wctx, s.ID, []store.SessionFile{{
-			ID: id, SessionID: s.ID, At: time.Now(),
-			Op: "denied." + reqType, OK: false, Detail: reason,
-		}})
+		werr := s.deps.Store.AddSessionFiles(wctx, s.ID,
+			[]store.SessionFile{denialRow(id, s.ID, reqType, reason, time.Now())})
 		if werr != nil {
 			s.Log.Error("denial not recorded; the refusal still stands",
 				"req.type", reqType, "reason", reason, "error", werr)
@@ -837,7 +836,15 @@ func (s *Session) Run(ctx context.Context, down ssh.Channel, downR <-chan *ssh.R
 	 */
 	var journal *sftpJournal
 	if s.deps.Requests.AllowSFTP {
-		journal = newSFTPJournal(s.deps.Store, s.ID, s.Log, func(err error) {
+		/*
+		 * ⚠️ KAYDIN VARLIĞI GÜNLÜKÇÜYE SÖYLENİYOR. Satırlara "kayıtta
+		 * karşılığı var" damgasını o vuruyor (SessionFile.InRecording)
+		 * ve damga, defter ile kaydı karşılaştıran kontrolün dayanağı.
+		 * Kayıt kapalıyken mühür hiç yazılmıyor; damgayı koşulsuz
+		 * basmak, mührü olmayan bir oturumu "mühür sıfır diyor ama
+		 * defterde N satır var" diye suçlardı.
+		 */
+		journal = newSFTPJournal(s.deps.Store, s.ID, s.Log, s.rec != nil, func(err error) {
 			b.abortAudit(err)
 		})
 		b.WithSFTP(journal)
@@ -859,11 +866,14 @@ func (s *Session) Run(ctx context.Context, down ssh.Channel, downR <-chan *ssh.R
 
 	err := b.Run(ctx)
 
-	if journal != nil {
-		if n := journal.Close(); n > 0 {
-			s.Log.Info("sftp file events recorded", "events", n)
-		}
-	}
+	/*
+	 * ⚠️ GÜNLÜKÇÜ OLMASA DA ÇAĞRILIYOR (journal nil olabilir). SFTP
+	 * kapalıyken oturumun dosya olayı YOK ve mühür sıfır diyor; işareti
+	 * yazmamak, o oturumu sonsuza dek "kontrol edilmedi" bırakırdı. O
+	 * cevabın anlamlı kalması için nadir olması gerekiyor: her oturumda
+	 * görülen bir "bilmiyorum", okunmayan bir "bilmiyorum"dur.
+	 */
+	s.closeSFTPJournal(ctx, b, journal)
 
 	// Oturumun NEDEN bittiğini logla. "Kullanıcı çıktı", "boşta kaldı" ve
 	// "ömrü doldu" denetim kaydında ayrı olaylar; hepsini "session ended"
@@ -929,6 +939,72 @@ func (s *Session) Run(ctx context.Context, down ssh.Channel, downR <-chan *ssh.R
 	s.endDetail = detail
 
 	return err
+}
+
+/*
+ * closeSFTPJournal, defteri kapatır ve durumunu OTURUMUN SATIRINA yazar.
+ *
+ * ⚠️ NEDEN LOG YETMİYOR. Buradaki tek satır "n olay yazıldı" idi ve
+ * kaybedilenler hiçbir yerde görünmüyordu: tavana çarpıp atılan olaylar
+ * (sftpjournal.go) kayda GİRMİŞ ama deftere GİRMEMİŞ oluyor. Aylar
+ * sonra kaydı doğrulayan denetçinin elinde yalnızca iki sayı arasındaki
+ * açıklanamayan fark kalıyordu — ve o fark, "birileri satır sildi" ile
+ * birebir aynı görünüyor. Sayıyı oturumun satırına yazmak, o iki
+ * ihtimali ayırmanın tek yolu.
+ *
+ * ⚠️ MÜHÜR SAYISI Run DÖNDÜKTEN SONRA OKUNUYOR: mühür satırını Run'ın
+ * kendisi yazıyor (sealSFTPCast) ve daha erken okunan bir sayı, oturumun
+ * son olaylarını saymaz.
+ */
+func (s *Session) closeSFTPJournal(ctx context.Context, b *Broker, journal *sftpJournal) {
+	// journal nil: SFTP bu oturumda hiç kurulmadı (kanal kapalı).
+	var written, lost int64
+	if journal != nil {
+		written, lost = journal.Close()
+	}
+
+	mark := model.SFTPJournal{
+		/*
+		 * ⚠️ ÖLÇÜM KAYDIN VARLIĞINA BAĞLI. Kayıt kapalıyken mühür
+		 * satırı hiç yazılmıyor, yani karşılaştırılacak bir sayı yok;
+		 * sıfırı "mühür sıfır olay diyor" gibi kaydetmek, defteri dolu
+		 * bir oturumu suçlardı.
+		 */
+		Measured: s.rec != nil,
+		Lost:     lost,
+	}
+	mark.Events, mark.Digest = b.SFTPSeal()
+
+	if written > 0 || mark.Events > 0 {
+		s.Log.Info("sftp file events recorded",
+			"events", mark.Events, "rows", written)
+	}
+	if lost > 0 {
+		/*
+		 * ⚠️ Error, Warn DEĞİL. Kaybolan şey bir teşhis satırı değil,
+		 * denetim kanıtı: o oturumda gerçekten olmuş bir dosya olayı
+		 * defterde hiç görünmeyecek.
+		 */
+		s.Log.Error("sftp audit events were lost; this session's journal is incomplete",
+			"lost", lost, "events", mark.Events, "rows", written)
+	}
+
+	/*
+	 * ⚠️ Context KOPARILIYOR. Buraya gelindiğinde oturumun ctx'i çoğu
+	 * kapanışta çoktan iptal olmuş oluyor (idle, max_lifetime,
+	 * terminate); ona bağlı bir yazım, tam da kaydedilmesi gereken
+	 * durumu — kesilerek biten oturumun defterini — kaydedemezdi.
+	 */
+	wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+
+	if err := s.deps.Store.MarkSFTPJournal(wctx, s.ID, mark); err != nil {
+		// Oturum bitti; yapacak bir şey yok. Yazılamayan işaret o
+		// oturumun defterini DOĞRULANAMAZ yapıyor — sessiz kalmak,
+		// kontrolün neden çalışmadığını anlaşılamaz kılardı.
+		s.Log.Error("sftp journal state not recorded; this session cannot be checked",
+			"error", err, "events", mark.Events, "lost", lost)
+	}
 }
 
 // Close, oturumu kapatır: kayıt dosyası, denetim satırı, hedef bağlantısı.
@@ -1013,3 +1089,24 @@ func (s *Session) Close(ctx context.Context) {
 // unusedModel, model paketini import listesinde tutar (Target tipi
 // store'dan geliyor ama okuyucu için burada anılması yararlı).
 var _ = model.Target{}
+
+/*
+ * denialRow, postern'in KENDİ reddini deftere yazılacak satıra çevirir.
+ *
+ * ⚠️ reqType KARŞI TARAFTAN GELİYOR ve `op` sütununa giriyor. SSH istek
+ * tipi tel üzerinde uzunluk önekli bir bayt dizisi: geçerli UTF-8 olma
+ * zorunluluğu yok. Temizlenmeden yazıldığında PostgreSQL satırı
+ * reddediyor (SQLSTATE 22021) — yani bir istemci, GEÇERSİZ BİR İSTEK
+ * TİPİ göndererek KENDİ RET KAYDINI düşürebiliyordu. Ret yine
+ * uygulanıyordu; kaybolan şey "kim denedi" sorusunun cevabıydı ve bu
+ * satırın var olma sebebi tam olarak o soru.
+ *
+ * castSafe'ten geçiyor: kayda giren metinle aynı elek. Ayrı bir işlev
+ * yazmak, ikisinin sessizce ayrışması demekti.
+ */
+func denialRow(id, sessionID, reqType, reason string, at time.Time) store.SessionFile {
+	return store.SessionFile{
+		ID: id, SessionID: sessionID, At: at,
+		Op: "denied." + sftpcast.Safe(reqType), OK: false, Detail: sftpcast.Safe(reason),
+	}
+}
