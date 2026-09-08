@@ -775,6 +775,13 @@ Three details decide whether that record is worth anything:
 - **Failed operations are kept.** "Nobody tried" and "they tried and were
   refused" are different findings, and only one of them means the target
   is configured correctly.
+- **A path the ledger cannot hold is shortened, and says so.** The index
+  behind "who touched this file" refuses a key past roughly 2.7 KB, so a
+  longer path is stored cut and marked ` (truncated)`; bytes the database
+  cannot store at all — a filename that is not valid UTF-8, which POSIX
+  allows — are dropped and marked the same way. The words in parentheses
+  are postern's, not the file's. Searching the parent directory still
+  finds the row, which is why the path is cut rather than the row dropped.
 
 If the stream cannot be decoded, or the events cannot be written, the
 session ends. That is the same rule recording already follows: a channel

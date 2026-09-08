@@ -299,6 +299,64 @@ audit rows into a shape it does not understand.
 
 ### Fixed
 
+- **A single file could empty a session's whole file record.** The audit
+  ledger indexes `session_files.path`, and PostgreSQL refuses a b-tree key
+  past 2704 bytes; postern kept paths up to 4096. A path in between —
+  ordinary nested directories, no exotic client needed — made the `INSERT`
+  fail. Because a flush is one transaction, what was lost was not that row
+  but **every file event buffered with it**, `/etc/shadow` included; the
+  session was then killed, and the rejected row was put back at the *head*
+  of the buffer, so every later flush hit the same wall. The same failure
+  had a second, easier trigger: a filename that is not valid UTF-8 —
+  latin-1 names are common on real servers, and POSIX permits them — or one
+  carrying a NUL byte.
+
+  Paths are now cut to what the ledger holds and marked ` (truncated)`;
+  bytes PostgreSQL cannot store are removed and marked
+  ` (invalid bytes removed)`. Both words are postern's, not the file's. The
+  path is cut rather than the row dropped so that searching the parent
+  directory still finds it — the question investigations actually ask.
+
+  **Pre-flight.** The ledger cannot tell you whether you were hit: the rows
+  were never written. The log can, and it is the only place the loss was
+  recorded:
+
+  ```
+  grep -e 'sftp audit rows could not be written' -e 'exceeds btree' postern.log
+  ```
+
+  How close your own environment runs to the wall, and — from this release
+  on — whether anything was dropped:
+
+  ```sql
+  SELECT max(octet_length(path)) AS longest_path FROM session_files;
+  SELECT at, op, path, detail FROM session_files WHERE op LIKE 'dropped.%';
+  ```
+
+- **A refused request can no longer erase its own audit row.** postern
+  writes its own denials to `session_files`, with the SSH request type in
+  `op`. That type is raw bytes off the wire, so a client sending an invalid
+  one made the row unstorable: the request was still refused, but "who
+  tried" left no trace. The type is now put through the same filter the
+  recording uses.
+
+- **A row the database will never accept no longer blocks the ledger.** A
+  failed write used to go back to the front of the buffer and be retried
+  forever, which is right for a database that is briefly down and wrong for
+  a row that will never be accepted. The two are now told apart by what
+  PostgreSQL says: a value it rejects is isolated by halving the batch, so
+  the rest of the session's events land, and the offending row is dropped,
+  counted, and replaced by a `dropped.*` row carrying the event's time and
+  operation. A dropped row is still an audit loss and still ends the
+  session — the rule has not changed; what changed is that the other rows
+  survive it. A connection failure still puts everything back, untouched.
+
+- **The target no longer decides how large an audit row is.** The status
+  message it sends on a failed open went into `detail` unbounded — a single
+  transaction could carry tens of kilobytes per row. It is now cut to 512
+  bytes, the same limit the terminal recording uses, so both surfaces show
+  the same sentence.
+
 - **Listing an allowed directory over SFTP.** Directory handles did not
   remember their path, so `READDIR` reached the path policy with an empty
   path and every listing was refused — on every install using an allow list,

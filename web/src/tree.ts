@@ -55,13 +55,20 @@ export const maxTreeEntries = 4000;
 /**
  * maxPathBytes, bir girdinin hedefteki yol uzunluğu tavanı.
  *
- * ⚠️ UZUN YOL DENETİM SATIRINI ZEHİRLİYOR. session_files.path btree ile
- * indeksli ve PostgreSQL bir btree girdisini ~2704 baytta reddediyor;
- * postern ise yolu 4096 bayta kadar saklıyor. Aradaki aralıkta kalan
- * bir yol, INSERT'i düşürüyor — ve o hata oturumu öldürmekle kalmıyor,
- * satırı tamponun BAŞINA geri koyuyor, yani sonraki her boşaltma da
- * aynı satıra çarpıyor. Hedefte iç içe dizin açan biri bunu üretebilir;
- * gezgin oraya kadar inmesin.
+ * ⚠️ ESKİ GEREKÇE ARTIK GEÇERLİ DEĞİL — VE BURADA DURMASI YANILTIRDI.
+ * Bu tavan, uzun bir yolun denetim satırını ZEHİRLEMESİNE karşı
+ * konmuştu: session_files.path btree indeksli, PostgreSQL girdiyi 2704
+ * baytta reddediyor ve sunucu yolu 4096 bayta kadar saklıyordu; aradaki
+ * bir yol INSERT'i düşürüyor, oturumu öldürüyor ve tamponun başına geri
+ * konarak sonraki her boşaltmayı da düşürüyordu. Arıza SUNUCUDA
+ * kapatıldı (sftpaudit yolu 2692 bayta indiriyor ve kestiğini
+ * işaretliyor) — zaten orada kapatılması gerekiyordu, çünkü sıradan bir
+ * SSH istemcisi aynı yolu bu panelden geçmeden üretebiliyor.
+ *
+ * TAVAN YİNE DURUYOR ama iddiası artık daha küçük: sunucunun sınırının
+ * ALTINDA kalarak, panelin indirdiği bir dosyanın defterde KESİLMEMİŞ
+ * bir yolla durmasını garanti ediyor. Denetçinin gördüğü yol, indirilen
+ * dosyanın tam yolu.
  */
 export const maxPathBytes = 2000;
 
