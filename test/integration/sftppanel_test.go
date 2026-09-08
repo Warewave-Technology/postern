@@ -22,6 +22,7 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -525,6 +526,202 @@ func TestBrowsingCostsOneRowPerDirectory(t *testing.T) {
 	if total != rounds+1 {
 		t.Errorf("toplam %d satır, %d bekleniyordu (%d listeleme + 1 ret)",
 			total, rounds+1, rounds)
+	}
+}
+
+/*
+ * TestFetchingAFolderCostsOneRowPerDirectoryAndTwoPerFile — özyineli
+ * klasör indirmenin DEFTER MALİYETİNİN ölçümü.
+ *
+ * ⚠️ NİYE BURADA BİR SAYI SABİTLENİYOR: paneldeki gezginin tavanı
+ * (web/src/tree.ts, maxTreeEntries) bu orana dayanıyor. Bir tavanın
+ * gerekçesi ölçülmemişse tavan değil temennidir — ve bu ürün o hatayı
+ * bir kez yaptı: tavan önce "journalCap aşılırsa oturum ölür" diye
+ * yazılmıştı, oysa journalCap oturumun TOPLAMINI değil iki saniyede bir
+ * boşalan BİRİKİMİ sınırlıyor.
+ *
+ * Ölçülen oran:
+ *   - dizin başına BİR satır (opendir), içindeki girdi sayısından
+ *     bağımsız,
+ *   - indirilen dosya başına İKİ satır: OPEN cevabında `open`, tanıtıcı
+ *     kapanırken bayt toplamını taşıyan `transfer`,
+ *   - okuma, listeleme ve stat HİÇBİR satır bırakmıyor.
+ *
+ * Oran değişirse bu test düşer ve paneldeki tavanın gerekçesi yeniden
+ * yazılmak zorunda kalır — sessizce yanlış kalmak yerine.
+ */
+func TestFetchingAFolderCostsOneRowPerDirectoryAndTwoPerFile(t *testing.T) {
+	apiURL, db := browserBastionWithUploads(t)
+	ctx := context.Background()
+
+	if err := db.SetRolePath(ctx, "ops", "/tmp", true, true); err != nil {
+		t.Fatalf("SetRolePath: %v", err)
+	}
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
+	browserSignIn(t, client, apiURL)
+
+	/*
+	 * ⚠️ AĞAÇ AYRI BİR OTURUMDA KURULUYOR. Hedef kendi konteyneri, yani
+	 * dosyaları buradan yaratmanın tek yolu yine SFTP; ama kurulumun
+	 * mkdir/write satırları ÖLÇÜLEN oturuma karışırsa sayım anlamsız
+	 * olur. Defter satırları oturuma bağlı, o yüzden kurulum kapanıp
+	 * ölçüm yeni bir oturumda yapılıyor.
+	 */
+	root := fmt.Sprintf("/tmp/postern-agac-%d", time.Now().UnixNano())
+	files := []string{root + "/bir.txt", root + "/iki.txt", root + "/alt/uc.txt"}
+
+	func() {
+		cli, done := panelSFTP(t, client, apiURL)
+		defer done()
+
+		for _, d := range []string{root, root + "/alt"} {
+			if err := cli.Mkdir(d); err != nil {
+				t.Fatalf("%s yaratılamadı: %v", d, err)
+			}
+		}
+		for i, f := range files {
+			w, err := cli.Create(f)
+			if err != nil {
+				t.Fatalf("%s yaratılamadı: %v", f, err)
+			}
+			if _, err := w.Write([]byte(strings.Repeat("x", 10+i))); err != nil {
+				t.Fatalf("%s yazılamadı: %v", f, err)
+			}
+			if err := w.Close(); err != nil {
+				t.Fatalf("%s kapatılamadı: %v", f, err)
+			}
+		}
+	}()
+
+	before := map[string]bool{}
+	if list, err := db.Sessions(ctx, "", 0); err == nil {
+		for _, s := range list {
+			before[s.ID] = true
+		}
+	}
+
+	// Panelin özyineli indirmesinin yaptığının aynısı: önce ağacı gez,
+	// sonra her dosyayı baştan sona oku.
+	func() {
+		cli, done := panelSFTP(t, client, apiURL)
+		defer done()
+
+		for _, dir := range []string{root, root + "/alt"} {
+			if _, err := cli.ReadDir(dir); err != nil {
+				t.Fatalf("%s listelenemedi: %v", dir, err)
+			}
+		}
+		for _, f := range files {
+			fh, err := cli.Open(f)
+			if err != nil {
+				t.Fatalf("%s açılamadı: %v", f, err)
+			}
+			if _, err := io.ReadAll(fh); err != nil {
+				t.Fatalf("%s okunamadı: %v", f, err)
+			}
+			if err := fh.Close(); err != nil {
+				t.Fatalf("%s kapatılamadı: %v", f, err)
+			}
+		}
+	}()
+
+	// Ölçülen oturum, kurulumdan SONRA açılan.
+	var sid string
+	for i := 0; i < 60 && sid == ""; i++ {
+		time.Sleep(250 * time.Millisecond)
+		list, err := db.Sessions(ctx, "", 0)
+		if err != nil {
+			t.Fatalf("Sessions: %v", err)
+		}
+		for _, s := range list {
+			if !before[s.ID] {
+				sid = s.ID
+			}
+		}
+	}
+	if sid == "" {
+		t.Fatal("ölçülecek oturum bulunamadı")
+	}
+
+	// Olaylar toplu yazılıyor (flushEvery = 2s); kapanış da tetikliyor.
+	byOp := map[string]int{}
+	for i := 0; i < 60; i++ {
+		time.Sleep(250 * time.Millisecond)
+		rows, err := db.SessionFiles(ctx, sid)
+		if err != nil {
+			t.Fatalf("session_files: %v", err)
+		}
+		byOp = map[string]int{}
+		for _, r := range rows {
+			byOp[r.Op]++
+		}
+		if byOp["transfer"] >= len(files) {
+			break
+		}
+	}
+
+	t.Logf("2 dizin + %d dosya → %v", len(files), byOp)
+
+	if byOp["opendir"] != 2 {
+		t.Errorf("opendir satırı %d, 2 bekleniyordu (dizin başına bir)", byOp["opendir"])
+	}
+	if byOp["open"] != len(files) {
+		t.Errorf("open satırı %d, %d bekleniyordu", byOp["open"], len(files))
+	}
+	/*
+	 * ⚠️ AKTARIM SATIRI DOSYA BAŞINA BİR TANE, PARÇA BAŞINA DEĞİL.
+	 * Parça başına olsaydı satır sayısı DOSYANIN BOYUYLA büyürdü ve
+	 * paneldeki girdi tavanı hiçbir şeyi bağlamazdı.
+	 */
+	if byOp["transfer"] != len(files) {
+		t.Errorf("transfer satırı %d, %d bekleniyordu — satır sayısı artık "+
+			"dosya boyuyla büyüyor olabilir", byOp["transfer"], len(files))
+	}
+
+	// Okuma ve listeleme sessiz kalmalı: aksi hâlde oran dosya ve dizin
+	// büyüklüğüne bağlanır.
+	for _, quiet := range []string{"readdir", "stat", "lstat", "close", "realpath"} {
+		if byOp[quiet] != 0 {
+			t.Errorf("%q %d satır yazdı: maliyet artık istek başına", quiet, byOp[quiet])
+		}
+	}
+
+	total := 0
+	for _, n := range byOp {
+		total += n
+	}
+	if want := 2 + 2*len(files); total != want {
+		t.Errorf("toplam %d satır, %d bekleniyordu (2 dizin + 2×%d dosya)",
+			total, want, len(files))
+	}
+}
+
+// panelSFTP, panelin websocket'i üzerinden bir SFTP istemcisi açar.
+func panelSFTP(t *testing.T, client *http.Client, apiURL string) (*sftp.Client, func()) {
+	t.Helper()
+
+	conn, _, err := dialFileBrowser(t, client, apiURL, "web01")
+	if err != nil {
+		t.Fatalf("dosya tarayıcısı açılamadı: %v", err)
+	}
+	conn.SetReadLimit(2 << 20)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	pipe := &wsPipe{ctx: ctx, c: conn}
+
+	cli, err := sftp.NewClientPipe(pipe, pipe)
+	if err != nil {
+		cancel()
+		pipe.Close()
+		t.Fatalf("SFTP el sıkışması: %v", err)
+	}
+
+	return cli, func() {
+		cli.Close()
+		pipe.Close()
+		cancel()
 	}
 }
 

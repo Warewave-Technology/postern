@@ -81,6 +81,18 @@ export const FX = {
  */
 export const maxPacket = 1 << 20;
 
+/**
+ * maxDirEntries ve maxDirRounds, TEK bir dizin listesinin tavanı.
+ *
+ * ⚠️ SONU GELMEYEN BİR LİSTE MÜMKÜNDÜ. readdir, NAME cevabı geldiği
+ * sürece dönüyor; hedef sonsuza kadar NAME göndererek diziyi sekme
+ * ölene kadar büyütebilirdi — ve bu, gezginin herhangi bir tavanı
+ * SAYMAYA başlamasından önce oluyordu. Sınırlar burada, çünkü readdir'i
+ * kullanan her yer aynı riski taşıyor.
+ */
+export const maxDirEntries = 100_000;
+export const maxDirRounds = 20_000;
+
 const S_IFMT = 0o170000;
 const S_IFDIR = 0o040000;
 const S_IFLNK = 0o120000;
@@ -94,6 +106,59 @@ export interface Entry {
   mtime: number;
   isDir: boolean;
   isLink: boolean;
+}
+
+/**
+ * Stopper, süren bir aktarımın durdurulup durdurulmadığı.
+ *
+ * ⚠️ İKİ PARÇASI DA GEREKLİ VE SEBEBİ ÖLÇÜLDÜ. Yalnızca bir boolean
+ * yetmiyor: bayrak ancak iki `await` ARASINDA okunabiliyor, yani cevabı
+ * hiç gelmeyen bir isteğin üstünde Stop düğmesi HİÇBİR ŞEY yapmıyordu.
+ * `raised`, durdurulunca REDDEDEN bir promise ve bekleyen isteğe karşı
+ * yarıştırılıyor — durdurma o zaman anında oluyor.
+ *
+ * (İstemcide istek başına zaman aşımı hâlâ yok; susan bir hedef bir
+ * gezinme isteğini süresiz bekletebiliyor. Durdurma artık ondan
+ * kurtarıyor, ama zaman aşımı ayrı bir iş.)
+ */
+export interface Stopper {
+  aborted: boolean;
+  /** Durdurulunca Halted ile reddeder; kimse beklemezse sessiz kalır. */
+  raised: Promise<never>;
+}
+
+/** newStop, bir aktarım için durdurma kolu üretir. */
+export function newStop(): { signal: Stopper; stop: () => void } {
+  let fire: () => void = () => {};
+  const raised = new Promise<never>((_, reject) => {
+    fire = () => reject(new Halted());
+  });
+  // Hiç beklenmezse "unhandled rejection" üretmesin.
+  raised.catch(() => {});
+
+  const signal: Stopper = { aborted: false, raised };
+
+  return {
+    signal,
+    stop() {
+      signal.aborted = true;
+      fire();
+    },
+  };
+}
+
+/**
+ * Halted, KULLANICININ durdurduğu aktarım.
+ *
+ * ⚠️ HATADAN AYRI BİR TİP. Durdurulmuş bir aktarımı "başarısız" diye
+ * göstermek, kullanıcıya kendi yaptığı şeyi arıza gibi okutur — ve
+ * kuyrukta kırmızı bir satır bırakır.
+ */
+export class Halted extends Error {
+  constructor() {
+    super("stopped");
+    this.name = "Halted";
+  }
 }
 
 /** SFTPError, hedefin verdiği durum kodunu ve mesajını taşır. */
@@ -174,7 +239,7 @@ class Reader {
   private p = 0;
   private view: DataView;
 
-  constructor(private b: Uint8Array) {
+  constructor(private b: Uint8Array<ArrayBuffer>) {
     this.view = new DataView(b.buffer, b.byteOffset, b.byteLength);
   }
 
@@ -216,8 +281,17 @@ class Reader {
     return s;
   }
 
-  /** bytes, uzunluk önekli ham alanı döner (handle için). */
-  bytes(): Uint8Array {
+  /**
+   * bytes, uzunluk önekli ham alanı döner (tutamak ve DATA gövdesi).
+   *
+   * ⚠️ DÖNÜŞ TİPİ TAMPONU DA SÖYLÜYOR. TypeScript 5.7'den beri
+   * Uint8Array tamponuna göre genelleşti; süslenmemiş hâli
+   * SharedArrayBuffer'ı da kapsıyor ve Blob onu KABUL ETMİYOR. İndirilen
+   * parçalar doğrudan bir Blob'a giriyor, yani bu tipi burada doğru
+   * tutmak, çağıran tarafta denetlenemeyen bir dönüştürmeyi
+   * gereksizleştiriyor.
+   */
+  bytes(): Uint8Array<ArrayBuffer> {
     const n = this.u32();
     if (this.p + n > this.b.length) throw new Error("sftp: truncated bytes");
     const s = this.b.subarray(this.p, this.p + n);
@@ -278,13 +352,13 @@ function readAttrs(r: Reader): Attrs {
 export class Framer {
   private buf = new Uint8Array(0);
 
-  push(chunk: Uint8Array): Uint8Array[] {
+  push(chunk: Uint8Array): Uint8Array<ArrayBuffer>[] {
     const merged = new Uint8Array(this.buf.length + chunk.length);
     merged.set(this.buf);
     merged.set(chunk, this.buf.length);
     this.buf = merged;
 
-    const out: Uint8Array[] = [];
+    const out: Uint8Array<ArrayBuffer>[] = [];
     for (;;) {
       if (this.buf.length < 4) break;
       const n = new DataView(
@@ -364,7 +438,7 @@ export class SFTPClient {
    * devam etmek, rastgele baytları cevap sanmak demek.
    */
   feed(chunk: Uint8Array) {
-    let packets: Uint8Array[];
+    let packets: Uint8Array<ArrayBuffer>[];
     try {
       packets = this.framer.push(chunk);
     } catch (e) {
@@ -392,7 +466,7 @@ export class SFTPClient {
     this.pending.clear();
   }
 
-  private dispatch(p: Uint8Array) {
+  private dispatch(p: Uint8Array<ArrayBuffer>) {
     const r = new Reader(p);
     const typ = r.u8();
 
@@ -505,44 +579,96 @@ export class SFTPClient {
    */
   async download(
     path: string,
-    onChunk: (b: Uint8Array) => void | Promise<void>,
-    onProgress?: (p: Progress) => void,
-    total?: number,
+    onChunk: (b: Uint8Array<ArrayBuffer>) => void | Promise<void>,
+    opts: TransferOpts = {},
   ): Promise<number> {
-    const handle = await this.openFile(path, FXF.READ);
+    const { onProgress, size, signal, limit } = opts;
+    /*
+     * ⚠️ DURDURMA TUTAMAK AÇILMADAN ÖNCE OKUNUYOR. Açıp sonra vazgeçmek,
+     * denetim defterine hiç okunmayan bir dosya için `open` satırı
+     * yazdırırdı — defterden "bu dosya açıldı" diye okunan, ama
+     * karşılığında hiçbir aktarım satırı olmayan bir iz.
+     */
+    if (signal?.aborted) throw new Halted();
+
+    const handle = await this.wait(this.openFile(path, FXF.READ), signal);
     let done = 0;
 
     try {
-      let offset = 0;
+      /*
+       * ⚠️ İKİ AYRI KONUM VAR VE BİRİNİ DİĞERİ SANMAK GERÇEK BİR HATAYDI.
+       * `fireAt` boru hattının SORDUĞU yer, `at` ise teslim edilmiş
+       * baytların BİTTİĞİ yer. Eski kod yalnızca birincisini tutuyordu:
+       * konumu sabit chunkSize adımlarıyla ilerletiyordu, yani dosyanın
+       * ortasında kısa bir cevap gelirse (NFS/FUSE bağlarında sıradan)
+       * aradaki baytlar HİÇ İSTENMİYORDU. Sonuç, sessizce delikli bir
+       * dosya — ve arşivde, o delikli hâlin üstünden hesaplanmış geçerli
+       * bir CRC. "Kısa cevap EOF değil" diyen eski not doğruydu ama
+       * altındaki satır (`eof = eof || false`) hiçbir şey yapmıyordu.
+       */
+      let fireAt = 0;
+      let at = 0;
       let eof = false;
-      const inflight = new Map<number, Promise<Uint8Array | null>>();
+      const inflight = new Map<number, Promise<Uint8Array<ArrayBuffer> | null>>();
 
-      const fire = (at: number) => {
-        const pr = this.request((w, id) => {
-          w.u8(FXP.READ);
-          w.u32(id);
-          w.raw(handle);
-          w.u64(at);
-          w.u32(chunkSize);
-        })
+      /*
+       * drop, pencereyi boşaltır. Bırakılan promise'lerin reddi
+       * yakalanıyor: yakalamazsak sekmede "unhandled rejection" oluyor
+       * ve gerçek hataların arasında kayboluyor.
+       */
+      const drop = () => {
+        for (const p of inflight.values()) p.catch(() => {});
+        inflight.clear();
+      };
+
+      const fire = (offset: number) => {
+        const pr: Promise<Uint8Array<ArrayBuffer> | null> = this.request(
+          (w, id) => {
+            w.u8(FXP.READ);
+            w.u32(id);
+            w.raw(handle);
+            w.u64(offset);
+            w.u32(chunkSize);
+          },
+        )
           .then((reply) => (reply.typ === FXP.DATA ? reply.r.bytes() : null))
           .catch((e: unknown) => {
             // EOF, hata değil: dosyanın sonu STATUS ile bildiriliyor.
             if (e instanceof SFTPError && e.code === FX.EOF) return null;
             throw e;
           });
-        inflight.set(at, pr);
+        inflight.set(offset, pr);
       };
 
       while (!eof || inflight.size > 0) {
-        while (!eof && inflight.size < maxInFlight) {
-          fire(offset);
-          offset += chunkSize;
+        // Bayrak iki await arasında da okunuyor: hedef cevap veriyorsa
+        // durdurma buradan çıkıyor, vermiyorsa aşağıdaki yarıştan.
+        if (signal?.aborted) throw new Halted();
+
+        /*
+         * ⚠️ BİLİNEN BOYUTUN ÖTESİNE İSTEK GÖNDERİLMİYOR. Pencereyi
+         * koşulsuz doldurmak, 10 baytlık bir dosya için de 16 READ
+         * yollamak demekti — ve bunların hepsi hedefe GİDİYOR. Kısa
+         * cevaptan sonra pencere boşaltıldığı için maliyet iki katına
+         * çıkıyordu: dört bin küçük dosyalık bir klasör indirmesinde
+         * on binlerce gereksiz gidiş-dönüş.
+         *
+         * `inflight.size === 0` kaçış kapısı ŞART: hedef boyutu olduğundan
+         * küçük bildirmişse teslim boyutu geçiyor ve pencere kapanırsa
+         * döngü bekleyecek hiçbir isteği olmadan dönerdi.
+         */
+        while (
+          !eof &&
+          inflight.size < maxInFlight &&
+          (size === undefined || fireAt <= size || inflight.size === 0)
+        ) {
+          fire(fireAt);
+          fireAt += chunkSize;
         }
 
         // Sıradaki konumun cevabını bekle: teslim SIRALI olmak zorunda.
         const next = Math.min(...inflight.keys());
-        const chunk = await inflight.get(next)!;
+        const chunk = await this.wait(inflight.get(next)!, signal);
         inflight.delete(next);
 
         if (chunk === null || chunk.length === 0) {
@@ -555,28 +681,80 @@ export class SFTPClient {
            * dosyanın parçası değil.
            */
           eof = true;
-          inflight.clear();
+          drop();
           break;
+        }
+
+        /*
+         * ⚠️ İSTENENDEN FAZLA VEREN CEVAP REDDEDİLİYOR. Her 32 KiB'lık
+         * isteğe 1 MiB'lık DATA gönderen bir hedef, tarama sırasında
+         * hesaplanan toplamı 32 KATINA çıkarır — yani 2 GiB tavanı
+         * indirme başlamadan ölçülmüş olmasına rağmen aşılırdı.
+         */
+        if (chunk.length > chunkSize) {
+          throw new Error(
+            `the target sent ${chunk.length} bytes for a ${chunkSize}-byte read`,
+          );
         }
 
         await onChunk(chunk);
         done += chunk.length;
-        onProgress?.({ done, total });
+        at = next + chunk.length;
+        onProgress?.({ done, total: size });
+
+        if (limit !== undefined && done > limit) {
+          throw new Error(
+            `the target kept sending past the ${limit} bytes left in this ` +
+              `download's budget — the size it listed was not the truth`,
+          );
+        }
 
         /*
-         * ⚠️ KISA CEVAP EOF DEĞİL. Sunucu istenenden az bayt
-         * döndürebiliyor; bunu dosya sonu saymak, dosyayı sessizce
-         * kırpardı — sessiz bozulma, hata vermekten kötü.
+         * ⚠️ KISA CEVAP EOF DEĞİL — ve pencere ARTIK YANLIŞ YERDEN
+         * devam ediyor. Uçmakta olan istekler sabit ızgaradaki
+         * konumları soruyor; kısa cevabın bıraktığı boşluk hiçbirinde
+         * yok. Pencereyi boşaltıp teslim edilenin bittiği yerden
+         * yeniden başlamak, o boşluğu kapatan tek şey.
          */
         if (chunk.length < chunkSize) {
-          eof = eof || false;
+          drop();
+          fireAt = at;
         }
+      }
+
+      /*
+       * ⚠️ TESLİM EDİLEN, BEKLENENDEN AZ OLAMAZ. Beklenen sayı listeden
+       * geliyor ve bir plan, garanti değil; ama ondan AZ almak, ya
+       * dosyanın küçüldüğü ya da aktarımın eksik kaldığı anlamına gelir.
+       * İkisi de sessizce geçilecek şey değil: bu özellikteki bütün
+       * eksik-teslim hataları buraya çarpıyor. Fazlası sorun değil —
+       * dosya büyümüş ve sonuna kadar okunmuş demek.
+       */
+      if (size !== undefined && done < size) {
+        throw new Error(
+          `the target sent ${done} bytes for a file it listed as ${size} — ` +
+            `it shrank while it was read, or the transfer was cut short`,
+        );
       }
     } finally {
       this.closeHandle(handle);
     }
 
     return done;
+  }
+
+  /**
+   * wait, bir isteği durdurma koluyla YARIŞTIRIR.
+   *
+   * ⚠️ BAYRAK OKUMAK YETMİYOR. Bayrak ancak iki await arasında
+   * görülüyor; cevabı hiç gelmeyen bir isteğin üstünde Stop düğmesi
+   * hiçbir şey yapmıyordu ve kullanıcıya verilmiş bir söz boşa
+   * çıkıyordu.
+   */
+  private wait<T>(p: Promise<T>, signal?: Stopper): Promise<T> {
+    if (!signal) return p;
+
+    return Promise.race([p, signal.raised]);
   }
 
   /**
@@ -593,10 +771,15 @@ export class SFTPClient {
   async upload(
     path: string,
     read: () => Promise<Uint8Array | null>,
-    onProgress?: (p: Progress) => void,
-    total?: number,
+    opts: TransferOpts = {},
   ): Promise<number> {
-    const handle = await this.openFile(path, FXF.WRITE | FXF.CREAT | FXF.TRUNC);
+    const { onProgress, size, signal } = opts;
+    if (signal?.aborted) throw new Halted();
+
+    const handle = await this.wait(
+      this.openFile(path, FXF.WRITE | FXF.CREAT | FXF.TRUNC),
+      signal,
+    );
     let done = 0;
 
     try {
@@ -604,7 +787,15 @@ export class SFTPClient {
       const inflight: Promise<unknown>[] = [];
 
       for (;;) {
-        const chunk = await read();
+        /*
+         * ⚠️ DURDURULAN YÜKLEME HEDEFTE YARIM DOSYA BIRAKIYOR ve bu
+         * kaçınılmaz: yazılmış baytlar yazılmış durumda. Kuyruk satırı
+         * bu yüzden "durduruldu" diyor, "iptal edildi" demiyor — ve
+         * defterde de yazılan bayt kadarı duruyor.
+         */
+        if (signal?.aborted) throw new Halted();
+
+        const chunk = await this.wait(read(), signal);
         if (chunk === null) break;
         if (chunk.length === 0) continue;
 
@@ -620,12 +811,12 @@ export class SFTPClient {
             w.raw(chunk);
           }).then(() => {
             done += chunk.length;
-            onProgress?.({ done, total });
+            onProgress?.({ done, total: size });
           }),
         );
 
         if (inflight.length >= maxInFlight) {
-          await inflight.shift();
+          await this.wait(inflight.shift()!, signal);
         }
       }
 
@@ -640,28 +831,57 @@ export class SFTPClient {
   }
 
   /** readdir, bir dizini baştan sona okur. */
-  async readdir(path: string): Promise<Entry[]> {
-    const opened = await this.request((w, id) => {
-      w.u8(FXP.OPENDIR);
-      w.u32(id);
-      w.str(path);
-    });
+  async readdir(path: string, signal?: Stopper): Promise<Entry[]> {
+    const opened = await this.wait(
+      this.request((w, id) => {
+        w.u8(FXP.OPENDIR);
+        w.u32(id);
+        w.str(path);
+      }),
+      signal,
+    );
     const handle = opened.r.bytes();
 
     const out: Entry[] = [];
     try {
-      for (;;) {
-        const reply = await this.request((w, id) => {
-          w.u8(FXP.READDIR);
-          w.u32(id);
-          w.raw(handle);
-        });
+      for (let round = 0; ; round++) {
+        if (round >= maxDirRounds) {
+          throw new Error(
+            `the target kept sending entries for ${path} past ${maxDirRounds} rounds`,
+          );
+        }
+
+        const reply = await this.wait(
+          this.request((w, id) => {
+            w.u8(FXP.READDIR);
+            w.u32(id);
+            w.raw(handle);
+          }),
+          signal,
+        );
 
         // Liste bitti: hedef NAME yerine EOF taşıyan STATUS gönderdi.
         if (reply.typ !== FXP.NAME) break;
 
         const count = reply.r.u32();
-        if (count === 0) break;
+        /*
+         * ⚠️ SIFIR GİRDİLİ NAME BİR PROTOKOL HATASI, "liste bitti"
+         * DEĞİL. Listenin sonu tek bir şekilde bildiriliyor: EOF taşıyan
+         * STATUS (gerçek bir sftp-server boş dizinde de bunu gönderiyor
+         * ve testler bunu bu yüzden böyle taklit ediyor). Sıfırı bitiş
+         * saymak, hedefin listeyi ORTASINDAN kesip kalanını sessizce yok
+         * etmesine izin verirdi: gezgin eksik listeyi tam sanar, arşiv
+         * eksik çıkar ve atlananlar notunda hiçbir şey yazmaz.
+         */
+        if (count === 0) {
+          throw new Error(`the target sent an empty listing round for ${path}`);
+        }
+        if (out.length + count > maxDirEntries) {
+          throw new Error(
+            `this directory holds more than ${maxDirEntries.toLocaleString("en")} entries — ` +
+              `postern will not list it in the panel`,
+          );
+        }
         for (let i = 0; i < count; i++) {
           const name = reply.r.str();
           const longname = reply.r.str();
@@ -707,6 +927,35 @@ export const chunkSize = 32 * 1024;
  * sınırı belirli tutuyor.
  */
 export const maxInFlight = 16;
+
+/**
+ * TransferOpts, download ve upload'un isteğe bağlı parçaları.
+ *
+ * ⚠️ SIRALI PARAMETRE DEĞİL, NESNE. Yedi tane sıralı isteğe bağlı
+ * parametre, çağrı yerinde hangisinin ne olduğunu okunamaz kılıyordu ve
+ * ikisini yer değiştirmek DERLENİYORDU (ikisi de number).
+ */
+export interface TransferOpts {
+  onProgress?: (p: Progress) => void;
+  /**
+   * Listenin bildirdiği boyut.
+   *
+   * ⚠️ YALNIZCA İLERLEME İÇİN DEĞİL, SINAMA İÇİN DE. Teslim edilen bayt
+   * bundan AZSA hata veriliyor: bu özellikteki bütün "eksik teslim"
+   * hataları oraya çarpıyor. Fazlası hata değil — dosya büyümüş ve
+   * sonuna kadar okunmuş demek.
+   */
+  size?: number;
+  signal?: Stopper;
+  /**
+   * İndirmede teslim edilebilecek en fazla bayt.
+   *
+   * ⚠️ BOYUTU HEDEF BİLDİRİYOR, yani "10 bayt" diyip sonsuza kadar
+   * akmak da onun elinde. Tavan, tarama sırasında hesaplanan bütçenin
+   * indirme sırasında aşılmasını engelliyor.
+   */
+  limit?: number;
+}
 
 /** Transfer, süren bir aktarımın ilerlemesi. */
 export interface Progress {

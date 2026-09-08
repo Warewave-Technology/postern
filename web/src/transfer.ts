@@ -8,6 +8,8 @@
  * doğru ya da yanlış.
  */
 
+import { formatSize } from "./files";
+
 export type Direction = "up" | "down";
 
 export type TransferState =
@@ -27,6 +29,32 @@ export interface Transfer {
   total?: number;
   /** Başarısızlık sebebi — kullanıcıya gösterilecek cümle. */
   error?: string;
+  /**
+   * Ağaç TARANIRKEN o ana kadar görülen girdi sayısı.
+   *
+   * ⚠️ AYRI BİR ALAN, "files" DEĞİL. Tarama sırasında görülen şey dosya
+   * değil GİRDİ (dizinler de sayılıyor) ve toplam henüz bilinmiyor;
+   * bunu dosya sayacında göstermek, "0 / 1280 dosya" gibi hem yanlış hem
+   * de az sonra küçülecek bir sayı yazardı.
+   */
+  scan?: number;
+  /**
+   * Dizin aktarımında dosya sayacı; tek dosyada yok.
+   *
+   * ⚠️ BAYT YÜZDESİ TEK BAŞINA YETMİYOR. Bir dizinde en büyük dosya
+   * toplamın çoğu olabiliyor ve çubuk uzun süre kıpırdamıyor gibi
+   * görünüyor; "34 / 210 dosya" o sırada işin ilerlediğini söylüyor.
+   * Tarama biterken de sayaç doluyor, çubuk henüz doğmuyor.
+   */
+  files?: { done: number; total: number };
+  /**
+   * Bitince söylenecek ek — arşive girmeyenlerin özeti.
+   *
+   * ⚠️ YEŞİL BİR "tamamlandı" TEK BAŞINA YANILTIR: bağlar ve okunamayan
+   * dosyalar atlanmış olabiliyor. Aynı bilgi arşivin içine de yazılıyor,
+   * çünkü panel kapandıktan sonra geriye yalnızca arşiv kalıyor.
+   */
+  note?: string;
 }
 
 /**
@@ -52,6 +80,58 @@ export function percent(t: Transfer): number | undefined {
  */
 export function isSettled(t: Transfer): boolean {
   return t.state === "done" || t.state === "failed" || t.state === "cancelled";
+}
+
+/**
+ * progressText, kuyruk satırının sağında yazan cümle.
+ *
+ * ⚠️ BİLEŞENDEN AYRI VE SAF, çünkü buradaki iddiaların hiçbiri çizime
+ * bağlı değil: "tarama sırasında yüzde uydurulmuyor", "durdurulmuş bir
+ * aktarım ne bıraktığını söylüyor", "eksik dosyası olan bir arşiv düz
+ * 'tamamlandı' demiyor". Üçü de jsdom'suz ölçülebilir.
+ */
+export function progressText(t: Transfer): string {
+  switch (t.state) {
+    case "queued":
+      return "waiting";
+
+    case "running": {
+      /*
+       * ⚠️ TARAMA SIRASINDA YÜZDE YOK. Toplam henüz bilinmiyor; bir
+       * yüzde çizmek onu uydurmak olurdu. Görülen girdi sayısı ise
+       * gerçek ve işin ilerlediğini gösteriyor.
+       */
+      if (t.scan !== undefined) {
+        return `scanning… ${t.scan.toLocaleString("en")} items`;
+      }
+
+      const pct = percent(t);
+      const bytes =
+        pct !== undefined
+          ? `${pct}% · ${formatSize(t.done)} of ${formatSize(t.total ?? 0)}`
+          : formatSize(t.done);
+
+      // Dizinde dosya sayacı da yazılıyor: tek büyük bir dosya
+      // yüzdeyi uzun süre kıpırdamaz gösterebiliyor.
+      return t.files ? `${t.files.done} / ${t.files.total} files · ${bytes}` : bytes;
+    }
+
+    case "done":
+      /*
+       * ⚠️ EKSİKLER YEŞİL SATIRIN İÇİNDE. Atlanmış bağlar ya da
+       * okunamayan dosyalar varken düz "tamamlandı" yazmak, kullanıcıya
+       * tam bir kopya aldığını söylerdi.
+       */
+      return t.note
+        ? `completed · ${formatSize(t.done)} · ${t.note}`
+        : `completed · ${formatSize(t.done)}`;
+
+    case "cancelled":
+      return t.error ?? "cancelled";
+
+    case "failed":
+      return t.error ?? "failed";
+  }
 }
 
 /** summarise, kuyruğun tek satırlık özeti. */

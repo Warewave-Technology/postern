@@ -845,13 +845,19 @@ panel says the same thing on the Paths screen. The file browser refuses
 to open in exactly this situation, which is the one place postern makes
 the condition visible on its own.
 
-Symbolic links are listed with their own icon and can be followed. What
-gets checked is the path the client writes — `/home/dev/current` — which
-is exactly the path a rule can name. Where the target resolves it is the
-target's business and postern cannot see it: a link inside an allowed
-directory can point anywhere, and it still reads as allowed. Following a
-link that points at a file says so rather than showing the target's raw
-errno.
+Symbolic links are listed with their own icon and can be followed **by
+clicking**. What gets checked is the path the client writes —
+`/home/dev/current` — which is exactly the path a rule can name. Where the
+target resolves it is the target's business and postern cannot see it: a
+link inside an allowed directory can point anywhere, and it still reads as
+allowed. Following a link that points at a file says so rather than showing
+the target's raw errno.
+
+Fetching a *folder* is the one place links are not followed. Clicking a
+link is a choice you make about one path; a recursive walk makes that
+choice thousands of times without showing you any of them, and a link is
+also how a tree becomes a loop. Links found inside a folder download are
+counted and listed instead.
 
 One request is answered without consulting the rules at all: `realpath`
 on a relative name. An SFTP client sends it before it knows any absolute
@@ -863,7 +869,26 @@ Transfers happen in the shell window rather than on a page of their own:
 open a shell, press **Files**, and a two-pane view opens — your computer on
 the left, the host on the right. Select and press the button, or drag
 between the panes. Each transfer gets its own progress line and ends as
-completed or with the reason it did not.
+completed or with the reason it did not, and a running transfer can be
+stopped.
+
+Ticking a folder fetches it whole and hands you a `.zip`. The archive is
+built in the browser, one file at a time, each read the way any SSH client
+reads a file — so a folder download leaves the same trail in
+`session_files` that fetching those files one by one would leave: one row
+per directory listed, two per file read.
+
+What a folder download leaves out, it says. Symbolic links are not
+followed. Entries the target declines to give a type for are skipped rather
+than guessed at — guessing is exactly how a link would walk back in. FIFOs
+and device nodes are skipped, since opening one blocks until somebody
+writes to it. Every omission is counted on the transfer row and written
+into the archive as `POSTERN-NOT-INCLUDED.txt`, because the panel closes
+and the archive is what is still there afterwards.
+
+Hidden files **are** included — a folder download is meant to be a faithful
+copy — and the panel says so before you press the button, since the list
+above it hides them by default.
 
 **Uploading needs its own setting**, off by default:
 
@@ -891,7 +916,14 @@ everywhere.
 
 Files larger than 2 GiB are refused with a sentence naming an SFTP client,
 because the browser holds a download in memory until it is saved and a tab
-that hits that wall dies without telling anyone.
+that hits that wall dies without telling anyone. A folder is measured
+before anything is fetched and refused on the same limit, and on a second
+one: more than 4,000 entries and the panel will not take it in one go. Both
+refusals name a smaller folder or an SFTP client. Half an archive that
+looks whole is worse than a refusal, and every entry in a folder download
+is also a row in the session's journal and a line in its recording — a
+session that fetches a large tree is a session whose audit trail grows with
+it.
 
 ### Large Active Directory groups
 

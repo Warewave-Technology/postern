@@ -3173,6 +3173,16 @@ a.tcard-name:focus-visible {
   }
 }
 
+/* Klasörün .zip olarak geleceği, İNDİRMEDEN ÖNCE yazılı. */
+.fb-hint {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--muted);
+  text-align: center;
+  max-width: 9rem;
+}
+
 .fb-list .pick,
 .fb-list th.pick {
   width: 2.2rem;
@@ -3191,12 +3201,28 @@ a.tcard-name:focus-visible {
   flex-direction: column;
   gap: 0.3rem;
 }
+/*
+ * Sütunlar: yön · ad · çubuk · durum · durdur.
+ *
+ * ⚠️ ÇUBUK SÜTUNU HER SATIRDA VAR (bileşen boş bir hücre çiziyor), yoksa
+ * yüzdesi bilinmeyen bir aktarımda durum metni bir sütun sola kayıyor ve
+ * kuyruk sallanıyor gibi görünüyordu.
+ */
 .fb-job {
   display: grid;
-  grid-template-columns: 1rem minmax(6rem, 1fr) minmax(0, 12rem) auto;
+  grid-template-columns: 1rem minmax(6rem, 1fr) minmax(0, 12rem) auto auto;
   align-items: center;
   gap: 0.6rem;
   font-size: 12.5px;
+}
+.fb-job-track {
+  display: block;
+  min-width: 0;
+}
+.fb-job-stop {
+  padding: 0.1rem 0.45rem;
+  font-size: 11.5px;
+  line-height: 1.5;
 }
 .fb-job-dir {
   color: var(--faint);

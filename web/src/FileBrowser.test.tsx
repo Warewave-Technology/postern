@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FXP, FX } from "./sftp";
 import { reason, closeReason } from "./FileBrowser";
 import { SFTPError } from "./sftp";
@@ -482,10 +482,15 @@ describe("aktarım", () => {
   });
 
   /**
-   * Dizinler seçilemiyor: özyineli indirme ayrı bir karar ve verilmedi.
-   * Seçilebilir görünüp indirilmeyen bir kutu, verilmemiş bir söz olurdu.
+   * ⚠️ DİZİN SEÇİLEBİLİR OLDU ve ne olacağı ÖNCEDEN yazılı.
+   *
+   * Bu kutu bir zamanlar bilerek yoktu: seçilebilir görünüp indirilmeyen
+   * bir kutu, verilmemiş bir söz olurdu. Artık söz veriliyor — ama
+   * tarayıcı bir klasörü olduğu gibi teslim edemiyor, sonuç bir zip. Onu
+   * ancak indirme bitince öğrenmek, beklenmedik bir dosya türüyle
+   * karşılaşmak olurdu.
    */
-  it("dizin için seçim kutusu çizilmiyor", async () => {
+  it("dizin seçilebiliyor ve zip olacağını önceden söylüyor", async () => {
     render(<FileBrowser target="web01" canWrite />);
     const ws = FakeWS.last!;
     await handshake(ws, "/home/yigit", [
@@ -493,8 +498,15 @@ describe("aktarım", () => {
       entry("a.txt", FILE, 10),
     ]);
 
-    expect(screen.queryByLabelText("select proje")).toBeNull();
     expect(screen.getByLabelText("select a.txt")).toBeTruthy();
+
+    // Seçmeden önce söz de yok.
+    expect(screen.queryByText(/arrive as/i)).toBeNull();
+
+    await userEvent.click(screen.getByLabelText("select proje"));
+
+    expect(screen.getByRole("button", { name: /Download/ })).toBeEnabled();
+    expect(screen.getByText(/arrive as a \.zip/i)).toBeTruthy();
   });
 
   it("yerel dosya seçilince listede boyutuyla görünüyor", async () => {
@@ -577,5 +589,234 @@ describe("aktarım", () => {
     // İkincisi yine de DENENİYOR: kuyruk durmadı.
     const second = await next(ws, FXP.OPEN);
     expect(idOf(ws.body(second))).not.toBe(idOf(ws.body(first)));
+  });
+});
+/*
+ * ⚠️ ÖZYİNELİ DİZİN İNDİRME — BİLEŞENİN UÇTAN UCA KANITI.
+ *
+ * Arşivin BİÇİMİ burada ölçülmüyor; onun hükmünü gerçek `unzip` veriyor
+ * (test-node/zip.real.test.ts) ve gezginin kuralları tree.test.ts'te.
+ * Burada ölçülen şey yalnızca bu katmanın söyleyebileceği şey: seçilen
+ * klasör için hangi isteklerin TELE ÇIKTIĞI, ve kullanıcının sonunda ne
+ * gördüğü.
+ */
+
+/*
+ * bytesOf, bir Blob'un baytları.
+ *
+ * ⚠️ Blob.arrayBuffer() jsdom'da YOK; FileReader var. Arşivin
+ * baytlarını gerçekten okumak, "kaydedildi" ile "içinde doğru şey var"
+ * arasındaki farkı ölçebilmenin şartı.
+ */
+function bytesOf(b: Blob): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(new Uint8Array(r.result as ArrayBuffer));
+    r.onerror = () => reject(r.error);
+    r.readAsArrayBuffer(b);
+  });
+}
+
+/** readOffset, bir FXP_READ paketindeki dosya konumu. */
+function readOffset(b: Uint8Array): number {
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const hlen = dv.getUint32(5);
+  const at = 9 + hlen;
+
+  return dv.getUint32(at) * 0x100000000 + dv.getUint32(at + 4);
+}
+
+/**
+ * readAt, BELİRLİ bir konumu soran READ karesini bekler.
+ *
+ * ⚠️ TİPE BAKMAK YETMİYOR, KONUMA DA BAKILMALI. İstemci pencere
+ * dolduracak kadar isteği aynı anda gönderiyor; "sıradaki READ" o
+ * pencereden herhangi biri oluyor. Testin ilk hâli tipe bakıyordu ve
+ * kısa cevaptan sonra istemcinin KALDIĞI YERDEN sorduğunu göremiyordu:
+ * yanlış isteğe EOF veriyor, indirme asılı kalıyordu.
+ */
+async function readAt(ws: FakeWS, offset: number): Promise<number> {
+  let found = -1;
+  await waitFor(() => {
+    for (let i = ws.cursor; i < ws.sent.length; i++) {
+      const b = ws.body(i);
+      if (b[0] === FXP.READ && readOffset(b) === offset) {
+        found = i;
+        return;
+      }
+    }
+    throw new Error(`READ@${offset} bekleniyor`);
+  });
+  ws.cursor = found + 1;
+
+  return found;
+}
+
+/** serveFile, bir OPEN/READ/READ(EOF) turunu cevaplar. */
+async function serveFile(ws: FakeWS, content: Uint8Array) {
+  const op = await next(ws, FXP.OPEN);
+  await ws.deliver(
+    0,
+    packet(FXP.HANDLE, ...u32(idOf(ws.body(op))), ...str("fh")),
+  );
+
+  const first = await readAt(ws, 0);
+  await ws.deliver(
+    0,
+    packet(
+      FXP.DATA,
+      ...u32(idOf(ws.body(first))),
+      ...u32(content.length),
+      ...Array.from(content),
+    ),
+  );
+
+  /*
+   * ⚠️ KISA CEVAP EOF DEĞİL: istemci teslim edilenin BİTTİĞİ yerden
+   * soruyor ve dosyanın bittiğini ancak oradan öğreniyor. Konum burada
+   * content.length — sabit ızgaradaki bir sonraki adım değil.
+   */
+  const beyond = await readAt(ws, content.length);
+  await ws.deliver(
+    0,
+    packet(FXP.STATUS, ...u32(idOf(ws.body(beyond))), ...u32(FX.EOF)),
+  );
+}
+
+describe("dizin indirme", () => {
+  let saved: { name: string; blob: Blob } | null = null;
+  let click: typeof HTMLAnchorElement.prototype.click;
+
+  beforeEach(() => {
+    saved = null;
+    let last: Blob | null = null;
+
+    /*
+     * jsdom'da nesne URL'i yok. saveBlob'un yaptığı iki şeyi de
+     * yakalıyoruz: Blob'u ve bağlantının `download` adını.
+     */
+    const u = globalThis.URL as unknown as {
+      createObjectURL: (b: Blob) => string;
+      revokeObjectURL: (s: string) => void;
+    };
+    u.createObjectURL = (b: Blob) => {
+      last = b;
+      return "blob:test";
+    };
+    u.revokeObjectURL = () => {};
+
+    click = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {
+      saved = { name: this.download, blob: last! };
+    };
+  });
+
+  afterEach(() => {
+    HTMLAnchorElement.prototype.click = click;
+  });
+
+  it("klasörü gezip tek arşiv veriyor, bağa ve \".\" ile \"..\"ye girmiyor", async () => {
+    render(<FileBrowser target="web01" canWrite />);
+    const ws = FakeWS.last!;
+    await handshake(ws, "/home/yigit", [entry("proje", DIR)]);
+
+    await userEvent.click(screen.getByLabelText("select proje"));
+    await userEvent.click(screen.getByRole("button", { name: /Download/ }));
+
+    // Klasörün kendisi.
+    await serveDir(ws, [
+      entry(".", DIR),
+      entry("..", DIR),
+      entry("src", DIR),
+      entry("not.txt", FILE, 5),
+      entry("guncel", LINK),
+    ]);
+    // Yalnızca gerçek alt dizin: "." ve ".." açılmadı.
+    await serveDir(ws, [entry("main.go", FILE, 4)]);
+
+    // Dosyalar derinlik önce: src/main.go, sonra not.txt.
+    await serveFile(ws, new TextEncoder().encode("main"));
+    await serveFile(ws, new TextEncoder().encode("nnnnn"));
+
+    await waitFor(() => expect(saved).not.toBeNull());
+    expect(saved!.name).toBe("proje.zip");
+
+    /*
+     * ⚠️ AÇILAN DİZİN SAYISI ÖLÇÜLÜYOR ve sebebi denetim defterinde:
+     * her OPENDIR bir satır. "." ya da ".." açan bir gezgin burada
+     * fazladan istekle yakalanır — ve gerçek bir hedefte sonsuza kadar
+     * dönerdi.
+     */
+    const opendirs = ws.sent.filter((_, i) => ws.body(i)[0] === FXP.OPENDIR);
+    expect(opendirs.length).toBe(3); // ev + proje + proje/src
+
+    // Her dosya AYRI bir OPEN ile geçti: defterde kendi satırı var.
+    const opens = ws.sent.filter((_, i) => ws.body(i)[0] === FXP.OPEN);
+    expect(opens.length).toBe(2);
+
+    // Arşivin içinde ağacın yolları ve eksikler notu var.
+    const text = new TextDecoder().decode(await bytesOf(saved!.blob));
+    expect(text).toContain("proje/src/main.go");
+    expect(text).toContain("proje/not.txt");
+    expect(text).toContain("POSTERN-NOT-INCLUDED.txt");
+  });
+
+  /*
+   * ⚠️ ATLANANLAR YEŞİL SATIRIN İÇİNDE. Düz bir "tamamlandı", atlanmış
+   * bir bağ varken kullanıcıya tam bir kopya aldığını söylerdi.
+   */
+  it("eksik varsa satır bunu yazıyor", async () => {
+    render(<FileBrowser target="web01" canWrite />);
+    const ws = FakeWS.last!;
+    await handshake(ws, "/home/yigit", [entry("proje", DIR)]);
+
+    await userEvent.click(screen.getByLabelText("select proje"));
+    await userEvent.click(screen.getByRole("button", { name: /Download/ }));
+
+    await serveDir(ws, [entry("bag", LINK), entry("a.txt", FILE, 3)]);
+    await serveFile(ws, new TextEncoder().encode("abc"));
+
+    await waitFor(() =>
+      expect(screen.getByText(/1 not included/)).toBeTruthy(),
+    );
+    expect(screen.getByText(/completed/)).toBeTruthy();
+  });
+
+  /*
+   * ⚠️ DURDURULAN İNDİRMEDEN GERİYE HİÇBİR ŞEY KALMIYOR ve satır bunu
+   * SÖYLÜYOR. Arşiv ancak sonunda kaydediliyor; "iptal edildi" deyip
+   * kullanıcıyı yarım bir dosya aramaya göndermek yanlış olurdu.
+   */
+  it("durdurulan klasör indirmesi ne bırakmadığını söylüyor", async () => {
+    render(<FileBrowser target="web01" canWrite />);
+    const ws = FakeWS.last!;
+    await handshake(ws, "/home/yigit", [entry("proje", DIR)]);
+
+    await userEvent.click(screen.getByLabelText("select proje"));
+    await userEvent.click(screen.getByRole("button", { name: /Download/ }));
+
+    await serveDir(ws, [entry("a.txt", FILE, 3), entry("b.txt", FILE, 3)]);
+
+    // İlk dosyanın OPEN'ı yola çıktı; durdurma ondan sonra geliyor.
+    const op = await next(ws, FXP.OPEN);
+    await userEvent.click(screen.getByRole("button", { name: "Stop" }));
+    await ws.deliver(
+      0,
+      packet(FXP.HANDLE, ...u32(idOf(ws.body(op))), ...str("fh")),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText(/nothing was saved/)).toBeTruthy(),
+    );
+    expect(saved).toBeNull();
+
+    /*
+     * ⚠️ İKİNCİ DOSYA HİÇ AÇILMADI. Durdurulan bir indirme sonraki
+     * dosyaya geçseydi, defterde hiç okunmayan bir dosya için `open`
+     * satırı kalırdı — "açıldı" diye okunan, karşılığında aktarım
+     * satırı olmayan bir iz.
+     */
+    const opens = ws.sent.filter((_, i) => ws.body(i)[0] === FXP.OPEN);
+    expect(opens.length).toBe(1);
   });
 });

@@ -237,10 +237,7 @@ describe("aktarım", () => {
       (b) => {
         parts.push(b);
       },
-      (p) => {
-        lastProgress = p.done;
-      },
-      src.length,
+      { onProgress: (p) => (lastProgress = p.done), size: src.length },
     );
 
     expect(n).toBe(src.length);
@@ -294,10 +291,7 @@ describe("aktarım", () => {
 
         return part;
       },
-      (p) => {
-        lastProgress = p.done;
-      },
-      src.length,
+      { onProgress: (p) => (lastProgress = p.done), size: src.length },
     );
 
     expect(n).toBe(src.length);

@@ -53,6 +53,51 @@ audit rows into a shape it does not understand.
 
 ### Added
 
+- **The panel's file browser fetches a whole folder.** Tick a folder in the
+  remote pane and press Download; postern walks the tree over the same SFTP
+  channel a shell session uses and hands you one `.zip`. Every file in it was
+  read the way any SSH client reads a file — through the path policy, into
+  the session's file journal, and into the chain that seals the recording.
+  There is still no server-side helper holding an SFTP client of its own.
+
+  **What it does not do, and says so.** Symbolic links inside the tree are
+  not followed — a link is a loop waiting to happen, and following one means
+  fetching what you did not point at. Entries the target refuses to type
+  (no permission bits in its reply) are skipped rather than guessed at:
+  guessing is how a link would walk back in through the front door. FIFOs
+  and device nodes are skipped; opening one blocks until somebody writes to
+  it. Everything left out is counted on the transfer row **and written into
+  the archive** as `POSTERN-NOT-INCLUDED.txt`, because the panel closes and
+  the archive is what you still have in six months.
+
+  **Hidden files are included** — a folder download is meant to be a faithful
+  copy — and the panel says so before you press the button, since the list
+  above it hides them by default.
+
+  **A folder of more than 4,000 entries, or more than 2 GiB, is refused
+  rather than half-fetched**, and the refusal names a smaller folder or an
+  SFTP client as the way through. Every entry costs rows in the session's
+  file journal and lines in its recording — one per directory, two per file
+  — so a session that fetches a large tree is a session whose audit trail
+  grows with it. There is a **Stop** on every running transfer; stopping a
+  download saves nothing, and stopping an upload leaves on the target
+  whatever had already been written.
+
+  Names coming from the target are neutralised before they enter the
+  archive: path separators, `..`, control bytes and right-to-left overrides,
+  which make a name read as something other than what it is. Two names that
+  differ only in case or in Unicode normalisation are separated, because
+  they would land on one file when the archive is extracted on macOS or
+  Windows.
+
+- **Downloads are checked against the size the target listed.** A file
+  delivered short now fails with both numbers instead of being saved quietly
+  truncated, and a reply that stops mid-file no longer leaves a hole: the
+  client used to keep asking at fixed offsets, so a short reply anywhere but
+  at the end silently spliced the bytes after it onto the bytes before it.
+  This affected single-file downloads before this release and would have
+  reached folder downloads as a valid-looking archive over corrupted bytes.
+
 - **SFTP sessions are recorded and sealed.** Until now the `.cast` file for
   an SFTP session held its header and nothing else: transfer bytes never
   enter a terminal recording, which is what kept the channel shut in the

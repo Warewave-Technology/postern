@@ -1,5 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { SFTPClient, SFTPError, Framer, FXP, FX, maxPacket } from "./sftp";
+import {
+  SFTPClient,
+  SFTPError,
+  Halted,
+  Framer,
+  FXP,
+  FX,
+  chunkSize,
+  maxPacket,
+  newStop,
+} from "./sftp";
 
 /**
  * Sahte hedef: istemcinin yazdığı çerçeveleri toplar, cevabı test
@@ -256,5 +266,269 @@ describe("SFTPClient", () => {
     for (const name of ["OPEN", "READ", "WRITE", "DATA", "CLOSE"]) {
       expect(FXP).toHaveProperty(name);
     }
+  });
+});
+/** tick, mikro görev kuyruğunu boşaltır (birkaç await zincirlenmiş). */
+const tick = () => new Promise((r) => setTimeout(r, 0));
+
+/** readOffset, bir FXP_READ paketindeki dosya konumu. */
+function readOffset(b: Uint8Array): number {
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const hlen = dv.getUint32(5);
+  const at = 9 + hlen;
+
+  return dv.getUint32(at) * 0x100000000 + dv.getUint32(at + 4);
+}
+
+/** indexOfType, i'den itibaren ilk verilen tipteki çerçeve. */
+function indexOfType(t: FakeTarget, typ: number, from = 0): number {
+  for (let i = from; i < t.sent.length; i++) if (t.body(i)[0] === typ) return i;
+
+  return -1;
+}
+
+/** openReply, OPEN isteğine tanıtıcı verir. */
+async function openReply(t: FakeTarget) {
+  const i = indexOfType(t, FXP.OPEN);
+  t.reply(packet(FXP.HANDLE, ...u32(readIDAt(t.body(i), 1)), ...str("h1")));
+  await tick();
+}
+
+function dataReply(t: FakeTarget, frame: number, body: number[]) {
+  t.reply(
+    packet(
+      FXP.DATA,
+      ...u32(readIDAt(t.body(frame), 1)),
+      ...u32(body.length),
+      ...body,
+    ),
+  );
+}
+
+function eofReply(t: FakeTarget, frame: number) {
+  t.reply(packet(FXP.STATUS, ...u32(readIDAt(t.body(frame), 1)), ...u32(FX.EOF)));
+}
+
+describe("indirme", () => {
+  /*
+   * ⚠️ BU DOSYADAKİ EN CİDDİ İDDİA VE KOD BİR SÜRE YANLIŞTI.
+   *
+   * Boru hattı konumu SABİT adımlarla ilerletiyordu (offset += chunkSize).
+   * Dosyanın ortasında kısa bir cevap gelirse — NFS ve FUSE bağlarında
+   * sıradan — aradaki baytlar HİÇ İSTENMİYORDU: teslim edilen dosya,
+   * ortasından bir parça eksik hâlde birleştiriliyordu. Hata vermiyordu,
+   * kısa görünmüyordu bile; arşivde o delikli hâlin üstünden hesaplanmış
+   * GEÇERLİ bir CRC ile duruyordu.
+   *
+   * Eski kodda bunu koruduğunu söyleyen bir not vardı ve altındaki satır
+   * `eof = eof || false` idi — yani hiçbir şey. Sahte otorite bırakan
+   * yorumun tam örneği.
+   */
+  it("dosyanın ortasındaki kısa cevaptan sonra kalınan yerden devam ediyor", async () => {
+    const t = new FakeTarget();
+    const got: number[] = [];
+    const p = t.client.download("/f", (b) => {
+      got.push(...b);
+    });
+
+    await openReply(t);
+
+    // İlk READ 0'dan; cevap KISA (1000 bayt) ve dosya bitmedi.
+    const first = indexOfType(t, FXP.READ);
+    expect(readOffset(t.body(first))).toBe(0);
+    dataReply(t, first, Array.from({ length: 1000 }, (_, i) => i & 0xff));
+    await tick();
+
+    /*
+     * Kritik iddia: bir sonraki istek 1000'DEN başlamalı. Sabit ızgara
+     * 32768'i sorardı ve 1000..32767 arası sonsuza kadar kayıp olurdu.
+     */
+    const next = indexOfType(t, FXP.READ, first + 1);
+    const fresh = t.sent
+      .map((_, i) => i)
+      .filter((i) => i > first && t.body(i)[0] === FXP.READ)
+      .map((i) => readOffset(t.body(i)));
+    expect(Math.min(...fresh)).toBe(1000);
+    expect(next).toBeGreaterThan(first);
+
+    // Kalanı ver ve bitir.
+    const after = fresh.indexOf(1000);
+    const atThousand = t.sent
+      .map((_, i) => i)
+      .filter((i) => i > first && t.body(i)[0] === FXP.READ)[after];
+    dataReply(t, atThousand, [1, 2, 3]);
+    await tick();
+
+    const last = t.sent
+      .map((_, i) => i)
+      .filter((i) => t.body(i)[0] === FXP.READ && readOffset(t.body(i)) === 1003)[0];
+    eofReply(t, last);
+
+    await expect(p).resolves.toBe(1003);
+    expect(got.length).toBe(1003);
+  });
+
+  /*
+   * ⚠️ KÜÇÜK DOSYA KÜÇÜK MALİYETLİ OLMALI ve bu bir kez öyle değildi.
+   *
+   * Boru hattı pencereyi koşulsuz dolduruyordu: 10 baytlık bir dosya
+   * için de 16 READ gidiyordu, ve kısa cevaptan sonra pencere
+   * boşaltıldığı için 16 tane daha. Hepsi hedefe ulaşıyor. Dört bin
+   * küçük dosyalık bir klasör indirmesinde bu, on binlerce gereksiz
+   * gidiş-dönüş demekti — özyineli indirmeyi kullanılmaz yapacak kadar.
+   *
+   * Boyut biliniyorken gereken istek sayısı İKİ: veriyi getiren ve
+   * dosyanın bittiğini söyleyen.
+   */
+  it("boyutu bilinen küçük dosya iki istekle iniyor", async () => {
+    const t = new FakeTarget();
+    const p = t.client.download("/f", () => {}, { size: 10 });
+
+    await openReply(t);
+
+    const reads = () =>
+      t.sent.map((_, i) => i).filter((i) => t.body(i)[0] === FXP.READ);
+    expect(reads()).toHaveLength(1);
+
+    dataReply(t, reads()[0], new Array(10).fill(1));
+    await tick();
+
+    expect(reads()).toHaveLength(2);
+    expect(readOffset(t.body(reads()[1]))).toBe(10);
+
+    eofReply(t, reads()[1]);
+    await expect(p).resolves.toBe(10);
+  });
+
+  /*
+   * ⚠️ TESLİM EDİLEN, LİSTEDEKİNDEN AZ OLAMAZ. Bu özellikteki bütün
+   * "eksik teslim" hataları buraya çarpıyor — ve önceden hiçbir yerde
+   * karşılaştırılmıyordu: download dönüş değerini kimse okumuyordu,
+   * kuyruk satırı da "tamamlandı" yazıyordu.
+   */
+  it("beklenenden az bayt teslim edilirse iki sayıyı da söyleyerek düşüyor", async () => {
+    const t = new FakeTarget();
+    const p = t.client.download("/f", () => {}, { size: 5000 });
+
+    await openReply(t);
+    const first = indexOfType(t, FXP.READ);
+    dataReply(t, first, [1, 2, 3, 4]);
+    await tick();
+
+    const next = t.sent
+      .map((_, i) => i)
+      .filter((i) => t.body(i)[0] === FXP.READ && readOffset(t.body(i)) === 4)[0];
+    eofReply(t, next);
+
+    await expect(p).rejects.toThrow(/sent 4 bytes for a file it listed as 5000/);
+  });
+
+  // Fazlası hata DEĞİL: dosya büyümüş ve sonuna kadar okunmuş demek.
+  it("beklenenden fazla bayt hata değil", async () => {
+    const t = new FakeTarget();
+    const p = t.client.download("/f", () => {}, { size: 2 });
+
+    await openReply(t);
+    const first = indexOfType(t, FXP.READ);
+    dataReply(t, first, [1, 2, 3, 4]);
+    await tick();
+
+    const next = t.sent
+      .map((_, i) => i)
+      .filter((i) => t.body(i)[0] === FXP.READ && readOffset(t.body(i)) === 4)[0];
+    eofReply(t, next);
+
+    await expect(p).resolves.toBe(4);
+  });
+
+  /*
+   * ⚠️ İSTENENDEN FAZLA VEREN CEVAP REDDEDİLİYOR. Her 32 KiB'lık isteğe
+   * 1 MiB'lık DATA gönderen bir hedef, taramada hesaplanan bütçeyi 32
+   * KATINA çıkarır — yani 2 GiB tavanı indirme başlamadan ölçülmüş
+   * olmasına rağmen aşılırdı.
+   */
+  it("istenenden büyük DATA reddediliyor", async () => {
+    const t = new FakeTarget();
+    const p = t.client.download("/f", () => {});
+
+    await openReply(t);
+    const first = indexOfType(t, FXP.READ);
+    dataReply(t, first, new Array(chunkSize + 1).fill(7));
+
+    await expect(p).rejects.toThrow(/for a 32768-byte read/);
+  });
+
+  /*
+   * ⚠️ BÜTÇE TAVANI OLMADAN "10 bayt" DİYEN BİR HEDEF SONSUZA KADAR
+   * AKABİLİRDİ. Boyutu bildiren taraf hedef; tavan, bildirdiğinin
+   * tutmadığı durumu yakalıyor.
+   */
+  it("bütçe tavanını aşan akış kesiliyor", async () => {
+    const t = new FakeTarget();
+    const p = t.client.download("/f", () => {}, { limit: 10 });
+
+    await openReply(t);
+    const first = indexOfType(t, FXP.READ);
+    dataReply(t, first, new Array(64).fill(1));
+
+    await expect(p).rejects.toThrow(/past the 10 bytes left/);
+  });
+
+  /*
+   * ⚠️ DURDURMA, CEVAP GELMESE DE İŞLEMELİ. Bayrak ancak iki await
+   * ARASINDA okunabiliyor; susan bir hedefin üstünde Stop düğmesi
+   * hiçbir şey yapmıyordu ve kullanıcıya verilmiş bir söz boşa
+   * çıkıyordu.
+   */
+  it("cevapsız kalan istek durdurulabiliyor", async () => {
+    const t = new FakeTarget();
+    const { signal, stop } = newStop();
+    const p = t.client.download("/f", () => {}, { signal });
+
+    await openReply(t);
+    expect(indexOfType(t, FXP.READ)).toBeGreaterThan(-1);
+
+    // Hedef hiçbir READ'e cevap vermiyor.
+    stop();
+
+    await expect(p).rejects.toBeInstanceOf(Halted);
+  });
+
+  /*
+   * ⚠️ TANITIСI AÇILMADAN ÖNCE DURDURULMUŞSA HİÇ AÇILMIYOR. Açıp
+   * vazgeçmek, defterde hiç okunmayan bir dosya için `open` satırı
+   * bırakırdı: "açıldı" diye okunan, karşılığında aktarım satırı
+   * olmayan bir iz.
+   */
+  it("önceden durdurulmuş indirme dosyayı hiç açmıyor", async () => {
+    const t = new FakeTarget();
+    const { signal, stop } = newStop();
+    stop();
+
+    await expect(
+      t.client.download("/f", () => {}, { signal }),
+    ).rejects.toBeInstanceOf(Halted);
+    expect(t.sent).toHaveLength(0);
+  });
+});
+
+describe("dizin listesi", () => {
+  /*
+   * ⚠️ SIFIR GİRDİLİ NAME BİR PROTOKOL HATASI, "liste bitti" DEĞİL.
+   * Listenin sonu tek bir şekilde bildiriliyor: EOF taşıyan STATUS.
+   * Sıfırı bitiş saymak, hedefin listeyi ORTASINDAN kesip kalanını
+   * sessizce yok etmesine izin verirdi — gezgin eksik listeyi tam
+   * sanar, arşiv eksik çıkar ve atlananlar notunda hiçbir şey yazmaz.
+   */
+  it("sıfır girdili NAME liste sonu sayılmıyor", async () => {
+    const t = new FakeTarget();
+    const p = t.client.readdir("/tmp");
+
+    t.reply(packet(FXP.HANDLE, ...u32(readIDAt(t.body(0), 1)), ...str("h1")));
+    await tick();
+
+    t.reply(packet(FXP.NAME, ...u32(readIDAt(t.body(1), 1)), ...u32(0)));
+
+    await expect(p).rejects.toThrow(/empty listing round/);
   });
 });

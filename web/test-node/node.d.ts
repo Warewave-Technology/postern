@@ -25,6 +25,12 @@ declare module "node:child_process" {
     args: readonly string[],
     options: { stdio: readonly ["pipe", "pipe", "pipe"] },
   ): ChildProcessWithoutNullStreams;
+
+  export function execFileSync(
+    file: string,
+    args: readonly string[],
+    options: { encoding: "utf8"; cwd?: string },
+  ): string;
 }
 
 declare module "node:fs" {
@@ -33,6 +39,7 @@ declare module "node:fs" {
   export function mkdirSync(path: string): void;
   export function writeFileSync(path: string, data: string | Uint8Array): void;
   export function readFileSync(path: string): Uint8Array;
+  export function readdirSync(path: string): string[];
   export function symlinkSync(target: string, path: string): void;
   export function rmSync(
     path: string,

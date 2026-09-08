@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { SFTPClient, SFTPError, FX, chunkSize } from "./sftp";
-import type { Entry } from "./sftp";
+import { SFTPClient, SFTPError, FX, Halted, chunkSize, newStop } from "./sftp";
+import type { Entry, Stopper } from "./sftp";
+import { ZipWriter, crc32, safeName } from "./zip";
+import { noteName, skipNote, walkTree, type Skipped } from "./tree";
 import {
   fromDataTransfer,
   fromFileList,
@@ -12,8 +14,10 @@ import {
 import {
   isSettled,
   joinRemote,
+  maxDownloadBytes,
   nextId,
   percent,
+  progressText,
   tooLargeToDownload,
   type Transfer,
 } from "./transfer";
@@ -43,9 +47,11 @@ import { FolderIcon, FileIcon, LinkIcon } from "./icons";
  * çalınmış bir oturumun elle yazdığı FXP_WRITE'ı durduramaz. Burada
  * yazma isteği HİÇ KODLANMIYOR olması ikinci bir kilit, birincisi değil.
  *
- * İNDİRME KASTEN YOK. Dosya içeriğini tarayıcıya getirmek ayrı bir
- * karar: kaydın ne göstereceği, boyut sınırı ve veri çıkışı politikası
- * ayrıca konuşulmadan açılmamalı.
+ * ⚠️ DİZİN İNDİRMEK BİR AĞAÇ GEZİNTİSİ, TEK BİR İSTEK DEĞİL ve maliyeti
+ * denetim defterinde: dizin başına bir satır, dosya başına bir satır
+ * daha. proxy.journalCap (10000) aşılırsa oturum ÖLÜYOR — yani sınırsız
+ * bir indirme, yaptığı işin KAYDINI da götürürdü. Tavanlar ve reddetme
+ * cümleleri tree.ts'te ve sebebi bu.
  */
 
 type Phase = "connecting" | "ready" | "closed";
@@ -83,6 +89,19 @@ export default function FileBrowser({
    * Sıralı kuyruk, kullanıcıya "şu an bu dosya" diyebilmenin şartı.
    */
   const queueRef = useRef<Promise<void>>(Promise.resolve());
+
+  /*
+   * ⚠️ DURDURMA BAYRAKLARI DURUMDA DEĞİL, BİR REF'TE. Süren bir aktarım
+   * bayrağı okurken React'in o anki çiziminde ne olduğu önemli değil;
+   * durumda tutmak, çalışan döngüye BAYAT bir kopya verirdi ve Stop
+   * düğmesi ancak bir sonraki çizimde işe yarardı.
+   */
+  const stops = useRef(new Map<number, () => void>());
+
+  /** stop, bir aktarımı durdurur (sırada bekleyeni de). */
+  const stop = useCallback((id: number) => {
+    stops.current.get(id)?.();
+  }, []);
 
   /**
    * open, bir dizini okur ve BAŞARIRSA oraya geçer.
@@ -193,19 +212,56 @@ export default function FileBrowser({
    * ve diğerleri akmaya devam ediyor.
    */
   const enqueue = useCallback(
-    (t: Transfer, run: () => Promise<void>) => {
+    (t: Transfer, run: (signal: Stopper) => Promise<void>) => {
+      const { signal, stop: halt } = newStop();
+      stops.current.set(t.id, halt);
       setTransfers((list) => [...list, t]);
+
       queueRef.current = queueRef.current.then(async () => {
-        if (!clientRef.current) {
-          patch(t.id, { state: "cancelled", error: "the session closed" });
-          return;
-        }
-        patch(t.id, { state: "running" });
         try {
-          await run();
+          if (!clientRef.current) {
+            patch(t.id, { state: "cancelled", error: "the session closed" });
+            return;
+          }
+          /*
+           * ⚠️ SIRADA BEKLERKEN DURDURULMUŞ OLABİLİR. Kuyruk sıralı ve
+           * bir dizin indirmesi dakikalarca sürebiliyor; o sırada
+           * basılan Stop, sıra geldiğinde işi HİÇ BAŞLATMAMALI.
+           */
+          if (signal.aborted) {
+            patch(t.id, { state: "cancelled", error: "stopped before it began" });
+            return;
+          }
+          patch(t.id, { state: "running" });
+          await run(signal);
           patch(t.id, { state: "done" });
         } catch (e) {
-          patch(t.id, { state: "failed", error: reason(e) });
+          /*
+           * ⚠️ DURDURMA BAŞARISIZLIK DEĞİL. Kullanıcının kendi bastığı
+           * düğmeyi kırmızı bir arıza satırı olarak geri vermek, olmayan
+           * bir sorunu varmış gibi gösterir.
+           */
+          if (e instanceof Halted) {
+            /*
+             * ⚠️ DURDURMANIN İKİ YÖNDE FARKLI SONUCU VAR. İndirme
+             * dosyayı ancak sonunda kaydediyor, yani yarıda kesilen
+             * bir indirmeden geriye HİÇBİR ŞEY kalmıyor. Yükleme ise
+             * hedefe yazdığını yazmış oluyor. İkisini aynı cümleyle
+             * geçmek, kullanıcıyı hedefte yarım kalmış bir dosyadan
+             * habersiz bırakırdı.
+             */
+            patch(t.id, {
+              state: "cancelled",
+              error:
+                t.dir === "up"
+                  ? "stopped — bytes already written are still on the target"
+                  : "stopped — nothing was saved",
+            });
+          } else {
+            patch(t.id, { state: "failed", error: reason(e) });
+          }
+        } finally {
+          stops.current.delete(t.id);
         }
       });
     },
@@ -228,12 +284,15 @@ export default function FileBrowser({
             done: 0,
             total: lf.size,
           },
-          async () => {
+          async (signal) => {
             await clientRef.current!.upload(
               remotePath,
               readInChunks(lf.file, chunkSize),
-              (p) => patch(id, { done: p.done }),
-              lf.size,
+              {
+                onProgress: (p) => patch(id, { done: p.done }),
+                size: lf.size,
+                signal,
+              },
             );
             // Liste tazelensin: yüklenen dosya sağ tarafta görünmeli,
             // yoksa kullanıcı yüklemenin olmadığını sanar.
@@ -263,7 +322,7 @@ export default function FileBrowser({
             done: 0,
             total: e.size,
           },
-          async () => {
+          async (signal) => {
             /*
              * ⚠️ BOYUT SINIRI İNDİRME BAŞLAMADAN ÖNCE. Yarısını
              * indirip sonra vazgeçmek, hem bant genişliği hem de
@@ -273,16 +332,181 @@ export default function FileBrowser({
              */
             if (tooBig) throw new Error(tooBig);
 
-            const parts: Uint8Array[] = [];
+            const parts: BlobPart[] = [];
             await clientRef.current!.download(
               remotePath,
               (b) => {
                 parts.push(b);
               },
-              (p) => patch(id, { done: p.done }),
-              e.size,
+              {
+                onProgress: (p) => patch(id, { done: p.done }),
+                /*
+                 * ⚠️ BOYUT ARTIK SINANIYOR, YALNIZCA ÇUBUK İÇİN DEĞİL.
+                 * Eksik teslim edilen bir dosya, "tamamlandı" yazan bir
+                 * satırın altında sessizce kısa kaydediliyordu.
+                 */
+                size: e.size,
+                limit: maxDownloadBytes,
+                signal,
+              },
             );
-            saveBlob(parts as BlobPart[], e.name);
+            saveBlob(parts, e.name);
+          },
+        );
+      }
+    },
+    [cwd, enqueue, patch],
+  );
+
+  /**
+   * startFolderDownload, bir dizini özyineli indirip TEK arşiv verir.
+   *
+   * ⚠️ İKİ AŞAMA VE SIRASI ÖNEMLİ: önce ağaç geziliyor, sonra dosyalar
+   * okunuyor. Gezerken indirmek daha hızlı görünürdü ama iki şeyi
+   * kaybederdik: toplam boyut ancak tarama bitince biliniyor (yani
+   * ilerleme çubuğu çizilemez), ve tavana çarpan bir indirme ancak
+   * gigabaytlar aktıktan SONRA reddedilirdi.
+   *
+   * ⚠️ ARŞİV TARAYICIDA KURULUYOR, SUNUCUDA DEĞİL. Sunucuda zip'lemek
+   * kolay olurdu ama postern'in hedef dosyalarını okuyan ikinci bir
+   * yolu olması demekti; reddedilen tasarım tam olarak buydu. Buradaki
+   * her dosya, bir SSH istemcisinin okuyacağı gibi okunuyor ve defterde
+   * kendi satırını bırakıyor.
+   */
+  const startFolderDownload = useCallback(
+    (picks: Entry[]) => {
+      for (const e of picks) {
+        const id = nextId();
+        const root = joinPath(cwd, e.name);
+
+        enqueue(
+          {
+            id,
+            dir: "down",
+            name: `${safeName(e.name)}.zip`,
+            remotePath: root,
+            state: "queued",
+            done: 0,
+          },
+          async (signal) => {
+            const c = clientRef.current!;
+
+            // 1) Ağaç. Sayaç KISILARAK yazılıyor: 4000 girdilik bir
+            // ağaçta her girdi için çizim yapmak arayüzü kilitler.
+            const tree = await walkTree(c, root, reason, {
+              signal,
+              onSeen: (n) => {
+                if (n % 64 === 0) patch(id, { scan: n });
+              },
+            });
+
+            const base = tree.dirs[0].rel;
+            patch(id, {
+              scan: undefined,
+              total: tree.bytes,
+              files: { done: 0, total: tree.files.length },
+            });
+
+            // 2) Dosyalar. Dizin girdileri önce: boş klasörler de
+            // arşivden çıksın.
+            const z = new ZipWriter();
+            for (const d of tree.dirs) {
+              z.addDirectory({ path: d.rel, mtime: d.mtime, mode: d.mode });
+            }
+
+            const failed: Skipped[] = [];
+            let bytes = 0;
+            let n = 0;
+
+            for (const f of tree.files) {
+              const parts: BlobPart[] = [];
+              let crc = 0;
+              let size = 0;
+
+              try {
+                await c.download(
+                  f.path,
+                  (b) => {
+                    parts.push(b);
+                    // CRC parça parça: dosyayı belleğe toplamadan.
+                    crc = crc32(b, crc);
+                    size += b.length;
+                  },
+                  {
+                    onProgress: (p) => patch(id, { done: bytes + p.done }),
+                    size: f.size,
+                    /*
+                     * ⚠️ BÜTÇE İNDİRME SIRASINDA DA GEÇERLİ. Tarama
+                     * toplamı hedefin BİLDİRDİĞİ boyutlardan çıkıyor;
+                     * "10 bayt" deyip gigabaytlarca akan bir hedef,
+                     * indirme başlamadan ölçülmüş tavanı aşardı.
+                     */
+                    limit: maxDownloadBytes - bytes,
+                    signal,
+                  },
+                );
+              } catch (err) {
+                /*
+                 * ⚠️ TEK DOSYA BÜTÜN ARŞİVİ DÜŞÜRMÜYOR. Bir ağaçta izin
+                 * verilmeyen tek bir dosya yüzünden indirmeyi
+                 * reddetmek, çalışan bir şeyi çalışmaz yapardı — ama
+                 * eksik olduğu hem satırda hem ARŞİVİN İÇİNDE yazıyor.
+                 */
+                if (err instanceof Halted) throw err;
+                failed.push({ path: f.path, why: reason(err) });
+                continue;
+              }
+
+              /*
+               * ⚠️ BOYUT LİSTEDEN DEĞİL, OKUNANDAN. readdir'in verdiği
+               * boyut tarama anına ait; dosya o arada büyümüş ya da
+               * küçülmüş olabiliyor. Başlığa listedeki sayıyı yazmak,
+               * AÇILABİLEN ama içi kaymış bir arşiv üretirdi.
+               */
+              z.addFile(
+                { path: f.rel, mtime: f.mtime, mode: f.mode },
+                parts,
+                size,
+                crc,
+              );
+              bytes += size;
+              n++;
+              patch(id, {
+                done: bytes,
+                files: { done: n, total: tree.files.length },
+              });
+            }
+
+            /*
+             * 3) Eksikler arşivin İÇİNE yazılıyor: panel kapandıktan
+             * sonra geriye yalnızca arşiv kalıyor.
+             *
+             * ⚠️ NOTUN ADINI GEZGİN ÖNCEDEN AYIRIYOR (tree.noteName).
+             * Burada tekilleştirmek YANLIŞTI: hedefte aynı adla bir
+             * dosya açan biri bariz adı kendi kapıyor, postern'in
+             * gerçek notu "… (2).txt" oluyordu ve denetçi saldırganın
+             * güvence metnini okuyordu.
+             */
+            const missing =
+              tree.skipped.length + tree.skippedMore + failed.length;
+            if (missing > 0) {
+              const text = new TextEncoder().encode(
+                skipNote(root, tree, failed),
+              );
+              z.addFile(
+                { path: `${base}/${noteName}`, mtime: 0, mode: 0o100644 },
+                [text],
+                text.length,
+                crc32(text),
+              );
+            }
+
+            saveBlob([z.finish()], `${base}.zip`, "application/zip");
+            patch(id, {
+              done: bytes,
+              note:
+                missing > 0 ? `${missing} not included · ${noteName}` : undefined,
+            });
           },
         );
       }
@@ -307,7 +531,14 @@ export default function FileBrowser({
   const shown = showHidden ? entries : entries.filter((e) => !hidden(e));
   const atRoot = cwd === "/" || cwd === "";
   const pickedLocal = local.filter((l) => localPick.has(l.name));
-  const pickedRemote = shown.filter((e) => remotePick.has(e.name) && !e.isDir);
+  /*
+   * ⚠️ DİZİNLER ARTIK SEÇİLEBİLİR ama AYRI bir işe gidiyorlar: bir dosya
+   * tek istek, bir dizin ise bir ağaç gezintisi ve bir arşiv. İkisini
+   * aynı yola sokmak, kuyrukta "ne kadar kaldı"yı anlamsız kılardı.
+   */
+  const picked = shown.filter((e) => remotePick.has(e.name));
+  const pickedFiles = picked.filter((e) => !e.isDir);
+  const pickedDirs = picked.filter((e) => e.isDir);
 
   const dropProps = (side: "local" | "remote") => ({
     onDragOver: (ev: React.DragEvent) => {
@@ -440,11 +671,35 @@ export default function FileBrowser({
           <button
             type="button"
             className="btn btn-primary btn-sm"
-            disabled={pickedRemote.length === 0 || phase !== "ready"}
-            onClick={() => startDownload(pickedRemote)}
+            disabled={picked.length === 0 || phase !== "ready"}
+            onClick={() => {
+              startDownload(pickedFiles);
+              startFolderDownload(pickedDirs);
+            }}
           >
             ← Download
           </button>
+          {/*
+            ⚠️ KLASÖRÜN NE OLARAK GELECEĞİ ÖNCEDEN YAZILI. Tarayıcı bir
+            klasörü olduğu gibi teslim edemiyor (yerini bile
+            seçtiremiyoruz), yani sonuç bir zip. Bunu ancak indirme
+            bittikten sonra öğrenmek, beklenmedik bir dosya türüyle
+            karşılaşmak olurdu.
+          */}
+          {pickedDirs.length > 0 && (
+            <p className="fb-hint">
+              {/*
+                ⚠️ GİZLİ DOSYALAR DA GİRİYOR ve bu SÖYLENİYOR. Liste
+                varsayılan olarak nokta ile başlayanları gizliyor, ama
+                bir klasörü indirmek tam bir kopya demek; kullanıcının
+                panelde görmediği .ssh, .env ya da .git sessizce
+                kendi makinesine inerse, o sürpriz burada olmamalı.
+              */}
+              {pickedDirs.length === 1
+                ? "Folders arrive as a .zip, hidden files included"
+                : `${pickedDirs.length} folders arrive as .zip files, hidden files included`}
+            </p>
+          )}
         </div>
 
         {/* ---------------- sağ: hedef ---------------- */}
@@ -528,25 +783,27 @@ export default function FileBrowser({
                     <tr key={e.name} className={e.isDir ? "is-dir" : undefined}>
                       <td className="pick">
                         {/*
-                      Dizin SEÇİLEMİYOR: özyineli indirme ayrı bir karar
-                      ve verilmedi. Seçilebilir görünüp indirilmeyen bir
-                      kutu, verilmemiş bir söz olurdu.
+                      ⚠️ BAĞLARIN DA KUTUSU VAR ve seçilirse tek dosya
+                      gibi indiriliyor: FXP_OPEN bağı izliyor, yani bir
+                      dosyaya işaret eden bağ çalışıyor, bir dizine
+                      işaret eden bağ hedeften hata alıyor ve sebebi
+                      satıra yazılıyor. Bir ağacın İÇİNDEKİ bağlar ise
+                      izlenmiyor (tree.ts) — orada döngü riski var,
+                      burada yok.
                     */}
-                        {!e.isDir && (
-                          <input
-                            type="checkbox"
-                            aria-label={`select ${e.name}`}
-                            checked={remotePick.has(e.name)}
-                            onChange={(ev) =>
-                              setRemotePick((prev) => {
-                                const next = new Set(prev);
-                                if (ev.target.checked) next.add(e.name);
-                                else next.delete(e.name);
-                                return next;
-                              })
-                            }
-                          />
-                        )}
+                        <input
+                          type="checkbox"
+                          aria-label={`select ${e.name}`}
+                          checked={remotePick.has(e.name)}
+                          onChange={(ev) =>
+                            setRemotePick((prev) => {
+                              const next = new Set(prev);
+                              if (ev.target.checked) next.add(e.name);
+                              else next.delete(e.name);
+                              return next;
+                            })
+                          }
+                        />
                       </td>
                       <td>
                         {/*
@@ -619,41 +876,53 @@ export default function FileBrowser({
                 <span className="fb-job-name">{t.name}</span>
 
                 {/*
-                  ⚠️ ÇUBUK YALNIZCA YÜZDE BİLİNİYORSA. Bilinmeyen boyutu
-                  %0 diye çizmek, akmakta olan bir aktarımı takılmış
-                  gösterir.
+                  ⚠️ ÇUBUĞUN HÜCRESİ HER ZAMAN VAR, ÇUBUĞUN KENDİSİ YOK.
+                  Bilinmeyen boyutu %0 diye çizmek, akmakta olan bir
+                  aktarımı takılmış gösterir; ama hücreyi de silmek,
+                  satırdaki sütunları kaydırıp Stop düğmesini
+                  aktarımdan aktarıma farklı yerlere atardı.
                 */}
-                {!isSettled(t) && pct !== undefined && (
-                  <span
-                    className="fb-bar-track"
-                    role="progressbar"
-                    aria-label={`${t.name} progress`}
-                    aria-valuenow={pct}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                  >
+                <span className="fb-job-track">
+                  {!isSettled(t) && pct !== undefined && (
                     <span
-                      className="fb-bar-fill"
-                      style={{ width: `${pct}%` }}
-                    />
-                  </span>
-                )}
-
-                <span className="fb-job-state">
-                  {t.state === "queued" && "waiting"}
-                  {t.state === "running" &&
-                    (pct !== undefined
-                      ? `${pct}% · ${formatSize(t.done)} of ${formatSize(t.total!)}`
-                      : formatSize(t.done))}
-                  {t.state === "done" && `completed · ${formatSize(t.done)}`}
-                  {t.state === "cancelled" && (t.error ?? "cancelled")}
-                  {/*
-                    ⚠️ HATA SEBEBİYLE YAZILIYOR. "Failed" tek başına,
-                    kullanıcının ne yapması gerektiğini söylemiyor —
-                    izin sorunu mu, yol kuralı mı, bağlantı mı.
-                  */}
-                  {t.state === "failed" && (t.error ?? "failed")}
+                      className="fb-bar-track"
+                      role="progressbar"
+                      aria-label={`${t.name} progress`}
+                      aria-valuenow={pct}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                    >
+                      <span
+                        className="fb-bar-fill"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </span>
+                  )}
                 </span>
+
+                {/*
+                  ⚠️ SEBEP CÜMLESİ transfer.ts'te. "Failed" tek başına,
+                  kullanıcının ne yapması gerektiğini söylemiyor — izin
+                  sorunu mu, yol kuralı mı, bağlantı mı — ve o karar
+                  çizimden bağımsız olarak sınanabilmeli.
+                */}
+                <span className="fb-job-state">{progressText(t)}</span>
+
+                {/*
+                  ⚠️ DURDURMA, BU ÖZELLİĞİN AÇTIĞI BİR AÇIĞI KAPATIYOR.
+                  Bir dizin indirmesi binlerce istek ve dakikalar
+                  sürebiliyor; öncesinde tek çare Files penceresini
+                  kapatmaktı, o da bütün SFTP kanalını düşürüyordu.
+                */}
+                {!isSettled(t) && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm fb-job-stop"
+                    onClick={() => stop(t.id)}
+                  >
+                    Stop
+                  </button>
+                )}
               </div>
             );
           })}
