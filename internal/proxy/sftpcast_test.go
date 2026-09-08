@@ -60,6 +60,47 @@ func TestControlBytesNeverReachTheRecording(t *testing.T) {
 	}
 }
 
+/*
+ * TestBidiControlsNeverReachTheRecording — satırı BOYAMAYAN ama YALAN
+ * SÖYLETEN karakterler.
+ *
+ * ⚠️ KAÇIŞ DİZİLERİNDEN FARKI, SATIRIN OLDUĞU GİBİ DURMASI. İki yönlü
+ * yazı denetimleri ekranı yeniden yazmıyor; satırı BAŞKA okutuyorlar.
+ * Hedefte "fatura<U+202E>gnp.exe" adında bir dosya açan biri, o dosyayı
+ * alan oturumun kaydında "fatura exe.png" yazan bir satır bırakıyor:
+ * denetçi bir resim indirildiğini sanıyor. Kayıt, "kim hangi dosyayı
+ * aldı" sorusunun cevabı; o cevabın YANLIŞ OKUNMASI, kaydın okunmaz
+ * olmasından kötü.
+ *
+ * Canlı denemede bulundu: ad, panelin ürettiği arşivde temizleniyordu
+ * ama kayda olduğu gibi giriyordu.
+ */
+func TestBidiControlsNeverReachTheRecording(t *testing.T) {
+	bidi := []struct {
+		name, path string
+	}{
+		{"RLO", "/tmp/fatura\u202egnp.exe"},
+		{"LRO", "/tmp/a\u202db"},
+		{"PDF", "/tmp/a\u202cb"},
+		{"LRM", "/tmp/a\u200eb"},
+		{"RLM", "/tmp/a\u200fb"},
+		{"izole", "/tmp/a\u2066b\u2069c"},
+	}
+
+	for _, c := range bidi {
+		t.Run(c.name, func(t *testing.T) {
+			line := castLine(ev(sftpaudit.OpOpendir, c.path))
+
+			for _, r := range line {
+				if r == 0x200e || r == 0x200f ||
+					(r >= 0x202a && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069) {
+					t.Fatalf("yön denetimi kayda girdi: %q içinde %U", line, r)
+				}
+			}
+		})
+	}
+}
+
 // Atılan bir şey olduğu KAYBOLMAMALI: temizlenmiş bir ad, temiz bir adla
 // aynı görünürse denetçi yanlış dosyaya bakar.
 func TestSanitisingIsVisible(t *testing.T) {

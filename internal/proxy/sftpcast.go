@@ -82,6 +82,24 @@ func castSafe(s string) string {
 			// C1: tek baytlık ESC eşdeğerleri. UTF-8 çözümünden sonra
 			// bunlar ancak kasten konmuş olabilir.
 			dropped = true
+		case r == 0x200e || r == 0x200f ||
+			(r >= 0x202a && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069):
+			/*
+			 * ⚠️ İKİ YÖNLÜ YAZI DENETİMLERİ: SATIRI BOYAMIYOR, YALAN
+			 * SÖYLETİYOR.
+			 *
+			 * Kaçış dizileri ekranı yeniden yazıyor; bunlar daha
+			 * sinsi — satır olduğu gibi duruyor ama BAŞKA okunuyor.
+			 * "fatura<U+202E>gnp.exe" adlı bir dosyayı alan bir
+			 * oturumun kaydında satır "fatura exe.png ... (0 B)" diye
+			 * görünüyor: denetçi bir resim indirildiğini sanıyor.
+			 * Kayıt, "kim hangi dosyayı aldı" sorusunun cevabı; o
+			 * cevabın yanlış OKUNMASI, kaydın okunmaz olmasından kötü.
+			 *
+			 * Canlı denemede bulundu: dosya adı panelin arşivinde
+			 * temizleniyordu ama kayda olduğu gibi giriyordu.
+			 */
+			dropped = true
 		default:
 			if b.Len() >= maxCastField {
 				dropped = true
