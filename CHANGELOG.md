@@ -53,6 +53,23 @@ audit rows into a shape it does not understand.
 
 ### Added
 
+- **A target that stops answering no longer hangs the panel.** The browser's
+  SFTP client had no deadline of any kind: a target that went silent left a
+  listing or a transfer waiting forever, and the only way out was closing the
+  Files window, which took the whole channel down with it.
+
+  What is measured is **silence, not how long a request takes**. A download
+  keeps sixteen requests in flight, so a per-request deadline would have killed
+  slow-but-working transfers; the clock is reset by every reply instead, and
+  only a target that says nothing at all for sixty seconds trips it. The
+  handshake is covered too — a target that never sends its version left the
+  panel on "Connecting…".
+
+  A timeout does not close the channel. Silence can be a passing state of the
+  target or the path between; marking the session dead would force the reopen
+  this change exists to avoid. The outstanding requests fail with a sentence
+  saying what happened, and the next request is sent normally.
+
 - **The panel's file browser fetches a whole folder.** Tick a folder in the
   remote pane and press Download; postern walks the tree over the same SFTP
   channel a shell session uses and hands you one `.zip`. Every file in it was

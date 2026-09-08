@@ -1015,6 +1015,13 @@ the page cannot choose where. Rather than shipping a real explorer in one
 browser and something different in the rest, the same tray is shown
 everywhere.
 
+A target that stops answering is given sixty seconds of silence before the
+requests waiting on it fail. What that measures is silence rather than how
+long any one request takes — a download keeps sixteen requests in flight, so
+a per-request deadline would end slow but working transfers. The channel
+stays open: the next request is sent normally, because silence is often a
+passing state of the target rather than a dead session.
+
 Files larger than 2 GiB are refused with a sentence naming an SFTP client,
 because the browser holds a download in memory until it is saved and a tab
 that hits that wall dies without telling anyone. A folder is measured

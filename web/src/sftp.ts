@@ -93,6 +93,29 @@ export const maxPacket = 1 << 20;
 export const maxDirEntries = 100_000;
 export const maxDirRounds = 20_000;
 
+/**
+ * stallTimeout, hedeften HİÇ cevap gelmeden geçebilecek süre.
+ *
+ * ⚠️ ÖLÇÜLEN ŞEY İSTEĞİN SÜRESİ DEĞİL, SESSİZLİK. İstek başına süre
+ * tutmak yanlış alarm üretirdi: indirme aynı anda 16 istek uçuruyor
+ * (maxInFlight) ve yavaş bir hedefte sonuncusunun cevabı, veri kesintisiz
+ * aksa bile dakikalar sonra gelebilir. Sayaç her cevapta sıfırlanıyor,
+ * yani akan bir aktarım hiçbir zaman zaman aşımına uğramıyor; yalnızca
+ * SUSAN bir hedef uğruyor.
+ *
+ * ⚠️ NİYE VAR: istemcide hiçbir zaman aşımı yoktu. Cevap vermeyen bir
+ * hedef, gezinmeyi süresiz bekletiyordu — kullanıcıya kalan tek çıkış
+ * Files penceresini kapatmaktı, o da bütün SFTP kanalını düşürüyordu.
+ * Aktarımlarda Stop bunu çözdü (Halted, isteğe karşı yarıştırılıyor),
+ * gezinmede çözmüyordu.
+ *
+ * 60 saniye cömert ve bilerek: hedefin kendi diski takılabiliyor
+ * (uyanan disk, bayat NFS bağı) ve o hâlde doğru cevap beklemek. Ama
+ * sonsuza kadar beklemek doğru değil, çünkü kullanıcı beklediğini bile
+ * göremiyor.
+ */
+export const stallTimeout = 60_000;
+
 const S_IFMT = 0o170000;
 const S_IFDIR = 0o040000;
 const S_IFLNK = 0o120000;
@@ -117,9 +140,9 @@ export interface Entry {
  * `raised`, durdurulunca REDDEDEN bir promise ve bekleyen isteğe karşı
  * yarıştırılıyor — durdurma o zaman anında oluyor.
  *
- * (İstemcide istek başına zaman aşımı hâlâ yok; susan bir hedef bir
- * gezinme isteğini süresiz bekletebiliyor. Durdurma artık ondan
- * kurtarıyor, ama zaman aşımı ayrı bir iş.)
+ * (Susan bir hedefi ayrıca stallTimeout kesiyor. İkisi ayrı sorunun
+ * cevabı ve ikisi de gerekli: durdurma KULLANICININ kararı, zaman aşımı
+ * ise kimse bir şey yapmasa da işleyen bir tavan.)
  */
 export interface Stopper {
   aborted: boolean;
@@ -451,6 +474,9 @@ export class SFTPClient {
   private versionReject: ((e: Error) => void) | null = null;
   private closed: Error | null = null;
 
+  // stall, "hedef sustu" sayacı (bkz. stallTimeout).
+  private stall: ReturnType<typeof setTimeout> | null = null;
+
   constructor(private tx: Transport) {}
 
   /** open, INIT gönderir ve VERSION'ı bekler. */
@@ -463,6 +489,9 @@ export class SFTPClient {
     return new Promise((resolve, reject) => {
       this.versionResolve = resolve;
       this.versionReject = reject;
+      // El sıkışma da susabiliyor: VERSION hiç gelmezse pencere sonsuza
+      // kadar "Connecting…" yazıyordu.
+      this.armStall();
     });
   }
 
@@ -499,6 +528,7 @@ export class SFTPClient {
   fail(err: Error) {
     if (this.closed) return;
     this.closed = err;
+    this.clearStall();
     this.versionReject?.(err);
     this.versionResolve = null;
     this.versionReject = null;
@@ -516,6 +546,7 @@ export class SFTPClient {
       this.versionResolve?.();
       this.versionResolve = null;
       this.versionReject = null;
+      this.armStall();
       return;
     }
 
@@ -523,6 +554,8 @@ export class SFTPClient {
     const waiter = this.pending.get(id);
     if (!waiter) return; // Cevapsız kalmış bir id: yok sayılıyor.
     this.pending.delete(id);
+    // Cevap geldi: hedef susmuyor, sayaç baştan.
+    this.armStall();
 
     if (typ === FXP.STATUS) {
       const code = r.u32();
@@ -554,7 +587,55 @@ export class SFTPClient {
 
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
+      this.armStall();
     });
+  }
+
+  /**
+   * armStall, sessizlik sayacını kurar ya da yeniden kurar.
+   *
+   * ⚠️ BEKLEYEN YOKKEN SAYAÇ DA YOK. Boşta duran bir zamanlayıcı,
+   * tarayıcıda görünmez ama testte süreci canlı tutuyor ve "takılmış
+   * test" gibi görünüyor.
+   */
+  private armStall() {
+    this.clearStall();
+    if (this.pending.size === 0 && this.versionReject === null) return;
+
+    this.stall = setTimeout(() => this.stalled(), stallTimeout);
+  }
+
+  private clearStall() {
+    if (this.stall !== null) {
+      clearTimeout(this.stall);
+      this.stall = null;
+    }
+  }
+
+  /**
+   * stalled, sessizlik süresi dolduğunda bekleyen her isteği reddeder.
+   *
+   * ⚠️ İSTEMCİ KAPATILMIYOR (fail değil). Sessizlik hedefin ya da yolun
+   * geçici bir hâli olabilir; kanalı ölü işaretlemek, kullanıcıyı
+   * pencereyi kapatıp yeniden açmaya zorlardı — yani düzeltmeye
+   * çalıştığımız şeyin aynısı. Bekleyenler reddediliyor, bir sonraki
+   * istek yeniden deneniyor.
+   *
+   * ⚠️ GEÇ GELEN CEVAP ZARARSIZ: bekleyenler tablosundan düşen bir
+   * kimliğe cevap gelirse dispatch onu zaten yok sayıyor.
+   */
+  private stalled() {
+    this.stall = null;
+
+    const err = new Error(
+      `the target has not answered for ${stallTimeout / 1000} seconds`,
+    );
+    this.versionReject?.(err);
+    this.versionResolve = null;
+    this.versionReject = null;
+
+    for (const p of this.pending.values()) p.reject(err);
+    this.pending.clear();
   }
 
   /** realpath, göreli ya da "." yolunu hedefte mutlak yola çevirir. */

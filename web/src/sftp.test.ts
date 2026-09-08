@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import {
   SFTPClient,
   SFTPError,
@@ -9,6 +9,7 @@ import {
   chunkSize,
   maxPacket,
   newStop,
+  stallTimeout,
 } from "./sftp";
 
 /**
@@ -632,5 +633,171 @@ describe("dizin listesi", () => {
     t.reply(packet(FXP.NAME, ...u32(readIDAt(t.body(1), 1)), ...u32(0)));
 
     await expect(p).rejects.toThrow(/empty listing round/);
+  });
+});
+
+describe("susan hedef", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /*
+   * ⚠️ DİNLEYİCİ ZAMANI İLERLETMEDEN ÖNCE TAKILIYOR.
+   *
+   * Reddetme, advanceTimersByTime'ın İÇİNDE oluyor; `await expect(p)`
+   * yazmak dinleyiciyi ondan sonra takıyor ve Node o aralığı
+   * "yakalanmamış reddetme" diye raporluyor. Test yeşil kalıyor ama
+   * koşum "1 unhandled error" diyor — yani gürültü, ve gürültü
+   * bakılmayan bir kırmızıya dönüşüyor.
+   */
+  function rejects(p: Promise<unknown>, want: RegExp): Promise<void> {
+    return p.then(
+      () => {
+        throw new Error("istek reddedilmedi");
+      },
+      (e: unknown) => {
+        expect(String(e)).toMatch(want);
+      },
+    );
+  }
+
+  /*
+   * ⚠️ İSTEMCİDE HİÇBİR ZAMAN AŞIMI YOKTU. Cevap vermeyen bir hedef,
+   * gezinmeyi SÜRESİZ bekletiyordu: kullanıcıya kalan tek çıkış Files
+   * penceresini kapatmaktı ve o da bütün SFTP kanalını düşürüyordu.
+   * Aktarımlarda Stop bunu çözmüştü; gezinmede çözmüyordu.
+   */
+  it("cevap gelmezse isteği sebebiyle reddediyor", async () => {
+    vi.useFakeTimers();
+    const t = new FakeTarget();
+    const settled = rejects(
+      t.client.readdir("/tmp"),
+      /has not answered for 60 seconds/,
+    );
+
+    // Hedef hiçbir şey göndermiyor.
+    await vi.advanceTimersByTimeAsync(stallTimeout + 10);
+    await settled;
+  });
+
+  /*
+   * ⚠️ BU DOSYADAKİ ASIL AYIRT EDİCİ İDDİA: ÖLÇÜLEN ŞEY SESSİZLİK,
+   * İSTEĞİN SÜRESİ DEĞİL.
+   *
+   * İstek başına süre tutan bir uygulama, yavaş ama ÇALIŞAN bir aktarımı
+   * öldürürdü: indirme aynı anda 16 istek uçuruyor ve sonuncusunun cevabı
+   * veri kesintisiz aksa bile çok sonra gelebilir. Sayaç her cevapta
+   * sıfırlandığı için akan bir aktarım hiçbir zaman zaman aşımına
+   * uğramıyor — burada toplam bekleme tavanın iki katını aşıyor ve istek
+   * hâlâ ayakta.
+   */
+  it("cevap akarken toplam süre tavanı aşsa da düşmüyor", async () => {
+    vi.useFakeTimers();
+    const t = new FakeTarget();
+
+    const opened = t.client.readdir("/tmp");
+    t.reply(packet(FXP.HANDLE, ...u32(readIDAt(t.body(0), 1)), ...str("h1")));
+    await vi.advanceTimersByTimeAsync(0);
+
+    let settled = false;
+    opened.then(
+      () => (settled = true),
+      () => (settled = true),
+    );
+
+    // Üç tur: her turda tavanın hemen altı kadar sessizlik, sonra CEVAP.
+    for (let round = 1; round <= 3; round++) {
+      await vi.advanceTimersByTimeAsync(stallTimeout - 1_000);
+
+      const rd = t.sent.length - 1;
+      t.reply(
+        packet(
+          FXP.NAME,
+          ...u32(readIDAt(t.body(rd), 1)),
+          ...u32(1),
+          ...str(`dosya-${round}`),
+          ...str(""),
+          ...u32(0),
+        ),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled).toBe(false);
+    }
+
+    // Toplam bekleme 3 × 59 saniye — tavanın çok üstünde, ama sessizlik
+    // hiç 60 saniyeye ulaşmadı.
+    const last = t.sent.length - 1;
+    t.reply(packet(FXP.STATUS, ...u32(readIDAt(t.body(last), 1)), ...u32(FX.EOF)));
+    await expect(opened).resolves.toHaveLength(3);
+  });
+
+  // El sıkışma da susabiliyor: VERSION hiç gelmezse pencere sonsuza
+  // kadar "Connecting…" yazıyordu.
+  it("VERSION gelmezse el sıkışma düşüyor", async () => {
+    vi.useFakeTimers();
+    const t = new FakeTarget();
+    const settled = rejects(t.client.open(), /has not answered/);
+
+    await vi.advanceTimersByTimeAsync(stallTimeout + 10);
+    await settled;
+  });
+
+  /*
+   * ⚠️ SESSİZLİK KANALI ÖLDÜRMÜYOR. Hedefin ya da yolun geçici bir hâli
+   * olabilir; istemciyi kapalı işaretlemek kullanıcıyı pencereyi kapatıp
+   * yeniden açmaya zorlardı — düzeltmeye çalıştığımız şeyin aynısı.
+   */
+  it("zaman aşımından sonra yeni istek yapılabiliyor", async () => {
+    vi.useFakeTimers();
+    const t = new FakeTarget();
+
+    const first = rejects(t.client.readdir("/tmp"), /has not answered/);
+    await vi.advanceTimersByTimeAsync(stallTimeout + 10);
+    await first;
+
+    // Kanal hâlâ kullanılabilir: ikinci istek TELE ÇIKIYOR.
+    const before = t.sent.length;
+    const second = t.client.realpath(".");
+    expect(t.sent.length).toBe(before + 1);
+
+    t.reply(
+      packet(
+        FXP.NAME,
+        ...u32(readIDAt(t.body(t.sent.length - 1), 1)),
+        ...u32(1),
+        ...str("/home/yigit"),
+        ...str(""),
+        ...u32(0),
+      ),
+    );
+    await expect(second).resolves.toBe("/home/yigit");
+  });
+
+  /*
+   * ⚠️ BEKLEYEN YOKKEN SAYAÇ DA OLMAMALI. Boşta duran bir zamanlayıcı
+   * tarayıcıda görünmüyor ama test sürecini canlı tutuyor ve "takılmış
+   * test" gibi okunuyor — yani düzeltmenin kendisi bir arıza kaynağı
+   * hâline gelirdi.
+   */
+  it("bekleyen kalmayınca sayaç sökülüyor", async () => {
+    vi.useFakeTimers();
+    const t = new FakeTarget();
+
+    const p = t.client.realpath(".");
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+    t.reply(
+      packet(
+        FXP.NAME,
+        ...u32(readIDAt(t.body(0), 1)),
+        ...u32(1),
+        ...str("/home/yigit"),
+        ...str(""),
+        ...u32(0),
+      ),
+    );
+    await p;
+
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
