@@ -67,6 +67,24 @@ func (s *Store) AddSessionFiles(ctx context.Context, sessionID string, files []S
 		}
 		if _, err := stmt.ExecContext(ctx, id, sessionID, f.At.Unix(), f.Op,
 			f.Path, f.NewPath, f.Flags, f.Read, f.Wrote, f.OK, f.Detail); err != nil {
+			/*
+			 * ⚠️ "TEKRAR DENE" İLE "BU SATIR ASLA YAZILAMAZ" AYRILIYOR.
+			 *
+			 * Çağıran (proxy/sftpjournal.go) yazamadığı grubu tampona geri
+			 * koyuyor ve bir sonraki turda yeniden deniyor — geçici bir
+			 * arıza için doğrusu bu. Ama satır DEĞERİ yüzünden
+			 * reddedildiyse (2704 baytı aşan bir yol, geçersiz UTF-8
+			 * içeren bir dosya adı) tekrar denemek sonsuza kadar aynı
+			 * yere çarpmak demek: zehirli satır grubun başında kalıyor ve
+			 * oturumun BÜTÜN dosya olayları onun arkasında birikiyor.
+			 *
+			 * Ayrımı burada yapıyoruz çünkü SQLSTATE'i gören yer burası;
+			 * çağıranın pgconn'a bakması, lehçeyi bu dosyanın dışına
+			 * sızdırmak olurdu.
+			 */
+			if isValueRejected(err) {
+				return fmt.Errorf("store.AddSessionFiles: %w: %v", ErrInvalid, err)
+			}
 			return translateErr("store.AddSessionFiles", err)
 		}
 	}

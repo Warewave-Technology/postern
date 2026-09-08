@@ -60,7 +60,35 @@ const (
 	// edildi. searchtimeout.go bunu ErrTooSlow'a çeviriyor — "iç hata"
 	// demek, operatöre aramasının fazla geniş olduğunu söylemezdi.
 	sqlstateQueryCanceled = "57014"
+
+	/*
+	 * 54000 program_limit_exceeded: PostgreSQL'in kendi yapısal sınırı.
+	 * Bizi ilgilendiren hâli btree indeks girdisinin 2704 baytı aşması —
+	 * uzun bir yol session_files'a yazılırken çıkıyor.
+	 */
+	sqlstateProgramLimitExceeded = "54000"
+
+	// 22 sınıfı data_exception. Bizi ilgilendiren hâli 22021
+	// character_not_in_repertoire: geçersiz UTF-8 ya da NUL içeren bir
+	// dosya adı. Sınıfın tamamına bakıyoruz çünkü ayrım (22P05, 2200x…)
+	// çağıranın vereceği kararı değiştirmiyor.
+	sqlstateClassDataException = "22"
 )
+
+/*
+ * isValueRejected, satırın DEĞERİ yüzünden reddedildiğini söyler.
+ *
+ * ⚠️ AYRIMIN TAŞIDIĞI KARAR: "tekrar dene" ile "bu satır asla yazılamaz".
+ * Bağlantı koptuysa doğru davranış beklemek; değerin kendisi kabul
+ * edilmiyorsa beklemek sonsuza kadar aynı yere çarpmak demek. Çağıran
+ * (proxy/sftpjournal.go) bu ikisini ayırt edemediği için yazılamayan tek
+ * bir satır bütün defteri tıkıyordu.
+ */
+func isValueRejected(err error) bool {
+	code := pgCode(err)
+	return code == sqlstateProgramLimitExceeded ||
+		strings.HasPrefix(code, sqlstateClassDataException)
+}
 
 // pgCode, hatanın SQLSTATE'ini döner; PostgreSQL hatası değilse "".
 func pgCode(err error) string {

@@ -16,6 +16,7 @@ package sftpaudit
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -80,7 +81,7 @@ type Event struct {
  */
 const (
 	/*
-	 * maxPath, BEKLEYEN kayıtta saklanan yolun üst sınırı.
+	 * maxPath, SAKLANAN yolun üst sınırı — işaret dahil.
 	 *
 	 * ⚠️ SAYI SINIRI BAYT SINIRI DEĞİL. maxPending 4096 istekle sınırlıyor
 	 * ama her isteğin yolu gövde kadar (maxHeader, 64 KiB) uzun olabiliyordu:
@@ -88,11 +89,53 @@ const (
 	 * bırakırsa hedefin cevapları geri birikiyor, bekleyenler boşalmıyor ve
 	 * bu sınıra gerçekten ulaşılıyor.
 	 *
-	 * 4096, Linux'ta PATH_MAX. Bunu aşan bir yol hedefte zaten
-	 * ENAMETOOLONG ile dönüyor; sakladığımız şey reddedilecek bir isteğin
-	 * kaydı.
+	 * ⚠️ SINIRI PATH_MAX DEĞİL, VERİTABANI KOYUYOR — VE ÖLÇÜLDÜ.
+	 * Değer 4096'ydı ve gerekçesi "Linux'ta PATH_MAX"tı; defterin o yolu
+	 * KABUL ETTİĞİ ise hiç ölçülmemişti. session_files.path btree
+	 * indeksli (göç 027 ve 031) ve PostgreSQL bir btree girdisini
+	 * reddediyor:
+	 *
+	 *   index row size 2712 exceeds btree version 4 maximum 2704
+	 *   for index "session_files_path_idx"  (SQLSTATE 54000)
+	 *
+	 * Ölçüm (postgres:17-alpine, sıkışmayan yol): 2692 bayt geçiyor,
+	 * 2693 reddediliyor. Sayı türetilebilir: girdi başlığı
+	 * (IndexTupleData 8 + varlena 4 = 12 bayt) 2704'ten düşünce 2692
+	 * kalıyor. Sıkışabilen bir yol daha uzunken de geçiyor — yani sınır
+	 * VERİYE BAĞLI ve güvenli olan en kötü hâl.
+	 *
+	 * 2692 ile 4096 arasında kalan bir yol INSERT'i düşürüyordu; bir
+	 * SFTP istemcisi iç içe dizin açarak o yolu üretebiliyor. Sonuç tek
+	 * bir satırın kaybı değildi: grup tek transaction yazıldığı için
+	 * oturumun BÜTÜN dosya olayları düşüyor, oturum ölüyor ve zehirli
+	 * satır tampona geri konduğu için sonraki her deneme aynı yere
+	 * çarpıyordu (bkz. proxy/sftpjournal.go).
+	 *
+	 * ⚠️ İNDEKSİ HASH'E / md5(path) İFADESİNE ÇEVİRMEK SEÇENEK DEĞİLDİ:
+	 * 031'in tek gerekçesi `LIKE 'önek%'` ile ağaç araması ("/etc altında
+	 * ne oldu") ve bir hash indeksi önek aralığını ifade edemez —
+	 * soruşturmanın en sık sorduğu soruyu ölçülmüş bir hızdan tam
+	 * taramaya düşürürdü. Kesilen yol ise önekini KORUYOR: üst dizin
+	 * üzerinden arama çalışmaya devam ediyor.
 	 */
-	maxPath = 4096
+	maxPath = 2692
+
+	/*
+	 * maxDetail, saklanan gerekçe metninin üst sınırı.
+	 *
+	 * ⚠️ METNİ HEDEF YAZIYOR, SINIRI HEDEF KOYAMAZ. Bu alan STATUS
+	 * paketinin mesajı: açılamayan her dosya için hedefin gönderdiği
+	 * cümle deftere olduğu gibi giriyordu (kolon TEXT, indekssiz —
+	 * ölçtük: 100 KiB'lık bir detail sorunsuz yazılıyor). Binlerce
+	 * başarısız açılış tek bir transaction'da onlarca kilobaytlık
+	 * satırlar demek; denetim tablosunu şişirmek karşı tarafın eline
+	 * bırakılacak bir şey değil.
+	 *
+	 * 512, kayda giren metnin sınırıyla aynı (proxy/sftpcast.go
+	 * maxCastField). Aynı olayın kayıtta ve defterde ayrı ayrı
+	 * kırpılması, iki yüzeyin aynı olayı farklı göstermesi demekti.
+	 */
+	maxDetail = 512
 
 	/*
 	 * maxHandleLen, tanıtıcının üst sınırı.
@@ -673,19 +716,127 @@ func (s *Session) Finish() {
 	s.fromTarget.keep = 0
 }
 
-// clampPath, saklanacak yolu maxPath'e indirir ve KESİLDİĞİNİ işaretler.
+/*
+ * Kesme işaretleri.
+ *
+ * ⚠️ SESSİZ KESME YAPMIYORUZ. Defterde kısaltılmış bir yol gören operatör,
+ * onu gerçek yol sanıp yanlış bir şey üzerinde işlem yapabilirdi. İki ayrı
+ * işaret var çünkü iki ayrı şey oldu: biri metnin UZUN olduğunu, diğeri
+ * içinde SAKLANAMAYAN bayt bulunduğunu söylüyor.
+ *
+ * Metin operatöre bakıyor: İngilizce.
+ */
+const (
+	markTruncated = " (truncated)"
+	markStripped  = " (invalid bytes removed)"
+)
+
+/*
+ * ⚠️ DERLEME ZAMANI KONTROLÜ: sınır, işaretleri TAŞIYABİLMELİ.
+ *
+ * clampText kesme payını max'tan işaret uzunluklarını düşerek buluyor.
+ * Sınır işaretlerden küçük olsaydı pay negatife düşer ve fonksiyon yalnızca
+ * işaretlerden oluşan, kendi sınırını AŞAN bir metin döndürürdü — yani
+ * arızayı gidermek için yazılan kod arızayı üretirdi. Sabitler bir gün
+ * daraltılırsa burası derlenmiyor; sessizce yanlış davranmıyor.
+ */
+const _ = uint(maxDetail - len(markStripped) - len(markTruncated) - 1)
+
+// clampPath, saklanacak yolu deftere SIĞACAK hâle getirir.
+func clampPath(p string) string { return clampText(p, maxPath) }
+
+// clampDetail, saklanacak gerekçe metni için aynısı.
+func clampDetail(d string) string { return clampText(d, maxDetail) }
+
+/*
+ * clampText, metni saklanabilir kılar: saklanamayan baytları atar,
+ * sınırın üstünü keser ve İKİSİNİ DE İŞARETLER.
+ *
+ * ⚠️ ÖNCE AYIKLA SONRA KES. Tersi sırada, atılan baytlar yüzünden kısalan
+ * metin sınırın altına düşse bile "kesildi" damgası yemiş olurdu; ayrıca
+ * kesme sınırı gerçek uzunluğa göre değil ham uzunluğa göre işlerdi.
+ *
+ * ⚠️ İŞARET BÜTÇEYE DAHİL: dönen metnin TOPLAM uzunluğu max'ı aşmıyor.
+ * Aşsaydı fonksiyon kendi sınırını ihlal ederdi ve — daha kötüsü —
+ * iki kez uygulandığında (addPending bir kez, write bir kez) ikinci
+ * çağrı birincinin işaretini kesip üstüne yenisini koyardı.
+ */
+func clampText(s string, max int) string {
+	out, stripped := stripUnstorable(s)
+
+	mark := ""
+	if stripped {
+		mark = markStripped
+	}
+	if len(out)+len(mark) > max {
+		out = truncValid(out, max-len(mark)-len(markTruncated))
+		mark += markTruncated
+	}
+	return out + mark
+}
+
+/*
+ * stripUnstorable, PostgreSQL'in TEXT olarak KABUL ETMEDİĞİ baytları atar.
+ *
+ * ⚠️ BU KIRPMA DEĞİL, ARIZA GİDERME — VE ÖLÇÜLDÜ. SFTP'de dosya adı
+ * uzunluk önekli bir bayt dizisi; geçerli UTF-8 olma zorunluluğu YOK.
+ * Latin-1 adlandırılmış bir dosya (gerçek sunucularda olağan) ya da adına
+ * NUL sıkıştıran bir istemci, satırı yazılamaz kılıyordu:
+ *
+ *   ERROR: invalid byte sequence for encoding "UTF8": 0xe7 0xf6 0xfc
+ *   ERROR: invalid byte sequence for encoding "UTF8": 0x00   (SQLSTATE 22021)
+ *
+ * Uzun yol senaryosunun aksine bunun için iç içe dizin açmak bile
+ * gerekmiyordu: tek bir "rapor-çöü.txt" oturumun bütün dosya olaylarını
+ * düşürüyordu.
+ *
+ * ⚠️ NUL, GEÇERLİ UTF-8'DİR (U+0000) — utf8.ValidString onu yakalamıyor,
+ * PostgreSQL ise kabul etmiyor. Ayrı elenmesinin sebebi bu.
+ *
+ * ⚠️ ATIYORUZ, DEĞİŞTİRMİYORUZ (castSafe ile aynı karar): yerine bir
+ * işaret koymak baytın ne olduğunu söylemez, yalnızca yolu uzatır.
+ * Atıldığını söyleyen şey, çağıranın koyduğu işaret.
+ */
+func stripUnstorable(s string) (string, bool) {
+	if utf8.ValidString(s) && !strings.Contains(s, "\x00") {
+		// Olağan yol: tek bir tarama, kopya yok.
+		return s, false
+	}
+
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); {
+		r, n := utf8.DecodeRuneInString(s[i:])
+		switch {
+		case r == utf8.RuneError && n <= 1:
+			// Geçerli UTF-8 olmayan bayt.
+			i++
+		case r == 0:
+			i += n
+		default:
+			b.WriteString(s[i : i+n])
+			i += n
+		}
+	}
+	return b.String(), true
+}
+
+// truncValid, metni n bayta indirir ve sondaki YARIM rune'u atar.
 //
-// ⚠️ SESSİZ KESME YAPMIYORUZ. Defterde kısaltılmış bir yol gören operatör,
-// onu gerçek yol sanıp yanlış bir şey üzerinde işlem yapabilirdi.
-func clampPath(p string) string {
-	if len(p) <= maxPath {
-		return p
+// Yarım bırakılan bir rune geçersiz UTF-8'dir: kesme, giderdiğimiz
+// arızayı kendi elimizle geri getirirdi.
+func truncValid(s string, n int) string {
+	if n <= 0 {
+		return ""
 	}
-	p = p[:maxPath]
-	for len(p) > 0 && !utf8.ValidString(p) {
-		p = p[:len(p)-1]
+	if len(s) <= n {
+		return s
 	}
-	return p + " (truncated)"
+	s = s[:n]
+	for len(s) > 0 && !utf8.ValidString(s) {
+		s = s[:len(s)-1]
+	}
+	return s
 }
 
 func (s *Session) addPending(id uint32, p pendingOp) error {
@@ -710,7 +861,23 @@ func (s *Session) takePending(id uint32) (pendingOp, bool) {
 	return p, ok
 }
 
+/*
+ * write, olayı zamanlayıp dinleyiciye verir.
+ *
+ * ⚠️ KIRPMA BURADA, HER OLAY BURADAN GEÇTİĞİ İÇİN. Yol kırpması
+ * addPending'de de var (bekleyen tablosunun bellek sınırı) ama olayların
+ * hepsi oradan gelmiyor: politika retleri isteğin yolunu doğrudan yazıyor
+ * ve gerekçe metni hiç uğramıyor. Kırpmayı olay ÜRETEN yerlere dağıtmak,
+ * eklenecek her yeni olayın sessizce dışarıda kalması demekti — nitekim
+ * Detail için tam olarak bu olmuştu.
+ *
+ * clampText iki kez uygulanmaya dayanıklı: addPending'den geçmiş bir yol
+ * burada olduğu gibi kalıyor.
+ */
 func (s *Session) write(e Event) {
 	e.At = s.now()
+	e.Path = clampPath(e.Path)
+	e.NewPath = clampPath(e.NewPath)
+	e.Detail = clampDetail(e.Detail)
 	s.emit(e)
 }
