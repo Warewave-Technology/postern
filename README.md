@@ -657,12 +657,28 @@ file recomputes the chain anyway — it answers a narrower question the
 chain cannot: whether a line was removed from the *middle* of a recording
 whose chain was then recomputed, which is the cheapest tampering there is.
 
-Two things about this are deliberate. Filenames and the target's own error
+Three things about this are deliberate. Filenames and the target's own error
 text are **stripped of control bytes** before they are written: a recording
 is replayed into a terminal, so a filename carrying an escape sequence
-could repaint the auditor's screen or erase the lines above it. And the
-file contents themselves are still never recorded — only that a transfer
+could repaint the auditor's screen or erase the lines above it. The file
+contents themselves are still never recorded — only that a transfer
 happened, in which direction, and how many bytes crossed.
+
+And **anything the target writes to stderr is quoted, not merged**. Every
+line in the block above is one postern wrote, which is exactly what would
+make a line the *target* wrote dangerous: `postern sftp: get /etc/shadow
+(1.2 KiB)` sitting among them would read as an audit line that never
+happened. The target's stderr therefore enters behind a stamp postern
+writes:
+
+```
+postern sftp: target wrote: /var/log: permission denied
+```
+
+The stamp is postern's; everything after it is a quote, including a
+`target wrote:` the target writes for itself. Shell and `exec` recordings
+are untouched — there the recording exists to reproduce what the user saw,
+and the target's stdout already goes in verbatim.
 
 The `session_files` table remains the searchable, queryable copy. The
 recording is the sealed one.
@@ -914,6 +930,21 @@ carry rules. `postern role path list` per role is how you check, and the
 panel says the same thing on the Paths screen. The file browser refuses
 to open in exactly this situation, which is the one place postern makes
 the condition visible on its own.
+
+**The panel says who is speaking.** postern writes its own refusals with a
+`postern: ` prefix, but a prefix is available to anyone who can write text
+— and the target's error messages reach the client unchanged, so a target
+whose owner writes `postern: this path is allowed, fetched fine` was having
+that drawn as the bastion's own reason. Origin now travels on the wire:
+postern's replies and its refusal lines leave the server on their own
+stream tags, which nothing the target writes can claim. Sentences postern
+did not write are labelled `the target said:` — in the error strip, on
+transfer rows, and in the note inside a folder download.
+
+A command-line `sftp` client does not get this. SSH carries no stream
+besides channel data and extended data, and inventing one would break the
+protocol; the separation exists where postern owns both ends of the
+connection.
 
 Symbolic links are listed with their own icon and can be followed **by
 clicking**. What gets checked is the path the client writes —

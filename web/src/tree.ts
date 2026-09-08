@@ -31,7 +31,7 @@
  * dosya için gidiş-dönüş bekleniyor.
  */
 
-import { Halted, type Entry, type Stopper } from "./sftp";
+import { Halted, type Entry, type Origin, type Stopper } from "./sftp";
 import { joinPath } from "./files";
 import { safeName, uniqueName } from "./zip";
 import { maxDownloadBytes } from "./transfer";
@@ -110,11 +110,24 @@ export interface TreeDir {
   mode: number;
 }
 
+/**
+ * Reason, bir gerekçe ve onu KİMİN yazdığı.
+ *
+ * ⚠️ KÖKEN AYRI BİR ALAN, cümlenin içine gömülü değil. Notun okuru
+ * "bunu postern mi reddetti yoksa hedef mi hata mı verdi" sorusunu
+ * soruyor ve iki cevabın sonucu farklı: ilki bir kural, ikincisi bir
+ * arıza. Ayrımı metinden okumaya çalışmak, ayrımı hedefe yazdırmak
+ * demekti (bkz. sftp.ts, Origin).
+ */
+export interface Reason {
+  why: string;
+  from: Origin;
+}
+
 /** Skipped, arşive GİRMEYEN bir şey ve sebebi. */
-export interface Skipped {
+export interface Skipped extends Reason {
   /** Hedefteki yol — kullanıcı neyin eksik olduğunu görebilmeli. */
   path: string;
-  why: string;
 }
 
 export interface Tree {
@@ -188,7 +201,7 @@ export function tooLarge(): string {
 export async function walkTree(
   c: Lister,
   root: string,
-  explain: (e: unknown) => string,
+  explain: (e: unknown) => Reason,
   opts: {
     onSeen?: (seen: number) => void;
     signal?: Stopper;
@@ -242,7 +255,7 @@ export async function walkTree(
        * reddetmek, çalışan bir şeyi çalışmaz yapardı; eksik olduğu
        * kullanıcıya arşivin içinde de yazılıyor.
        */
-      note({ path: dir, why: explain(e) });
+      note({ path: dir, ...explain(e) });
       return;
     }
 
@@ -280,7 +293,11 @@ export async function walkTree(
       const path = joinPath(dir, e.name);
 
       if (utf8Len(path) > maxPathBytes) {
-        note({ path: `${dir}/…`, why: "its path is too long to record" });
+        note({
+          path: `${dir}/…`,
+          why: "its path is too long to record",
+          from: "postern",
+        });
         continue;
       }
 
@@ -288,13 +305,18 @@ export async function walkTree(
         note({
           path,
           why: "symbolic link — postern does not follow links when it fetches a folder",
+          from: "postern",
         });
         continue;
       }
 
       if (e.isDir) {
         if (depth + 1 > maxTreeDepth) {
-          note({ path, why: `nested deeper than ${maxTreeDepth} levels` });
+          note({
+            path,
+            why: `nested deeper than ${maxTreeDepth} levels`,
+            from: "postern",
+          });
           continue;
         }
         const name = uniqueName(taken, safeName(e.name));
@@ -330,6 +352,7 @@ export async function walkTree(
             e.mode === 0
               ? "the target did not say what kind of entry this is"
               : "not a regular file",
+          from: "postern",
         });
         continue;
       }
@@ -363,7 +386,7 @@ export async function walkTree(
  * yani hedef, notun KENDİ satırlarını yazabilirdi. Kayda giren metinle
  * aynı gerekçe (internal/proxy/sftpcast.go, castSafe).
  */
-function plain(s: string): string {
+export function plain(s: string): string {
   let out = "";
   for (const r of s) {
     const c = r.codePointAt(0) ?? 0;
@@ -392,6 +415,20 @@ function utf8Len(s: string): number {
 }
 
 /**
+ * quote, bir gerekçeyi konuşanıyla birlikte yazar.
+ *
+ * ⚠️ DAMGA HER İKİ YÖNDE DE AÇIK. postern'in satırını işaretsiz
+ * bırakıp "işaretsiz olan bizimdir" demek, hedefe boş bir alan
+ * bırakırdı: kendi metnini işaretsiz gibi göstermek için hiçbir şey
+ * yapması gerekmezdi.
+ */
+function quote(s: Reason): string {
+  const who = s.from === "target" ? "the target said: " : "postern: ";
+
+  return who + plain(s.why);
+}
+
+/**
  * skipNote, atlananları arşivin içine konacak metne çevirir.
  *
  * ⚠️ NOT ARŞİVİN İÇİNE GİRİYOR, YALNIZCA EKRANA DEĞİL. Panel kapandıktan
@@ -403,21 +440,28 @@ export function skipNote(root: string, t: Tree, failed: Skipped[]): string {
     `postern did not put everything under ${root} into this archive.`,
     "",
     /*
-     * ⚠️ SEBEPLERİN BİR KISMINI HEDEF YAZIYOR ve bunu söylemek şart.
-     * İstemci postern'in retlerini "postern: " önekinden tanıyor, ama o
-     * öneki hedef de yazabiliyor — yani bu dosya, hedefin cümlesine
-     * postern'in sesini ödünç verebilirdi. Kimin konuştuğunu ayırmanın
-     * yeri protokol; burada yapılabilecek şey, okuyana bunu söylemek.
+     * ⚠️ HER SEBEP KİMİN YAZDIĞIYLA BİRLİKTE GİRİYOR.
+     *
+     * Bu satırlar eskiden yalnızca "bir kısmını hedef yazıyor, ayırt
+     * edemiyoruz" diyordu ve doğruydu: istemci postern'in retlerini
+     * "postern: " önekinden tanıyordu, o öneki de hedef yazabiliyordu.
+     * Ayrım artık metinden değil akış etiketinden geliyor (sftp.ts,
+     * Origin), yani burada söylenebilecek şey değişti — nota bakan
+     * denetçi her satırda konuşanı görüyor.
+     *
+     * ⚠️ ALINTININ KENDİSİ HÂLÂ HEDEFİN METNİ. Damgayı postern yazıyor,
+     * sonrası alıntı; hedefin kendi yazdığı bir damga da alıntının
+     * İÇİNDE kalıyor.
      */
-    "Reasons below are quoted. Some are postern's own refusals and some",
-    "come from the target, which writes its own error text; the session's",
-    "file journal is where the two are told apart.",
+    "Each reason below says who produced it: \"postern:\" is this bastion's",
+    "own refusal, \"the target said:\" quotes text the target wrote. The",
+    "session's file journal records the same split.",
     "",
   ];
 
   if (t.skipped.length > 0) {
     lines.push("Skipped while listing the folder:");
-    for (const s of t.skipped) lines.push(`  ${plain(s.path)}: ${plain(s.why)}`);
+    for (const s of t.skipped) lines.push(`  ${plain(s.path)}: ${quote(s)}`);
     // Liste kırpıldıysa SAYI yine veriliyor: kırpılmış bir liste,
     // kırpıldığını söylemezse eksiksiz sanılır.
     if (t.skippedMore > 0) {
@@ -428,7 +472,7 @@ export function skipNote(root: string, t: Tree, failed: Skipped[]): string {
 
   if (failed.length > 0) {
     lines.push("Could not be read:");
-    for (const s of failed) lines.push(`  ${plain(s.path)}: ${plain(s.why)}`);
+    for (const s of failed) lines.push(`  ${plain(s.path)}: ${quote(s)}`);
     lines.push("");
   }
 

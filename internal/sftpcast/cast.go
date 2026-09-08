@@ -37,13 +37,20 @@ import (
 	"github.com/Warewave-Technology/postern/internal/sftpaudit"
 )
 
-// maxField, kayda yazılan tek bir alanın tavanı.
+// MaxField, kayda yazılan tek bir alanın tavanı.
 //
 // ⚠️ Yol uzunluğu zaten sınırlı (sftpaudit.maxPath) ama gerekçe metni
 // hedeften geliyor ve sınırı hedef koyuyor. Kayıt satırının uzunluğu
 // zincire giren bayt sayısıdır; sınırsız bırakmak, tek bir isteğin
 // kaydı şişirmesine izin vermek olurdu.
-const maxField = 512
+/*
+ * MaxField, kayda yazılan tek bir alanın tavanı.
+ *
+ * ⚠️ DIŞARI AÇIK, çünkü proxy'deki stderr tamponu kendi tavanını buna
+ * göre kuruyor (sftpcast.go, maxCastStderrLine). İki yerde ayrı iki sabit
+ * dursaydı, biri değişince diğeri sessizce eski değerde kalırdı.
+ */
+const MaxField = 512
 
 /*
  * Safe, karşı taraftan gelen metni bir terminal kaydına konabilir
@@ -92,7 +99,7 @@ func Safe(s string) string {
 			 */
 			dropped = true
 		default:
-			if b.Len() >= maxField {
+			if b.Len() >= MaxField {
 				dropped = true
 				continue
 			}

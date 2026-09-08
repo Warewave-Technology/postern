@@ -21,6 +21,28 @@ type requestSender interface {
 	SendRequest(name string, wantReply bool, payload []byte) (bool, error)
 }
 
+/*
+ * OwnWriter, postern'in KENDİ ürettiği baytları hedefinkilerden ayırt
+ * edilebilir biçimde taşıyabilen istemci ucu.
+ *
+ * ⚠️ NEDEN VAR: postern reddettiği isteğe kendi SFTP cevabını yazıyor ve
+ * kullanıcıya kendi gerekçesini stderr'den söylüyor — ama hedefin cevabı
+ * da, stderr'i de AYNI iki akıştan geçiyor. İstemci ikisini yalnızca
+ * metne bakarak ayırmaya çalışırsa, ayrımı hedef yazıyor demektir:
+ * "postern: " diye başlayan bir hedef mesajı, bastion'ın cümlesi diye
+ * okunur. Köken, yazan yerin SEÇTİĞİ bir şey olmalı.
+ *
+ * ⚠️ İSTEĞE BAĞLI, ZORUNLU DEĞİL. Gerçek bir ssh.Channel bunu
+ * karşılayamaz: SSH'ta CHANNEL_DATA ve EXTENDED_DATA dışında akış yok ve
+ * uydurmak protokolü bozardı. O uçta düz Write'a düşüyoruz — yani bir
+ * `sftp` istemcisi ayrımı GÖREMİYOR ve bu sınır burada yazılı. Panelin
+ * kendi taşıması var (httpapi/wschannel.go, akış etiketi).
+ */
+type OwnWriter interface {
+	WriteOwn(p []byte) (int, error)
+	WriteOwnStderr(p []byte) (int, error)
+}
+
 // Broker, bir kullanıcı kanalı (down) ile bir hedef kanalı (up) arasında
 // veriyi ve request'leri iki yönde taşır.
 type Broker struct {
@@ -63,6 +85,10 @@ type Broker struct {
 	// sftpSink nil olabilir: SFTP kapalıysa denetim de kurulmuyor ve
 	// süzgeç subsystem'i zaten reddediyor.
 	sftpSink SFTPSink
+
+	// castErr, hedefin stderr'inin KAYDA giden kopyası; kayıt kapalıysa
+	// nil (bkz. sftpcast.go, castStderr).
+	castErr *castStderr
 
 	/*
 	 * onDeny, postern'in KENDİ reddettiği bir istek için çağrılıyor.
@@ -209,9 +235,19 @@ type Broker struct {
 // rec nil geçilebilir (kayıt kapalı). recordInput yalnızca config açıkça
 // istediğinde true olmalı.
 func New(down ssh.Channel, downR <-chan *ssh.Request, up ssh.Channel, upR <-chan *ssh.Request, rec *record.Writer, recordInput bool, policy RequestPolicy, logger *slog.Logger) *Broker {
-	return &Broker{down: down, downR: downR, up: up, upR: upR, rec: rec,
+	b := &Broker{down: down, downR: downR, up: up, upR: upR, rec: rec,
 		recordInput: recordInput, policy: policy, logger: logger,
 		aborted: make(chan struct{})}
+	/*
+	 * ⚠️ KAYIT KOPYASI BURADA KURULUYOR, boru hattında değil. Run onu
+	 * kapanışta boşaltıyor; goroutine içinde kurulsaydı Run'ın okuduğu
+	 * alan bir veri yarışı olurdu.
+	 */
+	if rec != nil {
+		b.castErr = newCastStderr(b)
+	}
+
+	return b
 }
 
 // injectSignal, enjektörü uyandıran kanal; ilk çağıran kuruyor.
@@ -278,7 +314,12 @@ func (b *Broker) tryInject() {
 	b.injectMu.Unlock()
 
 	for _, d := range q {
-		if _, err := b.down.Write(d.Status); err != nil {
+		/*
+		 * ⚠️ KENDİ CEVABIMIZ KENDİ ETİKETİYLE ÇIKIYOR. Bu paketi hedef
+		 * DEĞİL postern üretti; istemcinin bunu paketin İÇİNDEKİ metne
+		 * bakarak anlaması gerekseydi, ayrımı hedef yazabilirdi.
+		 */
+		if _, err := b.writeOwn(d.Status); err != nil {
 			/*
 			 * Yazılamadıysa kanal zaten kopuyor. Oturumu burada
 			 * bitirmiyoruz: ret UYGULANDI, iletilemeyen şey yalnızca
@@ -326,7 +367,7 @@ func (b *Broker) tellUser(line string) {
 	if len(b.notices) >= maxRefusalNotices {
 		if !b.noticesCapped {
 			b.noticesCapped = true
-			_, _ = b.down.Stderr().Write([]byte("postern: further refusals are not shown\r\n"))
+			_, _ = b.writeOwnStderr([]byte("postern: further refusals are not shown\r\n"))
 		}
 		return
 	}
@@ -334,7 +375,31 @@ func (b *Broker) tellUser(line string) {
 
 	// Yazma hatası yutuluyor: kanal kopuyorsa söylenecek bir şey kalmadı
 	// ve ret zaten uygulandı.
-	_, _ = b.down.Stderr().Write([]byte(line + "\r\n"))
+	_, _ = b.writeOwnStderr([]byte(line + "\r\n"))
+}
+
+/*
+ * writeOwn ve writeOwnStderr, postern'in KENDİ cümlesini yazar.
+ *
+ * ⚠️ ARAYÜZÜ KARŞILAMAYAN UÇTA DÜZ YAZMAYA DÜŞÜYOR — sessizce ve
+ * bilerek. Gerçek bir SSH kanalında taşınacak bir köken alanı yok;
+ * orada reddin İLETİLMESİ, ayırt edilebilir olmasından önce gelir.
+ * Kaybolan tek şey ayrım ve o sınır OwnWriter'ın başında yazılı.
+ */
+func (b *Broker) writeOwn(p []byte) (int, error) {
+	if w, ok := b.down.(OwnWriter); ok {
+		return w.WriteOwn(p)
+	}
+
+	return b.down.Write(p)
+}
+
+func (b *Broker) writeOwnStderr(p []byte) (int, error) {
+	if w, ok := b.down.(OwnWriter); ok {
+		return w.WriteOwnStderr(p)
+	}
+
+	return b.down.Stderr().Write(p)
 }
 
 /*
@@ -383,6 +448,24 @@ func (b *Broker) gate() chan struct{} {
 
 // openStartGate, park etmiş istemci yazıcılarını serbest bırakır. Bir kez.
 func (b *Broker) openStartGate() { b.gateOnce.Do(func() { close(b.gate()) }) }
+
+/*
+ * started, oturumu başlatan isteğin (shell/exec/subsystem) işlenip
+ * işlenmediği — yani kanalın TÜRÜNÜN kararlaştığı an.
+ *
+ * ⚠️ "SFTP mi" DEĞİL, "BELLİ Mİ" SORUSU. İkisi ayrı: b.sftp hâlâ nil
+ * olabilir çünkü kanal kabuk, ya da çünkü henüz hiçbir şey
+ * başlatılmadı. Kayda giden stderr için bu fark taşıyıcı (bkz.
+ * sftpcast.go, castStderr).
+ */
+func (b *Broker) started() bool {
+	select {
+	case <-b.gate():
+		return true
+	default:
+		return false
+	}
+}
 
 // WithSFTP, SFTP denetim hedefini bağlar.
 //
@@ -433,15 +516,25 @@ func (b *Broker) inputSink() io.Writer {
 	return b.idle.wrap(b.tap(b.up, rec, fromClient))
 }
 
-// errorSink returns where target→user bytes should be written: the user's
-// channel alone, or that channel tee'd into the recording.
+/*
+ * stderrSink returns where target→user stderr should be written: the
+ * user's channel alone, or that channel tee'd into the recording.
+ *
+ * ⚠️ stderr ÇÖZÜMLENMİYOR: SFTP protokolü stderr üzerinde akmaz. Buraya
+ * hedefin uyarı metinleri düşer ve onlar kayda ait.
+ *
+ * ⚠️ KULLANICIYA GİDEN KOPYA HAM, KAYDA GİRENİ DEĞİL — ve ikisi ayrı
+ * sorunun cevabı. Kullanıcının ucundaki şey hedefin kendi akışı; onu
+ * kırpmak, `sftp`nin gösterdiği hata metnini bozmak olurdu. Kayda giren
+ * kopya ise ileride BAŞKA BİRİNİN, başka bir terminalde oynatacağı şey
+ * (bkz. sftpcast.go, castStderr).
+ */
 func (b *Broker) stderrSink() io.Writer {
-	// ⚠️ stderr ÇÖZÜMLENMİYOR: SFTP protokolü stderr üzerinde akmaz.
-	// Buraya sunucunun uyarı metinleri düşer ve onlar kayda ait.
-	if b.rec != nil {
-		return b.idle.wrap(io.MultiWriter(b.down.Stderr(), b.rec.OutputStream()))
+	if b.rec == nil {
+		return b.idle.wrap(b.down.Stderr())
 	}
-	return b.idle.wrap(b.down.Stderr())
+
+	return b.idle.wrap(io.MultiWriter(b.down.Stderr(), b.castErr))
 }
 
 // recStream, kayıt akışını döner (kapalıysa nil).
@@ -481,6 +574,13 @@ func (b *Broker) tap(dst io.Writer, rec io.Writer, dir direction) io.Writer {
  *
  * ⚠️ SEBEP YOKSA SESSİZ. Kullanıcı `exit` yazdığında veda etmek gürültü
  * olurdu; yazdığımız yalnızca BİZİM aldığımız kararlar.
+ *
+ * ⚠️ BU SATIR KÖKEN ETİKETİ TAŞIMIYOR (writeOwn kullanmıyor) ve bu bir
+ * eksik değil. İki sebebi var: satır outputSink'ten geçiyor ki AYNI SIRAYLA
+ * kayda da girsin, ve buraya yalnızca SFTP OLMAYAN bir kanalda geliniyor
+ * (aşağıdaki kapı). Kabuk kanalında ayrımın alıcısı yok — terminal baytları
+ * çiziyor ve hedefin stdout'u da aynı cümleyi zaten yazabilir; etiket orada
+ * hiçbir şey satın almaz.
  */
 func (b *Broker) sayGoodbye(ctx context.Context) {
 	var line string
@@ -767,6 +867,17 @@ func (b *Broker) Run(ctx context.Context) error {
 	 * görünür kılıyor — abortAudit de abortErr'i close'dan önce
 	 * yazıyor. Kapanmamışsa alana hiç dokunmuyoruz.
 	 */
+	/*
+	 * ⚠️ HEDEFİN SON CÜMLESİ, MÜHÜRDEN ÖNCE. Satır sonu görmeden biten
+	 * bir stderr satırı tamponda bekliyor olabilir.
+	 *
+	 * Boşaltma BURADA, stderr goroutine'inde DEĞİL — o goroutine ctx
+	 * iptaliyle bitmiyor (hedefin akışını okurken bekliyor) ve Run onu
+	 * beklemeden dönüyor. Orada boşaltmak, en çok merak edilen cümleyi —
+	 * oturum koparken yazılanı — kaydın dışında bırakırdı.
+	 */
+	b.flushStderrCast()
+
 	/*
 	 * ⚠️ MÜHÜR SATIRI BURADA, Run DÖNMEDEN ÖNCE. Kaydı lifecycle
 	 * kapatıyor ve bunu Run döndükten SONRA yapıyor; sıra tersine

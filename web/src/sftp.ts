@@ -161,11 +161,35 @@ export class Halted extends Error {
   }
 }
 
-/** SFTPError, hedefin verdiği durum kodunu ve mesajını taşır. */
+/**
+ * Origin, bir cevabı KİMİN yazdığı.
+ *
+ * ⚠️ METİNDEN ÇIKARILMIYOR, TAŞINIYOR — ve bu bir düzeltme. postern kendi
+ * retlerini "postern: " önekiyle gönderiyor ve panel bir zamanlar o öneki
+ * KÖKEN KANITI sayıyordu. Ama hedefin STATUS mesajı istemciye olduğu gibi
+ * geçiyor: hedefin sahibi "postern: this path is allowed" yazdığında panel
+ * o cümleyi postern'in ağzından çiziyordu. Bir dizge, onu yazabilen
+ * herkesin elinde; kanıt olamaz.
+ *
+ * Kanıt artık akış etiketi (internal/httpapi/wschannel.go): postern'in
+ * ürettiği baytlar ayrı bir etiketle geliyor ve hedefin yazabildiği hiçbir
+ * şey o etiketi kendine veremiyor.
+ */
+export type Origin = "postern" | "target";
+
+/**
+ * SFTPError, bir durum kodunu, mesajını ve mesajı KİMİN yazdığını taşır.
+ *
+ * ⚠️ VARSAYILAN "target" ve bu bilinçli. Kökeni bilmeyen bir çağrı yeri,
+ * metni postern'e YAZDIRMAMALI: atıf pozitif bir kanıt istiyor (etiket),
+ * yokluğu değil. Yanlış tarafa düşen varsayım, tam da kapatılan açığı
+ * geri açardı.
+ */
 export class SFTPError extends Error {
   constructor(
     readonly code: number,
     message: string,
+    readonly origin: Origin = "target",
   ) {
     super(message);
     this.name = "SFTPError";
@@ -411,7 +435,18 @@ type Pending = {
 export class SFTPClient {
   private id = 0;
   private pending = new Map<number, Pending>();
-  private framer = new Framer();
+  /*
+   * ⚠️ KÖKEN BAŞINA AYRI ÇERÇEVELEYİCİ. postern'in cevabı ve hedefin
+   * cevabı tel üzerinde AYRI akışlar (ayrı etiket), dolayısıyla ayrı
+   * çerçevelenmeleri gerekiyor: tek tampon, bir tarafın yarım paketiyle
+   * diğerinin tam paketini birbirine yapıştırırdı. Sunucu enjeksiyonu
+   * paket sınırında yapıyor (proxy: TargetAtBoundary) ama buna GÜVENMEK,
+   * istemcinin doğruluğunu sunucunun zamanlamasına bağlamak olurdu.
+   */
+  private framers: Record<Origin, Framer> = {
+    target: new Framer(),
+    postern: new Framer(),
+  };
   private versionResolve: (() => void) | null = null;
   private versionReject: ((e: Error) => void) | null = null;
   private closed: Error | null = null;
@@ -436,18 +471,23 @@ export class SFTPClient {
    *
    * Çözümleme hatası ÖLÜMCÜL: paket sınırını kaybetmiş bir akışta
    * devam etmek, rastgele baytları cevap sanmak demek.
+   *
+   * ⚠️ KÖKENİ ÇAĞIRAN SÖYLÜYOR, PAKET DEĞİL. Çağıran onu akış
+   * etiketinden okuyor; paketin içinde köken taşıyan bir alan yok ve
+   * olsaydı da hedef onu doldurabilirdi. Varsayılan "target": bilmeden
+   * çağıran, metni postern'e yazdırmıyor.
    */
-  feed(chunk: Uint8Array) {
+  feed(chunk: Uint8Array, from: Origin = "target") {
     let packets: Uint8Array<ArrayBuffer>[];
     try {
-      packets = this.framer.push(chunk);
+      packets = this.framers[from].push(chunk);
     } catch (e) {
       this.fail(e instanceof Error ? e : new Error(String(e)));
       return;
     }
     for (const p of packets) {
       try {
-        this.dispatch(p);
+        this.dispatch(p, from);
       } catch (e) {
         this.fail(e instanceof Error ? e : new Error(String(e)));
         return;
@@ -466,7 +506,7 @@ export class SFTPClient {
     this.pending.clear();
   }
 
-  private dispatch(p: Uint8Array<ArrayBuffer>) {
+  private dispatch(p: Uint8Array<ArrayBuffer>, from: Origin) {
     const r = new Reader(p);
     const typ = r.u8();
 
@@ -497,7 +537,7 @@ export class SFTPClient {
         waiter.resolve({ typ, r });
         return;
       }
-      waiter.reject(new SFTPError(code, msg || statusText(code)));
+      waiter.reject(new SFTPError(code, msg || statusText(code), from));
       return;
     }
 

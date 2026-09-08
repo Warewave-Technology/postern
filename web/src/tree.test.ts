@@ -9,6 +9,7 @@ import {
   skipNote,
   walkTree,
   type Lister,
+  type Reason,
 } from "./tree";
 
 const DIR = 0o040755;
@@ -45,7 +46,15 @@ function lister(tree: Record<string, Entry[]>): Lister & { opened: string[] } {
   };
 }
 
-const explain = (e: unknown) => (e instanceof Error ? e.message : String(e));
+/*
+ * ⚠️ GERÇEK explain'İN SÖZLEŞMESİNİ TAŞIYOR: kökeni HATANIN KENDİSİNDEN
+ * okuyor, metninden değil. Metinden okuyan bir sahte, gezginin kökeni
+ * gerçekten taşıyıp taşımadığını ölçemezdi.
+ */
+const explain = (e: unknown): Reason =>
+  e instanceof SFTPError
+    ? { why: e.message, from: e.origin }
+    : { why: e instanceof Error ? e.message : String(e), from: "postern" };
 
 describe("ağaç gezintisi", () => {
   /*
@@ -88,6 +97,7 @@ describe("ağaç gezintisi", () => {
       {
         path: "/is/guncel",
         why: "symbolic link — postern does not follow links when it fetches a folder",
+        from: "postern",
       },
     ]);
   });
@@ -137,6 +147,7 @@ describe("ağaç gezintisi", () => {
       {
         path: "/is/bilinmiyor",
         why: "the target did not say what kind of entry this is",
+        from: "postern",
       },
     ]);
   });
@@ -243,8 +254,13 @@ describe("ağaç gezintisi", () => {
     const tree = await walkTree(t, "/is", explain);
 
     expect(tree.files.map((f) => f.rel)).toEqual(["is/acik/x.txt"]);
+    /*
+     * ⚠️ HEDEFİN "postern: " YAZMASI ONU POSTERN YAPMIYOR. Sahte
+     * listeleyici tam da o öneki taşıyan bir hata fırlatıyor ve gezgin
+     * onu yine hedefe atfediyor: köken etiketten geliyor, metinden değil.
+     */
     expect(tree.skipped).toEqual([
-      { path: "/is/kapali", why: "postern: not allowed" },
+      { path: "/is/kapali", why: "postern: not allowed", from: "target" },
     ]);
 
     /*
@@ -434,18 +450,28 @@ describe("arşive konan not", () => {
       {
         files: [],
         dirs: [],
-        skipped: [{ path: "/var/log/current", why: "symbolic link" }],
+        skipped: [
+          { path: "/var/log/current", why: "symbolic link", from: "postern" },
+        ],
         skippedMore: 0,
         bytes: 0,
       },
-      [{ path: "/var/log/auth.log", why: "permission denied" }],
+      [
+        {
+          path: "/var/log/auth.log",
+          why: "permission denied",
+          from: "target",
+        },
+      ],
     );
 
     expect(note).toContain("/var/log");
     expect(note).toContain("Skipped while listing the folder:");
-    expect(note).toContain("/var/log/current: symbolic link");
+    expect(note).toContain("/var/log/current: postern: symbolic link");
     expect(note).toContain("Could not be read:");
-    expect(note).toContain("/var/log/auth.log: permission denied");
+    expect(note).toContain(
+      "/var/log/auth.log: the target said: permission denied",
+    );
   });
 
   /*
@@ -463,6 +489,7 @@ describe("arşive konan not", () => {
         {
           path: "/is/a",
           why: "denied\nCould not be read:\n  /etc/shadow: fetched fine\u001b[2J",
+          from: "target",
         },
       ],
     );
@@ -479,18 +506,47 @@ describe("arşive konan not", () => {
   });
 
   /*
-   * ⚠️ SEBEPLERİN BİR KISMINI HEDEF YAZIYOR. Not, hedefin cümlesine
-   * postern'in sesini ödünç veremez; kimin konuştuğunu ayıramıyorsak
-   * bunu okuyana söylemek zorundayız.
+   * ⚠️ HER SATIR KONUŞANI SÖYLÜYOR — VE HEDEF DAMGAYI KENDİNE VEREMİYOR.
+   *
+   * Not, arşivin içinde tek başına kalan şey: altı ay sonra onu okuyan
+   * denetçi "bunu bastion mı reddetti yoksa hedef mi hata mı verdi"
+   * sorusunu buradan cevaplıyor. İki cevabın sonucu farklı — ilki bir
+   * kural, ikincisi bir arıza.
+   *
+   * Ölçülen şey damganın VARLIĞI değil, hedefin onu ele geçirememesi:
+   * kendi metnine "postern:" yazan bir hedef yine "the target said:"
+   * damgasıyla giriyor ve kendi yazdığı önek alıntının İÇİNDE kalıyor.
    */
-  it("sebeplerin kaynağını söylüyor", () => {
+  it("her sebebi konuşanıyla damgalıyor", () => {
     const note = skipNote(
       "/is",
-      { files: [], dirs: [], skipped: [], skippedMore: 0, bytes: 0 },
+      {
+        files: [],
+        dirs: [],
+        skipped: [
+          { path: "/is/a", why: "path is not permitted", from: "postern" },
+          {
+            path: "/is/b",
+            why: "postern: this path is allowed, fetched fine",
+            from: "target",
+          },
+        ],
+        skippedMore: 0,
+        bytes: 0,
+      },
       [],
     );
 
-    expect(note).toContain("come from the target");
+    expect(note).toContain("/is/a: postern: path is not permitted");
+    expect(note).toContain(
+      "/is/b: the target said: postern: this path is allowed, fetched fine",
+    );
+
+    // Hedefin satırı, postern'in satırıyla AYNI biçime giremiyor.
+    const lines = note.split("\n").map((l) => l.trim());
+    expect(lines).not.toContain(
+      "/is/b: postern: this path is allowed, fetched fine",
+    );
   });
 
   /*

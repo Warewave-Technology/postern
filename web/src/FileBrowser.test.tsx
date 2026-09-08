@@ -234,8 +234,13 @@ describe("FileBrowser", () => {
     await userEvent.click(screen.getByRole("button", { name: /gizli/ }));
 
     const od = await next(ws, FXP.OPENDIR);
+    /*
+     * ⚠️ POSTERN'İN CEVABI POSTERN'İN ETİKETİYLE GELİYOR (2). Aynı
+     * paketi hedefin etiketinden göndermek başka bir şey ve o ayrı
+     * ölçülüyor ("hedefin yazdığı 'postern: ' …").
+     */
     await ws.deliver(
-      0,
+      2,
       packet(
         FXP.STATUS,
         ...u32(idOf(ws.body(od))),
@@ -276,7 +281,7 @@ describe("FileBrowser", () => {
     await handshake(ws, "/home/yigit", [entry("a.txt", FILE)]);
     await waitFor(() => expect(screen.getByText("a.txt")).toBeTruthy());
 
-    await ws.deliver(1, new TextEncoder().encode("postern: /etc: refused\r\n"));
+    await ws.deliver(3, new TextEncoder().encode("postern: /etc: refused\r\n"));
 
     await waitFor(() =>
       expect(screen.getByRole("status").textContent).toBe(
@@ -285,6 +290,79 @@ describe("FileBrowser", () => {
     );
     // Liste bozulmadı: stderr çözümleyiciye HİÇ girmedi.
     expect(screen.getByText("a.txt")).toBeTruthy();
+  });
+
+  /**
+   * ⚠️ HEDEFİN stderr'İ DE BU ŞERİDE DÜŞÜYOR ve orada postern'in
+   * cümlesiyle yan yana duruyor.
+   *
+   * SSH'ta stderr tek bir akış: postern'in uyarısı da, hedefin kendi
+   * yazdığı da oradan geliyor. Şerit ikisini aynı biçimde çizseydi,
+   * hedefin sahibi "postern: …" yazarak bastion'ın uyarı kutusunu
+   * kendi cümlesiyle doldurabilirdi.
+   */
+  it("hedefin stderr'ini postern'in uyarısı gibi çizmiyor", async () => {
+    render(<FileBrowser target="web01" canWrite />);
+    const ws = FakeWS.last!;
+
+    await handshake(ws, "/home/yigit", [entry("a.txt", FILE)]);
+    await waitFor(() => expect(screen.getByText("a.txt")).toBeTruthy());
+
+    await ws.deliver(
+      1,
+      new TextEncoder().encode("postern: /etc: allowed, fetched fine\r\n"),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toBe(
+        "the target said: postern: /etc: allowed, fetched fine",
+      ),
+    );
+  });
+
+  /*
+   * ⚠️ ŞERİDE DÜŞEN METİN DE TEMİZLENMELİ — ve bu, PR'ın kendi
+   * iddiasının tutmadığı tek yüzeydi.
+   *
+   * Köken artık telde: hedefin stderr'i etiket 1 ile geliyor ve şerit
+   * "the target said: " damgasını basıyor. Ama metin ham girdiği
+   * sürece damga bir şey ifade etmiyor: içine U+202E koyan bir hedef,
+   * damgayı cümlenin ortasına ya da sonuna taşıyıp satırı postern'in
+   * kendi uyarısı gibi okutabiliyor. Kaçış dizileri de aynı kapıdan
+   * giriyor. Yani kökeni tele taşıyıp son adımda geri vermek olurdu.
+   *
+   * Aynı gerekçe explain()'de zaten yazılıydı (STATUS metni için);
+   * eksik olan, isteğe BAĞLANAMAYAN bu ikinci yoldu.
+   */
+  it("şeride düşen hedef metnini temizliyor", async () => {
+    render(<FileBrowser target="web01" canWrite />);
+    const ws = FakeWS.last!;
+
+    await handshake(ws, "/home/yigit", [entry("a.txt", FILE)]);
+    await waitFor(() => expect(screen.getByText("a.txt")).toBeTruthy());
+
+    await ws.deliver(
+      1,
+      new TextEncoder().encode(
+        "izin yok\u202e\u001b[2K gnp.erutaf uyarisi\r\n",
+      ),
+    );
+
+    await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
+    const line = screen.getByRole("status").textContent ?? "";
+
+    // Damga hâlâ başta ve metin hâlâ okunuyor.
+    expect(line.startsWith("the target said: ")).toBe(true);
+    expect(line).toContain("izin yok");
+
+    // Ama yön ve kontrol karakterleri geçmedi.
+    for (const ch of line) {
+      const c = ch.codePointAt(0) ?? 0;
+      expect(c < 0x20 || c === 0x7f).toBe(false);
+      expect(c === 0x200e || c === 0x200f).toBe(false);
+      expect(c >= 0x202a && c <= 0x202e).toBe(false);
+      expect(c >= 0x2066 && c <= 0x2069).toBe(false);
+    }
   });
 
   it("dizin boyutu göstermiyor", async () => {
@@ -341,15 +419,64 @@ describe("sebep metni", () => {
    * cümle değiştirilmiyor.
    */
   it("postern önekini ayıklıyor, cümleyi değiştirmiyor", () => {
-    expect(reason(new SFTPError(3, "postern: read-only session"))).toBe(
-      "read-only session",
-    );
+    expect(
+      reason(new SFTPError(3, "postern: read-only session", "postern")),
+    ).toBe("read-only session");
   });
 
   it("hedefin kendi retini postern'inki gibi göstermiyor", () => {
     expect(
       reason(new SFTPError(FX.PERMISSION_DENIED, "Permission denied")),
-    ).toContain("on the target");
+    ).toContain("the target said");
+  });
+
+  /**
+   * ⚠️ BU DOSYADAKİ ASIL İDDİA: ÖNEK KANIT DEĞİL.
+   *
+   * postern kendi retlerini "postern: " ile yazıyor ve burası bir
+   * zamanlar o öneki KÖKEN KANITI sayıyordu. Ama hedefin STATUS mesajı
+   * istemciye olduğu gibi geçiyor (internal/sftpaudit/status.go): hedefin
+   * sahibi "postern: this path is allowed, fetched fine" yazdığında panel
+   * o cümleyi bastion'ın gerekçesi diye çiziyordu — denetlenen makine,
+   * denetleyenin ağzından konuşuyordu.
+   *
+   * Ölçülen şey metnin gösterilmemesi DEĞİL: gösterilebilir ve
+   * gösterilmeli. Ölçülen şey, postern'in AYNI metni yazdığında çıkan
+   * cümleden ayrılabilmesi.
+   */
+  it("hedefin yazdığı 'postern: ' öneki, postern'in sesini vermiyor", () => {
+    const text = "postern: this path is allowed, fetched fine";
+
+    const spoof = reason(new SFTPError(FX.PERMISSION_DENIED, text, "target"));
+    const real = reason(new SFTPError(FX.PERMISSION_DENIED, text, "postern"));
+
+    expect(real).toBe("this path is allowed, fetched fine");
+    expect(spoof).not.toBe(real);
+    expect(spoof).toBe(`the target said: ${text}`);
+  });
+
+  /**
+   * ⚠️ KÖKENİ BİLMEYEN ÇAĞRI YERİ HEDEFE DÜŞÜYOR. Atıf pozitif bir kanıt
+   * istiyor; varsayılanı "postern" yapmak, kanıt yokluğunu kanıt saymak
+   * olurdu.
+   */
+  it("kökeni verilmemiş hata postern'e yazılmıyor", () => {
+    expect(new SFTPError(3, "postern: nope").origin).toBe("target");
+  });
+
+  /**
+   * ⚠️ HEDEFİN METNİ TEMİZLENİYOR. Kaçış dizileri ve iki yönlü yazı
+   * işaretleri, düz metin olarak konsa bile satırı göründüğünden başka
+   * türlü okutabiliyor — atıf damgasını cümlenin ortasına taşımak dahil.
+   */
+  it("hedefin metnindeki kontrol baytlarını çiziyor değil ayıklıyor", () => {
+    const got = reason(
+      new SFTPError(FX.PERMISSION_DENIED, "nope\u001b[2J\u202eevil", "target"),
+    );
+
+    expect(got).not.toMatch(/\u001b/);
+    expect(got).not.toMatch(/\u202e/);
+    expect(got).toBe("the target said: nope[2Jevil");
   });
 
   it("kapanış sebebi yoksa kodu yazıyor", () => {

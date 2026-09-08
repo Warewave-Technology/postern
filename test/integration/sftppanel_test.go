@@ -46,10 +46,18 @@ import (
  * çevirir.
  *
  * ⚠️ ZARFI BURADA AÇIYORUZ ve testin ayırt ediciliği buna dayanıyor:
- * sunucu→istemci her çerçevenin ilk baytı akış etiketi (0 veri, 1
- * stderr). Etiketi ayıklamayan bir okuyucu SFTP çözümleyicisine her
- * çerçevede bir bayt fazla verirdi. Yani bu tip aynı zamanda zarfın
- * tarayıcı tarafındaki sözleşmesinin testi.
+ * sunucu→istemci her çerçevenin ilk baytı akış ve KÖKEN etiketi —
+ * 0 hedefin verisi, 1 hedefin stderr'i, 2 postern'in kendi cevabı,
+ * 3 postern'in kendi satırı. Etiketi ayıklamayan bir okuyucu SFTP
+ * çözümleyicisine her çerçevede bir bayt fazla verirdi. Yani bu tip aynı
+ * zamanda zarfın tarayıcı tarafındaki sözleşmesinin testi.
+ *
+ * ⚠️ KÖKEN İKİ AYRI TAMPONA AYRILIYOR, çünkü ölçülecek şey tam olarak o.
+ * postern'in gerekçesi hedefin yazabildiği bir akıştan gelseydi, hedefin
+ * sahibi "postern: …" yazarak bastion'ın cümlesini taklit edebilirdi;
+ * ayrı tamponlar, testin "bunu postern mi yazdı" sorusunu cevaplayabilmesi
+ * demek. Protokol baytları ikisinden de çözümleyiciye giriyor — köken
+ * cevabın KİMDEN geldiğini söylüyor, hangi akışa ait olduğunu değil.
  */
 type wsPipe struct {
 	ctx  context.Context
@@ -58,6 +66,10 @@ type wsPipe struct {
 
 	mu     sync.Mutex
 	stderr strings.Builder
+	// fromTarget, HEDEFİN stderr'i — postern'inkiyle karıştırılmıyor.
+	fromTarget strings.Builder
+	// ownBytes, postern'in kendi akışından gelen protokol baytı sayısı.
+	ownBytes int
 }
 
 func (p *wsPipe) Read(b []byte) (int, error) {
@@ -72,9 +84,22 @@ func (p *wsPipe) Read(b []byte) (int, error) {
 		switch data[0] {
 		case 0:
 			p.rest = data[1:]
+		case 2:
+			// postern'in KENDİ cevabı. Çözümleyiciye aynı akıştan
+			// giriyor — istemci için bu da bir SFTP paketi.
+			p.mu.Lock()
+			p.ownBytes += len(data) - 1
+			p.mu.Unlock()
+			p.rest = data[1:]
 		case 1:
-			// Gerekçe metni: SFTP akışına KARIŞTIRILMAMALI, yoksa
-			// çözümleyici onu paket sanar.
+			// HEDEFİN stderr'i. SFTP akışına KARIŞTIRILMAMALI, yoksa
+			// çözümleyici onu paket sanar — ve postern'in gerekçesiyle
+			// de karıştırılmamalı.
+			p.mu.Lock()
+			p.fromTarget.Write(data[1:])
+			p.mu.Unlock()
+		case 3:
+			// postern'in KENDİ gerekçesi.
 			p.mu.Lock()
 			p.stderr.Write(data[1:])
 			p.mu.Unlock()
@@ -84,6 +109,22 @@ func (p *wsPipe) Read(b []byte) (int, error) {
 	p.rest = p.rest[n:]
 
 	return n, nil
+}
+
+// targetNotices, HEDEFİN stderr'e yazdıkları.
+func (p *wsPipe) targetNotices() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.fromTarget.String()
+}
+
+// ownReplyBytes, postern'in kendi akışından gelen protokol baytı.
+func (p *wsPipe) ownReplyBytes() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.ownBytes
 }
 
 func (p *wsPipe) Write(b []byte) (int, error) {
@@ -297,6 +338,22 @@ func TestFileBrowserBrowsesAndRefusesWrites(t *testing.T) {
 	// 4. GEREKÇE KULLANICIYA ULAŞIYOR — "not found" değil, sebep.
 	if n := pipe.notices(); !strings.Contains(n, "read-only") {
 		t.Errorf("stderr gerekçesi salt-okunur demiyor: %q", n)
+	}
+
+	/*
+	 * 5. VE GEREKÇEYİ POSTERN'İN YAZDIĞI TELDEN OKUNABİLİYOR.
+	 *
+	 * pipe.notices() yalnızca postern'in KENDİ akışını topluyor; hedefin
+	 * stderr'i ayrı tamponda. Bu iddia düşerse ikisi tek akışta demektir
+	 * ve hedefin sahibi "postern: …" yazarak bastion'ın cümlesini taklit
+	 * edebilir — panelin gerekçe şeridi de o metni çizerdi.
+	 */
+	if n := pipe.targetNotices(); strings.Contains(n, "read-only") {
+		t.Errorf("postern'in gerekçesi HEDEFİN akışından da geldi: %q", n)
+	}
+	if pipe.ownReplyBytes() == 0 {
+		t.Error("reddin SFTP cevabı postern'in akışından hiç gelmedi — " +
+			"istemci onu hedefin cevabından ayıramaz")
 	}
 }
 

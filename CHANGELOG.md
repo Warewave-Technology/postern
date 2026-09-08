@@ -456,6 +456,55 @@ audit rows into a shape it does not understand.
   types are no longer treated as read-only — v6 `LINK`, which *creates* a
   link, was reaching the ledger as nothing at all.
 
+- **The target can no longer speak in postern's voice in the panel.**
+  postern writes its own refusals with a `postern: ` prefix, and the file
+  browser treated that prefix as proof of who wrote the sentence. The
+  target's own error text reaches the client unchanged, so a target whose
+  owner wrote `postern: this path is allowed, fetched fine` had that drawn
+  as the bastion's own reason — the audited machine borrowing the auditor's
+  voice, in the one place a user goes to find out why something was
+  refused.
+
+  Origin is now carried on the wire instead of sniffed out of the text.
+  postern's replies and its refusal lines leave on their own stream tags,
+  which nothing the target writes can claim, and the panel labels every
+  sentence it did not write itself with `the target said:` — in the error
+  strip, on transfer rows, and in the `POSTERN-NOT-INCLUDED.txt` note
+  inside a folder download, where that note previously had to admit the
+  two could not be told apart. Control bytes and right-to-left overrides
+  in the target's text are stripped before it is drawn.
+
+  **A command-line `sftp` client still cannot tell the two apart**, and
+  that limit is now written down rather than papered over: SSH carries no
+  stream besides channel data and extended data, and inventing one would
+  break the protocol. The separation exists where postern owns both ends.
+
+- **The target can no longer forge an audit line inside a recording.** An
+  SFTP session's `.cast` holds no raw protocol — every line in it is one
+  postern wrote (`postern sftp: …`). The target's stderr was being teed
+  into that file untouched, so a target could write
+  `postern sftp: get /etc/shadow (1.2 KiB)` and have it sit among the real
+  lines with nothing to separate them, or an escape sequence that repaints
+  the screen of whoever replays the recording. Those lines are now quoted
+  behind a `target wrote:` stamp postern writes, and stripped of control
+  bytes like every other text that enters a recording.
+
+  Shell and `exec` recordings are unchanged and deliberately so: there the
+  recording exists to reproduce what the user saw, colour and cursor
+  movement included, and the target's stdout already goes in raw — so
+  sanitising stderr alone would cost fidelity and buy nothing.
+
+  **Which leaves the moment before either is known.** The stderr pipe
+  starts with the session; which kind of channel this is only becomes clear
+  when the request that starts a program is handled. Writing raw in that
+  window would have left the forgery reachable by sending it earlier, and
+  sanitising in that window would have cost a shell recording its first
+  bytes. Neither: what the target writes before the channel is decided is
+  held, and released once it is — quoted and stamped for SFTP, raw for a
+  shell. A session that ends without ever starting a program still gets
+  those bytes, quoted, and the stamp says `postern:` rather than
+  `postern sftp:`, because that channel never became one.
+
 ## 1.1.0 — 2026-09-05
 
 ### Needs action if you unpacked a 1.0.2 archive

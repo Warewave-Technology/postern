@@ -12,7 +12,7 @@ package httpapi
 // PROTOKOL:
 //
 //	binary frame  (istemci→sunucu): ham kanal verisi, etiketsiz
-//	binary frame  (sunucu→istemci): [1 bayt akış etiketi][ham bayt]
+//	binary frame  (sunucu→istemci): [1 bayt akış/köken etiketi][ham bayt]
 //	text/JSON     (istemci→sunucu): {"type":"resize","cols":120,"rows":30}
 //	text/JSON     (sunucu→istemci): {"type":"exit","status":0}
 //
@@ -50,12 +50,36 @@ import (
 	"github.com/Warewave-Technology/postern/internal/proxy"
 )
 
-// Akış etiketleri: sunucu→istemci binary frame'in İLK baytı.
+/*
+ * Akış etiketleri: sunucu→istemci binary frame'in İLK baytı.
+ *
+ * ⚠️ ETİKET İKİ ŞEY SÖYLÜYOR: HANGİ AKIŞ ve KİM YAZDI.
+ *
+ * İkincisi sonradan eklendi ve sebebi ölçülebilir bir açıktı. postern
+ * kendi retlerini "postern: " önekiyle yazıyor, panel de o öneki KÖKEN
+ * KANITI sayıyordu. Ama hedefin STATUS mesajı istemciye olduğu gibi
+ * geçiyor (sftpaudit/status.go: hedeften gelenler çözülmüyor), yani
+ * hedefin sahibi "postern: this path is allowed" yazdığında panel o
+ * cümleyi postern'in ağzından çiziyordu — bastion'ın sesini, tam da
+ * denetlediği makineye ödünç vererek.
+ *
+ * Ayrım postern'in içinde ZATEN YAPISAL: kendi retleri deftere
+ * "denied." önekiyle giriyor (sftpaudit/policy.go). Eksik olan şey o
+ * ayrımı İSTEMCİYE TAŞIMAKTI. Dizge koklamak yerine tel taşıyor:
+ * postern'in ürettiği bayt başka bir etiketle çıkıyor ve hedefin
+ * yazabildiği hiçbir metin o etiketi kendine veremiyor.
+ */
 const (
-	// wsStreamData, kanal verisi (SSH'ta CHANNEL_DATA).
+	// wsStreamData, HEDEFTEN gelen kanal verisi (SSH'ta CHANNEL_DATA).
 	wsStreamData byte = 0
-	// wsStreamStderr, genişletilmiş veri (SSH'ta EXTENDED_DATA).
+	// wsStreamStderr, HEDEFTEN gelen genişletilmiş veri (EXTENDED_DATA).
 	wsStreamStderr byte = 1
+	// wsStreamOwn, POSTERN'in kendi ürettiği kanal verisi — reddedilen
+	// bir isteğe verdiği SFTP cevabı (bkz. proxy.Broker.tryInject).
+	wsStreamOwn byte = 2
+	// wsStreamOwnStderr, POSTERN'in kendi yazdığı insan satırı
+	// (bkz. proxy.Broker.tellUser).
+	wsStreamOwnStderr byte = 3
 )
 
 // wsChannel, ssh.Channel arayüzünü WebSocket üzerinde karşılar.
@@ -373,6 +397,33 @@ func (s stderrAdapter) Write(p []byte) (int, error) {
 }
 func (s stderrAdapter) Read([]byte) (int, error) { return 0, io.EOF }
 
+/*
+ * WriteOwn ve WriteOwnStderr, POSTERN'in kendi ürettiği baytları taşır.
+ *
+ * ⚠️ AYRI METOT OLMAK ZORUNDA, ayrı bir sarmalayıcı değil. Broker
+ * istemci ucunu bir ssh.Channel olarak tutuyor ve o arayüzde "bu bayt
+ * benim" diyecek bir yer yok; sarmalayıcı da olsa çağrı yine Write'a
+ * düşer ve etiket kaybolurdu. Köken, yazan yerin SEÇTİĞİ bir şey —
+ * sonradan bakılıp anlaşılan bir şey değil.
+ *
+ * ⚠️ SSH TARAFINDA KARŞILIĞI YOK ve olamaz: SSH'ta CHANNEL_DATA ile
+ * EXTENDED_DATA dışında akış yok. Bir `sftp` istemcisi bu yüzden
+ * postern'in cümlesiyle hedefinkini AYIRAMIYOR — sınır burada yazılı,
+ * kapatılmış gibi yapılmıyor. Broker o uçta düz Write'a düşüyor
+ * (bkz. proxy.OwnWriter).
+ */
+func (c *wsChannel) WriteOwn(p []byte) (int, error) {
+	return c.writeStream(wsStreamOwn, p)
+}
+
+func (c *wsChannel) WriteOwnStderr(p []byte) (int, error) {
+	return c.writeStream(wsStreamOwnStderr, p)
+}
+
 // wsChannel'ın ssh.Channel'ı gerçekten karşıladığını DERLEME ZAMANINDA
 // doğrula: imza değişirse hata testte değil derlemede çıksın.
 var _ ssh.Channel = (*wsChannel)(nil)
+
+// Köken etiketini taşıyabildiğini de derleme zamanında doğrula: broker
+// arayüzü kaçırırsa sessizce düz Write'a düşer ve panel ayrımı kaybeder.
+var _ proxy.OwnWriter = (*wsChannel)(nil)

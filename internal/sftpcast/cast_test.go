@@ -132,7 +132,7 @@ func TestFullyStrippedPathStillShows(t *testing.T) {
 // koyuyor. Sınırsız bırakmak, tek isteğin kaydı şişirmesine izin verirdi.
 func TestFieldsAreBounded(t *testing.T) {
 	line := Line(ev(sftpaudit.OpOpendir, "/"+strings.Repeat("a", 4000)))
-	if len(line) > maxField+200 {
+	if len(line) > MaxField+200 {
 		t.Errorf("satır sınırı aşıyor: %d bayt", len(line))
 	}
 }

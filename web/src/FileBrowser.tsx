@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { SFTPClient, SFTPError, FX, Halted, chunkSize, newStop } from "./sftp";
+import { SFTPClient, SFTPError, Halted, chunkSize, newStop } from "./sftp";
 import type { Entry, Stopper } from "./sftp";
 import { ZipWriter, crc32, safeName } from "./zip";
-import { noteName, skipNote, walkTree, type Skipped } from "./tree";
+import {
+  noteName,
+  plain,
+  skipNote,
+  walkTree,
+  type Reason,
+  type Skipped,
+} from "./tree";
 import {
   fromDataTransfer,
   fromFileList,
@@ -69,7 +76,12 @@ export default function FileBrowser({
   const [cwd, setCwd] = useState("");
   const [entries, setEntries] = useState<Entry[]>([]);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  /*
+   * ⚠️ UYARI METNİ KÖKENİYLE BİRLİKTE TUTULUYOR. Bu kutuya hem postern'in
+   * kendi cümlesi hem hedefin stderr'i düşüyor; ikisini aynı biçimde
+   * çizmek, hedefe bastion'ın sesini vermek olurdu.
+   */
+  const [notice, setNotice] = useState<Reason | null>(null);
   const [busy, setBusy] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
 
@@ -162,18 +174,53 @@ export default function FileBrowser({
       if (frame.length < 1) return;
 
       /*
-       * ⚠️ İLK BAYT AKIŞ ETİKETİ (wschannel.go): 0 kanal verisi, 1
-       * stderr. Etiketi ayıklamadan çözümleyiciye vermek, her
-       * çerçevede paket sınırını bir bayt kaydırırdı.
+       * ⚠️ İLK BAYT AKIŞ VE KÖKEN ETİKETİ (wschannel.go): 0 hedefin
+       * kanal verisi, 1 hedefin stderr'i, 2 postern'in kendi cevabı,
+       * 3 postern'in kendi satırı. Etiketi ayıklamadan çözümleyiciye
+       * vermek, her çerçevede paket sınırını bir bayt kaydırırdı.
+       *
+       * ⚠️ KÖKEN BURADAN ÇIKIYOR, METİNDEN DEĞİL. Panel eskiden
+       * "postern: " önekini kanıt sayıyordu ve o öneki hedef de
+       * yazabiliyordu; artık kanıt, hedefin yazamadığı tek şey.
+       *
+       * ⚠️ TANIMADIĞIMIZ ETİKET SESSİZCE ATILIYOR. Sunucu bizden yeni
+       * olabilir; bilinmeyen bir etiketi 0 sanıp çözümleyiciye vermek,
+       * çerçevelemeyi kaydırırdı.
        */
-      if (frame[0] === 1) {
-        // postern'in gerekçesi. Cevabı beklenen bir istek varsa aynı
-        // sebep zaten hata olarak da geliyor; bu kanal, isteğe
-        // bağlanamayan durumlar için.
-        setNotice(new TextDecoder().decode(frame.subarray(1)).trim());
-        return;
+      const body = frame.subarray(1);
+      switch (frame[0]) {
+        case 0:
+          client.feed(body, "target");
+          break;
+        case 2:
+          client.feed(body, "postern");
+          break;
+        case 1:
+        case 3:
+          // Cevabı beklenen bir istek varsa aynı sebep zaten hata
+          // olarak da geliyor; bu kanal, isteğe bağlanamayan durumlar
+          // için.
+          /*
+           * ⚠️ METİN BURADA DA TEMİZLENİYOR — explain()'deki gerekçenin
+           * aynısı. Bu şerit, hedefin baytlarının panele en DOĞRUDAN
+           * girdiği yer: STATUS metni bir isteğe bağlı, bu ise değil.
+           * Temizlemeden çizmek, atıf damgasını ("the target said: ")
+           * iki yönlü yazı işaretiyle cümlenin ortasına taşımaya izin
+           * verirdi — yani kökeni tele taşıyıp son adımda geri vermek.
+           *
+           * ⚠️ ETİKETE BAKMADAN, İKİSİNE DE. postern'in kendi metninde
+           * zaten kontrol karakteri yok, yani temizlik ona bir şey
+           * yapmıyor; ama böylece güvenlik, etiketin DOĞRU olmasına
+           * bağlı kalmıyor. Sınıflandırmayı doğrulamadan okunabilen bir
+           * savunma, sınıflandırmanın yanlış olabileceği her gün
+           * çalışmaya devam ediyor.
+           */
+          setNotice({
+            why: plain(new TextDecoder().decode(body).trim()),
+            from: frame[0] === 3 ? "postern" : "target",
+          });
+          break;
       }
-      client.feed(frame.subarray(1));
     };
 
     ws.onclose = (ev) => {
@@ -393,7 +440,7 @@ export default function FileBrowser({
 
             // 1) Ağaç. Sayaç KISILARAK yazılıyor: 4000 girdilik bir
             // ağaçta her girdi için çizim yapmak arayüzü kilitler.
-            const tree = await walkTree(c, root, reason, {
+            const tree = await walkTree(c, root, explain, {
               signal,
               onSeen: (n) => {
                 if (n % 64 === 0) patch(id, { scan: n });
@@ -453,7 +500,7 @@ export default function FileBrowser({
                  * eksik olduğu hem satırda hem ARŞİVİN İÇİNDE yazıyor.
                  */
                 if (err instanceof Halted) throw err;
-                failed.push({ path: f.path, why: reason(err) });
+                failed.push({ path: f.path, ...explain(err) });
                 continue;
               }
 
@@ -750,9 +797,9 @@ export default function FileBrowser({
               {error}
             </p>
           )}
-          {!error && notice && (
+          {!error && notice && notice.why && (
             <p className="fb-notice" role="status">
-              {notice}
+              {say(notice)}
             </p>
           )}
 
@@ -933,33 +980,71 @@ export default function FileBrowser({
 }
 
 /**
- * reason, bir hatayı kullanıcıya söylenecek cümleye çevirir.
+ * explain, bir hatayı gerekçesine ve o gerekçeyi KİMİN yazdığına çevirir.
  *
- * ⚠️ "not found" GÖSTERMEK YANILTIR ve bu ürün o arızayı bir kez
- * ölçtü: yol politikası bir dizini reddettiğinde kullanıcı dosyanın
- * olmadığını sanıyordu. postern kendi retlerini "postern: " önekiyle
- * gönderiyor (sftpaudit/policy.go); o mesaj varsa OLDUĞU GİBİ
- * gösteriliyor, çünkü sebebi zaten o yazıyor.
+ * ⚠️ "not found" GÖSTERMEK YANILTIR ve bu ürün o arızayı bir kez ölçtü:
+ * yol politikası bir dizini reddettiğinde kullanıcı dosyanın olmadığını
+ * sanıyordu. postern kendi retlerini "postern: " önekiyle gönderiyor
+ * (sftpaudit/policy.go) ve o gerekçe kullanıcıya olduğu gibi gösteriliyor.
+ *
+ * ⚠️ ÖNEK ARTIK KANIT DEĞİL, SÜS. Burası bir zamanlar "postern: " ile
+ * başlayan her mesajı postern'in cümlesi sayıyordu. Ama hedefin STATUS
+ * mesajı istemciye olduğu gibi geçiyor: hedefin sahibi "postern: this
+ * path is allowed, fetched fine" yazdığında panel onu bastion'ın
+ * gerekçesi diye çiziyordu — denetlenen makine, denetleyenin ağzından
+ * konuşuyordu. Kanıt artık akış etiketi (sftp.ts, Origin) ve öneki
+ * yalnızca aynı cümleyi iki kez yazmamak için kırpıyoruz.
  */
-export function reason(e: unknown): string {
+export function explain(e: unknown): Reason {
   if (e instanceof SFTPError) {
-    if (e.message.startsWith("postern: ")) return e.message.slice(9);
+    if (e.origin === "postern") {
+      return { why: e.message.replace(/^postern: /, ""), from: "postern" };
+    }
+
     /*
+     * Buradan aşağısı HEDEFİN metni ve öyle işaretleniyor. Tek istisnası
+     * postern'in hedefin cevabı HAKKINDA kurduğu cümle — aşağıdaki:
+     *
      * ⚠️ BİR DOSYAYA İŞARET EDEN BAĞA TIKLAMAK. Hedefin cevabı bu
      * durumda ham errno metni oluyor ("Failure" ya da "Not a
      * directory") ve kullanıcı ne yaptığını anlamıyor. Bağlar
      * tıklanabilir olduğu için bu, nadir değil BEKLENEN bir yol.
      */
     if (/not a directory/i.test(e.message)) {
-      return "that is not a directory — postern cannot show file contents";
+      return {
+        why: "that is not a directory — postern cannot show file contents",
+        from: "postern",
+      };
     }
-    if (e.code === FX.PERMISSION_DENIED) {
-      return `permission denied on the target: ${e.message}`;
-    }
-    return e.message;
+
+    /*
+     * ⚠️ HEDEFİN METNİ TEMİZLENEREK GİRİYOR. Kaçış dizileri ve iki
+     * yönlü yazı işaretleri, DOM'a düz metin olarak konsa bile satırı
+     * göründüğünden başka türlü okutabiliyor — atıf damgasını cümlenin
+     * ortasına taşımak dahil. Kayda giren metinle aynı gerekçe
+     * (internal/proxy/sftpcast.go, castSafe).
+     */
+    return { why: plain(e.message), from: "target" };
   }
-  if (e instanceof Error) return e.message;
-  return String(e);
+  if (e instanceof Error) return { why: e.message, from: "postern" };
+
+  return { why: String(e), from: "postern" };
+}
+
+/**
+ * say, bir gerekçeyi ekrana yazılacak tek satıra çevirir.
+ *
+ * ⚠️ HEDEFİN CÜMLESİ DAMGALANMADAN GÖSTERİLMİYOR. Damgayı postern
+ * yazıyor, sonrası alıntı; hedefin kendi yazdığı bir damga da alıntının
+ * İÇİNDE kalıyor.
+ */
+export function say(r: Reason): string {
+  return r.from === "target" ? `the target said: ${r.why}` : r.why;
+}
+
+/** reason, explain + say — hata satırlarının çoğu bu tek cümleyi istiyor. */
+export function reason(e: unknown): string {
+  return say(explain(e));
 }
 
 /**
