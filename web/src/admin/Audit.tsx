@@ -1,5 +1,12 @@
 import { useState } from "react";
-import { api, LogEntry, Session, SessionFile, toMessage } from "../api";
+import {
+  api,
+  LogEntry,
+  Session,
+  SessionFile,
+  SessionJournal,
+  toMessage,
+} from "../api";
 import {
   ActionButton,
   ErrorLine,
@@ -30,6 +37,31 @@ const SESSION_CAP = 200;
 const LOG_CAP = 500;
 
 /*
+ * journalMsg, defterdeki açığın operatöre yazılacak cümlesi.
+ *
+ * ⚠️ CÜMLENİN GÖVDESİ SUNUCUDAN GELİYOR (internal/verify), burada
+ * yeniden yazılmıyor: aynı kararı `postern session verify` de basıyor
+ * ve iki metin ayrıştığı gün aynı oturum için iki farklı cevap veren
+ * bir denetim aracı ortaya çıkardı. Panelin eklediği tek şey, listenin
+ * neden eksiksiz sayılamayacağını söyleyen ön cümle.
+ */
+function journalMsg(j: SessionJournal): string {
+  /*
+   * ⚠️ "ALTERED" AYRI BİR CÜMLE. Diğerlerinde liste EKSİK; burada liste
+   * tam ama SATIRLARIN KENDİSİ değişmiş. "Hepsi burada değil" demek,
+   * denetçiyi olmayan bir eksiği aramaya gönderirdi.
+   */
+  const head =
+    j.state === "altered"
+      ? "These rows do not say what the recording says."
+      : j.state === "extra"
+        ? "This list holds more rows than the recording sealed."
+        : "This list is NOT the whole story.";
+
+  return `${head} — ${j.detail}.`;
+}
+
+/*
  * SessionFiles, bir oturumda dokunulan dosyaları listeler.
  *
  * ⚠️ NİYE OYNATICININ YANINDA DURUYOR. Eskiden gerekçe "SFTP oturumunun
@@ -46,9 +78,11 @@ const LOG_CAP = 500;
 function SessionFiles({
   files,
   failed,
+  journal,
 }: {
   files: SessionFile[];
   failed?: boolean;
+  journal?: SessionJournal;
 }) {
   if (failed) {
     return (
@@ -60,10 +94,24 @@ function SessionFiles({
       />
     );
   }
-  if (files.length === 0) return null;
+
+  /*
+   * ⚠️ UYARI, TABLONUN VARLIĞINDAN BAĞIMSIZ VE ONDAN ÖNCE.
+   *
+   * En tehlikeli hâl BOŞ tablo: bütün satırları düşmüş ya da silinmiş
+   * bir oturum, bu ekranda "hiçbir dosyaya dokunulmamış" gibi
+   * görünüyordu. Uyarıyı tablonun içine koymak, tam da o oturumda
+   * gizlerdi — `files.length === 0` dalı aşağıda hiçbir şey çizmiyor.
+   */
+  const gap = journal && journal.state !== "intact" && journal.state !== "unmeasured";
+
+  if (files.length === 0) {
+    return gap ? <WarnLine msg={journalMsg(journal)} /> : null;
+  }
 
   return (
     <div className="card">
+      {gap && <WarnLine msg={journalMsg(journal)} />}
       {/*
         ⚠️ card-head, ÇIPLAK h3 DEĞİL. `.card`ın kendi dolgusu yok
         (styles.css); başlık sarmalayıcısız bırakılınca kartın üst
@@ -141,6 +189,14 @@ export function Sessions({ theme }: { theme: Resolved }) {
   const [files, setFiles] = useState<SessionFile[]>([]);
   const [filesFailed, setFilesFailed] = useState(false);
   /*
+   * journal, listenin eksiksiz olup olmadığı.
+   *
+   * ⚠️ files İLE AYNI ANDA SIFIRLANIYOR. Önceki oturumun "defteri tam"
+   * cevabı yeni oturumun listesinin üstünde kalsaydı, ekran eksik bir
+   * listeyi onaylamış olurdu.
+   */
+  const [journal, setJournal] = useState<SessionJournal | undefined>(undefined);
+  /*
    * chainOf, açılan oturumun zincir başı (varsa) ve kimliği.
    *
    * ⚠️ OYNATICIYA BAĞLI DEĞİL. SFTP oturumunda oynatıcı açılmayabiliyor
@@ -167,6 +223,7 @@ export function Sessions({ theme }: { theme: Resolved }) {
     setWhy("");
     setFiles([]);
     setFilesFailed(false);
+    setJournal(undefined);
     return api
       .sessionDetail(id)
       .then((d) => {
@@ -177,6 +234,7 @@ export function Sessions({ theme }: { theme: Resolved }) {
         // orada bunlar oluyor.
         setFiles(d.files ?? []);
         setFilesFailed(Boolean(d.files_error));
+        setJournal(d.journal);
         setChainOf({ id, chain: d.recording.chain });
         const hasFiles = (d.files ?? []).length > 0;
         switch (d.recording.state) {
@@ -308,6 +366,7 @@ export function Sessions({ theme }: { theme: Resolved }) {
             setPlaying(null);
             setFiles([]);
             setFilesFailed(false);
+            setJournal(undefined);
             setChainOf(null);
           }}
         />
@@ -320,7 +379,7 @@ export function Sessions({ theme }: { theme: Resolved }) {
       */}
       {chainOf && <ChainStatus sessionId={chainOf.id} chain={chainOf.chain} />}
 
-      <SessionFiles files={files} failed={filesFailed} />
+      <SessionFiles files={files} failed={filesFailed} journal={journal} />
 
       <ListState
         loading={loading}

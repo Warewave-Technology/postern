@@ -32,8 +32,8 @@ audit rows into a shape it does not understand.
 
 ### Needs action if you rely on recordings as evidence
 
-- **Recordings now carry a tamper-evident chain, and three schema migrations
-  land with this release (034–036).** Run `postern db migrate` before starting
+- **Recordings now carry a tamper-evident chain, and four schema migrations
+  land with this release (034–037).** Run `postern db migrate` before starting
   the new binary; the bastion refuses to start against a schema it does not
   match rather than writing audit rows into a shape it does not understand.
 
@@ -145,6 +145,73 @@ audit rows into a shape it does not understand.
   space in proportion to how much the session did — a few hundred bytes per
   directory opened or file transferred. If you prune recordings by size,
   that assumption has changed.
+
+- **The file journal is now checked against the recording that sealed it, and
+  a journal that lost events says so.** Two things were wrong, and they were
+  the same thing seen from either end.
+
+  When the write buffer for file events overflowed — a database too slow or
+  gone, a client moving thousands of small files — postern dropped the event
+  and ended the session. Ending it was right. Dropping it silently was not:
+  the drop was written nowhere, and because the session is only killed once,
+  every drop after the first left no trace at all. The event was already in
+  the recording by then, so what remained was a recording that counted an
+  event the journal had no row for, and nothing that compared the two.
+
+  Now every drop is counted, the count is written to the session when it
+  closes, and the bastion's log says the journal is incomplete rather than
+  only that the audit failed. One case cannot reach that count and says so
+  instead: an event arriving *after* the journal has closed is refused and
+  logged, because the number it would belong to was written when the
+  session closed. It is no longer swallowed — it used to go into a buffer
+  nobody would read again. The recording's seal line — its event count
+  **and** the digest of the lines it counted — is stored with the session
+  as well, so it finally has a reader:
+
+  ```
+  JOURNAL  ROWS MISSING
+    3 events in the recording's seal, 1 row in the journal
+    the journal has no row for 2 events the recording's seal counts
+  ```
+
+  **The digest catches what a count cannot.** Deleting a row leaves a gap;
+  changing one — an `UPDATE` that turns `/etc/shadow` into `/tmp/notes` —
+  leaves a journal that counts correctly and reads like a complete audit
+  trail. The rows are turned back into the lines they were written as and
+  their digest is recomputed, so that edit is reported as **rows altered**
+  rather than passing as intact. The digest is order-independent, because
+  the journal returns rows in its own order; the price is that an even
+  number of identical lines cancel out, which is what the count is still
+  there for.
+
+  The output says which of the two it checked: sessions sealed before the
+  digest existed can be reported as counting correctly, never as having
+  contents that match.
+
+  `postern session verify` prints that block on every path and exits
+  non-zero when the two disagree, with an error separate from a changed
+  recording — the file can be intact while the journal is not. The panel's
+  session view says it above the file list, including when that list is
+  **empty**, which is exactly the case that used to read as "this session
+  touched no files".
+
+  **What it separates.** *Incomplete* is postern's own loss, reported with
+  the number it lost. *Rows missing* is a journal shorter than postern can
+  account for — what deleting rows looks like. *Rows altered* is a journal
+  of the right length whose contents no longer match. *Not checked* covers every
+  session that closed before this release and every session that was never
+  recorded; there is no seal to compare against, and treating that as "fine"
+  would be the same mistake as calling an unchained recording verified. On
+  your first upgrade that is every session you already have, and no alarm is
+  raised for any of them.
+
+  **What it does not prove.** The rows, the count and the digest all live in
+  this host's database and root here can rewrite them together, the same
+  limit the chain has. What it closes is narrower and real: a `DELETE` or an
+  `UPDATE` against `session_files` used to leave a recording that still
+  verified and a file list that looked complete. Editing a row is far
+  cheaper than rewriting a recording and recomputing its chain, and until
+  now nothing looked at it at all.
 
 - **The panel shows the recording chain.** Opening a session in the audit
   view gives its chain its own card, with a **Verify** button. Migration 034

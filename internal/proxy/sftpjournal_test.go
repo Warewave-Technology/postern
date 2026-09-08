@@ -3,8 +3,10 @@ package proxy
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
+	"github.com/Warewave-Technology/postern/internal/sftpaudit"
 	"github.com/Warewave-Technology/postern/internal/store"
 )
 
@@ -122,3 +124,201 @@ func TestFlushClearsTheBufferOnSuccess(t *testing.T) {
 type okFiles struct{}
 
 func (okFiles) AddSessionFiles(context.Context, string, []store.SessionFile) error { return nil }
+
+// countingFiles, depoya kaç satır ulaştığını sayar.
+type countingFiles struct {
+	mu sync.Mutex
+	n  int
+}
+
+func (c *countingFiles) AddSessionFiles(_ context.Context, _ string, files []store.SessionFile) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.n += len(files)
+
+	return nil
+}
+
+func (c *countingFiles) rows() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.n
+}
+
+/*
+ * ⚠️ DÜŞEN OLAY SAYILMALI — VE HİÇ SAYILMIYORDU.
+ *
+ * Tampon tavana çarptığında Emit olayı atıp dönüyordu. fail() oturumu
+ * bitiriyor ama o çağrı sync.Once ile korunuyor (abortAudit), yani İLK
+ * düşürmeden sonrakiler hiçbir yere yazılmadan kayboluyordu. Kapanış
+ * ile teardown arasında akmaya devam eden bir transfer, defterde hiç
+ * görünmeyen ama kayıtta duran onlarca olay bırakabiliyordu — ve
+ * kaydın mühür satırı onları saydığı için, geriye açıklanamayan bir
+ * fark kalıyordu.
+ *
+ * Bu testin ölçtüğü şey sayının kendisi: kaç olayın kaybolduğunu
+ * bilmeden, "postern kaybetti" ile "birileri satır sildi" ayırt
+ * edilemiyor.
+ */
+func TestEmitCountsEveryDroppedEvent(t *testing.T) {
+	var fails int
+	j := &sftpJournal{
+		log:  testLogger(),
+		fail: func(error) { fails++ },
+		stop: make(chan struct{}), done: make(chan struct{}),
+	}
+	// Tampon tavanda: bundan sonraki her olay düşüyor.
+	j.buf = make([]store.SessionFile, journalCap)
+
+	const attempts = 5
+	for range attempts {
+		j.Emit(sftpaudit.Event{Op: sftpaudit.OpOpen, Path: "/etc/shadow", OK: true})
+	}
+
+	j.mu.Lock()
+	dropped := j.dropped
+	buffered := len(j.buf)
+	j.mu.Unlock()
+
+	if dropped != attempts {
+		t.Errorf("DÜŞEN OLAYLAR SAYILMADI: dropped = %d, %d bekleniyordu", dropped, attempts)
+	}
+	if buffered != journalCap {
+		t.Errorf("tampon tavanın üstüne çıktı: %d olay", buffered)
+	}
+
+	// ⚠️ OTURUM YİNE BİTİYOR: sayma kararı, "denetlenemiyorsa geçmez"
+	// kuralının yerine geçmiyor — onun üstüne biniyor.
+	if fails == 0 {
+		t.Error("olay düştü ama oturum bitirilmedi")
+	}
+}
+
+/*
+ * ⚠️ KAPANIŞTAN SONRA GELEN OLAY, TAMPONA KONULARAK KAYBEDİLİYORDU.
+ *
+ * Emit yalnızca tavana bakıyordu; `stopped`'a bakmıyordu. Close ise
+ * loop'u durdurup son boşaltmayı yapıyor ve sayıları O ANDA döndürüyor.
+ * Aradan sonra gelen her olay tampona ekleniyor ve bir daha kimse
+ * okumuyor: ne yazılıyor, ne sayılıyor, ne loglanıyor — yani bu PR'ın
+ * kapattığını söylediği sessiz kayıp, kapanış penceresinde aynen geri
+ * geliyordu. Pencere erişilebilir, çünkü istemci→hedef kopyası Run'ın
+ * beklediği grubun dışında.
+ *
+ * ⚠️ SAYININ OTURUM SATIRINA ULAŞMADIĞI da ölçülüyor (Close çoktan
+ * döndü) — buradaki kazanç kaybın SESSİZ olmaması. Bunu ölçmeyen bir
+ * test, olmayan bir güvence verirdi.
+ */
+func TestEventsAfterCloseAreNotSwallowed(t *testing.T) {
+	w := &countingFiles{}
+	j := testJournal(w)
+
+	j.Emit(sftpaudit.Event{Op: sftpaudit.OpOpen, Path: "/a", OK: true})
+	written, lost := j.Close()
+	if written != 1 || lost != 0 {
+		t.Fatalf("kapanış öncesi sayılar: yazılan=%d kayıp=%d", written, lost)
+	}
+
+	// Kapanıştan SONRA gelen olay.
+	j.Emit(sftpaudit.Event{Op: sftpaudit.OpOpen, Path: "/gec", OK: true})
+
+	j.mu.Lock()
+	dropped, buffered := j.dropped, len(j.buf)
+	j.mu.Unlock()
+
+	if buffered != 0 {
+		t.Errorf("geç gelen olay hiç okunmayacak tampona kondu: %d satır", buffered)
+	}
+	if dropped != 1 {
+		t.Errorf("geç gelen olay sayılmadı: dropped = %d", dropped)
+	}
+
+	// Ve depoya yazılmadı: kapanmış bir günlükçü yazmıyor.
+	if got := w.rows(); got != 1 {
+		t.Errorf("depoya %d satır gitti, 1 bekleniyordu", got)
+	}
+}
+
+// testJournal, kapanışı sınanabilen bir günlükçü kurar.
+//
+// newSFTPJournal *store.Store istiyor (gerçek bir veritabanı); buradaki
+// soru depoyla değil, Close'un DÖNDÜRDÜĞÜ sayılarla ilgili.
+func testJournal(w fileWriter) *sftpJournal {
+	j := &sftpJournal{
+		store: w, log: testLogger(),
+		stop: make(chan struct{}), done: make(chan struct{}),
+	}
+	go j.loop()
+
+	return j
+}
+
+/*
+ * ⚠️ KAPANIŞ, KAYBI ÇAĞIRANA SÖYLEMEK ZORUNDA.
+ *
+ * Close yalnızca YAZILAN satır sayısını döndürüyordu; kaybedilenler
+ * hiçbir yere gitmiyordu. Çağıran (lifecycle) o sayıyı oturumun
+ * satırına yazıyor — yazamadığında, aylar sonra kaydı doğrulayan
+ * denetçinin elinde defter ile mühür arasındaki açıklanamayan farktan
+ * başka bir şey kalmıyor.
+ */
+func TestCloseReportsWhatTheJournalCouldNotWrite(t *testing.T) {
+	j := testJournal(&failingFiles{err: errors.New("database is down")})
+	j.fail = func(error) {}
+
+	// Tavana çarpan iki olay…
+	j.mu.Lock()
+	j.buf = make([]store.SessionFile, journalCap)
+	j.mu.Unlock()
+	j.Emit(sftpaudit.Event{Op: sftpaudit.OpOpen, Path: "/a", OK: true})
+	j.Emit(sftpaudit.Event{Op: sftpaudit.OpOpen, Path: "/b", OK: true})
+
+	written, lost := j.Close()
+
+	if written != 0 {
+		t.Errorf("yazma çöktüğü hâlde %d satır yazıldı sayıldı", written)
+	}
+	/*
+	 * ⚠️ İKİ AYRI KAYIP AYNI TOPLAMDA. Tavana çarpanlar (2) ve son
+	 * flush'tan sonra elde kalanlar (journalCap). İkisi de aynı sonucu
+	 * veriyor: kayıtta duran, defterde durmayan bir olay. Yalnızca
+	 * birini saymak, kaydın mühründeki sayıyla defteri karşılaştıran
+	 * kontrolü yanlış tarafa çevirirdi — postern'in kendi kaybını
+	 * "satır silinmiş" diye raporlardı.
+	 */
+	if want := int64(journalCap + 2); lost != want {
+		t.Errorf("KAYIP EKSİK SAYILDI: lost = %d, %d bekleniyordu", lost, want)
+	}
+}
+
+/*
+ * ⚠️ SATIR, KAYITTA KARŞILIĞI OLUP OLMADIĞINI TAŞIMALI.
+ *
+ * Defterle mührü karşılaştıran kontrolün dayanağı bu damga: kayıt
+ * kapalıyken mühür satırı hiç yazılmıyor (sftpcast.go, b.rec == nil).
+ * Damgayı koşulsuz basmak, mührü olmayan bir oturumu "mühür sıfır
+ * diyor ama defterde N satır var" diye suçlardı.
+ */
+func TestRowsSayWhetherTheyAreInTheRecording(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		recorded bool
+	}{
+		{"kayıt açık", true},
+		{"kayıt kapalı", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			j := &sftpJournal{log: testLogger(), recorded: tc.recorded}
+			j.Emit(sftpaudit.Event{Op: sftpaudit.OpOpen, Path: "/a", OK: true})
+
+			if len(j.buf) != 1 {
+				t.Fatalf("tamponda %d olay var, 1 bekleniyordu", len(j.buf))
+			}
+			if j.buf[0].InRecording != tc.recorded {
+				t.Errorf("InRecording = %v, %v bekleniyordu",
+					j.buf[0].InRecording, tc.recorded)
+			}
+		})
+	}
+}

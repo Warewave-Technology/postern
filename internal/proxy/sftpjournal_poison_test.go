@@ -240,6 +240,68 @@ func (s *splitBreaker) groups() []string {
 }
 
 /*
+ * ⚠️ POSTERN'İN KENDİ KAYBI, MÜDAHALE GİBİ RAPORLANMAMALI — ve bu, iki
+ * dalın birleşmesinde tek taşıyıcı karar.
+ *
+ * Yazılamayan satır ayıklanıp atılıyor ve yerine bir işaret satırı
+ * yazılıyor. O işaret satırı InRecording TAŞIMIYOR (yolu ve işlemi
+ * bozulmuş, kayıttaki satırı üretemez), yani defteri kaydın mührüyle
+ * karşılaştıran kontrolün saydığı satırlardan düşüyor: mühür N olay
+ * diyor, defterde N-1 satır var.
+ *
+ * O farkın adı iki şeyden biri olabilir — "postern yazamadı"
+ * (incomplete) ya da "birileri sildi" (missing). Ayıran tek şey,
+ * kaybın Close'un döndürdüğü sayıya girmesi. Girmezse kontrol, bu
+ * bastion'ın kendi arızasını KURCALAMA diye raporlar; üç PR'ın birden
+ * önlemeye çalıştığı şeyin tam tersi.
+ */
+func TestADroppedRowIsCountedAsOurOwnLoss(t *testing.T) {
+	w := &pickyFiles{poison: "/zehir"}
+	j := &sftpJournal{
+		store: w, log: testLogger(), recorded: true, fail: func(error) {},
+		stop: make(chan struct{}), done: make(chan struct{}),
+	}
+	close(j.done) // loop koşmuyor: flush'ı testin kendisi sürüyor.
+
+	j.buf = []store.SessionFile{
+		{Op: "open", Path: "/a", InRecording: true},
+		{Op: "open", Path: "/zehir", InRecording: true},
+		{Op: "open", Path: "/b", InRecording: true},
+	}
+	j.flush()
+
+	written, lost := j.Close()
+
+	if written != 2 {
+		t.Errorf("yazılan satır %d, 2 bekleniyordu", written)
+	}
+	if lost != 1 {
+		t.Fatalf("ATILAN SATIR KAYBA SAYILMADI: lost = %d, 1 bekleniyordu — "+
+			"defteri mühürle karşılaştıran kontrol bunu 'satır silinmiş' "+
+			"diye raporlar", lost)
+	}
+
+	/*
+	 * Karşı kanıt: işaret satırı gerçekten yazıldı ve gerçekten
+	 * InRecording taşımıyor. Taşısaydı sayı tutardı ama ÖZET tutmazdı
+	 * ve kontrol bu kez "ROWS ALTERED" derdi — aynı yanlış suçlamanın
+	 * öteki yüzü.
+	 */
+	var marker *store.SessionFile
+	for i := range w.wrote {
+		if strings.HasPrefix(w.wrote[i].Op, "dropped.") {
+			marker = &w.wrote[i]
+		}
+	}
+	if marker == nil {
+		t.Fatalf("işaret satırı yazılmadı: %+v", w.paths())
+	}
+	if marker.InRecording {
+		t.Error("işaret satırı kayıtta varmış gibi damgalandı; özet tutmaz")
+	}
+}
+
+/*
  * ⚠️ BÖLMENİN ORTASINDAKİ GEÇİCİ ARIZA — ayıklamanın en tehlikeli hâli.
  *
  * TestATransientFailureDropsNothing yalnızca bölme HİÇ BAŞLAMADIĞI hâli

@@ -267,135 +267,29 @@ func newSessionVerifyCmd() *cobra.Command {
 
 			out := cmd.OutOrStdout()
 
-			if s.RecordingPath == "" {
-				return fmt.Errorf("session %q has no recording", s.ID)
-			}
-			if s.RecordingChain == "" {
-				// Çıkış kodu 0 DEĞİL: "doğrulayamadım" bir başarı değil.
-				return fmt.Errorf(
-					"session %q has no chain, so it cannot be verified — it "+
-						"ended before chains existed, or postern crashed before "+
-						"the chain was stored", s.ID)
-			}
-
-			rs, err := record.NewStore(cfg.Recording.Dir)
-			if err != nil {
-				return err
-			}
 			/*
-			 * ⚠️ YEREL DOSYA YOKSA KUTU DIŞI KOPYA HÂLÂ CEVAP VEREBİLİR
-			 * — ve tam da o durumda TEK cevap odur.
-			 *
-			 * ÖLÇÜLEN KUSUR: burası eskiden rs.Open'ın hatasını olduğu
-			 * gibi döndürüyordu, yani budayıcı arşivlenmiş bir kaydı
-			 * yerelden sildikten sonra `session verify` bir dosya
-			 * hatasıyla düşüyor ve kovadaki başa HİÇ BAKMIYORDU.
-			 * Arşivlemenin bütün amacı o kopyanın kalması; onu
-			 * okumadan pes etmek, özelliğin kendisini boşa çıkarıyordu.
+			 * ⚠️ DEFTER KONTROLÜ ZİNCİRDEN AYRI KOŞUYOR VE HER YOLDA
+			 * BASILIYOR — iki ayrı eksen, panelin doğrulama cevabındaki
+			 * ayrımın aynısı. Zincir "dosya değişmiş mi" sorusunu
+			 * cevaplıyor; defter kontrolü "kaydın saydığı olayların
+			 * satırları duruyor mu" sorusunu. Birini diğerinin başarısız
+			 * olduğu dala gömmek, kaydı okunamayan bir oturumda
+			 * defterden satır silindiğini görünmez yapardı.
 			 */
-			f, openErr := rs.Open(s.ID, s.RecordingPath)
-			if openErr != nil {
-				if !errors.Is(openErr, fs.ErrNotExist) {
-					// İzin hatası gibi başka bir arıza: gizlemiyoruz.
-					return openErr
-				}
+			jr, jerr := journalOf(ctx, db, s)
+			verr := verifyChainReport(ctx, cfg, db, out, s, requireArchive)
+			printJournal(out, jr, jerr)
 
-				gone := checkOffBox(ctx, cfg, db, s.ID, s.RecordingChain)
-
-				return reportNoLocalCopy(out, s.ID, s.RecordingChain, s.RecordingLinks, gone)
+			switch {
+			case verr != nil:
+				// Kayıt bulgusu önce: dosyanın kendisi şüpheliyse
+				// defterin durumu ikincil bir sorudur.
+				return verr
+			case jerr != nil:
+				return fmt.Errorf("the journal of session %q could not be checked: %w", s.ID, jerr)
+			case !jr.State.OK():
+				return errJournalGap
 			}
-			defer f.Close()
-
-			ok, links, err := record.VerifyChain(f, s.RecordingChain)
-			if err != nil {
-				return err
-			}
-
-			/*
-			 * ⚠️ KUTU DIŞI KOPYA HER İKİ SONUÇTA DA OKUNUYOR.
-			 *
-			 * Yerel doğrulama düşse bile kovadaki başı göstermek işe
-			 * yarıyor: dosya değişmişse, kovadaki baş "olması gereken"i
-			 * söylüyor. Yalnızca başarı yolunda bakmak, en çok
-			 * ihtiyaç duyulan anda susmak olurdu.
-			 */
-			off := checkOffBox(ctx, cfg, db, s.ID, s.RecordingChain)
-
-			if !ok {
-				/*
-				 * Halka sayısı burada asıl bilgi: "bozuk" demek yetmiyor,
-				 * olay müdahalesinde soru kaydın NEREDE ayrıldığı.
-				 */
-				fmt.Fprintf(out, "FAILED  %s\n", s.ID)
-				fmt.Fprintf(out, "  stored chain   %s over %d links\n",
-					s.RecordingChain, s.RecordingLinks)
-				fmt.Fprintf(out, "  file has       %d links and a different chain\n", links)
-				if links < s.RecordingLinks {
-					fmt.Fprintf(out, "  the file is short by %d lines\n",
-						s.RecordingLinks-links)
-				}
-				printOffBox(out, off)
-
-				return errRecordingChanged
-			}
-
-			/*
-			 * ⚠️ YEREL DOĞRULAMA GEÇTİ AMA KOVA BAŞKA ŞEY SÖYLÜYORSA,
-			 * BU EN GÜÇLÜ KURCALAMA İŞARETİ — ve komut BAŞARISIZ dönmeli.
-			 *
-			 * Dosya veritabanındaki başla tutuyor, ama kovadaki kopya
-			 * başka bir baş taşıyor. İkisini birden üretebilmenin tek
-			 * yolu bu makineyi elinde tutmak; kovadaki nesne ise
-			 * saklama süresi boyunca oradan değiştirilemiyor. Yani bu,
-			 * "dosya ve veritabanı birlikte yeniden yazıldı" demek.
-			 */
-			if off.State == offBoxMismatch {
-				fmt.Fprintf(out, "FAILED  %s\n", s.ID)
-				fmt.Fprintf(out, "  the file matches this host's database, but the\n")
-				fmt.Fprintf(out, "  archived copy carries a different chain head.\n")
-				printOffBox(out, off)
-				fmt.Fprintf(out, "\n")
-				fmt.Fprintf(out, "Both the recording and the stored chain on this host can be\n")
-				fmt.Fprintf(out, "rewritten by whoever holds root here; the archived copy\n")
-				fmt.Fprintf(out, "cannot, while its retention lasts. Treat the archived head\n")
-				fmt.Fprintf(out, "as the one to trust, and this host as compromised.\n")
-
-				return errArchiveDisagrees
-			}
-
-			if requireArchive && off.State != offBoxMatch {
-				fmt.Fprintf(out, "FAILED  %s\n", s.ID)
-				fmt.Fprintf(out, "  the local chain is intact, but the off-box copy could\n")
-				fmt.Fprintf(out, "  not confirm it and --require-archive was given.\n")
-				printOffBox(out, off)
-
-				return errArchiveUnverified
-			}
-
-			fmt.Fprintf(out, "OK  %s\n", s.ID)
-			fmt.Fprintf(out, "  %d links, chain %s\n", links, s.RecordingChain)
-			printOffBox(out, off)
-			fmt.Fprintf(out, "\n")
-
-			if off.State == offBoxMatch {
-				fmt.Fprintf(out, "The recording matches its chain, and the copy in the archive\n")
-				fmt.Fprintf(out, "carries the same head. Rewriting the file and this host's\n")
-				fmt.Fprintf(out, "database together would not have produced that agreement,\n")
-				fmt.Fprintf(out, "as long as the bucket keeps versioning and Object Lock on —\n")
-				fmt.Fprintf(out, "`postern archive check` reports whether it does.\n")
-				fmt.Fprintf(out, "\n")
-				fmt.Fprintf(out, "This check ran on the bastion. For a reading that does not\n")
-				fmt.Fprintf(out, "trust this host at all, compare the same head from elsewhere;\n")
-				fmt.Fprintf(out, "the bucket credential and the session id are all it takes.\n")
-
-				return nil
-			}
-
-			fmt.Fprintf(out, "This proves the file was not changed after postern wrote it.\n")
-			fmt.Fprintf(out, "It does not prove more than that: whoever holds root on this\n")
-			fmt.Fprintf(out, "host could rewrite the file and this chain together. The chain\n")
-			fmt.Fprintf(out, "is worth what its copy elsewhere is worth — and that copy was\n")
-			fmt.Fprintf(out, "not consulted here (see above).\n")
 
 			return nil
 		},
@@ -413,6 +307,261 @@ func newSessionVerifyCmd() *cobra.Command {
 
 	return cmd
 }
+
+/*
+ * verifyChainReport, kaydın zincirini doğrular ve raporunu yazar.
+ *
+ * Komuttan ayrı bir fonksiyon çünkü artık iki eksen var: bu, kaydın
+ * kendisini; çağıran ise ayrıca defteri raporluyor. İkisini tek gövdede
+ * tutmak, erken dönen her zincir dalının defter satırını da yutması
+ * demekti.
+ */
+func verifyChainReport(ctx context.Context, cfg *config.Config, db *store.Store,
+	out io.Writer, s model.Session, requireArchive bool) error {
+	if s.RecordingPath == "" {
+		return fmt.Errorf("session %q has no recording", s.ID)
+	}
+	if s.RecordingChain == "" {
+		// Çıkış kodu 0 DEĞİL: "doğrulayamadım" bir başarı değil.
+		return fmt.Errorf(
+			"session %q has no chain, so it cannot be verified — it "+
+				"ended before chains existed, or postern crashed before "+
+				"the chain was stored", s.ID)
+	}
+
+	rs, err := record.NewStore(cfg.Recording.Dir)
+	if err != nil {
+		return err
+	}
+	/*
+	 * ⚠️ YEREL DOSYA YOKSA KUTU DIŞI KOPYA HÂLÂ CEVAP VEREBİLİR
+	 * — ve tam da o durumda TEK cevap odur.
+	 *
+	 * ÖLÇÜLEN KUSUR: burası eskiden rs.Open'ın hatasını olduğu
+	 * gibi döndürüyordu, yani budayıcı arşivlenmiş bir kaydı
+	 * yerelden sildikten sonra `session verify` bir dosya
+	 * hatasıyla düşüyor ve kovadaki başa HİÇ BAKMIYORDU.
+	 * Arşivlemenin bütün amacı o kopyanın kalması; onu
+	 * okumadan pes etmek, özelliğin kendisini boşa çıkarıyordu.
+	 */
+	f, openErr := rs.Open(s.ID, s.RecordingPath)
+	if openErr != nil {
+		if !errors.Is(openErr, fs.ErrNotExist) {
+			// İzin hatası gibi başka bir arıza: gizlemiyoruz.
+			return openErr
+		}
+
+		gone := checkOffBox(ctx, cfg, db, s.ID, s.RecordingChain)
+
+		return reportNoLocalCopy(out, s.ID, s.RecordingChain, s.RecordingLinks, gone)
+	}
+	defer f.Close()
+
+	ok, links, err := record.VerifyChain(f, s.RecordingChain)
+	if err != nil {
+		return err
+	}
+
+	/*
+	 * ⚠️ KUTU DIŞI KOPYA HER İKİ SONUÇTA DA OKUNUYOR.
+	 *
+	 * Yerel doğrulama düşse bile kovadaki başı göstermek işe
+	 * yarıyor: dosya değişmişse, kovadaki baş "olması gereken"i
+	 * söylüyor. Yalnızca başarı yolunda bakmak, en çok
+	 * ihtiyaç duyulan anda susmak olurdu.
+	 */
+	off := checkOffBox(ctx, cfg, db, s.ID, s.RecordingChain)
+
+	if !ok {
+		/*
+		 * Halka sayısı burada asıl bilgi: "bozuk" demek yetmiyor,
+		 * olay müdahalesinde soru kaydın NEREDE ayrıldığı.
+		 */
+		fmt.Fprintf(out, "FAILED  %s\n", s.ID)
+		fmt.Fprintf(out, "  stored chain   %s over %d links\n",
+			s.RecordingChain, s.RecordingLinks)
+		fmt.Fprintf(out, "  file has       %d links and a different chain\n", links)
+		if links < s.RecordingLinks {
+			fmt.Fprintf(out, "  the file is short by %d lines\n",
+				s.RecordingLinks-links)
+		}
+		printOffBox(out, off)
+
+		return errRecordingChanged
+	}
+
+	/*
+	 * ⚠️ YEREL DOĞRULAMA GEÇTİ AMA KOVA BAŞKA ŞEY SÖYLÜYORSA,
+	 * BU EN GÜÇLÜ KURCALAMA İŞARETİ — ve komut BAŞARISIZ dönmeli.
+	 *
+	 * Dosya veritabanındaki başla tutuyor, ama kovadaki kopya
+	 * başka bir baş taşıyor. İkisini birden üretebilmenin tek
+	 * yolu bu makineyi elinde tutmak; kovadaki nesne ise
+	 * saklama süresi boyunca oradan değiştirilemiyor. Yani bu,
+	 * "dosya ve veritabanı birlikte yeniden yazıldı" demek.
+	 */
+	if off.State == offBoxMismatch {
+		fmt.Fprintf(out, "FAILED  %s\n", s.ID)
+		fmt.Fprintf(out, "  the file matches this host's database, but the\n")
+		fmt.Fprintf(out, "  archived copy carries a different chain head.\n")
+		printOffBox(out, off)
+		fmt.Fprintf(out, "\n")
+		fmt.Fprintf(out, "Both the recording and the stored chain on this host can be\n")
+		fmt.Fprintf(out, "rewritten by whoever holds root here; the archived copy\n")
+		fmt.Fprintf(out, "cannot, while its retention lasts. Treat the archived head\n")
+		fmt.Fprintf(out, "as the one to trust, and this host as compromised.\n")
+
+		return errArchiveDisagrees
+	}
+
+	if requireArchive && off.State != offBoxMatch {
+		fmt.Fprintf(out, "FAILED  %s\n", s.ID)
+		fmt.Fprintf(out, "  the local chain is intact, but the off-box copy could\n")
+		fmt.Fprintf(out, "  not confirm it and --require-archive was given.\n")
+		printOffBox(out, off)
+
+		return errArchiveUnverified
+	}
+
+	fmt.Fprintf(out, "OK  %s\n", s.ID)
+	fmt.Fprintf(out, "  %d links, chain %s\n", links, s.RecordingChain)
+	printOffBox(out, off)
+	fmt.Fprintf(out, "\n")
+
+	if off.State == offBoxMatch {
+		fmt.Fprintf(out, "The recording matches its chain, and the copy in the archive\n")
+		fmt.Fprintf(out, "carries the same head. Rewriting the file and this host's\n")
+		fmt.Fprintf(out, "database together would not have produced that agreement,\n")
+		fmt.Fprintf(out, "as long as the bucket keeps versioning and Object Lock on —\n")
+		fmt.Fprintf(out, "`postern archive check` reports whether it does.\n")
+		fmt.Fprintf(out, "\n")
+		fmt.Fprintf(out, "This check ran on the bastion. For a reading that does not\n")
+		fmt.Fprintf(out, "trust this host at all, compare the same head from elsewhere;\n")
+		fmt.Fprintf(out, "the bucket credential and the session id are all it takes.\n")
+
+		return nil
+	}
+
+	fmt.Fprintf(out, "This proves the file was not changed after postern wrote it.\n")
+	fmt.Fprintf(out, "It does not prove more than that: whoever holds root on this\n")
+	fmt.Fprintf(out, "host could rewrite the file and this chain together. The chain\n")
+	fmt.Fprintf(out, "is worth what its copy elsewhere is worth — and that copy was\n")
+	fmt.Fprintf(out, "not consulted here (see above).\n")
+
+	return nil
+}
+
+/*
+ * journalOf, oturumun defterini kaydın mührüyle karşılaştırır.
+ *
+ * ⚠️ SATIRLARIN KENDİSİ ÇEKİLİYOR, YALNIZCA SAYISI DEĞİL — ve bu bir
+ * genişletme. Sayı, silinmiş satırı gösteriyor; DEĞİŞTİRİLMİŞ satırı
+ * göstermiyor. Mühürdeki özeti yeniden hesaplamanın tek yolu satırların
+ * içeriğini okumak, ve bu komut zaten kaydın tamamını okuyor: bir
+ * denetim komutunda, sorulmayan soru sorulanla aynı bedelde değil.
+ */
+func journalOf(ctx context.Context, db *store.Store, s model.Session) (verify.JournalResult, error) {
+	rows, err := db.SessionFiles(ctx, s.ID)
+	if err != nil {
+		return verify.JournalResult{}, err
+	}
+
+	return verify.JournalOf(s, rows), nil
+}
+
+// journalLabel, defter durumunun tek kelimelik operatör karşılığı.
+//
+// ⚠️ "OK" DIŞINDAKİLERİN HİÇBİRİ ONAY DEĞİL, "NOT CHECKED" DAHİL.
+// Ölçülmemiş bir oturumu "OK" yazmak, hiç yapılmamış bir kontrolü
+// yapılmış saymak olurdu — zincirdeki "cannot be verified" ayrımının
+// aynısı.
+func journalLabel(st verify.JournalState) string {
+	switch st {
+	case verify.JournalIntact:
+		return "OK"
+	case verify.JournalIncomplete:
+		return "INCOMPLETE"
+	case verify.JournalMissing:
+		return "ROWS MISSING"
+	case verify.JournalAltered:
+		return "ROWS ALTERED"
+	case verify.JournalExtra:
+		return "UNEXPECTED ROWS"
+	default:
+		return "NOT CHECKED"
+	}
+}
+
+/*
+ * printJournal, defter kontrolünün sonucunu yazar.
+ *
+ * ⚠️ HER DURUMDA YAZILIYOR, printOffBox'la aynı gerekçeyle: bakılmadığı
+ * yazılmazsa okuyan kişi bakıldığını ve tuttuğunu varsayar. Bu kontrolün
+ * kapattığı açık tam olarak böyle bir varsayımdı — ekran dosya listesini
+ * eksiksizmiş gibi gösteriyordu ve onu yalanlayacak hiçbir satır yoktu.
+ */
+func printJournal(out io.Writer, r verify.JournalResult, err error) {
+	fmt.Fprintf(out, "\n")
+
+	if err != nil {
+		// ⚠️ Sayamamak "defter tam" değil. Cümle hatayı taşıyor:
+		// veritabanına ulaşamamakla satırların silinmiş olması ayrı
+		// şeyler ve ikincisi buradan okunmamalı.
+		fmt.Fprintf(out, "JOURNAL  NOT CHECKED\n")
+		fmt.Fprintf(out, "  the journal rows could not be counted: %v\n", err)
+
+		return
+	}
+
+	fmt.Fprintf(out, "JOURNAL  %s\n", journalLabel(r.State))
+	if r.Summary != "" {
+		fmt.Fprintf(out, "  %s\n", r.Summary)
+	}
+	fmt.Fprintf(out, "  %s\n", r.Detail)
+
+	if r.State.OK() {
+		return
+	}
+
+	/*
+	 * ⚠️ İKİ EKSENİ BİRBİRİNE BAĞLAYAN CÜMLE ŞART. Yukarıdaki zincir
+	 * raporu "OK" yazmış olabilir ve o satır ekranın EN ÜSTÜNDE duruyor;
+	 * onu okuyup duran biri, dosyanın doğrulanmış olmasını defterin de
+	 * tam olması sanır. İkisi ayrı iddia ve bu satır bunu söylüyor.
+	 */
+	fmt.Fprintf(out, "\n")
+	fmt.Fprintf(out, "A recording that verifies does not make the journal sound:\n")
+	fmt.Fprintf(out, "the chain covers the file, not the rows in the database.\n")
+
+	/*
+	 * ⚠️ İKİ BULGU İKİ AYRI CÜMLE. "Eksik satır" ile "değişmiş satır"
+	 * denetçiyi farklı yerlere gönderiyor: biri kayıtta olup defterde
+	 * olmayanı aratıyor, öteki defterde duran satırın kayıttaki
+	 * karşılığını. Tek bir kapanış cümlesi, ikincisini birincisi gibi
+	 * okutur ve olmayan bir eksik aratırdı.
+	 */
+	if r.State == verify.JournalAltered {
+		fmt.Fprintf(out, "The rows are all there; what they say is what changed.\n")
+		fmt.Fprintf(out, "Play the recording back and compare it line by line —\n")
+		fmt.Fprintf(out, "that copy is the one the chain covers.\n")
+
+		return
+	}
+
+	fmt.Fprintf(out, "The events themselves are in the recording, one line each —\n")
+	fmt.Fprintf(out, "play it back to read what the journal is missing.\n")
+}
+
+/*
+ * errJournalGap, defter ile kaydın ayrıştığını çağırana sıfırdan farklı
+ * bir çıkış koduyla bildiriyor.
+ *
+ * ⚠️ AYRI BİR HATA, errRecordingChanged DEĞİL. Dosya yerinde ve
+ * değişmemiş olabilir; ayrışan şey defter. Aynı hataya bağlamak, bir
+ * olay müdahalesi betiğine "kayıt kurcalanmış" dedirtirdi.
+ */
+var errJournalGap = errors.New(
+	"the journal does not match the file events sealed in the recording")
 
 /*
  * reportNoLocalCopy, yerelde olmayan bir kaydın sonucunu yazar.

@@ -179,4 +179,140 @@ describe("SFTP dosya olayları", () => {
       await screen.findByText(/not a statement that no files were touched/i),
     ).toBeInTheDocument();
   });
+
+  /*
+   * ⚠️ KISA BİR LİSTE, TAM BİR LİSTEDEN AYIRT EDİLEMEZ.
+   *
+   * Kaydın mühür satırı oturumun kaç dosya olayı ürettiğini söylüyor
+   * (proxy/sftpcast.go). Defterden düşen ya da sonradan silinen bir
+   * satır, bu ekranda yalnızca daha kısa bir tablo olarak görünüyordu
+   * ve onu yalanlayacak hiçbir cümle yoktu.
+   */
+  it("defter eksikse listeyi eksiksizmiş gibi göstermiyor", async () => {
+    vi.spyOn(api, "sessionDetail").mockResolvedValue({
+      ...session(),
+      recording: { state: "complete", size: 120 },
+      files: [
+        {
+          id: "f1",
+          at: "2026-08-31T10:01:00Z",
+          op: "open",
+          path: "/etc/shadow",
+          read: 0,
+          wrote: 0,
+          ok: true,
+          in_recording: true,
+        },
+      ],
+      journal: {
+        state: "missing",
+        events: 3,
+        rows: 1,
+        lost: 0,
+        detail: "the journal has no row for 2 events the recording's seal counts",
+        digest_checked: false,
+      },
+    });
+    await openSession();
+
+    expect(await screen.findByText(/NOT the whole story/i)).toBeInTheDocument();
+    // Gerekçe SUNUCUDAN geliyor: aynı cümleyi `postern session verify`
+    // de basıyor ve ikisi ayrışmamalı.
+    expect(
+      screen.getByText(/has no row for 2 events/i),
+    ).toBeInTheDocument();
+  });
+
+  /*
+   * ⚠️ EN TEHLİKELİ HÂL BOŞ TABLO. Bütün satırları silinmiş bir oturum
+   * bu ekranda "hiçbir dosyaya dokunulmamış" gibi görünüyordu; uyarı
+   * tablonun içinde olsaydı tam da o oturumda gizlenirdi.
+   */
+  it("bütün satırlar gitmişse boş ekran değil uyarı gösteriyor", async () => {
+    vi.spyOn(api, "sessionDetail").mockResolvedValue({
+      ...session(),
+      recording: { state: "complete", size: 120 },
+      files: [],
+      journal: {
+        state: "missing",
+        events: 4,
+        rows: 0,
+        lost: 0,
+        detail: "the journal has no row for 4 events the recording's seal counts",
+        digest_checked: false,
+      },
+    });
+    await openSession();
+
+    expect(await screen.findByText(/NOT the whole story/i)).toBeInTheDocument();
+  });
+
+  /*
+   * ⚠️ DEĞİŞTİRİLMİŞ SATIR, EKSİK SATIRDAN BAŞKA BİR CÜMLE.
+   *
+   * Burada liste TAM: satır sayısı doğru, satırlar yerinde. Değişen şey
+   * satırların ne SÖYLEDİĞİ. "Hepsi burada değil" demek, denetçiyi
+   * olmayan bir eksiği aramaya gönderirdi.
+   */
+  it("değiştirilmiş satırı eksik satırdan ayırıyor", async () => {
+    vi.spyOn(api, "sessionDetail").mockResolvedValue({
+      ...session(),
+      recording: { state: "complete", size: 120 },
+      files: [
+        {
+          id: "f1",
+          at: "2026-08-31T10:01:00Z",
+          op: "open",
+          path: "/tmp/notlar",
+          read: 0,
+          wrote: 0,
+          ok: true,
+          in_recording: true,
+        },
+      ],
+      journal: {
+        state: "altered",
+        events: 1,
+        rows: 1,
+        lost: 0,
+        detail:
+          "the journal has a row for each of the 1 event the seal counts, " +
+          "but their digest does not match the recording",
+        digest_checked: true,
+      },
+    });
+    await openSession();
+
+    expect(
+      await screen.findByText(/do not say what the recording says/i),
+    ).toBeInTheDocument();
+    // ⚠️ EKSİK SATIR CÜMLESİ ÇIKMAMALI: burada eksik bir şey yok.
+    expect(screen.queryByText(/NOT the whole story/i)).toBeNull();
+  });
+
+  /*
+   * ⚠️ ÖLÇÜLMEMİŞ OTURUM ALARM ÜRETMEMELİ — yükseltmeden önce kapanmış
+   * her oturum burada. Onları uyarıyla göstermek, ilk günden itibaren
+   * geçmişin tamamını suçlamak olurdu.
+   */
+  it("ölçülmemiş oturumda uyarı çıkarmıyor", async () => {
+    vi.spyOn(api, "sessionDetail").mockResolvedValue({
+      ...session(),
+      recording: { state: "complete", size: 120 },
+      files: [],
+      journal: {
+        state: "unmeasured",
+        events: 0,
+        rows: 0,
+        lost: 0,
+        detail: "this session has no seal to compare the journal against",
+        digest_checked: false,
+      },
+    });
+    await openSession();
+
+    await waitFor(() =>
+      expect(screen.queryByText(/NOT the whole story/i)).toBeNull(),
+    );
+  });
 });

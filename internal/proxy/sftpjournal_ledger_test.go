@@ -118,7 +118,13 @@ func TestSFTPEventsWithHostilePathsStillLandInTheLedger(t *testing.T) {
 	st := newLedger(t, sessionID)
 
 	var failed []error
-	j := newSFTPJournal(st, sessionID, testLogger(), func(e error) { failed = append(failed, e) })
+	/*
+	 * recorded=true: bu oturumun bir kaydı var. Satırların InRecording
+	 * damgası oradan geliyor ve defteri mühürle karşılaştıran kontrolün
+	 * dayanağı o (bkz. sftpjournal.go, recorded).
+	 */
+	j := newSFTPJournal(st, sessionID, testLogger(), true,
+		func(e error) { failed = append(failed, e) })
 
 	// ⚠️ SORUŞTURMANIN SATIRI AYNI GRUPTA: kaybı görünür kılan şey bu.
 	audit := sftpaudit.NewSession(j.Emit)
@@ -148,10 +154,10 @@ func TestSFTPEventsWithHostilePathsStillLandInTheLedger(t *testing.T) {
 	// giriyor (STATUS mesajı → detail).
 	reply(sftpPacket(101 /*fxpStatus*/, uint32(3), uint32(3), strings.Repeat("R", 20<<10), ""))
 
-	written, dropped := j.Close()
+	written, lost := j.Close()
 
-	if dropped != 0 {
-		t.Errorf("%d denetim satırı atıldı; hepsi yazılabilir olmalıydı", dropped)
+	if lost != 0 {
+		t.Errorf("%d denetim satırı kaybedildi; hepsi yazılabilir olmalıydı", lost)
 	}
 	if len(failed) != 0 {
 		t.Errorf("oturum denetim arızasıyla bitirildi: %v", failed)
@@ -161,7 +167,7 @@ func TestSFTPEventsWithHostilePathsStillLandInTheLedger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SessionFiles: %v", err)
 	}
-	if len(rows) != written || written != 3 {
+	if int64(len(rows)) != written || written != 3 {
 		t.Fatalf("defterde %d satır var, günlükçü %d yazdım diyor, 3 bekleniyordu:\n%+v",
 			len(rows), written, rows)
 	}

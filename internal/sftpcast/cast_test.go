@@ -1,4 +1,10 @@
-package proxy
+package sftpcast
+
+// Kayda yazılan satırın biçimi.
+//
+// ⚠️ BU TESTLER internal/proxy'DEN TAŞINDI, ÇÜNKÜ BİÇİM DE TAŞINDI:
+// satırı artık iki taraf üretiyor — kaydı yazan broker ve defterdeki
+// satırların mührünü yeniden hesaplayan kontrol (internal/verify).
 
 import (
 	"strings"
@@ -44,7 +50,7 @@ func TestControlBytesNeverReachTheRecording(t *testing.T) {
 
 	for _, c := range nasty {
 		t.Run(c.name, func(t *testing.T) {
-			line := castLine(ev(sftpaudit.OpOpendir, c.path))
+			line := Line(ev(sftpaudit.OpOpendir, c.path))
 
 			// Satır sonu YALNIZCA sonda olmalı.
 			body := strings.TrimSuffix(line, "\r\n")
@@ -89,7 +95,7 @@ func TestBidiControlsNeverReachTheRecording(t *testing.T) {
 
 	for _, c := range bidi {
 		t.Run(c.name, func(t *testing.T) {
-			line := castLine(ev(sftpaudit.OpOpendir, c.path))
+			line := Line(ev(sftpaudit.OpOpendir, c.path))
 
 			for _, r := range line {
 				if r == 0x200e || r == 0x200f ||
@@ -104,8 +110,8 @@ func TestBidiControlsNeverReachTheRecording(t *testing.T) {
 // Atılan bir şey olduğu KAYBOLMAMALI: temizlenmiş bir ad, temiz bir adla
 // aynı görünürse denetçi yanlış dosyaya bakar.
 func TestSanitisingIsVisible(t *testing.T) {
-	dirty := castLine(ev(sftpaudit.OpOpendir, "/tmp/a\x1bb"))
-	clean := castLine(ev(sftpaudit.OpOpendir, "/tmp/ab"))
+	dirty := Line(ev(sftpaudit.OpOpendir, "/tmp/a\x1bb"))
+	clean := Line(ev(sftpaudit.OpOpendir, "/tmp/ab"))
 	if dirty == clean {
 		t.Fatalf("temizlenen ad, temiz adla aynı satırı üretti: %q", dirty)
 	}
@@ -116,7 +122,7 @@ func TestSanitisingIsVisible(t *testing.T) {
 
 // Tümüyle atılmış bir alan BOŞ bırakılmamalı: boş yol "yol yoktu" demek.
 func TestFullyStrippedPathStillShows(t *testing.T) {
-	line := castLine(ev(sftpaudit.OpOpendir, "\x1b\x1b\x1b"))
+	line := Line(ev(sftpaudit.OpOpendir, "\x1b\x1b\x1b"))
 	if !strings.Contains(line, "(unprintable)") {
 		t.Errorf("tümüyle atılan yol görünmüyor: %q", line)
 	}
@@ -125,8 +131,8 @@ func TestFullyStrippedPathStillShows(t *testing.T) {
 // Alan uzunluğu sınırlı: gerekçe metni HEDEFTEN geliyor ve sınırı hedef
 // koyuyor. Sınırsız bırakmak, tek isteğin kaydı şişirmesine izin verirdi.
 func TestFieldsAreBounded(t *testing.T) {
-	line := castLine(ev(sftpaudit.OpOpendir, "/"+strings.Repeat("a", 4000)))
-	if len(line) > maxCastField+200 {
+	line := Line(ev(sftpaudit.OpOpendir, "/"+strings.Repeat("a", 4000)))
+	if len(line) > maxField+200 {
 		t.Errorf("satır sınırı aşıyor: %d bayt", len(line))
 	}
 }
@@ -136,8 +142,8 @@ func TestFieldsAreBounded(t *testing.T) {
  * sorduğu şeyi — dosya çıktı mı girdi mi — cevaplamıyor.
  */
 func TestTransferDirectionIsVisible(t *testing.T) {
-	get := castLine(ev(sftpaudit.OpTransfer, "/tmp/r.pdf", func(e *sftpaudit.Event) { e.Read = 1536 }))
-	put := castLine(ev(sftpaudit.OpTransfer, "/tmp/y.tar", func(e *sftpaudit.Event) { e.Wrote = 2048 }))
+	get := Line(ev(sftpaudit.OpTransfer, "/tmp/r.pdf", func(e *sftpaudit.Event) { e.Read = 1536 }))
+	put := Line(ev(sftpaudit.OpTransfer, "/tmp/y.tar", func(e *sftpaudit.Event) { e.Wrote = 2048 }))
 
 	if !strings.Contains(get, "get ") || !strings.Contains(get, "1.5 KiB") {
 		t.Errorf("indirme satırı: %q", get)
@@ -153,7 +159,7 @@ func TestTransferDirectionIsVisible(t *testing.T) {
 // Açılmış ama tek bayt taşınmamış dosya "get 0 B" DEMEMELİ: bir aktarım
 // olduğunu düşündürürdü.
 func TestOpenWithoutTransferIsNotCalledGet(t *testing.T) {
-	line := castLine(ev(sftpaudit.OpTransfer, "/tmp/bos"))
+	line := Line(ev(sftpaudit.OpTransfer, "/tmp/bos"))
 	if strings.Contains(line, "get") || strings.Contains(line, "put") {
 		t.Errorf("bayt taşımayan aktarım yön iddia ediyor: %q", line)
 	}
@@ -168,7 +174,7 @@ func TestOpenWithoutTransferIsNotCalledGet(t *testing.T) {
  * ilkini varsayar.
  */
 func TestRefusalsAndFailuresAreVisible(t *testing.T) {
-	denied := castLine(ev("denied.opendir", "/etc", func(e *sftpaudit.Event) {
+	denied := Line(ev("denied.opendir", "/etc", func(e *sftpaudit.Event) {
 		e.OK = false
 		e.Detail = "postern: path is not allowed by your role"
 	}))
@@ -180,7 +186,7 @@ func TestRefusalsAndFailuresAreVisible(t *testing.T) {
 	}
 
 	// Hedefin kendi reddi: "denied." öneki YOK ama OK=false.
-	failed := castLine(ev(sftpaudit.OpOpen, "/root/x", func(e *sftpaudit.Event) {
+	failed := Line(ev(sftpaudit.OpOpen, "/root/x", func(e *sftpaudit.Event) {
 		e.OK = false
 		e.Detail = "Permission denied"
 	}))
@@ -195,8 +201,101 @@ func TestByteFormatting(t *testing.T) {
 		want string
 	}{{0, "0 B"}, {512, "512 B"}, {1024, "1.0 KiB"}, {1536, "1.5 KiB"},
 		{1048576, "1.0 MiB"}, {1610612736, "1.5 GiB"}} {
-		if got := castBytes(c.n); got != c.want {
-			t.Errorf("castBytes(%d) = %q, %q bekleniyordu", c.n, got, c.want)
+		if got := bytesOf(c.n); got != c.want {
+			t.Errorf("bytesOf(%d) = %q, %q bekleniyordu", c.n, got, c.want)
 		}
+	}
+}
+
+/*
+ * ⚠️ ÖZET SIRADAN BAĞIMSIZ OLMAK ZORUNDA.
+ *
+ * Defterdeki satırlar toplu yazılıyor ve `id` ile sıralanıyor, yani
+ * aynı olay kümesi kayıttakinden BAŞKA bir sırada okunabiliyor. Sıraya
+ * bağlı bir özet, hiçbir şey değişmemişken tutmaz — ve o hâlde kontrol,
+ * dokunulmamış oturumları "değiştirilmiş" diye raporlar.
+ */
+func TestSealDoesNotDependOnOrder(t *testing.T) {
+	lines := []string{
+		Line(ev(sftpaudit.OpOpendir, "/tmp")),
+		Line(ev(sftpaudit.OpOpen, "/tmp/a")),
+		Line(ev(sftpaudit.OpTransfer, "/tmp/a", func(e *sftpaudit.Event) { e.Read = 10 })),
+	}
+
+	var forward, backward Seal
+	for _, l := range lines {
+		forward.Add(l)
+	}
+	for i := len(lines) - 1; i >= 0; i-- {
+		backward.Add(lines[i])
+	}
+
+	if forward.Head() != backward.Head() {
+		t.Errorf("sıra özeti değiştirdi:\n%s\n%s", forward.Head(), backward.Head())
+	}
+	if forward.Events() != 3 {
+		t.Errorf("olay sayısı = %d", forward.Events())
+	}
+}
+
+/*
+ * ⚠️ ASIL İDDİA: DEĞİŞEN BİR SATIR ÖZETİ DEĞİŞTİRİR.
+ *
+ * Kontrolün yakaladığı müdahale bu — defterdeki bir yolu değiştiren bir
+ * UPDATE. Sayı tutmaya devam ediyor; onu gören tek şey özet.
+ */
+func TestSealSeesAChangedLine(t *testing.T) {
+	var real, tampered Seal
+	real.Add(Line(ev(sftpaudit.OpOpen, "/etc/shadow")))
+	tampered.Add(Line(ev(sftpaudit.OpOpen, "/tmp/notlar")))
+
+	if real.Head() == tampered.Head() {
+		t.Error("DEĞİŞTİRİLMİŞ SATIR ÖZETİ DEĞİŞTİRMEDİ")
+	}
+	if real.Events() != tampered.Events() {
+		t.Fatal("kurgu tutmadı: sayılar da farklı, ölçülen şey özet değil")
+	}
+}
+
+/*
+ * ⚠️ XOR'UN BİLİNEN BEDELİ, TESTTE DE YAZILI DURUYOR: aynı satırdan
+ * çift sayıda silmek özeti değiştirmez. Bu bir kusur değil, seçimin
+ * bedeli — ve bedeli bilerek ödüyoruz çünkü SAYIM onu görüyor
+ * (verify.JournalOf). Test, birinin özeti tek başına yeterli sanıp
+ * sayımı kaldırmasına karşı duruyor.
+ */
+func TestIdenticalLinesCancelInTheDigest(t *testing.T) {
+	line := Line(ev(sftpaudit.OpOpendir, "/tmp"))
+
+	var pair Seal
+	pair.Add(line)
+	pair.Add(line)
+
+	var empty Seal
+	if pair.Head() != empty.Head() {
+		t.Error("kurgu değişti: aynı iki satır artık birbirini götürmüyor — " +
+			"verify.JournalOf'taki sayım gerekçesi güncellenmeli")
+	}
+	// Sayı ise farkı GÖRÜYOR: kontrolün ikinci yarısı bu.
+	if pair.Events() == empty.Events() {
+		t.Error("sayı da farkı görmüyor: çift silme tümüyle görünmez olur")
+	}
+}
+
+// Mühür satırının biçimi bir sözleşme: değişirse eski kayıtların mührü
+// bir daha okunamaz.
+func TestSealLineFormat(t *testing.T) {
+	var s Seal
+	s.Add(Line(ev(sftpaudit.OpOpendir, "/tmp")))
+
+	line := s.Line()
+	if !strings.HasPrefix(line, "postern sftp: 1 events, digest sha256:") {
+		t.Errorf("mühür satırının biçimi değişti: %q", line)
+	}
+	if !strings.HasSuffix(line, "\r\n") {
+		t.Errorf("satır sonu \\r\\n değil: %q", line)
+	}
+	if !strings.Contains(line, s.Head()) {
+		t.Errorf("satır özeti taşımıyor: %q", line)
 	}
 }

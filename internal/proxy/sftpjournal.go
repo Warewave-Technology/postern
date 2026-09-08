@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Warewave-Technology/postern/internal/sftpaudit"
+	"github.com/Warewave-Technology/postern/internal/sftpcast"
 	"github.com/Warewave-Technology/postern/internal/store"
 )
 
@@ -22,6 +23,15 @@ import (
  * görünür. Veritabanı olayları yazamayacak kadar geride kaldıysa doğru
  * cevap "denetlenemiyorsa geçmez" — kaydın açılamamasında verilen
  * kararın aynısı.
+ *
+ * ⚠️ AMA OTURUMU BİTİRMEK, OLAYI KURTARMIYOR — VE ELDEKİ SESSİZLİK TAM
+ * OLARAK BURADAYDI. fail() sync.Once ile korunuyor (sftp.go,
+ * abortAudit): ilk taşmadan sonraki her taşma hiçbir yere yazılmadan
+ * geri dönüyordu. Kapanış ile teardown arasında akmaya devam eden bir
+ * transfer, defterde HİÇ görünmeyen ama kayıtta duran onlarca olay
+ * bırakabiliyordu. Artık her düşürme sayılıyor, sayı oturumun satırına
+ * yazılıyor (store.MarkSFTPJournal) ve `session verify` ile panelin
+ * oturum ayrıntısı onu söylüyor.
  */
 const journalCap = 10000
 
@@ -54,23 +64,56 @@ type sftpJournal struct {
 	// fail, denetim yazılamadığında oturumu bitiren geri çağrı.
 	fail func(error)
 
-	mu  sync.Mutex
-	buf []store.SessionFile
-	// total, yazılmış olay sayısı; dropped, yazılamadığı için ATILMIŞ
-	// satır sayısı. İkincisi ayrı duruyor çünkü toplama katılsaydı
-	// "kaç olay kaydedildi" cümlesi, kaydedilmemiş satırları da
-	// kaydedilmiş gösterirdi.
-	total   int
-	dropped int
+	/*
+	 * recorded, bu oturumun bir KAYDI olduğu.
+	 *
+	 * ⚠️ SATIRA İŞLENİYOR (SessionFile.InRecording) ÇÜNKÜ KONTROLÜN
+	 * DAYANAĞI O. Kayıt kapalıyken mühür satırı hiç yazılmıyor
+	 * (sftpcast.go, b.rec == nil); satırları yine de "kayıtta var" diye
+	 * işaretlemek, mühürsüz bir oturumu "mühür sıfır diyor ama defterde
+	 * N satır var" diye suçlardı.
+	 */
+	recorded bool
+
+	mu      sync.Mutex
+	buf     []store.SessionFile
+	total   int64
 	stopped bool
+
+	/*
+	 * dropped, deftere GİREMEYEN olay sayısı — üç sebepten.
+	 *
+	 * ⚠️ ÜÇÜ TEK SAYAÇTA ve birleşme sırasında bilerek katlandılar:
+	 * tavana çarpanlar (drop), kapanıştan sonra gelenler, ve deponun
+	 * DEĞER olarak reddedip ayıkladıklarımız (dropRow). Ayrı sayaçlarda
+	 * dursalardı oturumun satırına yalnızca biri yazılırdı.
+	 *
+	 * ⚠️ SAYMAK, TEK BAŞINA BİR ÖZELLİK. Düşen olay kayda ÇOKTAN
+	 * yazılmış oluyor (emitSFTP: önce kayıt, sonra defter), yani her
+	 * düşürme kaydın mühründe sayılıp defterde görünmeyen bir olay
+	 * bırakıyor. Sayı olmadan o fark "birileri satır sildi" ile aynı
+	 * görünür — yani postern'in kendi kaybı MÜDAHALE diye raporlanır.
+	 */
+	dropped int64
+
+	// warned, ilk düşürmenin log'a yazıldığı.
+	//
+	// ⚠️ HER DÜŞÜRME LOGLANMIYOR. Tavan taşmışsa istemci saniyede
+	// binlerce olay üretiyor demektir; her biri için satır yazmak,
+	// asıl sinyali kendi gürültümüzle gömmek olurdu. Toplam sayı
+	// kapanışta bir kez yazılıyor ve oturumun satırına işleniyor.
+	warned bool
+	// lateWarned, kapanış SONRASI kaybın bir kez yazıldığı.
+	lateWarned bool
 
 	stop chan struct{}
 	done chan struct{}
 }
 
-func newSFTPJournal(st *store.Store, sessionID string, log *slog.Logger, fail func(error)) *sftpJournal {
+func newSFTPJournal(st *store.Store, sessionID string, log *slog.Logger,
+	recorded bool, fail func(error)) *sftpJournal {
 	j := &sftpJournal{
-		store: st, sessionID: sessionID, log: log, fail: fail,
+		store: st, sessionID: sessionID, log: log, recorded: recorded, fail: fail,
 		stop: make(chan struct{}), done: make(chan struct{}),
 	}
 	go j.loop()
@@ -81,18 +124,78 @@ func newSFTPJournal(st *store.Store, sessionID string, log *slog.Logger, fail fu
 func (j *sftpJournal) Emit(e sftpaudit.Event) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	if len(j.buf) >= journalCap {
-		// Tampon dolduysa yazım geride kalmış demektir. Olayı atmak
-		// yerine oturumu bitiriyoruz (bkz. journalCap).
-		if j.fail != nil {
-			j.fail(fmt.Errorf("sftp journal backlog exceeded %d events", journalCap))
+
+	/*
+	 * ⚠️ KAPANDIKTAN SONRA GELEN OLAY TAMPONA KONMUYOR.
+	 *
+	 * Konsaydı hiç kimse okumazdı: loop durmuş, son boşaltma yapılmış ve
+	 * Close sayıları çoktan döndürmüş oluyor. Yani olay ne yazılır ne
+	 * sayılır — tam olarak bu PR'ın kapattığını söylediği sessiz kayıp,
+	 * kapanış penceresinde geri gelirdi.
+	 *
+	 * ⚠️ SAYI OTURUMUN SATIRINA ULAŞMIYOR ve bu söylenmeli: satır
+	 * Close'un döndürdüğü sayılarla yazılıyor, o da bu noktada geçmişte
+	 * kaldı. Buradan kazanılan şey kaybın SESSİZ olmaması; sayının
+	 * satıra girmesi, olayın hiç geç gelmemesini gerektiriyor ve bu
+	 * kanalın kapanış sırasıyla ilgili ayrı bir iş.
+	 */
+	if j.stopped {
+		j.dropped++
+		if !j.lateWarned {
+			j.lateWarned = true
+			j.log.Error("sftp event arrived after the journal closed; it is lost",
+				"session", j.sessionID, "op", string(e.Op))
 		}
+
+		return
+	}
+
+	if len(j.buf) >= journalCap {
+		// Tampon dolduysa yazım geride kalmış demektir. Oturumu
+		// bitiriyoruz (bkz. journalCap) — ama olay yine de deftere
+		// giremiyor, o yüzden düşürme sayılıyor ve kapanışta oturumun
+		// satırına yazılıyor.
+		j.drop()
 		return
 	}
 	j.buf = append(j.buf, store.SessionFile{
 		At: e.At, Op: string(e.Op), Path: e.Path, NewPath: e.NewPath,
 		Flags: e.Flags, Read: e.Read, Wrote: e.Wrote, OK: e.OK, Detail: e.Detail,
+		InRecording: j.recorded,
 	})
+}
+
+/*
+ * drop, tavana çarpan bir olayı sayar ve oturumu bitirir.
+ *
+ * ⚠️ ÇAĞIRAN mu'YU TUTUYOR (Emit). Sayaç aynı kilidin altında artıyor
+ * ki kapanışta okunan sayı, yazan goroutine'lerin gördüğüyle aynı
+ * olsun.
+ *
+ * ⚠️ fail HER DÜŞÜRMEDE ÇAĞRILIYOR, İLKİNDE DEĞİL — ve bu bilinçli:
+ * sync.Once'ı çağıran taraf tutuyor (abortAudit). Kapıyı buraya da
+ * koymak, "oturum zaten bitiyor" varsayımını iki yerde tutmak olurdu
+ * ve o varsayım değişirse ikincisi sessizce yanlış kalırdı.
+ */
+func (j *sftpJournal) drop() {
+	j.dropped++
+
+	if !j.warned {
+		j.warned = true
+		/*
+		 * ⚠️ SATIR "SESSİZ KAYIP" DEMEK ZORUNDA. Bunun log'da yalnızca
+		 * abortAudit'in "sftp audit failed" satırı vardı ve o satır
+		 * denetimin ÇÖKTÜĞÜNÜ söylüyor, olayların KAYBOLDUĞUNU değil.
+		 * Okuyan kişi oturumun kesildiğini görüp defterin tam olduğunu
+		 * varsayıyordu.
+		 */
+		j.log.Error("sftp journal is full; events are being lost",
+			"cap", journalCap, "session", j.sessionID)
+	}
+
+	if j.fail != nil {
+		j.fail(fmt.Errorf("sftp journal backlog exceeded %d events", journalCap))
+	}
 }
 
 func (j *sftpJournal) loop() {
@@ -211,7 +314,7 @@ func (j *sftpJournal) writeBatch(ctx context.Context, batch []store.SessionFile)
 	switch {
 	case err == nil:
 		j.mu.Lock()
-		j.total += len(batch)
+		j.total += int64(len(batch))
 		j.mu.Unlock()
 		return nil, nil
 
@@ -257,17 +360,25 @@ func (j *sftpJournal) writeBatch(ctx context.Context, batch []store.SessionFile)
  * kalan satırların artık o kaybın arkasında birikmemesi.
  */
 func (j *sftpJournal) dropRow(ctx context.Context, f store.SessionFile, cause error) {
+	/*
+	 * ⚠️ AYNI SAYACA GİRİYOR ve bu, iki dalın birleşmesinde taşıyıcı
+	 * karar. Yerine yazılan işaret satırı InRecording taşımıyor (yolu
+	 * ve işlemi bozulmuş; kayıttaki satırı ÜRETEMEZ), yani defter ile
+	 * mührü karşılaştıran kontrolün saydığı satırlardan düşüyor. Kayıp
+	 * bu sayaca girmezse kontrol "ROWS MISSING" der — yani postern'in
+	 * kendi yazamadığı satırı, birinin SİLDİĞİ satır gibi raporlar.
+	 */
 	j.mu.Lock()
 	j.dropped++
 	j.mu.Unlock()
 
 	j.log.Error("sftp audit row dropped; the database refuses this value",
-		"op", f.Op, "path", castSafe(f.Path), "error", cause)
+		"op", f.Op, "path", sftpcast.Safe(f.Path), "error", cause)
 
 	marker := store.SessionFile{
-		At: f.At, Op: castSafe("dropped." + f.Op), OK: false,
-		Path:   castSafe(f.Path),
-		Detail: castSafe("postern: this audit row could not be stored: " + cause.Error()),
+		At: f.At, Op: sftpcast.Safe("dropped." + f.Op), OK: false,
+		Path:   sftpcast.Safe(f.Path),
+		Detail: sftpcast.Safe("postern: this audit row could not be stored: " + cause.Error()),
 	}
 	if err := j.store.AddSessionFiles(ctx, j.sessionID, []store.SessionFile{marker}); err != nil {
 		// İşaret de yazılamadı: elde log'dan başka bir şey kalmıyor.
@@ -280,19 +391,29 @@ func (j *sftpJournal) dropRow(ctx context.Context, f store.SessionFile, cause er
 	}
 }
 
-// Close, kalanları yazar; yazılmış ve ATILMIŞ olay sayısını döner.
-//
-// ⚠️ İKİ SAYI AYRI DÖNÜYOR. Tek bir toplam, atılan satırları da
-// kaydedilmiş gösterirdi; oysa çağıranın operatöre söyleyeceği cümle
-// tam olarak "şu kadarı kaydedilemedi".
-//
-// Broker'ın finishSFTP'si Run içinde çalıştığı için, buraya gelindiğinde
-// yarım kalan transfer özetleri tampona çoktan girmiş oluyor.
-func (j *sftpJournal) Close() (written, dropped int) {
+/*
+ * Close, kalanları yazar; deftere GİREN ve GİREMEYEN olay sayısını döner.
+ *
+ * Broker'ın finishSFTP'si Run içinde çalıştığı için, buraya gelindiğinde
+ * yarım kalan transfer özetleri tampona çoktan girmiş oluyor.
+ *
+ * ⚠️ lost İKİ AYRI KAYBI TOPLUYOR ve ikisi de aynı sonucu veriyor:
+ * kayıtta duran, defterde durmayan bir olay. Tavana çarpıp atılanlar
+ * (dropped) ve son flush'tan sonra elde kalanlar. İkincisi gerçek:
+ * flush yazamadığında grubu tampona geri koyuyor (putBack) ve kapanışta
+ * yeniden denenecek bir tik kalmıyor.
+ *
+ * ⚠️ SAYIYI DÖNDÜRMEK ŞART, LOG'LAMAK YETMEZ. Çağıran bunu oturumun
+ * satırına yazıyor (store.MarkSFTPJournal); yalnızca log'a yazılan bir
+ * kayıp, aylar sonra kaydı doğrulayan denetçinin eline geçmiyor —
+ * elindeki tek şey defter ile kayıt arasındaki açıklanamamış fark
+ * oluyor.
+ */
+func (j *sftpJournal) Close() (written, lost int64) {
 	j.mu.Lock()
 	if j.stopped {
-		j.mu.Unlock()
-		return j.total, j.dropped
+		defer j.mu.Unlock()
+		return j.total, j.dropped + int64(len(j.buf))
 	}
 	j.stopped = true
 	j.mu.Unlock()
@@ -304,5 +425,18 @@ func (j *sftpJournal) Close() (written, dropped int) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
-	return j.total, j.dropped
+	/*
+	 * ⚠️ ÜÇ AYRI KAYIP AYNI TOPLAMDA ve birleşme sırasında katlandılar.
+	 *
+	 *   - tavana çarpıp deftere hiç giremeyenler,
+	 *   - deponun DEĞER olarak reddettiği ve ayıklanıp atılan satırlar
+	 *     (dropRow),
+	 *   - son boşaltmadan sonra tamponda kalanlar.
+	 *
+	 * Üçü de aynı sonucu veriyor: kayıtta duran, defterde durmayan bir
+	 * olay. Yalnızca birini saymak, defteri mühürle karşılaştıran
+	 * kontrolü yanlış tarafa çevirirdi — postern'in KENDİ kaybını
+	 * "satır silinmiş" diye, yani müdahale diye raporlardı.
+	 */
+	return j.total, j.dropped + int64(len(j.buf))
 }
