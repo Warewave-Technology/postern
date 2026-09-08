@@ -13,6 +13,7 @@ import (
 	"github.com/Warewave-Technology/postern/internal/model"
 	"github.com/Warewave-Technology/postern/internal/record"
 	"github.com/Warewave-Technology/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/verify"
 )
 
 // endedAt, bitmemiş oturum için nil döner — adminListSessions ile aynı
@@ -163,7 +164,7 @@ func (s *Server) adminSessionDetail(w http.ResponseWriter, r *http.Request) {
 			"session", sess.ID, "error", ferr)
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	body := map[string]any{
 		"id":         sess.ID,
 		"user":       sess.User,
 		"target":     sess.Target,
@@ -175,7 +176,53 @@ func (s *Server) adminSessionDetail(w http.ResponseWriter, r *http.Request) {
 		"files":      files,
 		// files_error, "dokunulmadı" ile "bakamadık"ı ayırıyor.
 		"files_error": ferr != nil,
-	})
+	}
+
+	/*
+	 * ⚠️ DEFTER KONTROLÜ YALNIZCA SATIRLAR OKUNABİLDİYSE. Okunamamış
+	 * bir listeyi sıfır satır sayıp "kayıt 12 olay diyor, defterde
+	 * hiçbiri yok" demek, bir veritabanı arızasını kurcalama diye
+	 * bildirmek olurdu. O durumda cevabı files_error veriyor.
+	 */
+	if ferr == nil {
+		body["journal"] = journalBlock(sess, files)
+	}
+
+	writeJSON(w, http.StatusOK, body)
+}
+
+/*
+ * journalBlock, panelin "bu liste eksiksiz mi" cevabını kurar.
+ *
+ * ⚠️ NEDEN VAR: ekran dosya listesini EKSİKSİZMİŞ GİBİ gösteriyordu.
+ * Kaydın mühür satırı kaç olay olduğunu ve o olayların özetini
+ * söylüyor (internal/sftpcast) ama mührün programatik bir tüketicisi
+ * yoktu; defterden düşen, sonradan silinen ya da DEĞİŞTİRİLEN bir
+ * satırı hiçbir yüzey yalanlamıyordu.
+ *
+ * ⚠️ SATIRLAR YENİDEN SORGULANMIYOR, ELDEKİLER VERİLİYOR. Detay ucu
+ * listeyi zaten çekti; ikinci bir sorgu aynı satırları ikinci kez
+ * okurdu ve ikisi ayrıştığı gün hangisinin doğru olduğu sorusu ortaya
+ * çıkardı. Kararın kendisi tek yerde (verify.JournalOf) — `postern
+ * session verify` de aynı fonksiyonu, aynı satırlarla çağırıyor.
+ */
+func journalBlock(sess model.Session, files []store.SessionFile) map[string]any {
+	j := verify.JournalOf(sess, files)
+
+	return map[string]any{
+		"state":  j.State.String(),
+		"events": j.Events,
+		"rows":   j.Rows,
+		"lost":   j.Lost,
+		"detail": j.Detail,
+		/*
+		 * ⚠️ "ÖZET DE KONTROL EDİLDİ Mİ" AYRI BİR ALAN. Sayısı tutan
+		 * ama içeriği hiç karşılaştırılmamış bir oturumu, ikisi de
+		 * tutan bir oturumla aynı yeşil satırda göstermek, yapılmamış
+		 * bir kontrolü yapılmış saymak olurdu.
+		 */
+		"digest_checked": j.DigestChecked,
+	}
 }
 
 /*

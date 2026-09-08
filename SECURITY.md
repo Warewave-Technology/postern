@@ -87,8 +87,14 @@ There is one release line. Fixes land on it; there are no long-term branches.
   to break the chain *without* root — or how to make `postern session verify`
   report an altered recording as verified — is very much in scope, and so is
   defeating the copy of the head that each archived recording carries as object
-  metadata. SFTP activity is recorded in the `session_files` ledger rather than
-  in the chained `.cast`, and that is stated too.
+  metadata. SFTP activity now goes to both places — a decoded narrative in the
+  chained `.cast` and rows in the `session_files` ledger — and postern compares
+  the two: the recording's seal counts the session's file events and carries a
+  digest of those lines, and `postern session verify` and the panel both check
+  the count and recompute the digest from the rows. Making rows disappear or
+  changing what they say while that check still reports an intact journal,
+  without holding root or the database credentials, is in scope — as is a pair
+  of edits whose digests cancel.
 
 ## Safe harbour
 

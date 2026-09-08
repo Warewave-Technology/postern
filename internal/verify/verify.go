@@ -1,4 +1,13 @@
-// Package verify, bir kaydın zincirinin ne söylediğine karar verir.
+// Package verify, bir oturumun kanıtının ne söylediğine karar verir:
+// kaydın zinciri (verify.go) ve kaydın mührüyle defterin uyuşması
+// (journal.go).
+//
+// ⚠️ İKİ EKSEN AYRI DURUYOR ve bu, paketin en önemli özelliği. Zincir
+// "dosya yazıldığından beri değişti mi" sorusunu cevaplıyor; defter
+// kontrolü "kaydın saydığı olayların satırları duruyor ve aynı şeyi
+// söylüyor mu" sorusunu. Birini diğerinin sonucuna bağlamak — örneğin
+// zinciri tutan bir kaydı "defteri de tamdır" diye okumak — hiç
+// yapılmamış bir kontrolü yapılmış saymak olurdu.
 //
 // ⚠️ NİYE AYRI BİR PAKET. Bu kararı iki yer soruyor: `postern session
 // verify` ve panelin doğrulama ucu. İkisi ayrı ayrı yazılsaydı ayrışmaları

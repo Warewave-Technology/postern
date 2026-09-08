@@ -27,6 +27,20 @@ type SessionFile struct {
 	Wrote     int64     `json:"wrote"`
 	OK        bool      `json:"ok"`
 	Detail    string    `json:"detail,omitempty"`
+
+	/*
+	 * InRecording, bu olayın oturum KAYDINA da yazıldığı ve kaydın
+	 * mühür satırında sayıldığı.
+	 *
+	 * ⚠️ NEDEN SATIRIN ÜSTÜNDE TAŞINIYOR. Mühürdeki sayı ile buradaki
+	 * satır sayısını karşılaştıran kontrol (verify.JournalOf), hangi
+	 * satırın mühürde sayıldığını BİLMEK zorunda: bu tabloya kanal
+	 * düzeyindeki ret defteri de yazıyor (proxy/lifecycle.go) ve o
+	 * satırların kayıtta karşılığı yok. Ayrımı `op` dizgesinden tahmin
+	 * etmek, x11 isteği reddedilmiş her SFTP oturumunu yanlış alarma
+	 * çevirirdi — ikisi de "denied." önekini kullanıyor.
+	 */
+	InRecording bool `json:"in_recording"`
 }
 
 /*
@@ -53,8 +67,8 @@ func (s *Store) AddSessionFiles(ctx context.Context, sessionID string, files []S
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO session_files
 		    (id, session_id, at, op, path, new_path, flags,
-		     bytes_read, bytes_wrote, ok, detail)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);`)
+		     bytes_read, bytes_wrote, ok, detail, in_recording)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12);`)
 	if err != nil {
 		return translateErr("store.AddSessionFiles", err)
 	}
@@ -66,7 +80,8 @@ func (s *Store) AddSessionFiles(ctx context.Context, sessionID string, files []S
 			return err
 		}
 		if _, err := stmt.ExecContext(ctx, id, sessionID, f.At.Unix(), f.Op,
-			f.Path, f.NewPath, f.Flags, f.Read, f.Wrote, f.OK, f.Detail); err != nil {
+			f.Path, f.NewPath, f.Flags, f.Read, f.Wrote, f.OK, f.Detail,
+			f.InRecording); err != nil {
 			return translateErr("store.AddSessionFiles", err)
 		}
 	}
@@ -80,7 +95,7 @@ func (s *Store) AddSessionFiles(ctx context.Context, sessionID string, files []S
 func (s *Store) SessionFiles(ctx context.Context, sessionID string) ([]SessionFile, error) {
 	return s.queryFiles(ctx, "store.SessionFiles", `
 		SELECT id, session_id, at, op, path, new_path, flags,
-		       bytes_read, bytes_wrote, ok, detail
+		       bytes_read, bytes_wrote, ok, detail, in_recording
 		FROM session_files
 		WHERE session_id = $1
 		ORDER BY at, id;`, sessionID)
@@ -271,7 +286,7 @@ func (s *Store) FileHistory(ctx context.Context, q FileQuery) ([]FileTouch, erro
 
 	query := fmt.Sprintf(`
 		SELECT f.id, f.session_id, f.at, f.op, f.path, f.new_path, f.flags,
-		       f.bytes_read, f.bytes_wrote, f.ok, f.detail,
+		       f.bytes_read, f.bytes_wrote, f.ok, f.detail, f.in_recording,
 		       COALESCE(u.username, ''), COALESCE(t.name, ''),
 		       COALESCE(s.os_user, ''), COALESCE(s.src_ip, '')
 		FROM session_files f
@@ -288,7 +303,7 @@ func (s *Store) FileHistory(ctx context.Context, q FileQuery) ([]FileTouch, erro
 		var at int64
 		if err := rows.Scan(&t.ID, &t.SessionID, &at, &t.Op, &t.Path,
 			&t.NewPath, &t.Flags, &t.Read, &t.Wrote, &t.OK, &t.Detail,
-			&t.User, &t.Target, &t.OSUser, &t.SrcIP); err != nil {
+			&t.InRecording, &t.User, &t.Target, &t.OSUser, &t.SrcIP); err != nil {
 			return err
 		}
 		t.At = time.Unix(at, 0).UTC()
@@ -329,7 +344,8 @@ func (s *Store) queryFiles(ctx context.Context, what, query string, args ...any)
 		var f SessionFile
 		var at int64
 		if err := rows.Scan(&f.ID, &f.SessionID, &at, &f.Op, &f.Path,
-			&f.NewPath, &f.Flags, &f.Read, &f.Wrote, &f.OK, &f.Detail); err != nil {
+			&f.NewPath, &f.Flags, &f.Read, &f.Wrote, &f.OK, &f.Detail,
+			&f.InRecording); err != nil {
 			return nil, translateErr(what, err)
 		}
 		f.At = time.Unix(at, 0).UTC()

@@ -39,6 +39,9 @@ type Session struct {
 	RecordingChain string
 	RecordingLinks int64
 
+	// SFTPJournal, oturum kapanırken defterin durumu (göç 037).
+	SFTPJournal SFTPJournal
+
 	StartedAt time.Time
 
 	// EndedAt sıfır değerse oturum hâlâ açık (şemada NULL).
@@ -47,6 +50,58 @@ type Session struct {
 	// RecordingPath, .cast dosyasının yolu. Kayıt açılamadıysa boş —
 	// ama o durumda oturum zaten reddedilmiş olmalı (S1.8 kararı).
 	RecordingPath string
+}
+
+/*
+ * SFTPJournal, bir oturumun SFTP denetim defterinin kapanıştaki durumu.
+ *
+ * ⚠️ ÜÇ ALAN, ÇÜNKÜ ÜÇ AYRI SORU. "Kayıt kaç olay saydı", "postern
+ * bunların kaçını deftere koyamadığını BİLİYOR" ve "bu ikisi ölçüldü
+ * mü". Üçüncüsü olmadan diğer ikisi yanıltıcı: ölçülmemiş bir oturumda
+ * Events sıfırdır ve sıfır, "hiç olay olmadı" gibi okunur.
+ */
+type SFTPJournal struct {
+	/*
+	 * Measured, kaydın mühür satırındaki sayının bilindiği.
+	 *
+	 * ⚠️ FALSE "GEÇTİ" DEĞİL, "KARŞILAŞTIRILAMAZ" DEMEK — zincir
+	 * başındaki (034) boş baş kararının aynısı. Göç 037'den önce
+	 * kapanmış oturumlarda ve kaydı hiç tutulmamış oturumlarda mühür
+	 * yok; onları "defteri tam" diye göstermek, hiç yapılmamış bir
+	 * kontrolü yapılmış saymak olurdu.
+	 */
+	Measured bool
+
+	// Events, kaydın mühür satırındaki olay sayısı (internal/sftpcast).
+	Events int64
+
+	/*
+	 * Digest, mühür satırındaki özet: kayda giren satırların
+	 * XOR'lanmış SHA-256'sı, onaltılık.
+	 *
+	 * ⚠️ SAYININ YANINDA DURUYOR ÇÜNKÜ AYRI BİR SORUYU CEVAPLIYOR.
+	 * Sayı "kaç satır" diyor; özet "hangi satırlar" diyor. Sayı tutup
+	 * özet tutmuyorsa satır SİLİNMEMİŞ, DEĞİŞTİRİLMİŞ demektir — ve o,
+	 * defterden satır silmekten daha ince bir müdahale: silinen satır
+	 * en azından bir boşluk bırakıyor, değiştirilen satır tam bir
+	 * denetim kaydı gibi duruyor.
+	 *
+	 * ⚠️ OLAY YOKKEN BOŞ — sıfırların onaltılığı DEĞİL. Mühür satırı
+	 * da yazılmıyor; dosyada karşılığı olmayan bir değeri saklamak,
+	 * kontrolün "kayıt böyle diyor" dediği şeyi uydurmak olurdu.
+	 */
+	Digest string
+
+	/*
+	 * Lost, postern'in deftere koyamadığını BİLDİĞİ olay sayısı:
+	 * tampon taştığı için atılanlar ve kapanışta yazılamamış olarak
+	 * elde kalanlar.
+	 *
+	 * ⚠️ AYRI DURUYOR ÇÜNKÜ AYRI BİR BULGU. Aritmetiği "satırlar
+	 * silinmiş" hâliyle aynı (satır sayısı mühürden eksik) ama olayı
+	 * bambaşka: biri postern'in kendi arızası, öbürü müdahale.
+	 */
+	Lost int64
 }
 
 // Open, oturumun hâlâ sürüp sürmediğini söyler.
