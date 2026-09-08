@@ -189,6 +189,135 @@ func TestATransientFailureDropsNothing(t *testing.T) {
  * satırlar SIRASIYLA geri konmalı: sıra, "önce açtı sonra okudu"
  * cümlesinin kendisi.
  */
+/*
+ * splitBreaker, bölme BAŞLADIKTAN SONRA düşen bir depo.
+ *
+ * Zehirli satırı içeren gruba "bu değer kabul edilmiyor" (ErrInvalid)
+ * diyor — yani bölmeyi başlatıyor. Zehirsiz bir grup geldiğinde ise
+ * GEÇİCİ bir arıza veriyor: veritabanı tam da bölmenin ortasında düşmüş
+ * oluyor.
+ *
+ * ⚠️ pickyFiles BU HÂLİ ÜRETEMİYOR ve sebebi ince: oradaki döngü zehri
+ * gördüğü anda dönüyor, yani zehir grubun başındayken `down` hiç
+ * tetiklenmiyor. İki taklidi ayrı tutmak, var olan testlerin ölçtüğü
+ * şeyi de değiştirmiyor.
+ */
+type splitBreaker struct {
+	poison string
+	down   error
+	// seen, depoya GÖNDERİLEN grupların yolları — hangi satırın hiç
+	// denenmediğini ölçmek için.
+	seen [][]string
+}
+
+func (s *splitBreaker) AddSessionFiles(_ context.Context, _ string, files []store.SessionFile) error {
+	paths := make([]string, 0, len(files))
+	poisoned := false
+	for _, f := range files {
+		paths = append(paths, f.Path)
+		if f.Path == s.poison {
+			poisoned = true
+		}
+	}
+	s.seen = append(s.seen, paths)
+
+	if poisoned {
+		return fmt.Errorf("fake: %w: index row size exceeds btree maximum",
+			store.ErrInvalid)
+	}
+
+	return s.down
+}
+
+// groups, depoya gönderilen grupları "a,b" biçiminde döner.
+func (s *splitBreaker) groups() []string {
+	out := make([]string, 0, len(s.seen))
+	for _, g := range s.seen {
+		out = append(out, strings.Join(g, ","))
+	}
+
+	return out
+}
+
+/*
+ * ⚠️ BÖLMENİN ORTASINDAKİ GEÇİCİ ARIZA — ayıklamanın en tehlikeli hâli.
+ *
+ * TestATransientFailureDropsNothing yalnızca bölme HİÇ BAŞLAMADIĞI hâli
+ * ölçüyor. Asıl risk şurada: grup zehirli olduğu için ikiye bölünüyor,
+ * ilk yarı denenirken veritabanı düşüyor — ve İKİNCİ YARI HİÇ
+ * DENENMEMİŞ oluyor. O yarıyı geri koymayan bir uygulama, yazılabilir
+ * satırları sessizce yok eder: log yok, dropped artmıyor, işaret satırı
+ * yok. Yani "yalnızca yazılamayan satır atılır" sözü, tam da ayıklamanın
+ * kendi arıza yolunda tutmazdı.
+ *
+ * Bu dal kapsam profilinde SIFIR kez giriliyordu: `return left, lerr`
+ * diye bozan bir değişiklik bütün testlerden geçiyordu.
+ */
+func TestATransientFailureMidSplitKeepsTheUntriedHalf(t *testing.T) {
+	down := errors.New("database is down")
+	w := &splitBreaker{poison: "/zehir", down: down}
+	j := &sftpJournal{store: w, log: testLogger(), fail: func(error) {}}
+
+	batch := []store.SessionFile{
+		{Op: "open", Path: "/a"},
+		{Op: "open", Path: "/b"},
+		{Op: "open", Path: "/zehir"},
+		{Op: "open", Path: "/d"},
+	}
+
+	rest, err := j.writeBatch(context.Background(), batch)
+	if !errors.Is(err, down) {
+		t.Fatalf("geçici arıza çağırana dönmedi: %v", err)
+	}
+
+	/*
+	 * HEPSİ geri gelmeli. /a ve /b denendi ve yazılamadı; /zehir ve /d
+	 * ise HİÇ denenmedi — ikisinin de yazılabilir olup olmadığı hâlâ
+	 * bilinmiyor ve bilinmeyen bir satır atılamaz.
+	 */
+	got := make([]string, 0, len(rest))
+	for _, f := range rest {
+		got = append(got, f.Path)
+	}
+	want := []string{"/a", "/b", "/zehir", "/d"}
+	if len(got) != len(want) {
+		t.Fatalf("geri konan satırlar %v, %v bekleniyordu — denenmemiş "+
+			"yarı sessizce düştü", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("geri konan sıra %v, %v bekleniyordu", got, want)
+		}
+	}
+
+	/*
+	 * ⚠️ KARŞI KANIT: BÖLME GERÇEKTEN ORTASINDA KESİLDİ.
+	 *
+	 * "/d hiç denenmedi" diye sormak yanlış soruydu: dış çağrı zaten
+	 * dört satırın hepsini gönderiyor. Doğru soru, bölmeden SONRA hangi
+	 * grubun denendiği — yalnızca sol yarı denenmiş olmalı. Sağ yarı da
+	 * denenseydi bu test bölmenin ortasını değil sonunu ölçerdi.
+	 */
+	want2 := []string{"/a,/b,/zehir,/d", "/a,/b"}
+	got2 := w.groups()
+	if len(got2) != len(want2) {
+		t.Fatalf("denenen gruplar %v, %v bekleniyordu", got2, want2)
+	}
+	for i := range want2 {
+		if got2[i] != want2[i] {
+			t.Fatalf("denenen gruplar %v, %v bekleniyordu", got2, want2)
+		}
+	}
+
+	// Ve hiçbir şey atılmadı: bilinmeyen satır atılacak satır değil.
+	j.mu.Lock()
+	dropped := j.dropped
+	j.mu.Unlock()
+	if dropped != 0 {
+		t.Errorf("geçici arızada %d satır atıldı", dropped)
+	}
+}
+
 func TestRowsLeftUnwrittenGoBackInOrder(t *testing.T) {
 	w := &pickyFiles{poison: "/zehir", down: errors.New("database is down")}
 	j := &sftpJournal{store: w, log: testLogger(), fail: func(error) {}}
