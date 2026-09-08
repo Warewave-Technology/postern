@@ -26,6 +26,7 @@ import (
 	"github.com/Warewave-Technology/postern/internal/policy"
 	"github.com/Warewave-Technology/postern/internal/record"
 	"github.com/Warewave-Technology/postern/internal/sftpaudit"
+	"github.com/Warewave-Technology/postern/internal/sftpcast"
 	"github.com/Warewave-Technology/postern/internal/store"
 	"github.com/Warewave-Technology/postern/internal/upstream"
 )
@@ -817,10 +818,8 @@ func (s *Session) Run(ctx context.Context, down ssh.Channel, downR <-chan *ssh.R
 			return
 		}
 
-		werr := s.deps.Store.AddSessionFiles(wctx, s.ID, []store.SessionFile{{
-			ID: id, SessionID: s.ID, At: time.Now(),
-			Op: "denied." + reqType, OK: false, Detail: reason,
-		}})
+		werr := s.deps.Store.AddSessionFiles(wctx, s.ID,
+			[]store.SessionFile{denialRow(id, s.ID, reqType, reason, time.Now())})
 		if werr != nil {
 			s.Log.Error("denial not recorded; the refusal still stands",
 				"req.type", reqType, "reason", reason, "error", werr)
@@ -1090,3 +1089,24 @@ func (s *Session) Close(ctx context.Context) {
 // unusedModel, model paketini import listesinde tutar (Target tipi
 // store'dan geliyor ama okuyucu için burada anılması yararlı).
 var _ = model.Target{}
+
+/*
+ * denialRow, postern'in KENDİ reddini deftere yazılacak satıra çevirir.
+ *
+ * ⚠️ reqType KARŞI TARAFTAN GELİYOR ve `op` sütununa giriyor. SSH istek
+ * tipi tel üzerinde uzunluk önekli bir bayt dizisi: geçerli UTF-8 olma
+ * zorunluluğu yok. Temizlenmeden yazıldığında PostgreSQL satırı
+ * reddediyor (SQLSTATE 22021) — yani bir istemci, GEÇERSİZ BİR İSTEK
+ * TİPİ göndererek KENDİ RET KAYDINI düşürebiliyordu. Ret yine
+ * uygulanıyordu; kaybolan şey "kim denedi" sorusunun cevabıydı ve bu
+ * satırın var olma sebebi tam olarak o soru.
+ *
+ * castSafe'ten geçiyor: kayda giren metinle aynı elek. Ayrı bir işlev
+ * yazmak, ikisinin sessizce ayrışması demekti.
+ */
+func denialRow(id, sessionID, reqType, reason string, at time.Time) store.SessionFile {
+	return store.SessionFile{
+		ID: id, SessionID: sessionID, At: at,
+		Op: "denied." + sftpcast.Safe(reqType), OK: false, Detail: sftpcast.Safe(reason),
+	}
+}

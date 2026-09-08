@@ -4,12 +4,14 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/Warewave-Technology/postern/internal/sftpaudit"
+	"github.com/Warewave-Technology/postern/internal/sftpcast"
 	"github.com/Warewave-Technology/postern/internal/store"
 )
 
@@ -79,13 +81,18 @@ type sftpJournal struct {
 	stopped bool
 
 	/*
-	 * dropped, tavan yüzünden deftere HİÇ giremeyen olay sayısı.
+	 * dropped, deftere GİREMEYEN olay sayısı — üç sebepten.
+	 *
+	 * ⚠️ ÜÇÜ TEK SAYAÇTA ve birleşme sırasında bilerek katlandılar:
+	 * tavana çarpanlar (drop), kapanıştan sonra gelenler, ve deponun
+	 * DEĞER olarak reddedip ayıkladıklarımız (dropRow). Ayrı sayaçlarda
+	 * dursalardı oturumun satırına yalnızca biri yazılırdı.
 	 *
 	 * ⚠️ SAYMAK, TEK BAŞINA BİR ÖZELLİK. Düşen olay kayda ÇOKTAN
 	 * yazılmış oluyor (emitSFTP: önce kayıt, sonra defter), yani her
 	 * düşürme kaydın mühründe sayılıp defterde görünmeyen bir olay
 	 * bırakıyor. Sayı olmadan o fark "birileri satır sildi" ile aynı
-	 * görünür.
+	 * görünür — yani postern'in kendi kaybı MÜDAHALE diye raporlanır.
 	 */
 	dropped int64
 
@@ -229,6 +236,11 @@ func (j *sftpJournal) take() []store.SessionFile {
  * çözmenin yolu yok — ama o hâlde oturum da zaten bitiyor ve sebebi
  * log'da duruyor.
  *
+ * ⚠️ GERİ KONAN ŞEY YALNIZCA GEÇİCİ ARIZADA YAZILAMAYANLAR. Bir satır
+ * DEĞERİ yüzünden reddedilmişse geri konmuyor: yeniden denemek onu
+ * tamponun başında sonsuza kadar tutmak, yani bütün defteri tıkamak
+ * olurdu (bkz. writeBatch).
+ *
  * ⚠️ GRUP BAŞA KONUYOR. Sona eklemek olayları zaman sırasından
  * çıkarırdı; denetim satırlarının sırası, "önce açtı sonra okudu"
  * cümlesinin kendisi.
@@ -256,18 +268,127 @@ func (j *sftpJournal) flush() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := j.store.AddSessionFiles(ctx, j.sessionID, batch); err != nil {
+	left, err := j.writeBatch(ctx, batch)
+	if err != nil {
 		j.log.Error("sftp audit rows could not be written", "error", err,
-			"events", len(batch))
-		j.putBack(batch)
+			"events", len(left))
+		j.putBack(left)
 		if j.fail != nil {
 			j.fail(err)
 		}
-		return
 	}
+}
+
+/*
+ * writeBatch, grubu yazar ve YAZILAMAYAN SATIRI AYIKLAR.
+ *
+ * ⚠️ ZEHİRLİ SATIR BÜTÜN DEFTERİ TIKIYORDU. Grup tek transaction: içinde
+ * asla yazılamayacak tek bir satır varsa (2704 baytı aşan bir yol,
+ * geçersiz UTF-8 içeren bir dosya adı) grubun TAMAMI reddediliyor,
+ * putBack onu tamponun başına geri koyuyor ve bir sonraki boşaltma aynı
+ * satıra çarpıyordu. Oturumun bütün dosya olayları o satırın arkasında
+ * birikip kayboluyordu — üstelik kaybın büyüklüğü hiçbir yerde
+ * görünmüyordu.
+ *
+ * Bölerek ayıklıyoruz: reddedilen grup ikiye ayrılıp yeniden deneniyor,
+ * yazılamayan satır tek başına kalınca atılıp SAYILIYOR. Maliyet
+ * yalnızca arıza yolunda ve satır başına log(n) turdan fazla değil.
+ *
+ * Patolojik hâlin (her satır yazılamaz) tavanı flush'ın 10 saniyelik
+ * context'i: süre dolunca hatalar artık ErrInvalid olmuyor, kalan grup
+ * geçici arıza sayılıp tampona geri konuyor. Yani bölme kendi kendine
+ * duruyor, bir yazma fırtınasına dönüşmüyor.
+ *
+ * ⚠️ AYRIM ŞART, YOKSA BU BÖLME BİR VERİ KAYBI MAKİNESİ OLURDU.
+ * Veritabanı düştüğünde de her yazma başarısız olur; bölme onu tek tek
+ * satırlara indirir ve HEPSİNİ "yazılamaz" diye atardı. Bu yüzden
+ * yalnızca store'un "bu değer kabul edilmiyor" dediği hata bölünüyor
+ * (ErrInvalid, bkz. store.AddSessionFiles); geçici arıza olduğu gibi
+ * çağırana dönüyor ve grup tampona geri konuyor.
+ *
+ * Dönen dilim, YAZILAMAMIŞ ama yazılabilir satırlar: çağıran onları geri
+ * koymalı. Hata nil ise geriye bir şey kalmamıştır.
+ */
+func (j *sftpJournal) writeBatch(ctx context.Context, batch []store.SessionFile) ([]store.SessionFile, error) {
+	err := j.store.AddSessionFiles(ctx, j.sessionID, batch)
+	switch {
+	case err == nil:
+		j.mu.Lock()
+		j.total += int64(len(batch))
+		j.mu.Unlock()
+		return nil, nil
+
+	case !errors.Is(err, store.ErrInvalid):
+		// Geçici: grup olduğu gibi geri.
+		return batch, err
+
+	case len(batch) == 1:
+		j.dropRow(ctx, batch[0], err)
+		return nil, nil
+	}
+
+	mid := len(batch) / 2
+	left, lerr := j.writeBatch(ctx, batch[:mid])
+	if lerr != nil {
+		/*
+		 * İlk yarıda geçici bir arıza: ikinci yarı HİÇ DENENMEDİ, o da
+		 * geri konmalı. Yeni bir dilim kuruluyor — append ile batch'in
+		 * kendi dizisine yazmak, geri koyacağımız satırların üstünü
+		 * çizerdi.
+		 */
+		rest := make([]store.SessionFile, 0, len(left)+len(batch)-mid)
+		rest = append(rest, left...)
+		rest = append(rest, batch[mid:]...)
+		return rest, lerr
+	}
+	return j.writeBatch(ctx, batch[mid:])
+}
+
+/*
+ * dropRow, yazılamayan satırı atar — SESSİZCE DEĞİL.
+ *
+ * ⚠️ ATILAN SATIRIN İZİ DEFTERE DÜŞÜYOR. Kayıp yalnızca log'da kalsaydı,
+ * yalnızca veritabanına bakan bir denetçi eksik listeyi tam liste sanardı
+ * — bu deponun her yerinde reddedilen şey tam olarak bu. Yerine konan
+ * satır olayın ZAMANINI ve İŞLEMİNİ koruyor, yolu ise kayda giren metnin
+ * temizliğinden geçiriyor (castSafe): yazılamayan şey çoğu zaman yolun
+ * kendisi olduğu için, işareti onunla birlikte yazmaya çalışmak işareti
+ * de kaybetmek olurdu.
+ *
+ * ⚠️ OTURUM YİNE ÖLÜYOR. Atılan satır bir denetim kaybıdır ve bu deponun
+ * kuralı değişmedi: denetlenemeyen kanal geçmez. Değişen tek şey, geri
+ * kalan satırların artık o kaybın arkasında birikmemesi.
+ */
+func (j *sftpJournal) dropRow(ctx context.Context, f store.SessionFile, cause error) {
+	/*
+	 * ⚠️ AYNI SAYACA GİRİYOR ve bu, iki dalın birleşmesinde taşıyıcı
+	 * karar. Yerine yazılan işaret satırı InRecording taşımıyor (yolu
+	 * ve işlemi bozulmuş; kayıttaki satırı ÜRETEMEZ), yani defter ile
+	 * mührü karşılaştıran kontrolün saydığı satırlardan düşüyor. Kayıp
+	 * bu sayaca girmezse kontrol "ROWS MISSING" der — yani postern'in
+	 * kendi yazamadığı satırı, birinin SİLDİĞİ satır gibi raporlar.
+	 */
 	j.mu.Lock()
-	j.total += int64(len(batch))
+	j.dropped++
 	j.mu.Unlock()
+
+	j.log.Error("sftp audit row dropped; the database refuses this value",
+		"op", f.Op, "path", sftpcast.Safe(f.Path), "error", cause)
+
+	marker := store.SessionFile{
+		At: f.At, Op: sftpcast.Safe("dropped." + f.Op), OK: false,
+		Path:   sftpcast.Safe(f.Path),
+		Detail: sftpcast.Safe("postern: this audit row could not be stored: " + cause.Error()),
+	}
+	if err := j.store.AddSessionFiles(ctx, j.sessionID, []store.SessionFile{marker}); err != nil {
+		// İşaret de yazılamadı: elde log'dan başka bir şey kalmıyor.
+		j.log.Error("the dropped audit row could not be marked either",
+			"op", f.Op, "error", err)
+	}
+
+	if j.fail != nil {
+		j.fail(cause)
+	}
 }
 
 /*
@@ -304,5 +425,18 @@ func (j *sftpJournal) Close() (written, lost int64) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
+	/*
+	 * ⚠️ ÜÇ AYRI KAYIP AYNI TOPLAMDA ve birleşme sırasında katlandılar.
+	 *
+	 *   - tavana çarpıp deftere hiç giremeyenler,
+	 *   - deponun DEĞER olarak reddettiği ve ayıklanıp atılan satırlar
+	 *     (dropRow),
+	 *   - son boşaltmadan sonra tamponda kalanlar.
+	 *
+	 * Üçü de aynı sonucu veriyor: kayıtta duran, defterde durmayan bir
+	 * olay. Yalnızca birini saymak, defteri mühürle karşılaştıran
+	 * kontrolü yanlış tarafa çevirirdi — postern'in KENDİ kaybını
+	 * "satır silinmiş" diye, yani müdahale diye raporlardı.
+	 */
 	return j.total, j.dropped + int64(len(j.buf))
 }
