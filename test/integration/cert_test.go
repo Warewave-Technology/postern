@@ -4,12 +4,16 @@ package integration
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"errors"
 	"io"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 
 	"github.com/testcontainers/testcontainers-go"
 	tcexec "github.com/testcontainers/testcontainers-go/exec"
@@ -250,16 +254,42 @@ func TestDialClassifiesHostKeyMismatch(t *testing.T) {
  */
 func TestDialClassifiesUnreachable(t *testing.T) {
 	authority := testAuthority(t)
-	tgt := startCertTarget(t, authority.AuthorizedKey())
 
-	target := tgt.target()
-	// Kapalı olduğu bilinen bir port.
-	target.Port = 1
+	/*
+	 * ⚠️ HEDEF KONTEYNERİ YOK ve olmamalı: bu test kapalı bir porta
+	 * bağlanmayı ölçüyor. Eski hâli bir OpenSSH konteyneri kaldırıp
+	 * portunu hemen 1'e çeviriyordu — konteyner kalkıyor, hiç bağlanılmıyor
+	 * ve yıkılıyordu. Bu pakette süre neredeyse tümüyle konteyner kalkışı
+	 * (ölçüldü: 134 testin 66'sı ~10 saniye ve toplamın %86'sı), yani
+	 * kullanılmayan bir kalkış doğrudan boşa giden CI süresi.
+	 *
+	 * ⚠️ KONAK ANAHTARI YİNE DE GEREKLİ ve bunu silme denemesi öğretti:
+	 * anahtar ÇÖZÜMLEMESİ bağlantıdan önce çalışıyor, boş bırakınca test
+	 * "ssh: no key found" ile düşüyor ve ölçtüğü şey artık erişilemezlik
+	 * sınıflandırması olmuyor. Anahtarın doğru olması gerekmiyor —
+	 * buraya kadar gelinmiyor bile — yalnızca GEÇERLİ olması gerekiyor.
+	 */
+	hostPub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sshPub, err := ssh.NewPublicKey(hostPub)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	target := model.Target{
+		Name:    "cert-target",
+		Host:    "127.0.0.1",
+		HostKey: string(ssh.MarshalAuthorizedKey(sshPub)),
+		// Kapalı olduğu bilinen bir port.
+		Port: 1,
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	_, err := upstream.DialWithCert(ctx, target, upstream.Identity{
+	_, err = upstream.DialWithCert(ctx, target, upstream.Identity{
 		PosternUser: "yigit", OSUser: "postern",
 	}, authority)
 	if err == nil {

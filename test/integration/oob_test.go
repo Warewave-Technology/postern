@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"sync"
 	"testing"
 	"time"
 
@@ -70,6 +71,83 @@ func oobBastionFresh(t *testing.T) (sshAddr, apiURL string, hostPub ssh.PublicKe
 	return a, b, c, d
 }
 
+/*
+ * Panel HTTP'si SÜREÇ GENELİNDE TEK sunucu; testler yalnızca HANDLER'ını
+ * değiştiriyor.
+ *
+ * ⚠️ ADRESİN SABİT OLMASI, PAYLAŞILAN KEYCLOAK'IN ŞARTI. Keycloak
+ * redirect URI'yi kayıtlı listeyle BİREBİR eşliyor (port dahil); test
+ * başına rastgele port, IdP'yi de test başına yeniden kaldırmayı zorunlu
+ * kılıyordu. Portu biz seçmiyoruz — 127.0.0.1:0 ile çekirdeğe
+ * seçtiriyoruz, yani koşucuda kullanımdaki bir portu çalmıyoruz.
+ *
+ * ⚠️ SOKETİ DEĞİL SUNUCUYU PAYLAŞMAK ŞART ve ilk denemem tersini yaptı:
+ * dinleyiciyi paylaşıp her testte yeni bir http.Server açmıştım ve
+ * Shutdown'ın kapanışını yutan bir sarmalayıcı koymuştum. Sonuç,
+ * kapanmış sunucunun Serve'ünün DÖNMEMESİ oldu: iki sunucu aynı sokette
+ * accept yarışına girdi, kapanmakta olan istekleri alıp düşürdü ve
+ * testler asıldı. Tek sunucu + değişen handler o yarışı hiç doğurmuyor.
+ *
+ * Portun sabit olması burada güvenli, çünkü bu testler PARALEL KOŞMUYOR
+ * (pakette tek bir t.Parallel yok).
+ */
+var (
+	cbOnce sync.Once
+	cbAddr string
+	cbMux  = &swapHandler{}
+	cbErr  error
+)
+
+func callbackStart() {
+	cbOnce.Do(func() {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			cbErr = err
+			return
+		}
+		cbAddr = l.Addr().String()
+		srv := &http.Server{Handler: cbMux}
+		go srv.Serve(l)
+	})
+}
+
+// callbackURL, paylaşılan panelin dış adresi.
+func callbackURL() string {
+	callbackStart()
+
+	return "http://" + cbAddr
+}
+
+/*
+ * swapHandler, isteği O ANKİ testin handler'ına verir.
+ *
+ * ⚠️ HANDLER YOKKEN 503: testler arasında gelen bir istek, bir önceki
+ * testin handler'ına düşerse hangi testin ne ölçtüğü karışır. Sessizce
+ * eski handler'ı tutmak yerine açıkça reddediyoruz.
+ */
+type swapHandler struct {
+	mu sync.Mutex
+	h  http.Handler
+}
+
+func (s *swapHandler) set(h http.Handler) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.h = h
+}
+
+func (s *swapHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	h := s.h
+	s.mu.Unlock()
+
+	if h == nil {
+		http.Error(w, "no test handler installed", http.StatusServiceUnavailable)
+		return
+	}
+	h.ServeHTTP(w, r)
+}
+
 func oobBastionOpts(t *testing.T, oobTimeout time.Duration, terminal bool, fresh ...bool) (sshAddr, apiURL string, hostPub ssh.PublicKey, db *store.Store, holder *auth.OIDCHolder) {
 	t.Helper()
 
@@ -78,14 +156,22 @@ func oobBastionOpts(t *testing.T, oobTimeout time.Duration, terminal bool, fresh
 	tc := tgt.target()
 	tc.Name = "web01"
 
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	/*
+	 * ⚠️ DİNLEYİCİ SÜREÇ BAŞINA BİR KEZ AÇILIYOR, TEST BAŞINA DEĞİL — ve
+	 * bu, paylaşılan Keycloak'ın şartı. Keycloak redirect URI'yi kayıtlı
+	 * listeyle BİREBİR eşliyor (port dahil); test başına rastgele port,
+	 * IdP'yi de test başına yeniden kaldırmayı zorunlu kılıyordu.
+	 *
+	 * Portu sabitlemek burada güvenli, çünkü bu testler PARALEL KOŞMUYOR
+	 * (pakette tek bir t.Parallel yok) — aynı anda yalnızca bir sunucu
+	 * bu dinleyiciyi kullanıyor.
+	 */
+	external := callbackURL()
+	if cbErr != nil {
+		t.Fatalf("callback dinleyicisi açılamadı: %v", cbErr)
 	}
-	t.Cleanup(func() { l.Close() })
-	external := "http://" + l.Addr().String()
 
-	issuer := startKeycloak(t, external+"/auth/callback")
+	issuer := startKeycloak(t)
 
 	oidcClient, err := auth.NewOIDC(context.Background(), auth.OIDCConfig{
 		IssuerURL:   issuer,
@@ -159,9 +245,10 @@ func oobBastionOpts(t *testing.T, oobTimeout time.Duration, terminal bool, fresh
 	if tuneWebAPI != nil {
 		tuneWebAPI(webAPI)
 	}
-	api := &http.Server{Handler: webAPI.Handler()}
-	go api.Serve(l)
-	t.Cleanup(func() { api.Shutdown(context.Background()) })
+	// Paylaşılan sunucuya BU testin handler'ı takılıyor; test bitince
+	// çıkarılıyor ki sonraki isteğe eski handler cevap vermesin.
+	cbMux.set(webAPI.Handler())
+	t.Cleanup(func() { cbMux.set(nil) })
 
 	return startBastion(t, srv), external, pub, db, holder
 }

@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -40,47 +41,84 @@ const (
 	kcRedirect = "http://127.0.0.1/callback"
 )
 
-// startKeycloak, realm'i içe aktarılmış bir Keycloak kaldırır ve issuer
-// URL'sini döner. Konteyner testler arasında paylaşılmaz — her test kendi
-// temiz IdP'siyle çalışır (yavaş ama deterministik; Keycloak ~20sn açılır).
-func startKeycloak(t *testing.T, extraRedirects ...string) (issuer string) {
+/*
+ * ÇAĞRI KAPISI: startKeycloak, SÜREÇ BOYUNCA PAYLAŞILAN Keycloak'ın
+ * issuer URL'sini döner.
+ *
+ * ⚠️ ESKİDEN TEST BAŞINA BİR KONTEYNERDİ ve gerekçesi "her test kendi
+ * temiz IdP'siyle çalışsın" idi. Ölçüm o bedeli görünür kıldı: bu paketin
+ * 134 testinden 66'sı ~10 saniye sürüyor ve toplamın %86'sını yiyor; süre
+ * neredeyse tümüyle konteyner kalkışı (aynı koşuda kullanıcı CPU'su 10
+ * saniye). Yorumdaki "~20sn" da bayattı — 73 kalkış 20 saniyeden toplam
+ * süreye sığmıyor.
+ *
+ * ⚠️ PAYLAŞMANIN ÖNÜNDEKİ ENGEL DURUM DEĞİL, PORTTU. Hiçbir test IdP'nin
+ * durumunu değiştirmiyor: admin API'sine tek çağrı yok, kullanıcı ya da
+ * realm yaratılmıyor, girişler yalnızca form POST'u ve SSO çerezi testin
+ * KENDİ cookiejar'ında. Tek teste özel şey, Keycloak'ın birebir eşlediği
+ * redirect URI'ydi ve o da testin rastgele callback portundan geliyordu.
+ * Port artık süreç başına bir kez ayrılıyor (callbackListener) ve realm
+ * bir kez ona göre yamalanıyor.
+ *
+ * ⚠️ KONTEYNER BİLEREK TERMINATE EDİLMİYOR — testdb ve archive ile aynı
+ * desen: hangi testin sonuncu olduğunu bilmenin yolu yok, ilk testin
+ * cleanup'ında kapatmak sonrakileri kırar. Temizliği testcontainers'ın
+ * reaper'ı (Ryuk) süreç bitince yapıyor.
+ */
+func startKeycloak(t *testing.T) (issuer string) {
 	t.Helper()
+
+	kcOnce.Do(func() { kcIssuer, kcErr = bootKeycloak() })
+	if kcErr != nil {
+		t.Fatalf("keycloak başlatılamadı (Docker ayakta mı?): %v", kcErr)
+	}
+
+	return kcIssuer
+}
+
+var (
+	kcOnce   sync.Once
+	kcIssuer string
+	kcErr    error
+)
+
+func bootKeycloak() (string, error) {
 	ctx := context.Background()
 
 	realmPath, err := filepath.Abs(filepath.Join("testdata", "keycloak", "postern-realm.json"))
 	if err != nil {
-		t.Fatal(err)
+		return "", err
 	}
 
-	// Testin dinleyicisi rastgele portta; Keycloak ise redirect URI'yi
-	// kayıtlı listeyle birebir eşleştirir (port dahil). Ek adresler realm
-	// dosyasının geçici bir kopyasına işlenir — dosyadaki kayıt sabit
-	// kalır, port çalışma anında öğrenilir.
-	if len(extraRedirects) > 0 {
-		raw, err := os.ReadFile(realmPath)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var realm map[string]any
-		if err := json.Unmarshal(raw, &realm); err != nil {
-			t.Fatal(err)
-		}
-		for _, c := range realm["clients"].([]any) {
-			client := c.(map[string]any)
-			uris := client["redirectUris"].([]any)
-			for _, r := range extraRedirects {
-				uris = append(uris, r)
-			}
-			client["redirectUris"] = uris
-		}
-		patched, err := json.Marshal(realm)
-		if err != nil {
-			t.Fatal(err)
-		}
-		realmPath = filepath.Join(t.TempDir(), "postern-realm.json")
-		if err := os.WriteFile(realmPath, patched, 0o644); err != nil {
-			t.Fatal(err)
-		}
+	/*
+	 * Keycloak redirect URI'yi kayıtlı listeyle BİREBİR eşliyor (port
+	 * dahil), o yüzden paylaşılan callback adresi realm'e işleniyor.
+	 * Dosyadaki kayıt sabit kalıyor; yama geçici bir kopyada.
+	 */
+	raw, err := os.ReadFile(realmPath)
+	if err != nil {
+		return "", err
+	}
+	var realm map[string]any
+	if err := json.Unmarshal(raw, &realm); err != nil {
+		return "", err
+	}
+	for _, c := range realm["clients"].([]any) {
+		client := c.(map[string]any)
+		client["redirectUris"] = append(
+			client["redirectUris"].([]any), callbackURL()+"/auth/callback")
+	}
+	patched, err := json.Marshal(realm)
+	if err != nil {
+		return "", err
+	}
+	dir, err := os.MkdirTemp("", "postern-realm")
+	if err != nil {
+		return "", err
+	}
+	realmPath = filepath.Join(dir, "postern-realm.json")
+	if err := os.WriteFile(realmPath, patched, 0o644); err != nil {
+		return "", err
 	}
 
 	cont, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -104,19 +142,19 @@ func startKeycloak(t *testing.T, extraRedirects ...string) (issuer string) {
 		Started: true,
 	})
 	if err != nil {
-		t.Fatalf("keycloak başlatılamadı (Docker ayakta mı?): %v", err)
+		return "", err
 	}
-	t.Cleanup(func() { _ = cont.Terminate(context.Background()) })
 
 	host, err := cont.Host(ctx)
 	if err != nil {
-		t.Fatal(err)
+		return "", err
 	}
 	port, err := cont.MappedPort(ctx, "8080")
 	if err != nil {
-		t.Fatal(err)
+		return "", err
 	}
-	return fmt.Sprintf("http://%s:%d/realms/postern", host, port.Num())
+
+	return fmt.Sprintf("http://%s:%d/realms/postern", host, port.Num()), nil
 }
 
 // --- adım 0: düzenek sağlığı (senin kodun daha yokken yeşil olmalı) ---

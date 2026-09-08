@@ -46,8 +46,21 @@ test-short:
 	$(GO) test -short ./...
 
 # S1.9: testcontainers ile gerçek bir OpenSSH sunucusuna karşı koşar.
+#
+# ⚠️ KAPSAM ./... DEĞİL ve sebebi ölçüldü. `integration` etiketi yalnızca
+# İKİ pakete test dosyası ekliyor (go list ile doğrulandı: internal/archive
+# 0→1, test/integration 0→35). ./... koşmak, kalan 25 paketin birim
+# testlerini `test-race` işinin AYNI -race bayrağıyla zaten koştuğu hâliyle
+# ikinci kez koşuyordu — üstelik -tags derleme önbelleği anahtarının parçası
+# olduğu için tam bir yeniden derlemeyle.
+#
+# ⚠️ -timeout, Actions'ın timeout-minutes'ından KÜÇÜK. İkisi 30 dakikayken
+# önce Actions öldürüyordu ve geriye teşhis kalmıyordu: iş CANCELLED
+# görünüyor, hangi testin asıldığı hiçbir yerde yazmıyordu. Go'nunki önce
+# dolunca yığın dökümü çıkıyor ve soru cevaplanabilir hâle geliyor.
 test-integration:
-	$(GO) test -race -tags integration -count=1 -timeout 30m ./...
+	$(GO) test -race -tags integration -count=1 -timeout 25m \
+		./test/... ./internal/archive/...
 
 vet:
 	$(GO) vet ./...

@@ -51,8 +51,19 @@ jobs:
       - run: make test-race
 
   # Entegrasyon ayrı iş: Keycloak, OpenLDAP ve sertifika hedefi
-  # konteynerleri kalkıyor, ~5 dakika sürüyor. Birim testlerin geri
-  # bildirimini bu sürenin arkasına koymamak için ayrıldı.
+  # konteynerleri kalkıyor. Birim testlerin geri bildirimini bu sürenin
+  # arkasına koymamak için ayrıldı.
+  #
+  # ⚠️ SÜRE BİR KEZ TAVANA ÇARPTI ve nasıl çarptığı görünmüyordu: iş
+  # `cancelled` dönüyor, hangi testin asıldığı hiçbir yerde yazmıyordu
+  # (main dahil birkaç koşuda oldu). İki şey değişti — Makefile'daki
+  # `go test -timeout` artık buradaki tavanın ALTINDA, yani önce Go
+  # dolup yığın dökümü bırakıyor; ve paket başına konteyner kalkışı
+  # paylaşıma çekildi. Ölçüm: 777s → 128s (aynı makine, aynı -race).
+  #
+  # Süre yeniden büyürse ilk bakılacak yer test başına kalkan konteyner
+  # sayısı; bölmek (matrix) ondan sonra gelir — bölmek işi azaltmıyor,
+  # dağıtıyor ve paylaşılan koşucu havuzunda toplam süreyi artırıyor.
   integration:
     runs-on: ubuntu-latest
     timeout-minutes: 30
