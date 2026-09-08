@@ -226,6 +226,7 @@ export async function walkTree(
     dir: string,
     rel: string,
     depth: number,
+    meta: { mtime: number; mode: number },
     seed?: string[],
   ) {
     let list: Entry[];
@@ -250,6 +251,17 @@ export async function walkTree(
       note({ path: dir, ...explain(e) });
       return;
     }
+
+    /*
+     * ⚠️ DİZİN GİRDİSİ ANCAK LİSTELEME BAŞARIRSA YAZILIYOR — ve bu,
+     * canlı denemede çıktı. Girdi listelemeden ÖNCE ekleniyordu, yani
+     * yol politikasının reddettiği bir dizin (demoda /home/sidinak/.ssh)
+     * arşivde BOŞ BİR KLASÖR olarak duruyordu. Arşivi altı ay sonra açan
+     * denetçi için "reddedildi" ile "içi boştu" aynı şeye benziyor —
+     * oysa biri kanıt, diğeri bilgi. Reddedilen dizin artık yalnızca
+     * atlananlar notunda görünüyor.
+     */
+    out.dirs.push({ rel, mtime: meta.mtime, mode: meta.mode });
 
     const taken = new Set<string>();
     // Kökte postern'in kendi notunun adı ÖNCE ayrılıyor (bkz. noteName).
@@ -301,8 +313,12 @@ export async function walkTree(
           continue;
         }
         const name = uniqueName(taken, safeName(e.name));
-        out.dirs.push({ rel: `${rel}/${name}`, mtime: e.mtime, mode: e.mode });
-        await descend(path, `${rel}/${name}`, depth + 1);
+        await descend(
+          path,
+          `${rel}/${name}`,
+          depth + 1,
+          { mtime: e.mtime, mode: e.mode },
+        );
         continue;
       }
 
@@ -349,8 +365,7 @@ export async function walkTree(
   }
 
   step();
-  out.dirs.push({ rel: base, mtime: 0, mode: 0o040755 });
-  await descend(root, base, 1, [noteName]);
+  await descend(root, base, 1, { mtime: 0, mode: 0o040755 }, [noteName]);
 
   return out;
 }

@@ -262,6 +262,26 @@ describe("ağaç gezintisi", () => {
     expect(tree.skipped).toEqual([
       { path: "/is/kapali", why: "postern: not allowed", from: "target" },
     ]);
+
+    /*
+     * ⚠️ REDDEDİLEN DİZİN ARŞİVE GİRDİ OLARAK GİRMİYOR — ve bu iddiayı
+     * canlı deneme öğretti, test değil. Girdi listelemeden ÖNCE
+     * ekleniyordu: demo hedefinde yol politikasının reddettiği
+     * /home/sidinak/.ssh, arşivde BOŞ BİR KLASÖR olarak duruyordu.
+     * Altı ay sonra o arşive bakan denetçi için "reddedildi" ile "içi
+     * boştu" aynı şeye benziyor — biri kanıt, diğeri bilgi.
+     */
+    expect(tree.dirs.map((d) => d.rel)).toEqual(["is", "is/acik"]);
+  });
+
+  // Karşı kanıt: GERÇEKTEN boş bir dizin arşivden çıkmaya devam ediyor.
+  it("gerçekten boş dizin girdisini koruyor", async () => {
+    const t = lister({ "/is": [ent("bos", DIR)], "/is/bos": [] });
+
+    const tree = await walkTree(t, "/is", explain);
+
+    expect(tree.dirs.map((d) => d.rel)).toEqual(["is", "is/bos"]);
+    expect(tree.skipped).toEqual([]);
   });
 
   /*

@@ -59,6 +59,31 @@ func TestTargetStderrIsStampedPerLineNotPerWrite(t *testing.T) {
 }
 
 /*
+ * ⚠️ HEDEFİN stderr'İ DE İKİ YÖNLÜ DENETİMLERDEN ARINIYOR.
+ *
+ * İki ayrı düzeltmenin BULUŞTUĞU yer, ve buluşma sessizce bozulabilir:
+ * biri castSafe'e U+202E'yi ekledi (dosya adları kayıtta yalan
+ * söylüyordu), diğeri hedefin stderr'ini kayda castSafe üzerinden
+ * sokmaya başladı. İkisi bugün örtüşüyor — ama stderr yolu bir gün
+ * castSafe'i atlarsa, dosya adı tarafındaki test yine geçer ve bu yüzey
+ * sessizce açılır.
+ *
+ * Kaçış dizisi ekranı boyuyor: gürültülü. U+202E satırı olduğu gibi
+ * bırakıp BAŞKA okutuyor, ve bir denetim kaydında yanlış okunan bir
+ * cevap, okunmayan cevaptan kötü.
+ */
+func TestTargetStderrDropsBidiOverridesToo(t *testing.T) {
+	out := stderrCast(t, "fetched fatura\u202egnp.exe\n")
+
+	if strings.ContainsRune(out, '\u202e') {
+		t.Errorf("iki yönlü denetim kayda düştü:\n%s", out)
+	}
+	if !strings.Contains(out, "target wrote: fetched faturagnp.exe…") {
+		t.Errorf("ad temizlenmiş hâliyle ve atıflı girmedi:\n%s", out)
+	}
+}
+
+/*
  * ⚠️ HEDEFİN CRLF'İ ÇİFT SATIR BAŞI ÜRETMİYOR. Satırı postern kendi
  * "\r\n"siyle kapatıyor; hedefinkini de geçirmek, oynatıcıda boş satırlar
  * açardı — hedefin eline kaydın YERLEŞİMİNİ verirdi.
@@ -165,6 +190,47 @@ func TestControlBytesNeverReachTheRecording(t *testing.T) {
 			}
 			if !strings.HasSuffix(line, "\r\n") {
 				t.Errorf("satır sonu yok: %q", line)
+			}
+		})
+	}
+}
+
+/*
+ * TestBidiControlsNeverReachTheRecording — satırı BOYAMAYAN ama YALAN
+ * SÖYLETEN karakterler.
+ *
+ * ⚠️ KAÇIŞ DİZİLERİNDEN FARKI, SATIRIN OLDUĞU GİBİ DURMASI. İki yönlü
+ * yazı denetimleri ekranı yeniden yazmıyor; satırı BAŞKA okutuyorlar.
+ * Hedefte "fatura<U+202E>gnp.exe" adında bir dosya açan biri, o dosyayı
+ * alan oturumun kaydında "fatura exe.png" yazan bir satır bırakıyor:
+ * denetçi bir resim indirildiğini sanıyor. Kayıt, "kim hangi dosyayı
+ * aldı" sorusunun cevabı; o cevabın YANLIŞ OKUNMASI, kaydın okunmaz
+ * olmasından kötü.
+ *
+ * Canlı denemede bulundu: ad, panelin ürettiği arşivde temizleniyordu
+ * ama kayda olduğu gibi giriyordu.
+ */
+func TestBidiControlsNeverReachTheRecording(t *testing.T) {
+	bidi := []struct {
+		name, path string
+	}{
+		{"RLO", "/tmp/fatura\u202egnp.exe"},
+		{"LRO", "/tmp/a\u202db"},
+		{"PDF", "/tmp/a\u202cb"},
+		{"LRM", "/tmp/a\u200eb"},
+		{"RLM", "/tmp/a\u200fb"},
+		{"izole", "/tmp/a\u2066b\u2069c"},
+	}
+
+	for _, c := range bidi {
+		t.Run(c.name, func(t *testing.T) {
+			line := castLine(ev(sftpaudit.OpOpendir, c.path))
+
+			for _, r := range line {
+				if r == 0x200e || r == 0x200f ||
+					(r >= 0x202a && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069) {
+					t.Fatalf("yön denetimi kayda girdi: %q içinde %U", line, r)
+				}
 			}
 		})
 	}

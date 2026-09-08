@@ -90,6 +90,24 @@ audit rows into a shape it does not understand.
   they would land on one file when the archive is extracted on macOS or
   Windows.
 
+- **A folder that could not be listed no longer appears in the archive as an
+  empty one.** Found by running the feature against a live target: a directory
+  the path policy refuses was written into the archive before its listing was
+  attempted, so `.ssh/` arrived as an empty folder. Six months later "refused"
+  and "was empty" look the same to whoever opens the archive, and only one of
+  them is evidence. Refused directories are now named in
+  `POSTERN-NOT-INCLUDED.txt` and nowhere else; genuinely empty ones still
+  arrive as empty.
+
+- **Recordings drop right-to-left overrides from names, as they already dropped
+  escape sequences.** A recording is replayed into a terminal. An escape
+  sequence repaints the screen, which the sanitiser already caught; a
+  bidirectional control does something quieter — the line stays intact and
+  *reads* as something else. A file named with `U+202E` produced a recording
+  line reading `fatura exe.png`, so an auditor scanning it would believe an
+  image had been fetched. Names in the journal are untouched: that is the
+  target's real name, and the journal is queried rather than rendered.
+
 - **Downloads are checked against the size the target listed.** A file
   delivered short now fails with both numbers instead of being saved quietly
   truncated, and a reply that stops mid-file no longer leaves a hole: the
