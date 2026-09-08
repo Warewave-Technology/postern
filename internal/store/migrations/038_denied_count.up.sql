@@ -1,0 +1,37 @@
+-- Oturumun kaç kez REDDEDİLDİĞİNİ söyleyen sayı.
+--
+-- NEDEN VAR: denetçinin listeye gelirken sorduğu soru "hangi oturumu
+-- açayım". Bugün liste bunu hiç cevaplamıyor — /etc/shadow'un
+-- reddedildiği bir oturum, hiçbir şey yapılmamış bir oturumla birebir
+-- aynı görünüyor ve fark ancak satır açılıp dosya olaylarına bakılınca
+-- ortaya çıkıyor. 200 oturumluk bir listede bu, 200 tıklama demek.
+--
+-- ⚠️ NİYE SÜTUN, NİYE SORGUDA SAYMIYORUZ. Sayım liste sorgusuna
+-- LATERAL ile eklenebilirdi ve ölçüldü: demo verisinde 3 ms. Ama o ölçüm
+-- ölçek sorusunu CEVAPLAMIYOR — orada 215 dosya satırı ve en kalabalık
+-- oturumda 28 satır var, planlayıcı indeksi kullanmaya bile gerek
+-- duymuyor. Gerçek bir bastion'da tek bir aktarım oturumu binlerce satır
+-- yazıyor (dizin başına bir, dosya başına iki) ve o hâlde sayım, listeyi
+-- her açışta oturum başına o satırların tamamını tarardı. Kapanışta bir
+-- kez yazılan sayı O(1) okunuyor; 037'nin sftp_events için verdiği
+-- kararın aynısı.
+--
+-- ⚠️ NULL KASITLI VE "SIFIR" DEĞİL. Bu göçten önce kapanmış oturumlarda
+-- sayım YAPILMADI; oraya 0 yazmak "bu oturumda hiçbir şey reddedilmedi"
+-- demek olurdu — bilinmeyeni iyi habere çevirmek. NULL, sayının
+-- olmadığını söylüyor; 0 ise sayıldığını ve gerçekten hiç ret olmadığını.
+-- Aynı ayrım 037'de (sftp_events) ve 034'te (boş zincir başı) da var.
+--
+-- ⚠️ SAYILAN ŞEY POSTERN'İN KENDİ RETLERİ: defterdeki "denied." önekli
+-- satırlar (sftpaudit/policy.go). Hedefin kendi "permission denied"ı
+-- BAŞKA bir olay — o, hedefin dosya izinleri hakkında bir şey söylüyor,
+-- postern'in kuralları hakkında değil. İkisini tek sayıya katlamak,
+-- denetçiye "kuralı çiğnemeye çalışan biri var" ile "kullanıcının o
+-- dosyaya erişimi yok"u aynı rakamla gösterirdi.
+--
+-- ⚠️ SAYI, YAZILAN SATIRDAN BAĞIMSIZ SAYILIYOR. Ret olayı, defter tavana
+-- çarptığı için düşürülmüş olsa bile sayılıyor: ret GERÇEKLEŞTİ ve
+-- denetçinin bilmesi gereken şey o. Sayı ile satır adedi ayrışırsa
+-- sebebini sftp_lost söylüyor.
+ALTER TABLE sessions
+  ADD COLUMN sftp_denied BIGINT;

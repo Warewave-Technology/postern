@@ -215,7 +215,7 @@ func TestEventsAfterCloseAreNotSwallowed(t *testing.T) {
 	j := testJournal(w)
 
 	j.Emit(sftpaudit.Event{Op: sftpaudit.OpOpen, Path: "/a", OK: true})
-	written, lost := j.Close()
+	written, lost, _ := j.Close()
 	if written != 1 || lost != 0 {
 		t.Fatalf("kapanış öncesi sayılar: yazılan=%d kayıp=%d", written, lost)
 	}
@@ -237,6 +237,72 @@ func TestEventsAfterCloseAreNotSwallowed(t *testing.T) {
 	// Ve depoya yazılmadı: kapanmış bir günlükçü yazmıyor.
 	if got := w.rows(); got != 1 {
 		t.Errorf("depoya %d satır gitti, 1 bekleniyordu", got)
+	}
+}
+
+/*
+ * ⚠️ RET SAYISI, DENETÇİNİN LİSTEDE GÖRECEĞİ TEK ŞEY OLABİLİR.
+ *
+ * Liste bugün /etc/shadow'un reddedildiği bir oturumu, hiçbir şey
+ * yapılmamış bir oturumdan ayırt edemiyor; fark ancak satır açılıp dosya
+ * olaylarına bakılınca çıkıyor. Sayı, o farkı tıklamadan görünür kılıyor.
+ *
+ * ⚠️ SAYILAN ŞEY POSTERN'İN KENDİ REDDİ ("denied." öneki), hedefin
+ * "permission denied"ı DEĞİL. İkisi ayrı bulgu: biri kuralın sınandığını,
+ * öbürü hedefin dosya izinlerini söylüyor. Tek rakama katlamak,
+ * denetçiye ikisini aynı şey gibi gösterirdi.
+ */
+func TestDenialsAreCountedForTheList(t *testing.T) {
+	j := &sftpJournal{
+		store: okFiles{}, log: testLogger(), fail: func(error) {},
+		stop: make(chan struct{}), done: make(chan struct{}),
+	}
+	close(j.done) // loop koşmuyor; kapanıştaki son boşaltmayı Close yapıyor.
+
+	j.Emit(sftpaudit.Event{Op: "denied.opendir", Path: "/etc", OK: false})
+	j.Emit(sftpaudit.Event{Op: sftpaudit.OpOpen, Path: "/tmp/a", OK: true})
+	j.Emit(sftpaudit.Event{Op: "denied.open", Path: "/etc/shadow", OK: false})
+	// Hedefin kendi reddi: ok=false ama postern'in kararı DEĞİL.
+	j.Emit(sftpaudit.Event{Op: sftpaudit.OpOpen, Path: "/kok", OK: false})
+
+	_, _, denied := j.Close()
+
+	if denied != 2 {
+		t.Fatalf("ret sayısı = %d, 2 bekleniyordu — hedefin kendi hatası "+
+			"postern'in reddiyle aynı sayıya katlanmış olabilir", denied)
+	}
+}
+
+/*
+ * ⚠️ RET, SATIRI DÜŞSE BİLE SAYILIYOR.
+ *
+ * Tavana çarpan olay deftere hiç giremiyor; ama ret GERÇEKLEŞTİ ve
+ * denetçinin bilmesi gereken şey o. Sayacı tavan kontrolünün ARDINA
+ * koymak, tam da defterin doldugu — yani en çok şey olan — oturumlarda
+ * retleri görünmez yapardı. Sayı ile satır adedi ayrışırsa sebebini
+ * "lost" söylüyor; iki sayı birbirini açıklıyor.
+ */
+func TestDenialsAreCountedEvenWhenTheRowIsDropped(t *testing.T) {
+	j := &sftpJournal{
+		store: okFiles{}, log: testLogger(), fail: func(error) {},
+		stop: make(chan struct{}), done: make(chan struct{}),
+	}
+	close(j.done)
+	// Tampon tavanda: bundan sonraki her olay düşüyor.
+	j.buf = make([]store.SessionFile, journalCap)
+
+	for range 3 {
+		j.Emit(sftpaudit.Event{Op: "denied.open", Path: "/etc/shadow", OK: false})
+	}
+
+	_, lost, denied := j.Close()
+
+	if denied != 3 {
+		t.Errorf("düşen retler sayılmadı: denied = %d, 3 bekleniyordu", denied)
+	}
+	if lost < 3 {
+		t.Errorf("kayıp %d, en az 3 bekleniyordu — iki sayı birbirini "+
+			"açıklamalı", lost)
 	}
 }
 
@@ -274,7 +340,7 @@ func TestCloseReportsWhatTheJournalCouldNotWrite(t *testing.T) {
 	j.Emit(sftpaudit.Event{Op: sftpaudit.OpOpen, Path: "/a", OK: true})
 	j.Emit(sftpaudit.Event{Op: sftpaudit.OpOpen, Path: "/b", OK: true})
 
-	written, lost := j.Close()
+	written, lost, _ := j.Close()
 
 	if written != 0 {
 		t.Errorf("yazma çöktüğü hâlde %d satır yazıldı sayıldı", written)

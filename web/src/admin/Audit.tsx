@@ -203,6 +203,7 @@ export function Sessions({ theme }: { theme: Resolved }) {
    * ve arşivlenmiş kayıtta hiç açılmıyor; zincir durumunu oynatıcının
    * içine koymak, tam da en çok merak edilen oturumlarda gizlerdi.
    */
+  const [opened, setOpened] = useState<Session | null>(null);
   const [chainOf, setChainOf] = useState<{ id: string; chain?: string } | null>(
     null,
   );
@@ -219,7 +220,10 @@ export function Sessions({ theme }: { theme: Resolved }) {
    * Sunucu bu ayrımı ilk günden veriyordu (dört değerli durum); onu
    * soran yoktu.
    */
-  const watch = (id: string) => {
+  const watch = (row: Session) => {
+    const id = row.id;
+    // Sütundan çıkan alanlar detay başlığında görünsün.
+    setOpened(row);
     setWhy("");
     setFiles([]);
     setFilesFailed(false);
@@ -288,6 +292,52 @@ export function Sessions({ theme }: { theme: Resolved }) {
 
   const columns: Column<Session>[] = [
     {
+      /*
+       * ⚠️ BU SÜTUN ONAY VERMEZ, YALNIZCA İŞARET EDER.
+       *
+       * Denetçinin listeye gelirken sorduğu soru "hangisini açayım".
+       * Bugün liste bunu hiç cevaplamıyor: /etc/shadow'un reddedildiği
+       * bir oturum, hiçbir şey yapılmamış bir oturumla birebir aynı
+       * görünüyor ve fark ancak satır açılınca çıkıyor.
+       *
+       * ⚠️ HÜCRE TEK YÖNLÜ: en fazla dikkat çeker, ASLA "tamam" demez.
+       * Yeşil bir rozet buraya konsaydı, listeden hesaplanamayan bir
+       * onay verilmiş olurdu — özet karşılaştırması satırların
+       * İÇERİĞİNİ ister (verify.JournalOf) ve listede yalnızca sayılar
+       * var. Yani boş bir hücre "doğrulandı" değil, "bu iki şey
+       * işaretlenmedi" demek; sütunun altındaki not bunu yazıyor.
+       *
+       * ⚠️ MÜHÜRSÜZLÜK VE ÖLÇÜLMEMİŞLİK BURAYA GİRMİYOR. İkisi de
+       * BULGU değil, bulgunun YOKLUĞU — ve göç 034/037'den önce
+       * kapanmış her oturum öyle. Onları da işaretlemek, geçmişin
+       * tamamını alarma çevirip iki gerçek sinyali boğardı; ikisi de
+       * satır açılınca zincir kartında ve defter satırında duruyor.
+       */
+      key: "evidence",
+      header: "Evidence",
+      // Sıralama işaretliyi öne alıyor: kayıp > ret > işaretsiz.
+      value: (s) => (s.lost ? 2 : s.denied ? 1 : 0),
+      render: (s) => {
+        if (s.lost) {
+          return (
+            <span className="badge badge-warn">
+              {s.lost} {s.lost === 1 ? "event" : "events"} lost
+            </span>
+          );
+        }
+        if (s.denied) {
+          /*
+           * badge-danger DEĞİL: kırmızı, bu panelde ÇELİŞKİYE ayrılmış
+           * (ChainStatus: dosya tutuyor ama arşiv tutmuyor). Reddedilen
+           * bir istek kuralın ÇALIŞTIĞI anlamına da geliyor; kırmızı
+           * çizmek onu arıza gibi okuturdu.
+           */
+          return <span className="badge">{s.denied} refused</span>;
+        }
+        return null;
+      },
+    },
+    {
       key: "id",
       header: "ID",
       value: (s) => s.id,
@@ -297,8 +347,14 @@ export function Sessions({ theme }: { theme: Resolved }) {
     },
     { key: "user", header: "User", value: (s) => s.user },
     { key: "target", header: "Target", value: (s) => s.target },
-    { key: "os_user", header: "OS user", value: (s) => s.os_user },
-    { key: "src", header: "Src", value: (s) => s.src_ip },
+    /*
+     * ⚠️ "OS user" VE "Src" SÜTUNDAN ÇIKTI, VERİDEN ÇIKMADI. İlk bakışın
+     * cevaplaması gereken soru "hangisini açayım"; hedefteki hesap ve
+     * kaynak adres o soruya değil, açtıktan SONRAKİ soruya ait. İkisi de
+     * açılan oturumun başlığında duruyor ve ARAMADA kalıyor
+     * (extraSearch) — yani "10.0.0.7" yazan denetçi yine buluyor,
+     * yalnızca sütun taşımıyor.
+     */
     {
       key: "started",
       header: "Started",
@@ -312,9 +368,19 @@ export function Sessions({ theme }: { theme: Resolved }) {
       // en eski oturumlarla karışırdı.
       value: (s) =>
         s.ended_at ? sortableTime(s.ended_at) : Number.MAX_SAFE_INTEGER,
+      /*
+       * ⚠️ "AÇIK" İLE "AKIYOR" AYNI ŞEY DEĞİL ve rozet ikisini
+       * karıştırıyordu: yeşil "running", ended_at'in BOŞLUĞUNDAN
+       * çiziliyordu. Sunucu ayrıca `running` gönderiyor ve Overview onu
+       * doğru kullanıyor (orada "sahipsiz" diye ayrılıyor) — postern
+       * çöktüğünde aynı oturum bir ekranda sahipsiz, burada yeşil
+       * görünüyordu. Yeşil, olmayan bir sağlık iddiasıydı.
+       */
       render: (s) =>
         s.ended_at ? (
           <Timestamp value={s.ended_at} />
+        ) : s.running === false ? (
+          <span className="badge badge-info">open, not streaming</span>
         ) : (
           <span className="badge badge-ok">running</span>
         ),
@@ -326,7 +392,7 @@ export function Sessions({ theme }: { theme: Resolved }) {
       className: "actions",
       render: (s) => (
         <ActionButton
-          onClick={() => watch(s.id)}
+          onClick={() => watch(s)}
           label={`watch the recording of ${s.user} on ${s.target}, started ${s.started_at}`}
         >
           Watch
@@ -368,6 +434,7 @@ export function Sessions({ theme }: { theme: Resolved }) {
             setFilesFailed(false);
             setJournal(undefined);
             setChainOf(null);
+            setOpened(null);
           }}
         />
       )}
@@ -377,6 +444,30 @@ export function Sessions({ theme }: { theme: Resolved }) {
         olduğu için oynatıcı hiç açılmayabiliyor; tabloyu oynatıcının
         içine koymak, tam da onun gerektiği oturumlarda gizlerdi.
       */}
+      {/*
+        ⚠️ SÜTUNDAN ÇIKAN ALANLAR BURADA. Satırdan kaldırılan bir alanın
+        hiçbir yerde görünmemesi, "sadeleştirme" adı altında bilgi
+        kaybetmek olurdu; açılan oturumun başlığı onları geri veriyor.
+      */}
+      {opened && (
+        <div className="card detail-head">
+          <dl>
+            <div>
+              <dt>OS user</dt>
+              <dd className="mono">{opened.os_user}</dd>
+            </div>
+            <div>
+              <dt>From</dt>
+              <dd className="mono">{opened.src_ip}</dd>
+            </div>
+            <div>
+              <dt>Session</dt>
+              <dd className="mono">{opened.id}</dd>
+            </div>
+          </dl>
+        </div>
+      )}
+
       {chainOf && <ChainStatus sessionId={chainOf.id} chain={chainOf.chain} />}
 
       <SessionFiles files={files} failed={filesFailed} journal={journal} />
@@ -389,6 +480,13 @@ export function Sessions({ theme }: { theme: Resolved }) {
         emptyText="No sessions recorded — nobody has connected through this bastion yet."
       />
 
+      {/*
+        ⚠️ BOŞ HÜCRENİN NE DEMEK OLMADIĞINI YAZMAK ŞART. "Evidence"
+        altında boşluk gören biri bunu kolayca "doğrulandı" diye
+        okuyabilir; oysa listeden hesaplanabilen tek şey iki sayı.
+        Yazmayan bir sütun, hak edilmemiş bir onay dağıtırdı — bu turda
+        üç kez düzelttiğimiz hatanın aynısı. Notu tablonun eteğinde.
+      */}
       {items.length > 0 && (
         <DataTable
           rows={items}
@@ -398,8 +496,15 @@ export function Sessions({ theme }: { theme: Resolved }) {
           noun="session"
           searchLabel="search sessions by user, target or address"
           searchPlaceholder="Search sessions…"
+          // Sütundan çıkanlar aramada KALIYOR (bkz. os_user/src notu).
+          extraSearch={(s) => `${s.os_user} ${s.src_ip} ${s.id}`}
           foot={
             <p>
+              An empty <b>Evidence</b> cell means neither of two things was
+              flagged: postern losing audit events, and postern refusing a
+              request. It is not a verdict on the recording or the journal —
+              open a session and press <b>Verify</b> for that.
+              {" "}
               postern lists at most the {SESSION_CAP} most recent sessions, and
               sorting and search work on what was returned.
               {items.length >= SESSION_CAP &&

@@ -316,3 +316,153 @@ describe("SFTP dosya olayları", () => {
     );
   });
 });
+
+/*
+ * ⚠️ BU BÖLÜMÜN TAMAMI TEK BİR RİSKİN ETRAFINDA: HAK EDİLMEMİŞ ONAY.
+ *
+ * "İlk bakışta hızlı özet" istemek makul, ama bu üründe özetin özel bir
+ * tuzağı var: bakılması gereken satırı sakinleştirebilir. Sütun bu
+ * yüzden TEK YÖNLÜ — en fazla dikkat çeker, asla "tamam" demez.
+ */
+describe("kanıt sütunu", () => {
+  const show = (rows: Session[]) => {
+    vi.spyOn(api, "sessions").mockResolvedValue(rows);
+    return render(<Sessions theme="dark" />);
+  };
+
+  it("postern'in kendi kaybını işaretliyor", async () => {
+    show([session({ lost: 3 })]);
+
+    await waitFor(() => expect(screen.getByText("3 events lost")).toBeTruthy());
+    expect(screen.getByText("3 events lost").className).toContain("badge-warn");
+  });
+
+  // "1 events lost" bir sayı değil, dikkatsizlik izlenimi verir.
+  it("tek olayda tekil yazıyor", async () => {
+    show([session({ lost: 1 })]);
+
+    await waitFor(() => expect(screen.getByText("1 event lost")).toBeTruthy());
+  });
+
+  it("reddedilen istekleri sayıyor", async () => {
+    show([session({ denied: 4, lost: 0 })]);
+
+    await waitFor(() => expect(screen.getByText("4 refused")).toBeTruthy());
+
+    /*
+     * ⚠️ KIRMIZI DEĞİL. Bu panelde badge-danger ÇELİŞKİYE ayrılmış
+     * (dosya tutuyor ama arşiv tutmuyor). Reddedilen bir istek kuralın
+     * ÇALIŞTIĞI anlamına da geliyor; kırmızı çizmek onu arıza gibi
+     * okuturdu ve gerçek çelişkinin rengini ucuzlatırdı.
+     */
+    expect(screen.getByText("4 refused").className).not.toContain("badge-danger");
+  });
+
+  /*
+   * ⚠️ HÜCREDE EN FAZLA BİR ROZET. İkisini yan yana çizmek, satırı
+   * okunur kılmak yerine kalabalıklaştırırdı; kayıp daha ağır bulgu
+   * olduğu için önce o.
+   */
+  it("kayıp varken retleri öne almıyor", async () => {
+    show([session({ lost: 2, denied: 7 })]);
+
+    await waitFor(() => expect(screen.getByText("2 events lost")).toBeTruthy());
+    expect(screen.queryByText("7 refused")).toBeNull();
+  });
+
+  /*
+   * ⚠️ BU DOSYADAKİ EN ÖNEMLİ İDDİA.
+   *
+   * İşaretsiz satır BOŞ kalıyor — yeşil bir rozet, "verified" ya da
+   * "clean" yazmıyor. Çünkü listeden hesaplanabilen tek şey iki sayı;
+   * defterin İÇERİĞİNİN tutup tutmadığını ancak sunucu satırları
+   * yeniden mühürleyerek söyler. Boş hücreye onay yüklemek, yapılmamış
+   * bir kontrolü yapılmış saymak olurdu.
+   *
+   * Ve boşluğun ne demek OLMADIĞI yazılı olmak zorunda: sessizlik,
+   * okuyanın kendi varsayımıyla dolar.
+   */
+  it("işaretsiz satıra onay vermiyor ve boşluğun ne demek olmadığını yazıyor", async () => {
+    show([session({ lost: 0, denied: 0 })]);
+
+    await waitFor(() => expect(screen.getByText("ayse")).toBeTruthy());
+
+    expect(screen.queryByText(/verified|clean|ok\b/i)).toBeNull();
+    expect(document.querySelector(".badge-ok")).toBeNull();
+
+    // Etek, boş hücrenin bir hüküm OLMADIĞINI söylüyor.
+    expect(screen.getByText(/It is not a verdict/i)).toBeTruthy();
+  });
+
+  /*
+   * ⚠️ "AÇIK" İLE "AKIYOR" AYNI ŞEY DEĞİL — ve rozet ikisini
+   * karıştırıyordu: yeşil "running", ended_at'in BOŞLUĞUNDAN
+   * çiziliyordu. postern çöktüğünde aynı oturum Overview'de "sahipsiz",
+   * burada yeşil görünüyordu; yeşil, olmayan bir sağlık iddiasıydı.
+   */
+  it("akmayan açık oturumu yeşil çizmiyor", async () => {
+    show([session({ ended_at: null, running: false })]);
+
+    await waitFor(() =>
+      expect(screen.getByText("open, not streaming")).toBeTruthy(),
+    );
+    expect(document.querySelector(".badge-ok")).toBeNull();
+  });
+
+  /*
+   * ⚠️ İDDİANIN İKİNCİ YARISI. Arama bulması yetmiyor: satırı AÇAN
+   * denetçi de o alanları görmeli, yoksa "sadeleştirme" bilgi kaybı
+   * olur. Sütunu kaldırıp başlığı eklemeyi tek işlem saymak, tam da
+   * bu testin tuttuğu şey.
+   */
+  it("açılan oturumun başlığı kaldırılan alanları geri veriyor", async () => {
+    vi.spyOn(api, "sessionDetail").mockResolvedValue({
+      ...session({ os_user: "root", src_ip: "10.0.0.9" }),
+      recording: { state: "none", size: 0 },
+      files: [],
+    });
+    show([session({ os_user: "root", src_ip: "10.0.0.9" })]);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /watch/i }),
+    );
+
+    await waitFor(() => expect(screen.getByText("root")).toBeTruthy());
+    expect(screen.getByText("10.0.0.9")).toBeTruthy();
+    // Kısaltılmamış kimlik: sunucu günlüğünde aratacak olan için.
+    expect(screen.getByText("s1")).toBeTruthy();
+  });
+
+  // Karşı kanıt: gerçekten akan oturum yeşil kalıyor.
+  it("akan oturumu yeşil çiziyor", async () => {
+    show([session({ ended_at: null, running: true })]);
+
+    await waitFor(() => expect(screen.getByText("running")).toBeTruthy());
+    expect(screen.getByText("running").className).toContain("badge-ok");
+  });
+
+  /*
+   * ⚠️ SÜTUNDAN ÇIKAN ALAN VERİDEN ÇIKMADI. "OS user" ve "Src" ilk
+   * bakışın sorusuna ait değil, ama onları arayan denetçi yine
+   * bulabilmeli — yoksa sadeleştirme, bilgi kaybı olur.
+   */
+  it("kaldırılan sütunlar hâlâ aranabiliyor", async () => {
+    show([
+      session({ id: "s1", user: "ayse", src_ip: "10.0.0.9" }),
+      session({ id: "s2", user: "veli", src_ip: "10.0.0.7" }),
+    ]);
+
+    await waitFor(() => expect(screen.getByText("veli")).toBeTruthy());
+
+    // Sütun yok…
+    expect(screen.queryByRole("columnheader", { name: /Src/i })).toBeNull();
+
+    // …ama arama buluyor.
+    await userEvent.type(
+      screen.getByLabelText(/search sessions/i),
+      "10.0.0.7",
+    );
+    await waitFor(() => expect(screen.queryByText("ayse")).toBeNull());
+    expect(screen.getByText("veli")).toBeTruthy();
+  });
+});

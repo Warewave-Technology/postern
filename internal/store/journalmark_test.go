@@ -99,6 +99,53 @@ func TestMarkSFTPJournalKeepsUnmeasuredApartFromZero(t *testing.T) {
 }
 
 // Ölçülmüş bir oturum sayıyı olduğu gibi geri vermeli.
+/*
+ * ⚠️ SAYILMAMIŞ RET "SIFIR RET" DEĞİL — ve bu mutasyonla bulundu.
+ *
+ * Göç 038'den önce kapanmış oturumlarda sayım yapılmadı. Oraya 0 yazmak
+ * "bu oturumda hiçbir şey reddedilmedi" demek olurdu: bilinmeyeni iyi
+ * habere çevirmek. Panelin kanıt sütunu tam bu ayrımın üstünde duruyor —
+ * sayılmamış satır sessiz kalıyor, sayılmış ve sıfır olan satır da
+ * sessiz kalıyor ama ikisi AYNI ŞEY DEĞİL ve sütun ikisini de "burada
+ * bakılacak bir şey yok" diye çizmiyor.
+ *
+ * Sıfır yazan bir uygulama bütün testlerden geçiyordu; bu test onu
+ * düşürüyor.
+ */
+func TestMarkSFTPJournalKeepsUncountedApartFromZeroDenials(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	startFileSession(t, s, "sess-journal-denied")
+
+	// SFTP hiç kurulmamış oturum: sayacak bir şey yoktu.
+	if err := s.MarkSFTPJournal(ctx, "sess-journal-denied",
+		model.SFTPJournal{Measured: true, Events: 3, Counted: false}); err != nil {
+		t.Fatalf("MarkSFTPJournal: %v", err)
+	}
+
+	got, err := s.Session(ctx, "sess-journal-denied")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SFTPJournal.Counted {
+		t.Fatal("SAYILMAMIŞ OTURUM SAYILMIŞ GÖRÜNÜYOR: sıfır, 'hiç ret yok' diye okunur")
+	}
+
+	// Karşı kanıt: gerçekten sayılıp sıfır çıkan oturum AYIRT EDİLİYOR.
+	if err := s.MarkSFTPJournal(ctx, "sess-journal-denied",
+		model.SFTPJournal{Measured: true, Events: 3, Counted: true, Denied: 0}); err != nil {
+		t.Fatalf("MarkSFTPJournal: %v", err)
+	}
+	got, err = s.Session(ctx, "sess-journal-denied")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.SFTPJournal.Counted || got.SFTPJournal.Denied != 0 {
+		t.Errorf("sayılmış sıfır kaybedildi: counted=%v denied=%d",
+			got.SFTPJournal.Counted, got.SFTPJournal.Denied)
+	}
+}
+
 func TestMarkSFTPJournalRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)

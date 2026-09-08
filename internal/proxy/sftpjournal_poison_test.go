@@ -270,7 +270,7 @@ func TestADroppedRowIsCountedAsOurOwnLoss(t *testing.T) {
 	}
 	j.flush()
 
-	written, lost := j.Close()
+	written, lost, _ := j.Close()
 
 	if written != 2 {
 		t.Errorf("yazılan satır %d, 2 bekleniyordu", written)

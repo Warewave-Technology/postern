@@ -958,9 +958,10 @@ func (s *Session) Run(ctx context.Context, down ssh.Channel, downR <-chan *ssh.R
  */
 func (s *Session) closeSFTPJournal(ctx context.Context, b *Broker, journal *sftpJournal) {
 	// journal nil: SFTP bu oturumda hiç kurulmadı (kanal kapalı).
-	var written, lost int64
+	var written, lost, denied int64
+	counted := journal != nil
 	if journal != nil {
-		written, lost = journal.Close()
+		written, lost, denied = journal.Close()
 	}
 
 	mark := model.SFTPJournal{
@@ -972,6 +973,16 @@ func (s *Session) closeSFTPJournal(ctx context.Context, b *Broker, journal *sftp
 		 */
 		Measured: s.rec != nil,
 		Lost:     lost,
+
+		/*
+		 * ⚠️ Counted, DEFTERİN VARLIĞINA BAĞLI — mührün değil. SFTP
+		 * hiç kurulmadıysa sayacak bir şey yoktu ve sıfır yazmak
+		 * "hiçbir şey reddedilmedi" demek olurdu; oysa doğru cevap
+		 * "bu oturumda SFTP yoktu". Measured'ın aynı ayrımı, başka bir
+		 * eksende.
+		 */
+		Denied:  denied,
+		Counted: counted,
 	}
 	mark.Events, mark.Digest = b.SFTPSeal()
 

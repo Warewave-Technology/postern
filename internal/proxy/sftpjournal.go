@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -106,6 +107,9 @@ type sftpJournal struct {
 	// lateWarned, kapanış SONRASI kaybın bir kez yazıldığı.
 	lateWarned bool
 
+	// denied, postern'in kendi reddettiği istek sayısı (bkz. Emit).
+	denied int64
+
 	stop chan struct{}
 	done chan struct{}
 }
@@ -124,6 +128,17 @@ func newSFTPJournal(st *store.Store, sessionID string, log *slog.Logger,
 func (j *sftpJournal) Emit(e sftpaudit.Event) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
+
+	/*
+	 * ⚠️ RET, SATIRDAN BAĞIMSIZ SAYILIYOR — tavan kontrolünden de ÖNCE.
+	 * Ret GERÇEKLEŞTİ; satırı defter tavana çarptığı için düşürülmüş
+	 * olsa bile denetçinin bilmesi gereken şey o. Sayı ile satır adedi
+	 * ayrışırsa sebebini dropped söylüyor, yani iki sayı birbirini
+	 * açıklıyor.
+	 */
+	if strings.HasPrefix(string(e.Op), "denied.") {
+		j.denied++
+	}
 
 	/*
 	 * ⚠️ KAPANDIKTAN SONRA GELEN OLAY TAMPONA KONMUYOR.
@@ -409,11 +424,11 @@ func (j *sftpJournal) dropRow(ctx context.Context, f store.SessionFile, cause er
  * elindeki tek şey defter ile kayıt arasındaki açıklanamamış fark
  * oluyor.
  */
-func (j *sftpJournal) Close() (written, lost int64) {
+func (j *sftpJournal) Close() (written, lost, denied int64) {
 	j.mu.Lock()
 	if j.stopped {
 		defer j.mu.Unlock()
-		return j.total, j.dropped + int64(len(j.buf))
+		return j.total, j.dropped + int64(len(j.buf)), j.denied
 	}
 	j.stopped = true
 	j.mu.Unlock()
@@ -438,5 +453,5 @@ func (j *sftpJournal) Close() (written, lost int64) {
 	 * kontrolü yanlış tarafa çevirirdi — postern'in KENDİ kaybını
 	 * "satır silinmiş" diye, yani müdahale diye raporlardı.
 	 */
-	return j.total, j.dropped + int64(len(j.buf))
+	return j.total, j.dropped + int64(len(j.buf)), j.denied
 }

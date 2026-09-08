@@ -154,7 +154,7 @@ func TestSFTPEventsWithHostilePathsStillLandInTheLedger(t *testing.T) {
 	// giriyor (STATUS mesajı → detail).
 	reply(sftpPacket(101 /*fxpStatus*/, uint32(3), uint32(3), strings.Repeat("R", 20<<10), ""))
 
-	written, lost := j.Close()
+	written, lost, _ := j.Close()
 
 	if lost != 0 {
 		t.Errorf("%d denetim satırı kaybedildi; hepsi yazılabilir olmalıydı", lost)

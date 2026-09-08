@@ -999,6 +999,18 @@ func (s *Server) adminListSessions(w http.ResponseWriter, r *http.Request) {
 
 	running := s.live.RunningIDs()
 
+	/*
+	 * ⚠️ LİSTEYE YALNIZCA ÇİZİLEN İKİ SAYI GİRİYOR: kayıp ve ret.
+	 * Mühürsüzlük ve ölçülmemişlik BULGU değil, bulgunun YOKLUĞU —
+	 * ikisi de satır açılınca zincir kartında duruyor ve listede
+	 * çizilmiyorlar; buraya eklemek, kimsenin okumadığı bir alanı
+	 * taşınıyormuş gibi göstermek olurdu.
+	 *
+	 * ⚠️ SAYILMAMIŞ RET, SIFIR OLARAK DEĞİL YOK OLARAK GİDİYOR
+	 * (*int64). Sıfır göndermek panelin "hiçbir şey reddedilmedi" diye
+	 * çizmesine, yani yapılmamış bir kontrolü yapılmış saymasına yol
+	 * açardı — göç 037/038'in NULL kararının panele kadar taşınması.
+	 */
 	type row struct {
 		ID      string  `json:"id"`
 		User    string  `json:"user"`
@@ -1008,6 +1020,10 @@ func (s *Server) adminListSessions(w http.ResponseWriter, r *http.Request) {
 		Started string  `json:"started_at"`
 		Ended   *string `json:"ended_at"`
 		Running bool    `json:"running"`
+		// Denied, postern'in reddettiği istek sayısı; sayılmadıysa yok.
+		Denied *int64 `json:"denied,omitempty"`
+		// Lost, postern'in deftere koyamadığı olay sayısı.
+		Lost int64 `json:"lost"`
 	}
 	out := make([]row, 0, len(sessions))
 	for _, sess := range sessions {
@@ -1016,10 +1032,19 @@ func (s *Server) adminListSessions(w http.ResponseWriter, r *http.Request) {
 			e := sess.EndedAt.Format(time.RFC3339)
 			ended = &e
 		}
+
+		var denied *int64
+		if sess.SFTPJournal.Counted {
+			d := sess.SFTPJournal.Denied
+			denied = &d
+		}
+
 		out = append(out, row{
 			ID: sess.ID, User: sess.User, Target: sess.Target, OSUser: sess.OSUser,
 			SrcIP: sess.SrcIP, Started: sess.StartedAt.Format(time.RFC3339), Ended: ended,
 			Running: running[sess.ID],
+			Denied:  denied,
+			Lost:    sess.SFTPJournal.Lost,
 		})
 	}
 	writeJSON(w, http.StatusOK, out)

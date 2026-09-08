@@ -2113,9 +2113,16 @@ func (s *Store) MarkSFTPJournal(ctx context.Context, id string, j model.SFTPJour
 		events = j.Events
 	}
 
+	// Aynı gerekçe ret sayısı için de geçerli: sayılmadıysa NULL.
+	var denied any
+	if j.Counted {
+		denied = j.Denied
+	}
+
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE sessions SET sftp_events=$2, sftp_lost=$3, sftp_digest=$4 WHERE id=$1;`,
-		id, events, j.Lost, j.Digest)
+		`UPDATE sessions SET sftp_events=$2, sftp_lost=$3, sftp_digest=$4,
+		        sftp_denied=$5 WHERE id=$1;`,
+		id, events, j.Lost, j.Digest, denied)
 	if err != nil {
 		return translateErr("store.MarkSFTPJournal", err)
 	}
@@ -2164,7 +2171,8 @@ func (s *Store) Session(ctx context.Context, id string) (model.Session, error) {
 	       s.recording_links,
 	       s.sftp_events,
 	       s.sftp_lost,
-	       s.sftp_digest
+	       s.sftp_digest,
+	       s.sftp_denied
 		FROM sessions s
 		JOIN users   u ON u.id = s.user_id
 		JOIN targets t ON t.id = s.target_id
@@ -2175,13 +2183,14 @@ func (s *Store) Session(ctx context.Context, id string) (model.Session, error) {
 	var startedAt int64
 	var endedAt sql.NullInt64
 	// ⚠️ NULL, "sıfır olay" DEĞİL "ölçülmedi" demek (göç 037).
-	var sftpEvents sql.NullInt64
+	var sftpEvents, sftpDenied sql.NullInt64
 
 	err := s.db.QueryRowContext(ctx, queryStr, id).Scan(
 		&session.ID, &session.User, &session.Target, &session.OSUser,
 		&session.SrcIP, &startedAt, &endedAt, &session.RecordingPath,
 		&session.RecordingChain, &session.RecordingLinks,
 		&sftpEvents, &session.SFTPJournal.Lost, &session.SFTPJournal.Digest,
+		&sftpDenied,
 	)
 	if err != nil {
 		return model.Session{}, translateErr("store.Session", err)
@@ -2189,6 +2198,9 @@ func (s *Store) Session(ctx context.Context, id string) (model.Session, error) {
 
 	session.SFTPJournal.Measured = sftpEvents.Valid
 	session.SFTPJournal.Events = sftpEvents.Int64
+	// NULL "sayılmadı" demek, "hiç ret olmadı" değil (göç 038).
+	session.SFTPJournal.Counted = sftpDenied.Valid
+	session.SFTPJournal.Denied = sftpDenied.Int64
 
 	session.StartedAt = time.Unix(startedAt, 0)
 	if endedAt.Valid {
@@ -2210,7 +2222,19 @@ func (s *Store) Sessions(ctx context.Context, username string, limit int) ([]mod
 	       s.src_ip,
 	       s.started_at,
 	       s.ended_at,
-	       s.recording_path
+	       s.recording_path,
+	       /*
+	        * ⚠️ DENETİM SÜTUNLARI LİSTEDE DE SEÇİLİYOR ve maliyeti yok:
+	        * hepsi sessions satırının kendi alanları, ek sorgu ya da
+	        * birleştirme gerekmiyor. Amaç, denetçinin "hangi oturumu
+	        * açayım" sorusunu TIKLAMADAN cevaplayabilmesi; bugün
+	        * /etc/shadow'un reddedildiği bir oturum, hiçbir şey
+	        * yapılmamış bir oturumla birebir aynı görünüyor.
+	        */
+	       s.recording_chain,
+	       s.sftp_events,
+	       s.sftp_lost,
+	       s.sftp_denied
 		FROM sessions s
 		JOIN users   u ON u.id = s.user_id
 		JOIN targets t ON t.id = s.target_id
@@ -2239,8 +2263,12 @@ func (s *Store) Sessions(ctx context.Context, username string, limit int) ([]mod
 
 		var startedAt int64
 		var endedAt sql.NullInt64
+		var sftpEvents, sftpDenied sql.NullInt64
 
-		if err := rows.Scan(&session.ID, &session.User, &session.Target, &session.OSUser, &session.SrcIP, &startedAt, &endedAt, &session.RecordingPath); err != nil {
+		if err := rows.Scan(&session.ID, &session.User, &session.Target,
+			&session.OSUser, &session.SrcIP, &startedAt, &endedAt,
+			&session.RecordingPath, &session.RecordingChain,
+			&sftpEvents, &session.SFTPJournal.Lost, &sftpDenied); err != nil {
 			return nil, translateErr("store.Sessions", err)
 		}
 
@@ -2249,6 +2277,12 @@ func (s *Store) Sessions(ctx context.Context, username string, limit int) ([]mod
 		if endedAt.Valid {
 			session.EndedAt = time.Unix(endedAt.Int64, 0)
 		}
+
+		// NULL "ölçülmedi"/"sayılmadı" demek; sıfır değil (göç 037/038).
+		session.SFTPJournal.Measured = sftpEvents.Valid
+		session.SFTPJournal.Events = sftpEvents.Int64
+		session.SFTPJournal.Counted = sftpDenied.Valid
+		session.SFTPJournal.Denied = sftpDenied.Int64
 
 		sessions = append(sessions, session)
 	}

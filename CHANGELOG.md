@@ -32,8 +32,8 @@ audit rows into a shape it does not understand.
 
 ### Needs action if you rely on recordings as evidence
 
-- **Recordings now carry a tamper-evident chain, and four schema migrations
-  land with this release (034–037).** Run `postern db migrate` before starting
+- **Recordings now carry a tamper-evident chain, and five schema migrations
+  land with this release (034–038).** Run `postern db migrate` before starting
   the new binary; the bastion refuses to start against a schema it does not
   match rather than writing audit rows into a shape it does not understand.
 
@@ -52,6 +52,35 @@ audit rows into a shape it does not understand.
   each session (both below).
 
 ### Added
+
+- **The session list says which sessions have something to look at.** Two
+  counts now travel with every row and are drawn in an **Evidence** column:
+  events postern could not write to the file journal, and requests postern
+  refused. Until now a session in which `/etc/shadow` was refused looked
+  exactly like a session in which nothing happened; the difference only
+  appeared after opening the row and reading its file events. On a
+  200-session list that is 200 clicks, which in practice means nobody looks.
+
+  **The column never says a session is fine.** It draws at most one badge and
+  has nothing to say about a clean row — the cell stays empty, and the note
+  under the table says what empty does *not* mean. Whether the journal
+  actually matches the recording is a question about the rows themselves;
+  the server answers it when you open a session and press **Verify**, and
+  putting a green tick in the list would be crediting a check nobody ran.
+
+  A refusal is drawn as a plain badge, not a red one. Red is reserved in this
+  panel for a contradiction — a recording that is sealed but does not match —
+  and a refused request is also the rule *working*.
+
+  **Sessions that closed before this release are not counted, and the field
+  is absent rather than zero.** Zero would read as "nothing was refused here",
+  which is a claim about the past that postern cannot make. The same
+  distinction is already in the schema for `sftp_events` (037).
+
+  Two columns left the table to make room: **OS user** and **Src**. Neither
+  answers "which session should I open", both answer the question after it,
+  and both are still there — in the header of the opened session, and in
+  search, so an auditor typing an address still finds the row.
 
 - **A target that stops answering no longer hangs the panel.** The browser's
   SFTP client had no deadline of any kind: a target that went silent left a
@@ -400,6 +429,23 @@ audit rows into a shape it does not understand.
   action needed; the panel reads it to decide whether to draw the button.
 
 ### Fixed
+
+- **A session the bastion is no longer streaming is no longer drawn as
+  running.** The green *running* badge in the session list came from the
+  session having no end time, and a session whose end postern never got to
+  write — because it was killed — keeps that shape forever. The overview
+  screen already had this right and called those sessions unattended; the
+  audit table showed the same session as healthy. It now says **open, not
+  streaming**, which is what the server has been reporting all along.
+
+  **Pre-flight.** Nothing was lost and there is nothing to repair — the
+  badge was wrong, the rows were not. The sessions that will now carry the
+  new wording are the ones whose end was never written, minus whatever is
+  genuinely connected right now:
+
+  ```sql
+  SELECT id, started_at FROM sessions WHERE ended_at IS NULL ORDER BY started_at;
+  ```
 
 - **A single file could empty a session's whole file record.** The audit
   ledger indexes `session_files.path`, and PostgreSQL refuses a b-tree key

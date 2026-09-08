@@ -3273,6 +3273,31 @@ a.tcard-name:focus-visible {
   gap: 0.35rem;
 }
 
+/*
+ * Açılan oturumun başlığı (admin/Audit.tsx).
+ *
+ * Sütundan çıkan alanlar burada duruyor: ilk bakışın cevapladığı soru
+ * "hangisini açayım", bunlar ise açtıktan sonraki soru.
+ */
+.detail-head dl {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 2rem;
+}
+.detail-head dt {
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 0.1rem;
+}
+.detail-head dd {
+  margin: 0;
+  /* Kimlik uzun: dar ekranda taşmak yerine sarsın. */
+  overflow-wrap: anywhere;
+}
+
 /* Kayıt zinciri durumu (admin/ChainStatus.tsx). */
 .chain-card {
   margin-top: 1rem;

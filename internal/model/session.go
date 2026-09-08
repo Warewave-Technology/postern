@@ -102,6 +102,25 @@ type SFTPJournal struct {
 	 * bambaşka: biri postern'in kendi arızası, öbürü müdahale.
 	 */
 	Lost int64
+
+	/*
+	 * Denied, POSTERN'İN KENDİ reddettiği istek sayısı — defterdeki
+	 * "denied." önekli satırlar (sftpaudit/policy.go).
+	 *
+	 * ⚠️ HEDEFİN "permission denied"I BURAYA GİRMİYOR. O, hedefin dosya
+	 * izinleri hakkında bir şey söylüyor; bu, postern'in kurallarının
+	 * çiğnenmeye çalışıldığını. İkisini tek sayıya katlamak, denetçiye
+	 * "kural sınandı" ile "kullanıcının o dosyaya erişimi yok"u aynı
+	 * rakamla gösterirdi.
+	 *
+	 * ⚠️ Counted FALSE İKEN SIFIR OKUNMAMALI. Göç 038'den önce kapanmış
+	 * oturumlarda sayım yapılmadı; sıfır göstermek "hiçbir şey
+	 * reddedilmedi" demek olurdu — Measured'ın aynı gerekçesi.
+	 */
+	Denied int64
+
+	// Counted, Denied'in gerçekten sayıldığı (göç 038 sonrası).
+	Counted bool
 }
 
 // Open, oturumun hâlâ sürüp sürmediğini söyler.

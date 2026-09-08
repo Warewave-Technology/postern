@@ -207,6 +207,16 @@ export type Session = {
    *  kalıyor. Kapatma düğmesi yalnızca `running` olana çizilir; aksi
    *  hâlde panel var olmayan bir oturumu kapatmayı teklif ederdi. */
   running?: boolean;
+
+  /** postern'in reddettiği istek sayısı; SAYILMADIYSA yok.
+   *
+   *  ⚠️ undefined İLE 0 AYNI ŞEY DEĞİL ve ayrım taşıyıcı: göç 038'den
+   *  önce kapanmış oturumlarda sayım yapılmadı. Sıfır çizmek "hiçbir şey
+   *  reddedilmedi" demek olurdu — bilinmeyeni iyi habere çevirmek. */
+  denied?: number;
+
+  /** postern'in deftere koyamadığını BİLDİĞİ olay sayısı. */
+  lost?: number;
 };
 /** MyTarget, ana ekrandaki kutu. Adres YOK: sıradan kullanıcı hedefe
  *  postern üzerinden bağlanıyor ve ağ topolojisini bilmesi gerekmiyor. */
