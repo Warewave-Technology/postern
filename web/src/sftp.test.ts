@@ -52,6 +52,108 @@ function readIDAt(b: Uint8Array, off: number): number {
   return new DataView(b.buffer, b.byteOffset, b.byteLength).getUint32(off);
 }
 
+/**
+ * ⚠️ KÖKEN, PROTOKOLÜN İÇİNDE DEĞİL — ÇAĞRANIN ELİNDE.
+ *
+ * postern reddettiği isteğe kendi STATUS paketini yazıyor, hedef de kendi
+ * STATUS'ünü yazıyor: tel üzerinde ikisi AYNI paket. Ayrımı paketin
+ * içindeki metinden okumak, ayrımı hedefe yazdırmak demek. Ayrım akış
+ * etiketiyle geliyor ve feed onu OLDUĞU GİBİ taşıyor.
+ */
+describe("cevabın kökeni", () => {
+  it("postern akışından gelen ret postern'e yazılıyor", async () => {
+    const t = new FakeTarget();
+    const p = t.client.realpath(".");
+    const id = readIDAt(t.body(0), 1);
+
+    t.client.feed(
+      packet(
+        FXP.STATUS,
+        ...u32(id),
+        ...u32(FX.PERMISSION_DENIED),
+        ...str("postern: path is not permitted"),
+        ...u32(0),
+      ),
+      "postern",
+    );
+
+    await expect(p).rejects.toMatchObject({ origin: "postern" });
+  });
+
+  /*
+   * ⚠️ AYNI PAKET, HEDEFİN AKIŞINDAN. Metin birebir aynı; ayıran tek şey
+   * onu hangi akışın taşıdığı. Bu iddia düşerse "postern: " öneki yeniden
+   * kanıt olur ve hedef bastion'ın ağzından konuşur.
+   */
+  it("aynı metin hedef akışından gelirse hedefe yazılıyor", async () => {
+    const t = new FakeTarget();
+    const p = t.client.realpath(".");
+    const id = readIDAt(t.body(0), 1);
+
+    t.client.feed(
+      packet(
+        FXP.STATUS,
+        ...u32(id),
+        ...u32(FX.PERMISSION_DENIED),
+        ...str("postern: path is not permitted"),
+        ...u32(0),
+      ),
+      "target",
+    );
+
+    await expect(p).rejects.toMatchObject({ origin: "target" });
+  });
+
+  /*
+   * ⚠️ İKİ AKIŞ AYRI ÇERÇEVELENİYOR ve bunun ölçülmesi şart.
+   *
+   * Sunucu kendi cevabını hedefin paket SINIRINDA araya sokuyor, ama
+   * istemcinin doğruluğu buna bağlı olamaz: tek bir tampon, hedefin yarım
+   * paketiyle postern'in tam paketini birbirine yapıştırırdı ve sonuç
+   * "bazen çalışıyor" diye teşhis edilen bir çerçeveleme kayması olurdu.
+   */
+  it("hedefin yarım paketi postern'in paketini bozmuyor", async () => {
+    const t = new FakeTarget();
+    const a = t.client.realpath("/a");
+    const b = t.client.realpath("/b");
+    const idA = readIDAt(t.body(0), 1);
+    const idB = readIDAt(t.body(1), 1);
+
+    const fromTarget = packet(
+      FXP.STATUS,
+      ...u32(idA),
+      ...u32(FX.FAILURE),
+      ...str("target says no"),
+      ...u32(0),
+    );
+
+    // Hedefin paketi YARIM kaldı...
+    t.client.feed(fromTarget.subarray(0, 6), "target");
+    // ...postern araya kendi TAM paketini soktu...
+    t.client.feed(
+      packet(
+        FXP.STATUS,
+        ...u32(idB),
+        ...u32(FX.PERMISSION_DENIED),
+        ...str("postern: path is not permitted"),
+        ...u32(0),
+      ),
+      "postern",
+    );
+    // ...ve hedefin kalanı sonra geldi.
+    t.client.feed(fromTarget.subarray(6), "target");
+
+    await expect(b).rejects.toMatchObject({
+      origin: "postern",
+      message: "postern: path is not permitted",
+    });
+    await expect(a).rejects.toMatchObject({
+      origin: "target",
+      message: "target says no",
+    });
+  });
+});
+
 describe("Framer", () => {
   it("tek çerçevedeki iki paketi ayırır", () => {
     const f = new Framer();

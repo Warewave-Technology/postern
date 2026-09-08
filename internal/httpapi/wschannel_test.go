@@ -121,6 +121,47 @@ func TestDataAndStderrAreSeparableOnTheWire(t *testing.T) {
 }
 
 /*
+ * ⚠️ POSTERN'İN KENDİ BAYTI, HEDEFİNKİYLE AYNI ETİKETTEN ÇIKMAZ.
+ *
+ * ÖLÇÜLEN AÇIK: postern kendi retlerini "postern: " önekiyle yazıyordu ve
+ * panel o öneki KÖKEN KANITI sayıyordu. Ama hedefin STATUS mesajı
+ * istemciye olduğu gibi geçiyor (internal/sftpaudit/status.go): hedefin
+ * sahibi aynı öneki yazdığında panel onu bastion'ın gerekçesi diye
+ * çiziyordu — denetlenen makine, denetleyenin ağzından konuşuyordu.
+ *
+ * Ölçülen şey, İÇERİĞİ AYNI iki yazmanın FARKLI etiketlerle çıkması:
+ * ayrım metinde değil, hedefin yazamadığı yerde.
+ */
+func TestPosternsOwnBytesCarryTheirOwnTag(t *testing.T) {
+	ch, cli, done := wsPair(t)
+	defer done()
+
+	// Aynı metin, dört yazma. İkisi hedefin, ikisi postern'in.
+	same := []byte("postern: path is not permitted")
+	for _, w := range []func([]byte) (int, error){
+		ch.Write, ch.Stderr().Write, ch.WriteOwn, ch.WriteOwnStderr,
+	} {
+		if _, err := w(same); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	want := []byte{wsStreamData, wsStreamStderr, wsStreamOwn, wsStreamOwnStderr}
+	var got []byte
+	for range want {
+		_, f := readFrame(t, cli)
+		if !bytes.Equal(f[1:], same) {
+			t.Fatalf("gövde değişmiş: %q", f[1:])
+		}
+		got = append(got, f[0])
+	}
+
+	if !bytes.Equal(got, want) {
+		t.Fatalf("etiketler = %v, %v bekleniyordu", got, want)
+	}
+}
+
+/*
  * Etiket ile veri AYNI çerçevede.
  *
  * ⚠️ İki ayrı çerçeve göndermek, araya başka bir yazma girdiğinde etiketi

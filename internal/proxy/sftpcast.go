@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/Warewave-Technology/postern/internal/sftpaudit"
@@ -192,6 +193,160 @@ func castLine(e sftpaudit.Event) string {
 	b.WriteString("\r\n")
 
 	return b.String()
+}
+
+/*
+ * castStderr, HEDEFİN stderr'inin kayda giden kopyası.
+ *
+ * ⚠️ NEDEN VAR: bu dosyanın kuralı "kayda giren her metin castSafe'ten
+ * geçer" idi ve stderr o kuralın DIŞINDA kalmıştı — broker akışı
+ * doğrudan hem panele hem kayda veriyordu. İki ayrı zarar veriyordu:
+ *
+ *  1. KAÇIŞ DİZİLERİ. Kayıt bir TERMİNAL kaydı; içindeki ESC dizisi
+ *     oynatıldığında ÇALIŞIR. Hedefin stderr'ine yazabilen biri, kaydı
+ *     izleyen denetçinin ekranını boyayabilir, satır silebilir, imleci
+ *     oynatabilirdi.
+ *
+ *  2. SAHTE DENETİM SATIRI — ve bu daha kötüsü. Bir SFTP oturumunun
+ *     kaydında ham protokol YOK: içindeki her satırı postern yazıyor
+ *     ("postern sftp: …", bkz. castLine). Hedefin stderr'i o satırların
+ *     arasına HAM giriyordu, yani hedef "postern sftp: get /etc/passwd
+ *     (1.2 KiB)" yazıp kayda hiç olmamış bir denetim satırı
+ *     ekleyebilirdi. Kaçış dizilerini temizlemek bunu KAPATMAZ; metin
+ *     zaten yazdırılabilir.
+ *
+ * O yüzden temizlemek yetmiyor, ATFETMEK gerekiyor: her satır postern'in
+ * kendi önekiyle ve "target wrote:" damgasıyla giriyor. Damgayı postern
+ * yazıyor, sonrası alıntı. Hedef damgayı kendine veremiyor — kendi
+ * yazdığı "target wrote:" de alıntının İÇİNDE kalır.
+ *
+ * ⚠️ YALNIZCA SFTP OTURUMUNDA. Kabuk ya da exec kanalında kayıt zaten
+ * hedefin ham stdout'unu taşıyor — kaydın var olma sebebi kullanıcının
+ * GÖRDÜĞÜNÜ yeniden üretmek. Orada stderr'i tek başına temizlemek
+ * hiçbir şey satın almaz (aynı diziyi stdout'tan yazmak serbest) ama
+ * kaydın sadakatini bozar. Ayrım, kaydın ne olduğuna göre: anlatı mı,
+ * ekran kaydı mı.
+ */
+type castStderr struct {
+	b *Broker
+
+	/*
+	 * ⚠️ MUTEKS ŞART, tek yazıcı olmasına rağmen. Baytları stderr boru
+	 * hattı yazıyor ama yarım kalan son satırı Run boşaltıyor
+	 * (flushStderrCast) ve o goroutine hedefin akışını okurken beklemeye
+	 * devam edebiliyor — yani ikisi gerçekten aynı anda buradalar.
+	 */
+	mu sync.Mutex
+	// line, satır sonu beklerken biriken baytlar.
+	line []byte
+	// over, satırın tavanı aştığı — kalanı satır sonuna kadar atılıyor.
+	over bool
+}
+
+func newCastStderr(b *Broker) *castStderr { return &castStderr{b: b} }
+
+/*
+ * maxCastStderrLine, tek bir stderr satırında biriktirilecek bayt.
+ *
+ * ⚠️ TAVAN BELLEK İÇİN, castSafe'in kendi 512'si yerine geçmiyor. Satır
+ * sonu hiç göndermeyen bir hedef, tamponu sınırsız büyütebilirdi; bunu
+ * yapan bir hedefin kayıtta ne yazdığı zaten castSafe'in tavanına
+ * takılıyor, ama tamponun kendisi süreçte duruyor.
+ */
+const maxCastStderrLine = 4 * maxCastField
+
+func (w *castStderr) Write(p []byte) (int, error) {
+	/*
+	 * ⚠️ KAPI HER YAZMADA SORULUYOR, KURULUMDA DEĞİL. Kanalın SFTP'ye
+	 * geçmesi `subsystem sftp` işlenince oluyor ve bu boru hattı ondan
+	 * önce başlıyor — kurulumda bakmak, kararı her zaman "kabuk" tarafına
+	 * düşürürdü. Aynı kapı sftpTap.Write'da da böyle soruluyor.
+	 */
+	if w.b.sftp.Load() == nil {
+		return w.b.rec.OutputStream().Write(p)
+	}
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	for _, c := range p {
+		if c == '\n' {
+			w.emitLine()
+			continue
+		}
+		/*
+		 * ⚠️ CR ATILIYOR, satır sonu sayılmıyor. Satırı postern kendi
+		 * "\r\n"siyle kapatıyor; hedefin CRLF'i geçseydi kayıtta çift
+		 * satır başı olurdu. Tek başına gelen CR de bir şey taşımıyor:
+		 * bu satır bir anlatının içine ALINTI olarak giriyor, üzerine
+		 * yazılacak bir ekran satırı değil.
+		 */
+		if c == '\r' {
+			continue
+		}
+		if len(w.line) >= maxCastStderrLine {
+			w.over = true
+			continue
+		}
+		w.line = append(w.line, c)
+	}
+
+	return len(p), nil
+}
+
+/*
+ * flush, satır sonu görmeden biten son satırı yazar.
+ *
+ * ⚠️ ÇAĞRILMAZSA SESSİZ KAYIP. Hedefin son cümlesi çoğu zaman satır
+ * sonuyla bitmiyor ("connection closed" gibi) ve tamponda kalan şey
+ * kayda hiç girmezdi.
+ */
+func (w *castStderr) flush() {
+	if w == nil {
+		return
+	}
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if len(w.line) == 0 && !w.over {
+		return
+	}
+	w.emitLine()
+}
+
+// flushStderrCast, kayıt kapalıyken de çağrılabilen sarmalayıcı.
+func (b *Broker) flushStderrCast() { b.castErr.flush() }
+
+// emitLine, biriken satırı postern'in damgasıyla kayda yazar. w.mu
+// TUTULUYOR OLMALI.
+func (w *castStderr) emitLine() {
+	line, over := string(w.line), w.over
+	w.line, w.over = w.line[:0], false
+
+	text := castSafe(line)
+	if over {
+		/*
+		 * castSafe kendi tavanına takıldıysa işareti zaten koydu; buraya
+		 * ancak satır tamponu taştığında geliyoruz ve o durumda da
+		 * atılmış bir şey olduğu söylenmeli.
+		 */
+		if !strings.HasSuffix(text, "…") {
+			text += "…"
+		}
+	}
+
+	b := w.b
+	b.castMu.Lock()
+	defer b.castMu.Unlock()
+
+	/*
+	 * ⚠️ MÜHÜR ÖZETİNE KATILMIYOR. Özetin cevapladığı soru "aynı denetim
+	 * OLAYLARI mı" ve bu bir olay değil, hedefin bir cümlesi. Katsaydık
+	 * sayaç "kaç istek denetlendi" sorusunu artık cevaplamazdı. Satırın
+	 * kaydın içinde durduğunun kanıtı zincirin kendisi.
+	 */
+	_, _ = fmt.Fprintf(b.rec.OutputStream(), "postern sftp: target wrote: %s\r\n", text)
 }
 
 /*

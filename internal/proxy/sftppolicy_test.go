@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,25 @@ func startPolicySession(t *testing.T, d sftpaudit.Decider) (
 	t.Helper()
 
 	down, fd, _ := newFakeChannel()
+	up, feedDown, feedUp, files, stop = startPolicySessionOn(t, d, down, down, fd)
+
+	return down, up, feedDown, feedUp, files, stop
+}
+
+/*
+ * startPolicySessionOn, istemci ucunu ÇAĞIRANIN verdiği aynı kurulumu
+ * yapar.
+ *
+ * ⚠️ UÇ DIŞARIDAN GELİYOR, çünkü ölçülecek şeylerden biri postern'in
+ * kendi cevabını HANGİ uçtan yazdığı: köken etiketini taşıyabilen bir
+ * kanal ile taşıyamayan bir kanal aynı kurulumdan geçmeli, yoksa iki
+ * yolun biri sınanmadan kalır.
+ */
+func startPolicySessionOn(
+	t *testing.T, d sftpaudit.Decider, downCh ssh.Channel, down *fakeChannel, fd *io.PipeWriter,
+) (up *fakeChannel, feedDown, feedUp *pipeFeeder, files *memSink, stop func()) {
+	t.Helper()
+
 	up, fu, _ := newFakeChannel()
 	downR := make(chan *ssh.Request)
 	upR := make(chan *ssh.Request)
@@ -26,7 +46,7 @@ func startPolicySession(t *testing.T, d sftpaudit.Decider) (
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	b := New(down, downR, up, upR, nil, false, RequestPolicy{AllowSFTP: true}, testLogger()).
+	b := New(downCh, downR, up, upR, nil, false, RequestPolicy{AllowSFTP: true}, testLogger()).
 		WithSFTP(files).
 		WithSFTPPolicy(d)
 
@@ -51,7 +71,7 @@ func startPolicySession(t *testing.T, d sftpaudit.Decider) (
 	}
 	waitForContent(t, down.dataW, string(sftpPkt(2, uint32(3))))
 
-	return down, up, &pipeFeeder{fd}, &pipeFeeder{fu}, files, func() {
+	return up, &pipeFeeder{fd}, &pipeFeeder{fu}, files, func() {
 		cancel()
 		select {
 		case <-done:
