@@ -320,6 +320,51 @@ describe("FileBrowser", () => {
     );
   });
 
+  /*
+   * ⚠️ ŞERİDE DÜŞEN METİN DE TEMİZLENMELİ — ve bu, PR'ın kendi
+   * iddiasının tutmadığı tek yüzeydi.
+   *
+   * Köken artık telde: hedefin stderr'i etiket 1 ile geliyor ve şerit
+   * "the target said: " damgasını basıyor. Ama metin ham girdiği
+   * sürece damga bir şey ifade etmiyor: içine U+202E koyan bir hedef,
+   * damgayı cümlenin ortasına ya da sonuna taşıyıp satırı postern'in
+   * kendi uyarısı gibi okutabiliyor. Kaçış dizileri de aynı kapıdan
+   * giriyor. Yani kökeni tele taşıyıp son adımda geri vermek olurdu.
+   *
+   * Aynı gerekçe explain()'de zaten yazılıydı (STATUS metni için);
+   * eksik olan, isteğe BAĞLANAMAYAN bu ikinci yoldu.
+   */
+  it("şeride düşen hedef metnini temizliyor", async () => {
+    render(<FileBrowser target="web01" canWrite />);
+    const ws = FakeWS.last!;
+
+    await handshake(ws, "/home/yigit", [entry("a.txt", FILE)]);
+    await waitFor(() => expect(screen.getByText("a.txt")).toBeTruthy());
+
+    await ws.deliver(
+      1,
+      new TextEncoder().encode(
+        "izin yok\u202e\u001b[2K gnp.erutaf uyarisi\r\n",
+      ),
+    );
+
+    await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
+    const line = screen.getByRole("status").textContent ?? "";
+
+    // Damga hâlâ başta ve metin hâlâ okunuyor.
+    expect(line.startsWith("the target said: ")).toBe(true);
+    expect(line).toContain("izin yok");
+
+    // Ama yön ve kontrol karakterleri geçmedi.
+    for (const ch of line) {
+      const c = ch.codePointAt(0) ?? 0;
+      expect(c < 0x20 || c === 0x7f).toBe(false);
+      expect(c === 0x200e || c === 0x200f).toBe(false);
+      expect(c >= 0x202a && c <= 0x202e).toBe(false);
+      expect(c >= 0x2066 && c <= 0x2069).toBe(false);
+    }
+  });
+
   it("dizin boyutu göstermiyor", async () => {
     render(<FileBrowser target="web01" canWrite />);
     const ws = FakeWS.last!;

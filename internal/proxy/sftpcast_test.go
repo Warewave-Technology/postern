@@ -38,6 +38,101 @@ func stderrCast(t *testing.T, chunks ...string) string {
 }
 
 /*
+ * ⚠️ SAHTE DENETİM SATIRI, KANAL TÜRÜ BELLİ OLMADAN DA YAZILAMAMALI.
+ *
+ * Atıf kapısı `b.sftp`ye bakıyordu ve o ancak oturumu başlatan istek
+ * işlenince doluyor. Arada bir pencere vardı: stderr boru hattı Run ile
+ * başlıyor, istemcinin `subsystem sftp`si ise sonra geliyor. O pencerede
+ * hedefin yazdığı her şey kayda HAM giriyordu — yani uydurma bir denetim
+ * satırı, yalnızca daha ERKEN göndererek hâlâ mümkündü. Kaçış dizisi
+ * temizlemek bunu kapatmıyor: sahte satır zaten yazdırılabilir.
+ *
+ * Kabuk kaydında ham bayt DOĞRU (o dosyanın tamamı ham), o yüzden
+ * "bilmiyorken temizle" de olmuyor. Karar verilene kadar BEKLETİLİYOR.
+ */
+func TestNothingReachesTheRecordingBeforeTheChannelIsDecided(t *testing.T) {
+	sink := &memCloser{}
+	rec, err := record.NewWriter(sink, 80, 24, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// ⚠️ Ne sftp kuruldu ne başlangıç kapısı açıldı: kanal türü BELİRSİZ.
+	b := &Broker{rec: rec}
+	w := newCastStderr(b)
+
+	forged := "postern sftp: get /etc/shadow (1.2 KiB)\n"
+	if _, err := w.Write([]byte(forged)); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := sink.String(); strings.Contains(got, "get /etc/shadow") {
+		t.Fatalf("kanal türü belli değilken hedefin baytı kayda girdi:\n%s", got)
+	}
+
+	// Şimdi oturum SFTP oluyor: bekletilen satır ATIFLI çıkmalı.
+	b.sftp.Store(sftpaudit.NewSession(func(sftpaudit.Event) {}))
+	b.openStartGate()
+	if _, err := w.Write([]byte("sonraki\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := rec.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	out := sink.String()
+	if !strings.Contains(out, "target wrote: postern sftp: get /etc/shadow") {
+		t.Errorf("bekletilen satır atfedilerek girmemiş:\n%s", out)
+	}
+	if !strings.Contains(out, "target wrote: sonraki") {
+		t.Errorf("sonraki satır girmemiş:\n%s", out)
+	}
+
+	/*
+	 * Ve hedef postern'in satır biçimini ele geçiremiyor: kayıt JSON
+	 * satırlarından oluşuyor, yani bir çıktı parçasının başı ya tırnaktan
+	 * ya da kaçırılmış bir satır sonundan sonra geliyor.
+	 */
+	for _, start := range []string{`"postern sftp: get`, `\r\npostern sftp: get`} {
+		if strings.Contains(out, start) {
+			t.Errorf("hedef, postern'in satır biçimini ele geçirdi:\n%s", out)
+		}
+	}
+}
+
+/*
+ * ⚠️ HİÇ KARAR VERİLMEDEN KAPANAN OTURUMDA DA KAYBOLMUYOR. Hedef
+ * stderr'e yazdı, istemci hiçbir program başlatmadı: bekletilenler
+ * kapanışta atıflı yoldan çıkıyor — ve önek "sftp" demiyor, çünkü bu
+ * kanal SFTP olmadı.
+ */
+func TestHeldStderrSurvivesASessionThatNeverStarted(t *testing.T) {
+	sink := &memCloser{}
+	rec, err := record.NewWriter(sink, 80, 24, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	b := &Broker{rec: rec}
+	w := newCastStderr(b)
+	if _, err := w.Write([]byte("hedefin son sözü\n")); err != nil {
+		t.Fatal(err)
+	}
+	w.flush()
+	if err := rec.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	out := sink.String()
+	if !strings.Contains(out, "postern: target wrote: hedefin son sözü") {
+		t.Errorf("bekletilen satır kapanışta kayboldu ya da yanlış etiketlendi:\n%s", out)
+	}
+	if strings.Contains(out, "postern sftp:") {
+		t.Errorf("SFTP olmayan kanal kaydında 'sftp' etiketi var:\n%s", out)
+	}
+}
+
+/*
  * ⚠️ SATIR HEDEFİN VERDİĞİ PARÇALARA GÖRE DEĞİL, SATIR SONUNA GÖRE
  * KESİLİYOR.
  *

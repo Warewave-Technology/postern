@@ -450,6 +450,24 @@ func (b *Broker) gate() chan struct{} {
 // openStartGate, park etmiş istemci yazıcılarını serbest bırakır. Bir kez.
 func (b *Broker) openStartGate() { b.gateOnce.Do(func() { close(b.gate()) }) }
 
+/*
+ * started, oturumu başlatan isteğin (shell/exec/subsystem) işlenip
+ * işlenmediği — yani kanalın TÜRÜNÜN kararlaştığı an.
+ *
+ * ⚠️ "SFTP mi" DEĞİL, "BELLİ Mİ" SORUSU. İkisi ayrı: b.sftp hâlâ nil
+ * olabilir çünkü kanal kabuk, ya da çünkü henüz hiçbir şey
+ * başlatılmadı. Kayda giden stderr için bu fark taşıyıcı (bkz.
+ * sftpcast.go, castStderr).
+ */
+func (b *Broker) started() bool {
+	select {
+	case <-b.gate():
+		return true
+	default:
+		return false
+	}
+}
+
 // WithSFTP, SFTP denetim hedefini bağlar.
 //
 // Ayrı bir kurucu yerine ayarlayıcı olması bilinçli: SFTP kapalıyken

@@ -369,6 +369,17 @@ audit rows into a shape it does not understand.
   movement included, and the target's stdout already goes in raw — so
   sanitising stderr alone would cost fidelity and buy nothing.
 
+  **Which leaves the moment before either is known.** The stderr pipe
+  starts with the session; which kind of channel this is only becomes clear
+  when the request that starts a program is handled. Writing raw in that
+  window would have left the forgery reachable by sending it earlier, and
+  sanitising in that window would have cost a shell recording its first
+  bytes. Neither: what the target writes before the channel is decided is
+  held, and released once it is — quoted and stamped for SFTP, raw for a
+  shell. A session that ends without ever starting a program still gets
+  those bytes, quoted, and the stamp says `postern:` rather than
+  `postern sftp:`, because that channel never became one.
+
 ## 1.1.0 — 2026-09-05
 
 ### Needs action if you unpacked a 1.0.2 archive

@@ -200,8 +200,23 @@ export default function FileBrowser({
           // Cevabı beklenen bir istek varsa aynı sebep zaten hata
           // olarak da geliyor; bu kanal, isteğe bağlanamayan durumlar
           // için.
+          /*
+           * ⚠️ METİN BURADA DA TEMİZLENİYOR — explain()'deki gerekçenin
+           * aynısı. Bu şerit, hedefin baytlarının panele en DOĞRUDAN
+           * girdiği yer: STATUS metni bir isteğe bağlı, bu ise değil.
+           * Temizlemeden çizmek, atıf damgasını ("the target said: ")
+           * iki yönlü yazı işaretiyle cümlenin ortasına taşımaya izin
+           * verirdi — yani kökeni tele taşıyıp son adımda geri vermek.
+           *
+           * ⚠️ ETİKETE BAKMADAN, İKİSİNE DE. postern'in kendi metninde
+           * zaten kontrol karakteri yok, yani temizlik ona bir şey
+           * yapmıyor; ama böylece güvenlik, etiketin DOĞRU olmasına
+           * bağlı kalmıyor. Sınıflandırmayı doğrulamadan okunabilen bir
+           * savunma, sınıflandırmanın yanlış olabileceği her gün
+           * çalışmaya devam ediyor.
+           */
           setNotice({
-            why: new TextDecoder().decode(body).trim(),
+            why: plain(new TextDecoder().decode(body).trim()),
             from: frame[0] === 3 ? "postern" : "target",
           });
           break;

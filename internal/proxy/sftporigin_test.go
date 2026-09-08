@@ -161,6 +161,19 @@ func (w *errFeeder) send(t *testing.T, s string) {
  * cast() ancak stop()'tan SONRA çağrılmalı: kayıt kapanmadan son
  * satırlar diske inmemiş olabilir.
  */
+// waitForStart, oturumu başlatan isteğin işlenmesini bekler.
+func waitForStart(t *testing.T, b *Broker) {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for !b.started() {
+		if time.Now().After(deadline) {
+			t.Fatal("başlangıç kapısı açılmadı")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 func castSession(t *testing.T, sftp bool) (feedUpErr *errFeeder, cast func() string, stop func()) {
 	t.Helper()
 
@@ -189,6 +202,19 @@ func castSession(t *testing.T, sftp bool) (feedUpErr *errFeeder, cast func() str
 	if sftp {
 		downR <- &ssh.Request{Type: "subsystem", Payload: sshString("sftp")}
 		waitForSFTP(t, b)
+	} else {
+		/*
+		 * ⚠️ KABUK DA BİR İSTEKLE BAŞLIYOR ve kurgunun onu atlaması
+		 * gerçek bir oturumu taklit etmiyordu.
+		 *
+		 * Kanalın türü, oturumu başlatan istek işlenene kadar BELLİ
+		 * DEĞİL; o pencerede hedefin stderr'i kayda ham yazılmıyor,
+		 * bekletiliyor (sftpcast.go, castStderr). İsteği hiç
+		 * göndermeyen bir kurgu, kabuk kaydını ölçtüğünü sanarken
+		 * kararsız pencereyi ölçüyordu.
+		 */
+		downR <- &ssh.Request{Type: "shell"}
+		waitForStart(t, b)
 	}
 
 	return &errFeeder{fue}, sink.String, func() {
@@ -217,6 +243,7 @@ func castSession(t *testing.T, sftp bool) (feedUpErr *errFeeder, cast func() str
  * Ölçülen üç şey: metnin kayda ATFEDİLEREK girmesi, hedefin postern'in
  * satır biçimini ELE GEÇİREMEMESİ, ve kaçış dizisinin kayda düşmemesi.
  */
+
 func TestTargetStderrCannotForgeAnAuditLineInTheRecording(t *testing.T) {
 	feedErr, cast, stop := castSession(t, true)
 

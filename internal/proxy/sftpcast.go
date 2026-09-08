@@ -259,6 +259,13 @@ type castStderr struct {
 	line []byte
 	// over, satırın tavanı aştığı — kalanı satır sonuna kadar atılıyor.
 	over bool
+
+	/*
+	 * held, kanalın TÜRÜ belli olmadan gelen baytlar; heldOver ise
+	 * tavana çarpıp atılan olduğu (bkz. Write'ın kararsız pencere notu).
+	 */
+	held     []byte
+	heldOver bool
 }
 
 func newCastStderr(b *Broker) *castStderr { return &castStderr{b: b} }
@@ -274,42 +281,120 @@ func newCastStderr(b *Broker) *castStderr { return &castStderr{b: b} }
 const maxCastStderrLine = 4 * maxCastField
 
 func (w *castStderr) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
 	/*
 	 * ⚠️ KAPI HER YAZMADA SORULUYOR, KURULUMDA DEĞİL. Kanalın SFTP'ye
 	 * geçmesi `subsystem sftp` işlenince oluyor ve bu boru hattı ondan
 	 * önce başlıyor — kurulumda bakmak, kararı her zaman "kabuk" tarafına
 	 * düşürürdü. Aynı kapı sftpTap.Write'da da böyle soruluyor.
 	 */
-	if w.b.sftp.Load() == nil {
-		return w.b.rec.OutputStream().Write(p)
+	if w.b.sftp.Load() != nil {
+		// Bekletilenler de aynı satır makinesinden geçiyor.
+		for _, c := range w.takeHeld() {
+			w.feed(c)
+		}
+		for _, c := range p {
+			w.feed(c)
+		}
+
+		return len(p), nil
 	}
 
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	for _, c := range p {
-		if c == '\n' {
-			w.emitLine()
-			continue
-		}
-		/*
-		 * ⚠️ CR ATILIYOR, satır sonu sayılmıyor. Satırı postern kendi
-		 * "\r\n"siyle kapatıyor; hedefin CRLF'i geçseydi kayıtta çift
-		 * satır başı olurdu. Tek başına gelen CR de bir şey taşımıyor:
-		 * bu satır bir anlatının içine ALINTI olarak giriyor, üzerine
-		 * yazılacak bir ekran satırı değil.
-		 */
-		if c == '\r' {
-			continue
-		}
-		if len(w.line) >= maxCastStderrLine {
-			w.over = true
-			continue
-		}
-		w.line = append(w.line, c)
+	/*
+	 * ⚠️ KARARSIZ PENCEREDE KAYDA HİÇBİR ŞEY YAZILMIYOR, BEKLETİLİYOR.
+	 *
+	 * Kanalın türü, oturumu başlatan istek (shell/exec/subsystem)
+	 * işlenene kadar belli değil (broker.startGate) — ve bu boru hattı
+	 * ondan ÖNCE çalışmaya başlıyor. O pencerede hedefin stderr'ini
+	 * kayda ham yazmak, atıfsız bir satır sokmanın yoluydu: hedef
+	 * "postern sftp: get /etc/shadow (1.2 KiB)" yazıyor ve satır gerçek
+	 * denetim satırlarının arasında duruyordu. Kaçış dizilerini atmak
+	 * bunu kapatmıyor; sahte satır zaten yazdırılabilir.
+	 *
+	 * Kabuk kaydında ham bayt DOĞRU — o dosyanın tamamı zaten ham. O
+	 * yüzden karar verilmeden yazmak yerine, karar verilene kadar
+	 * tutuluyor: SFTP olursa atıflı ve temizlenmiş, kabuk olursa ham.
+	 *
+	 * ⚠️ SIRA ÖNEMLİ ve tersi ölçüldü: kapıya ÖNCE bakan bir sürüm,
+	 * `b.sftp` dolu ama başlangıç kapısı henüz açılmamışken (ikisi aynı
+	 * istek işlenirken sırayla oluyor) SFTP satırlarını da bekletiyordu
+	 * ve uçtan uca testler düştü. `b.sftp` doluysa kanal zaten
+	 * kararlaşmıştır.
+	 */
+	if !w.b.started() {
+		return w.hold(p), nil
 	}
 
-	return len(p), nil
+	// Kabuk: beklettiğimiz baytlar da ham çıkıyor.
+	if held := w.takeHeld(); len(held) > 0 {
+		_, _ = w.b.rec.OutputStream().Write(held)
+	}
+
+	return w.b.rec.OutputStream().Write(p)
+}
+
+/*
+ * hold, kanal türü belli olmadan gelen baytları tutar.
+ *
+ * ⚠️ TAVAN VAR ve aşan bayt ATILIYOR. Hiçbir program başlatmadan
+ * kilobaytlarca stderr yazan bir hedef meşru değil; sınırsız tutmak,
+ * kararı hiç vermeyen bir istemciyle birlikte belleği hedefin eline
+ * verirdi. Atıldığı da kayboluyor değil: SFTP yolunda satırın sonundaki
+ * işaret bunu söylüyor.
+ */
+func (w *castStderr) hold(p []byte) int {
+	room := maxCastStderrLine - len(w.held)
+	if room <= 0 {
+		w.heldOver = true
+		return len(p)
+	}
+	if len(p) > room {
+		w.held = append(w.held, p[:room]...)
+		w.heldOver = true
+		return len(p)
+	}
+	w.held = append(w.held, p...)
+
+	return len(p)
+}
+
+// takeHeld, bekletilen baytları alır ve tamponu boşaltır.
+func (w *castStderr) takeHeld() []byte {
+	held := w.held
+	w.held = nil
+	if w.heldOver {
+		w.over = true
+		w.heldOver = false
+	}
+
+	return held
+}
+
+// feed, tek bir baytı satır makinesine verir.
+func (w *castStderr) feed(c byte) {
+	if c == '\n' {
+		w.emitLine()
+		return
+	}
+
+	/*
+	 * ⚠️ CR ATILIYOR, satır sonu sayılmıyor. Satırı postern kendi
+	 * "\r\n"siyle kapatıyor; hedefin CRLF'i geçseydi kayıtta çift
+	 * satır başı olurdu. Tek başına gelen CR de bir şey taşımıyor:
+	 * bu satır bir anlatının içine ALINTI olarak giriyor, üzerine
+	 * yazılacak bir ekran satırı değil.
+	 */
+	if c == '\r' {
+		return
+	}
+
+	if len(w.line) >= maxCastStderrLine {
+		w.over = true
+		return
+	}
+	w.line = append(w.line, c)
 }
 
 /*
@@ -326,6 +411,16 @@ func (w *castStderr) flush() {
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
+	/*
+	 * ⚠️ HİÇ KARAR VERİLMEDEN KAPANAN OTURUM. Hedef stderr'e yazdı ama
+	 * istemci hiçbir program başlatmadı: bekletilen baytlar hâlâ elimizde
+	 * ve kayda girmeliler. ATIFLI yoldan giriyorlar — ham yazmak,
+	 * pencerede kapattığımız açığı kapanışta geri açardı.
+	 */
+	for _, c := range w.takeHeld() {
+		w.feed(c)
+	}
 
 	if len(w.line) == 0 && !w.over {
 		return
@@ -364,7 +459,16 @@ func (w *castStderr) emitLine() {
 	 * sayaç "kaç istek denetlendi" sorusunu artık cevaplamazdı. Satırın
 	 * kaydın içinde durduğunun kanıtı zincirin kendisi.
 	 */
-	_, _ = fmt.Fprintf(b.rec.OutputStream(), "postern sftp: target wrote: %s\r\n", text)
+	/*
+	 * ⚠️ ÖNEK KANALIN GERÇEĞİNİ SÖYLÜYOR. Bu satır, hiçbir program
+	 * başlatmadan kapanan bir oturumda da yazılabiliyor (flush) ve orada
+	 * "sftp" demek, postern'in KENDİ hakkında yanlış bir cümlesi olurdu.
+	 */
+	who := "postern:"
+	if b.sftp.Load() != nil {
+		who = "postern sftp:"
+	}
+	_, _ = fmt.Fprintf(b.rec.OutputStream(), "%s target wrote: %s\r\n", who, text)
 }
 
 /*
