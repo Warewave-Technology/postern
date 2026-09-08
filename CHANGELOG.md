@@ -160,7 +160,11 @@ audit rows into a shape it does not understand.
 
   Now every drop is counted, the count is written to the session when it
   closes, and the bastion's log says the journal is incomplete rather than
-  only that the audit failed. The recording's seal line — its event count
+  only that the audit failed. One case cannot reach that count and says so
+  instead: an event arriving *after* the journal has closed is refused and
+  logged, because the number it would belong to was written when the
+  session closed. It is no longer swallowed — it used to go into a buffer
+  nobody would read again. The recording's seal line — its event count
   **and** the digest of the lines it counted — is stored with the session
   as well, so it finally has a reader:
 

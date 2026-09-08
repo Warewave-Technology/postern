@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/Warewave-Technology/postern/internal/sftpaudit"
@@ -124,6 +125,27 @@ type okFiles struct{}
 
 func (okFiles) AddSessionFiles(context.Context, string, []store.SessionFile) error { return nil }
 
+// countingFiles, depoya kaç satır ulaştığını sayar.
+type countingFiles struct {
+	mu sync.Mutex
+	n  int
+}
+
+func (c *countingFiles) AddSessionFiles(_ context.Context, _ string, files []store.SessionFile) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.n += len(files)
+
+	return nil
+}
+
+func (c *countingFiles) rows() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.n
+}
+
 /*
  * ⚠️ DÜŞEN OLAY SAYILMALI — VE HİÇ SAYILMIYORDU.
  *
@@ -170,6 +192,51 @@ func TestEmitCountsEveryDroppedEvent(t *testing.T) {
 	// kuralının yerine geçmiyor — onun üstüne biniyor.
 	if fails == 0 {
 		t.Error("olay düştü ama oturum bitirilmedi")
+	}
+}
+
+/*
+ * ⚠️ KAPANIŞTAN SONRA GELEN OLAY, TAMPONA KONULARAK KAYBEDİLİYORDU.
+ *
+ * Emit yalnızca tavana bakıyordu; `stopped`'a bakmıyordu. Close ise
+ * loop'u durdurup son boşaltmayı yapıyor ve sayıları O ANDA döndürüyor.
+ * Aradan sonra gelen her olay tampona ekleniyor ve bir daha kimse
+ * okumuyor: ne yazılıyor, ne sayılıyor, ne loglanıyor — yani bu PR'ın
+ * kapattığını söylediği sessiz kayıp, kapanış penceresinde aynen geri
+ * geliyordu. Pencere erişilebilir, çünkü istemci→hedef kopyası Run'ın
+ * beklediği grubun dışında.
+ *
+ * ⚠️ SAYININ OTURUM SATIRINA ULAŞMADIĞI da ölçülüyor (Close çoktan
+ * döndü) — buradaki kazanç kaybın SESSİZ olmaması. Bunu ölçmeyen bir
+ * test, olmayan bir güvence verirdi.
+ */
+func TestEventsAfterCloseAreNotSwallowed(t *testing.T) {
+	w := &countingFiles{}
+	j := testJournal(w)
+
+	j.Emit(sftpaudit.Event{Op: sftpaudit.OpOpen, Path: "/a", OK: true})
+	written, lost := j.Close()
+	if written != 1 || lost != 0 {
+		t.Fatalf("kapanış öncesi sayılar: yazılan=%d kayıp=%d", written, lost)
+	}
+
+	// Kapanıştan SONRA gelen olay.
+	j.Emit(sftpaudit.Event{Op: sftpaudit.OpOpen, Path: "/gec", OK: true})
+
+	j.mu.Lock()
+	dropped, buffered := j.dropped, len(j.buf)
+	j.mu.Unlock()
+
+	if buffered != 0 {
+		t.Errorf("geç gelen olay hiç okunmayacak tampona kondu: %d satır", buffered)
+	}
+	if dropped != 1 {
+		t.Errorf("geç gelen olay sayılmadı: dropped = %d", dropped)
+	}
+
+	// Ve depoya yazılmadı: kapanmış bir günlükçü yazmıyor.
+	if got := w.rows(); got != 1 {
+		t.Errorf("depoya %d satır gitti, 1 bekleniyordu", got)
 	}
 }
 

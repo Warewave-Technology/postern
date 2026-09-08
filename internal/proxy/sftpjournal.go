@@ -96,6 +96,8 @@ type sftpJournal struct {
 	// asıl sinyali kendi gürültümüzle gömmek olurdu. Toplam sayı
 	// kapanışta bir kez yazılıyor ve oturumun satırına işleniyor.
 	warned bool
+	// lateWarned, kapanış SONRASI kaybın bir kez yazıldığı.
+	lateWarned bool
 
 	stop chan struct{}
 	done chan struct{}
@@ -115,6 +117,32 @@ func newSFTPJournal(st *store.Store, sessionID string, log *slog.Logger,
 func (j *sftpJournal) Emit(e sftpaudit.Event) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
+
+	/*
+	 * ⚠️ KAPANDIKTAN SONRA GELEN OLAY TAMPONA KONMUYOR.
+	 *
+	 * Konsaydı hiç kimse okumazdı: loop durmuş, son boşaltma yapılmış ve
+	 * Close sayıları çoktan döndürmüş oluyor. Yani olay ne yazılır ne
+	 * sayılır — tam olarak bu PR'ın kapattığını söylediği sessiz kayıp,
+	 * kapanış penceresinde geri gelirdi.
+	 *
+	 * ⚠️ SAYI OTURUMUN SATIRINA ULAŞMIYOR ve bu söylenmeli: satır
+	 * Close'un döndürdüğü sayılarla yazılıyor, o da bu noktada geçmişte
+	 * kaldı. Buradan kazanılan şey kaybın SESSİZ olmaması; sayının
+	 * satıra girmesi, olayın hiç geç gelmemesini gerektiriyor ve bu
+	 * kanalın kapanış sırasıyla ilgili ayrı bir iş.
+	 */
+	if j.stopped {
+		j.dropped++
+		if !j.lateWarned {
+			j.lateWarned = true
+			j.log.Error("sftp event arrived after the journal closed; it is lost",
+				"session", j.sessionID, "op", string(e.Op))
+		}
+
+		return
+	}
+
 	if len(j.buf) >= journalCap {
 		// Tampon dolduysa yazım geride kalmış demektir. Oturumu
 		// bitiriyoruz (bkz. journalCap) — ama olay yine de deftere

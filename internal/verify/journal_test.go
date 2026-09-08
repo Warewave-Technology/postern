@@ -209,6 +209,77 @@ func TestChangedRowIsSeenEvenWhenTheCountMatches(t *testing.T) {
 }
 
 /*
+ * ⚠️ ÖZET SATIRIN YEDİ ALANINI DA TAŞIMAK ZORUNDA — ve bunu ölçmeyen bir
+ * paket, iki yönde birden yanılabilir.
+ *
+ * Karşılaştırma satırları KAYDA GİREN BAYTLARA geri çevirip özetliyor
+ * (sftpcast.Line). Buradaki testlerin hepsi yalnızca Op/Path/OK kuruyordu,
+ * yani eventOf'un NewPath ve Read alanlarını düşüren bir değişiklik
+ * bütün pakete yeşil görünüyordu. Üretimdeki iki sonucu da kötü:
+ *
+ *   - alan taşınmazsa, hiç dokunulmamış her indirme ve her yeniden
+ *     adlandırma oturumu "ROWS ALTERED" diye, yani kurcalanmış diye
+ *     raporlanır;
+ *   - taşınıp da özete girmezse, o alanları değiştiren gerçek bir
+ *     müdahale görünmez kalır.
+ *
+ * Bu test ikisini birden çiviliyor: alanları TAŞIYAN bir defter intact
+ * çıkıyor, alanı DEĞİŞTİRİLMİŞ olan altered.
+ */
+func TestEveryFieldOfTheLineIsInTheDigest(t *testing.T) {
+	// Kayda giren bir oturumun gerçek satırları: bir indirme ve bir
+	// yeniden adlandırma — Read ve NewPath alanlarını kullanan ikisi.
+	files := []store.SessionFile{
+		{
+			Op: "transfer", Path: "/tmp/rapor.pdf", Read: 1234,
+			OK: true, InRecording: true,
+		},
+		{
+			Op: "rename", Path: "/tmp/a", NewPath: "/tmp/b",
+			OK: true, InRecording: true,
+		},
+	}
+
+	var seal sftpcast.Seal
+	for _, f := range files {
+		seal.Add(sftpcast.Line(eventOf(f)))
+	}
+	digest := seal.Head()
+
+	mark := model.SFTPJournal{Measured: true, Events: 2, Digest: digest}
+
+	if got := JournalOf(closed(mark), files); got.State != JournalIntact {
+		t.Fatalf("dokunulmamış defter %v çıktı (%s)", got.State, got.Detail)
+	}
+
+	/*
+	 * Ve alanlar GERÇEKTEN özete giriyor: her birini tek tek değiştiren
+	 * bir kopya "altered" olmalı. Yalnızca Op/Path/OK taşıyan bir
+	 * eventOf, bu döngünün her adımında intact derdi.
+	 */
+	for _, tc := range []struct {
+		name  string
+		spoil func([]store.SessionFile)
+	}{
+		{"okunan bayt", func(f []store.SessionFile) { f[0].Read = 1 }},
+		{"yeni yol", func(f []store.SessionFile) { f[1].NewPath = "/tmp/baska" }},
+		{"yazılan bayt", func(f []store.SessionFile) { f[0].Wrote = 9 }},
+		{"gerekçe", func(f []store.SessionFile) { f[1].Detail = "uydurma" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spoiled := append([]store.SessionFile(nil), files...)
+			tc.spoil(spoiled)
+
+			got := JournalOf(closed(mark), spoiled)
+			if got.State != JournalAltered {
+				t.Errorf("%s değiştirildi ama durum %v (%s) — alan özete "+
+					"girmiyor", tc.name, got.State, got.Detail)
+			}
+		})
+	}
+}
+
+/*
  * ⚠️ ÖZETİ HİÇ KARŞILAŞTIRILMAMIŞ BİR OTURUM, KARŞILAŞTIRILMIŞ GİBİ
  * GÖRÜNMEMELİ.
  *
