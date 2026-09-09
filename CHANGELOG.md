@@ -92,6 +92,10 @@ audit rows into a shape it does not understand.
   and both are still there — in the header of the opened session, and in
   search, so an auditor typing an address still finds the row.
 
+  **`postern session list` grew the same column.** It is the only list the
+  auditor working on the bastion host has, and answering the same question
+  differently depending on where you stand is worse than not answering it.
+
 - **A target that stops answering no longer hangs the panel.** The browser's
   SFTP client had no deadline of any kind: a target that went silent left a
   listing or a transfer waiting forever, and the only way out was closing the
@@ -447,6 +451,11 @@ audit rows into a shape it does not understand.
   screen already had this right and called those sessions unattended; the
   audit table showed the same session as healthy. It now says **open, not
   streaming**, which is what the server has been reporting all along.
+
+  `postern session list` and `session show` made the same claim from the same
+  place and said `running` in the duration column. They cannot know: they are
+  a separate process reading the database, and only the running bastion knows
+  whether anything is still flowing. Both now say `open`.
 
   **Pre-flight.** Nothing was lost and there is nothing to repair — the
   badge was wrong, the rows were not. The sessions that will now carry the

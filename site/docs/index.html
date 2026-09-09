@@ -818,6 +818,17 @@ $ asciinema play /var/lib/postern/recordings/&lt;...&gt;.cast
         any asciinema client. Output is always recorded; input is recorded only
         if you set <code>recording.record_input</code>.
       </p>
+      <p>
+        The list carries an <b>Evidence</b> column, and so does the panel's audit
+        table: events postern could not write to the file journal, and requests
+        postern refused. It answers <i>which session should I open</i> without
+        opening any of them — a session in which a denied path was hammered
+        looks nothing like a session in which nothing happened. The refusal
+        count is requests, not journal rows: consecutive identical refusals are
+        folded into one row, so the number can be much larger than the rows
+        <code>session show</code> then lists.
+      </p>
+      <div class="stop"><b>An empty cell is not a verdict</b><p>The column only ever flags; it never says a session is fine. Whether a journal matches its recording is a question about the rows themselves, and <code>postern session verify</code> is what answers it. Sessions that closed before the counts existed are blank rather than zero — postern will not turn what it did not measure into good news.</p></div>
       <h3>Reading the audit trail</h3>
 <pre>$ postern log --limit 50 --config postern.yaml
 $ postern log --actor yigit --config postern.yaml

@@ -109,18 +109,28 @@ func printSessionTable(cmd *cobra.Command, sessions []model.Session) error {
 	// yazmıyoruz), padding=2 (sütunlar arası en az 2 boşluk), padchar=' '.
 	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 
-	fmt.Fprintln(w, "SESSION ID\tUSER\tTARGET\tOS USER\tSRC IP\tSTARTED\tDURATION")
+	fmt.Fprintln(w, "SESSION ID\tUSER\tTARGET\tOS USER\tSRC IP\tSTARTED\tDURATION\tEVIDENCE")
 
 	for _, s := range sessions {
-		// Süre yalnızca KAPANMIŞ oturum için hesaplanabilir. Open()
-		// dururken EndedAt-StartedAt yapmak, sıfır time.Time yüzünden
-		// eksi iki bin yıllık bir süre üretirdi.
-		duration := "running"
+		/*
+		 * Süre yalnızca KAPANMIŞ oturum için hesaplanabilir. Open()
+		 * dururken EndedAt-StartedAt yapmak, sıfır time.Time yüzünden
+		 * eksi iki bin yıllık bir süre üretirdi.
+		 *
+		 * ⚠️ "open", "running" DEĞİL — ve fark bu komutun BİLEBİLDİĞİ
+		 * şeyle sınırlı. Bitiş zamanının boş olması yalnızca bitişin
+		 * yazılmadığını söylüyor; postern SIGKILL yerse o satır sonsuza
+		 * dek boş kalıyor. Oturumun hâlâ akıp akmadığını yalnızca
+		 * çalışan sürecin kendi defteri biliyor ve bu komut ayrı bir
+		 * süreç: veritabanından okuyor. "running" demek, ölçemediği bir
+		 * sağlık iddiası olurdu. Panel aynı ayrımı yapıyor (Audit.tsx).
+		 */
+		duration := "open"
 		if !s.Open() {
 			duration = s.EndedAt.Sub(s.StartedAt).Truncate(time.Second).String()
 		}
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			s.ID,
 			s.User,
 			s.Target,
@@ -131,10 +141,47 @@ func printSessionTable(cmd *cobra.Command, sessions []model.Session) error {
 			// için biçimler.
 			s.StartedAt.Local().Format("2006-01-02 15:04:05"),
 			duration,
+			sessionEvidence(s),
 		)
 	}
 
 	return w.Flush()
+}
+
+/*
+ * sessionEvidence, "hangi oturumu açayım" sorusuna listeden verilebilen
+ * cevap.
+ *
+ * ⚠️ AYNI SORUYA İKİ YÜZEY AYNI CEVABI VERMELİ. Panelin denetim tablosu
+ * bu iki sayıyı bir sütunda çiziyor (web/src/admin/Audit.tsx) ve bu komut
+ * onu görmeyen denetçinin — bastion'a SSH ile giren kişinin — elindeki
+ * tek liste. Yalnızca birinde olsaydı postern aynı soruya duruşa göre iki
+ * farklı cevap veriyor olurdu.
+ *
+ * ⚠️ HÜCRE TEK YÖNLÜ: en fazla dikkat çeker, ASLA "temiz" demez. Boş bir
+ * hücre "doğrulandı" değil, "bu iki şey işaretlenmedi" demek — defterin
+ * kayıtla tutup tutmadığını yalnızca `postern session verify` söylüyor.
+ * Buraya bir onay yazmak, koşulmamış bir kontrolü koşulmuş saymak olurdu.
+ *
+ * ⚠️ Ret sayısı SATIR SAYISI DEĞİL. Ardışık aynı retler tek satıra
+ * katlanıyor; sayı katlananları da içeriyor, yani `session show`da
+ * görünen satır adedinden büyük olabilir (göç 038).
+ */
+func sessionEvidence(s model.Session) string {
+	if s.SFTPJournal.Lost > 0 {
+		events := "events"
+		if s.SFTPJournal.Lost == 1 {
+			events = "event"
+		}
+		return fmt.Sprintf("%d %s lost", s.SFTPJournal.Lost, events)
+	}
+	// Counted false: sayılmadı. Sıfır yazmak "hiçbir şey reddedilmedi"
+	// demek olurdu — bilinmeyeni iyi habere çevirmek (göç 037/038).
+	if s.SFTPJournal.Counted && s.SFTPJournal.Denied > 0 {
+		return fmt.Sprintf("%d refused", s.SFTPJournal.Denied)
+	}
+
+	return ""
 }
 
 // newSessionShowCmd, tek bir oturumun tüm ayrıntısını gösterir ve kaydı
@@ -173,7 +220,8 @@ func newSessionShowCmd() *cobra.Command {
 			// başında — değer sütunu hizalı kalsın diye.
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 
-			ended, duration := "-", "running"
+			// "open", "running" DEĞİL: bkz. printSessionTable.
+			ended, duration := "-", "open"
 			if !s.Open() {
 				ended = s.EndedAt.Local().Format("2006-01-02 15:04:05")
 				duration = s.EndedAt.Sub(s.StartedAt).Truncate(time.Second).String()
