@@ -274,6 +274,65 @@ func TestDenialsAreCountedForTheList(t *testing.T) {
 }
 
 /*
+ * ⚠️ KATLANMIŞ RETLER SATIR DEĞİL, RET SAYISIYLA GİRİYOR — VE BU
+ * SAYACIN TAM TERS CEVAP VERDİĞİ YERDİ.
+ *
+ * ÖLÇÜLDÜ (demoda, canlı): ardışık aynı retler tek satıra katlanıyor
+ * (sftpaudit flushDenyRunLocked) ve katlama tam da ısrarcı istemci için
+ * var — yazamayacağı bir yola 300 MB gönderen biri 32 KiB'lık parçalar
+ * hâlinde on binin üzerinde ret üretiyor. Olayları sayan bir sayaç o
+ * oturumu "2 ret" diye raporluyordu: sütunun göstermek için var olduğu
+ * ısrar, sütunda en küçük sayı olarak görünüyordu.
+ *
+ * Özet satırının KENDİSİ bir ret değil, kendinden öncekilerin sayısı.
+ */
+func TestFoldedRefusalsAreCountedByHowManyTheyWere(t *testing.T) {
+	j := &sftpJournal{
+		store: okFiles{}, log: testLogger(), fail: func(error) {},
+		stop: make(chan struct{}), done: make(chan struct{}),
+	}
+	close(j.done)
+
+	// Bir dizinin ilk reddi kendi satırını yazıyor…
+	j.Emit(sftpaudit.Event{Op: "denied.write", Path: "/kok/x", OK: false})
+	// …sonraki 9999'u tek özet satırına katlanıyor.
+	j.Emit(sftpaudit.Event{
+		Op: "denied.write", Path: "/kok/x", OK: false, Folded: 9999,
+		Detail: "postern: this path is read-only (9999 further identical refusals)",
+	})
+
+	_, _, denied := j.Close()
+
+	if denied != 10_000 {
+		t.Errorf("KATLAMA SAYIYI YUTTU: denied = %d, 10000 bekleniyordu — "+
+			"ısrarcı oturum listede en küçük sayıyı taşır", denied)
+	}
+}
+
+/*
+ * ⚠️ ALANI DOLDURMAYAN ÜRETİCİ SAYIYI SIFIRLAMAMALI.
+ *
+ * Kanal düzeyindeki retleri lifecycle.go yazıyor ve katlama oradan
+ * geçmiyor, yani Folded boş. Boş alanı "sıfır ret" diye okumak, yeni bir
+ * ret üreticisi eklendiği gün sayıyı sessizce eksiltirdi — eksilen bir
+ * sayı, olmayan bir sayıdan daha kötü: yanlış olduğu görünmüyor.
+ */
+func TestRefusalsWithoutAFoldedCountStillCountAsOne(t *testing.T) {
+	j := &sftpJournal{
+		store: okFiles{}, log: testLogger(), fail: func(error) {},
+		stop: make(chan struct{}), done: make(chan struct{}),
+	}
+	close(j.done)
+
+	j.Emit(sftpaudit.Event{Op: "denied.x11-req", OK: false})
+	j.Emit(sftpaudit.Event{Op: "denied.tcpip-forward", OK: false})
+
+	if _, _, denied := j.Close(); denied != 2 {
+		t.Errorf("Folded'siz ret yutuldu: denied = %d, 2 bekleniyordu", denied)
+	}
+}
+
+/*
  * ⚠️ RET, SATIRI DÜŞSE BİLE SAYILIYOR.
  *
  * Tavana çarpan olay deftere hiç giremiyor; ama ret GERÇEKLEŞTİ ve

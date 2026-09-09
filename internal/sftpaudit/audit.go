@@ -68,6 +68,23 @@ type Event struct {
 	OK     bool   `json:"ok"`
 	Status uint32 `json:"status,omitempty"`
 	Detail string `json:"detail,omitempty"`
+
+	/*
+	 * Folded, bu satırın kaç AYRI reddi temsil ettiği — yalnızca
+	 * katlanmış retlerin özet satırında dolu (flushDenyRunLocked).
+	 *
+	 * ⚠️ SAYIYI PROZDAN OKUMAK ZORUNDA KALMAMAK İÇİN VAR. Sayı zaten
+	 * Detail'de bir cümlenin içinde duruyordu ("… (%d further identical
+	 * refusals)") ve oradan okumanın tek yolu İngilizce ayrıştırmak.
+	 * ÖLÇÜLDÜ: sayıyı olayları sayarak bulan bir tüketici, 32 KiB'lık
+	 * parçalar hâlinde on bin kez reddedilen bir oturumu "2 ret" diye
+	 * raporluyordu — yani en ısrarlı oturum en küçük sayıyı taşıyordu.
+	 *
+	 * ⚠️ ÖZET SATIRININ KENDİSİ BİR RET DEĞİL. Bir dizinin ilk reddi
+	 * kendi satırını yazıyor; Folded yalnızca ONDAN SONRAKİLERİ sayıyor.
+	 * İkisini toplayan tüketici doğru sayıyı buluyor (bkz. sftpJournal).
+	 */
+	Folded int `json:"folded,omitempty"`
 }
 
 /*

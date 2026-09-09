@@ -135,9 +135,27 @@ func (j *sftpJournal) Emit(e sftpaudit.Event) {
 	 * olsa bile denetçinin bilmesi gereken şey o. Sayı ile satır adedi
 	 * ayrışırsa sebebini dropped söylüyor, yani iki sayı birbirini
 	 * açıklıyor.
+	 *
+	 * ⚠️ SATIR SAYMAK BURADA TAM TERS CEVAP VERİYORDU — ÖLÇÜLDÜ.
+	 * Ardışık aynı retler tek satıra katlanıyor (sftpaudit
+	 * flushDenyRunLocked) ve katlama tam da ısrarcı oturum için var:
+	 * yazamayacağı bir yola 300 MB gönderen istemci on binin üzerinde
+	 * ret üretiyor. Olayları saymak o oturumu "2 ret" diye raporluyordu
+	 * — yani sütunun göstermek için var olduğu şey, sütunda en küçük
+	 * sayı olarak görünüyordu.
+	 *
+	 * Özet satırı kendisi bir ret DEĞİL, kendinden öncekilerin sayısı;
+	 * bu yüzden Folded doluysa onun YERİNE değil, tek başına sayılıyor.
+	 * Folded'i olmayan bir ret satırı (kanal düzeyindeki retler,
+	 * lifecycle.go) tek ret sayılıyor — yeni bir üretici alanı
+	 * doldurmayı unutursa sayı eksilmek yerine bir kalıyor.
 	 */
 	if strings.HasPrefix(string(e.Op), "denied.") {
-		j.denied++
+		if e.Folded > 0 {
+			j.denied += int64(e.Folded)
+		} else {
+			j.denied++
+		}
 	}
 
 	/*

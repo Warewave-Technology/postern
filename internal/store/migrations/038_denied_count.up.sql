@@ -29,9 +29,14 @@
 -- denetçiye "kuralı çiğnemeye çalışan biri var" ile "kullanıcının o
 -- dosyaya erişimi yok"u aynı rakamla gösterirdi.
 --
--- ⚠️ SAYI, YAZILAN SATIRDAN BAĞIMSIZ SAYILIYOR. Ret olayı, defter tavana
--- çarptığı için düşürülmüş olsa bile sayılıyor: ret GERÇEKLEŞTİ ve
--- denetçinin bilmesi gereken şey o. Sayı ile satır adedi ayrışırsa
--- sebebini sftp_lost söylüyor.
+-- ⚠️ SAYI, YAZILAN SATIRDAN BAĞIMSIZ SAYILIYOR — VE SATIRDAN BÜYÜK
+-- OLABİLİR. İki sebeple: (1) tavana çarpıp düşürülmüş bir ret de
+-- sayılıyor, çünkü ret GERÇEKLEŞTİ; (2) ardışık aynı retler tek satıra
+-- katlanıyor (sftpaudit/policy.go) ve katlama tam da ısrarcı istemci
+-- için var — yazamayacağı bir yola 300 MB gönderen biri on binin
+-- üzerinde ret üretiyor, defterde iki satır bırakıyor. Satırları saymak
+-- o oturumu "2 ret" diye raporlardı; yani sütunun göstermek için var
+-- olduğu ısrar, sütunda en küçük sayı olurdu. Sayı ile satır adedinin
+-- neden ayrıştığını sftp_lost ve özet satırının kendi cümlesi söylüyor.
 ALTER TABLE sessions
   ADD COLUMN sftp_denied BIGINT;

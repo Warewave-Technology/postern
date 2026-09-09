@@ -113,6 +113,11 @@ type SFTPJournal struct {
 	 * "kural sınandı" ile "kullanıcının o dosyaya erişimi yok"u aynı
 	 * rakamla gösterirdi.
 	 *
+	 * ⚠️ SAYI, DEFTERDEKİ SATIR ADEDİNDEN BÜYÜK OLABİLİR. Ardışık aynı
+	 * retler tek satıra katlanıyor ve sayı katlananları da içeriyor:
+	 * "kaç satır var" ile "kaç kez denendi" apayrı iki soru, ve
+	 * denetçinin sorduğu ikincisi.
+	 *
 	 * ⚠️ Counted FALSE İKEN SIFIR OKUNMAMALI. Göç 038'den önce kapanmış
 	 * oturumlarda sayım yapılmadı; sıfır göstermek "hiçbir şey
 	 * reddedilmedi" demek olurdu — Measured'ın aynı gerekçesi.

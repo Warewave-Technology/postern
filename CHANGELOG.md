@@ -72,6 +72,16 @@ audit rows into a shape it does not understand.
   panel for a contradiction — a recording that is sealed but does not match —
   and a refused request is also the rule *working*.
 
+  **The count is refused requests, not journal rows, and it can be much
+  larger than the number of rows you then see.** Consecutive identical
+  refusals are folded into one row on purpose: a client pushing 300 MB at a
+  path it may not write produces over ten thousand refusals in 32 KiB
+  chunks, and a row each would exceed the journal ceiling and kill the
+  session. Counting rows would have reported that session as *2 refused* —
+  the most persistent session in the list carrying the smallest number,
+  which is the opposite of what the column is for. The folded row says how
+  many it stands for.
+
   **Sessions that closed before this release are not counted, and the field
   is absent rather than zero.** Zero would read as "nothing was refused here",
   which is a claim about the past that postern cannot make. The same

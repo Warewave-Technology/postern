@@ -255,6 +255,33 @@ func TestRepeatedRefusalsAreFoldedIntoOneLine(t *testing.T) {
 		t.Errorf("özet sayıyı yanlış yazıyor: %q", summary)
 	}
 
+	/*
+	 * ⚠️ SAYI CÜMLENİN İÇİNDE DEĞİL, VERİ OLARAK DA DURMALI.
+	 *
+	 * ÖLÇÜLDÜ: bu katlamayı bilmeyen bir tüketici — panelin liste
+	 * sütununu besleyen ret sayacı — olayları sayıyordu ve tam bu
+	 * oturumu "2 ret" diye raporluyordu. Yani katlamanın var olma
+	 * sebebi olan ısrarcı istemci, listede en küçük sayıyı taşıyordu.
+	 * Sayıyı Detail'den okumanın tek yolu İngilizce ayrıştırmak;
+	 * Folded onu veri olarak taşıyor.
+	 */
+	refusals := 0
+	for _, e := range *events {
+		if !strings.HasPrefix(string(e.Op), "denied.") {
+			continue
+		}
+		if e.Folded > 0 {
+			// Özet satırının KENDİSİ bir ret değil: kendinden
+			// öncekilerin sayısı.
+			refusals += e.Folded
+			continue
+		}
+		refusals++
+	}
+	if refusals != tries {
+		t.Errorf("KATLANMIŞ RETLER GERİ SAYILAMIYOR: %d, %d bekleniyordu — "+
+			"sayıyı yalnızca cümle taşıyor", refusals, tries)
+	}
 }
 
 // Farklı yol yeni satır açmalı: katlama "aynı şey" ile sınırlı.

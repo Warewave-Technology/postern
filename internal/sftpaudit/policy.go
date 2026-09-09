@@ -584,6 +584,9 @@ func (s *Session) flushDenyRunLocked() {
 	e := s.lastDenyEvent
 	e.Detail = fmt.Sprintf("postern: %s (%d further identical refusals)",
 		s.lastDenyReason, s.lastDenyCount)
+	// ⚠️ Aynı sayı VERİ olarak da gidiyor: cümleden okumak, sayacı
+	// İngilizce ayrıştırmaya bağlardı (bkz. Event.Folded).
+	e.Folded = s.lastDenyCount
 	s.write(e)
 
 	s.lastDenyCount = 0
