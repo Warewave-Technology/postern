@@ -24,6 +24,25 @@ deploying.
 [Production checklist](https://postern.warewave.tech/docs/#checklist) ·
 [Security policy](SECURITY.md)
 
+## Try it in ten minutes
+
+A bastion, a database and two target machines that trust its certificate
+authority — one command, nothing to configure:
+
+```bash
+git clone https://github.com/Warewave-Technology/postern.git
+cd postern && ./scripts/quickstart.sh
+```
+
+It prints a panel link, an administrator password, and the `ssh` and
+`sftp` commands to try. Open the panel afterwards: the session is there
+with its recording, and the file journal shows every byte that moved and
+everything postern refused. `./scripts/quickstart.sh --down` removes it
+all, database volume included.
+
+Details and what is deliberately not production shape:
+[deploy/quickstart](deploy/quickstart/README.md).
+
 ## Install
 
 Download a release — one static binary per platform, with the panel compiled

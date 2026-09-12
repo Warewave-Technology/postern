@@ -53,48 +53,21 @@ audit rows into a shape it does not understand.
 
 ### Added
 
-- **The session list says which sessions have something to look at.** Two
-  counts now travel with every row and are drawn in an **Evidence** column:
-  events postern could not write to the file journal, and requests postern
-  refused. Until now a session in which `/etc/shadow` was refused looked
-  exactly like a session in which nothing happened; the difference only
-  appeared after opening the row and reading its file events. On a
-  200-session list that is 200 clicks, which in practice means nobody looks.
+- **One command brings up a working bastion.** `./scripts/quickstart.sh` builds
+  the binary, generates its own CA, host key and master key, migrates the
+  schema, starts two target machines that trust the CA, registers them by
+  their real host keys, and seeds a user, a role and a path rule. It prints a
+  panel link, an administrator password and the `ssh`/`sftp` commands to try.
+  `--down` removes all of it, database volume included.
 
-  **The column never says a session is fine.** It draws at most one badge and
-  has nothing to say about a clean row — the cell stays empty, and the note
-  under the table says what empty does *not* mean. Whether the journal
-  actually matches the recording is a question about the rows themselves;
-  the server answers it when you open a session and press **Verify**, and
-  putting a green tick in the list would be crediting a check nobody ran.
+  The seeded role allows SFTP under the demo user's home and denies everything
+  else **on purpose**: without a rule, nothing is ever refused, and the first
+  ten minutes would show a bastion that records sessions without showing the
+  part that makes the recording worth anything — the journal, the refusals and
+  the counts the Evidence column reads.
 
-  A refusal is drawn as a plain badge, not a red one. Red is reserved in this
-  panel for a contradiction — a recording that is sealed but does not match —
-  and a refused request is also the rule *working*.
-
-  **The count is refused requests, not journal rows, and it can be much
-  larger than the number of rows you then see.** Consecutive identical
-  refusals are folded into one row on purpose: a client pushing 300 MB at a
-  path it may not write produces over ten thousand refusals in 32 KiB
-  chunks, and a row each would exceed the journal ceiling and kill the
-  session. Counting rows would have reported that session as *2 refused* —
-  the most persistent session in the list carrying the smallest number,
-  which is the opposite of what the column is for. The folded row says how
-  many it stands for.
-
-  **Sessions that closed before this release are not counted, and the field
-  is absent rather than zero.** Zero would read as "nothing was refused here",
-  which is a claim about the past that postern cannot make. The same
-  distinction is already in the schema for `sftp_events` (037).
-
-  Two columns left the table to make room: **OS user** and **Src**. Neither
-  answers "which session should I open", both answer the question after it,
-  and both are still there — in the header of the opened session, and in
-  search, so an auditor typing an address still finds the row.
-
-  **`postern session list` grew the same column.** It is the only list the
-  auditor working on the bastion host has, and answering the same question
-  differently depending on where you stand is worse than not answering it.
+  It is not production shape and says so:
+  [deploy/quickstart](deploy/quickstart/README.md) lists what changes.
 
 - **A target that stops answering no longer hangs the panel.** The browser's
   SFTP client had no deadline of any kind: a target that went silent left a

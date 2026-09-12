@@ -1,0 +1,37 @@
+# Hızlı başlangıcın postern yapılandırması (konteyner içinden).
+listen:
+   addr: "0.0.0.0:2222"
+
+host_key: /var/lib/postern/keys/host_ed25519
+
+ca:
+   key_file: /var/lib/postern/keys/ca_ed25519
+
+# ⚠️ VERİTABANI ADRESİ BU DOSYADA DEĞİL. postern DSN'i
+# POSTERN_DATABASE_DSN ortam değişkeninden okuyor ve config dosyasına
+# yazmaya tercih ediyor (internal/config): config kopyalanan bir dosya,
+# parolanın onunla birlikte gezmemesi gerekiyor.
+
+session:
+   idle_timeout: 30m
+   sftp: true
+   sftp_panel: true
+   sftp_panel_write: true
+
+recording:
+   dir: /var/lib/postern/recordings
+
+http:
+   addr: "0.0.0.0:8088"
+   external_url: "http://127.0.0.1:8088"
+   # ⚠️ Tarayıcı terminali burada AÇIK, ve bu yalnızca loopback olduğu
+   # için savunulabilir. Üretimde HTTPS olmadan açmak, oturumun tamamını
+   # ağa düz metin vermek demek.
+   terminal_enabled: true
+
+secret_key_file: /var/lib/postern/keys/secret.key
+
+target_probe:
+   enabled: true
+   refresh: 1m
+   timeout: 5s

@@ -42,3 +42,5 @@ node_modules/
 # ait değil. .claude/launch.json BİLEREK takip ediliyor (önizleme
 # yapılandırması), worktree'ler değil.
 .claude/worktrees/
+deploy/quickstart/.state
+deploy/quickstart/.env
