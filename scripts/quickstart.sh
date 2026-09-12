@@ -135,10 +135,10 @@ docker compose up -d postern demo-a demo-b
 
 say "waiting for the panel"
 for _ in $(seq 1 60); do
-	curl -fsS -o /dev/null "http://127.0.0.1:$HTTP_PORT/healthz" 2>/dev/null && break
+	curl -fsS -o /dev/null "http://localhost:$HTTP_PORT/healthz" 2>/dev/null && break
 	sleep 1
 done
-curl -fsS -o /dev/null "http://127.0.0.1:$HTTP_PORT/healthz" || {
+curl -fsS -o /dev/null "http://localhost:$HTTP_PORT/healthz" || {
 	red "the panel did not come up — docker compose -f deploy/quickstart/compose.yaml logs postern"
 	exit 1
 }
@@ -186,7 +186,7 @@ cat <<INFO
 
   postern is up.
 
-  Panel      http://127.0.0.1:$HTTP_PORT
+  Panel      http://localhost:$HTTP_PORT
   Sign in    admin / ${ADMIN_PASSWORD:-"(see the output above)"}
 
   Open a recorded SSH session as the demo user:

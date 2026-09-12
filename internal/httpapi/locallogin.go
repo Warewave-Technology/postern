@@ -1,14 +1,17 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/Warewave-Technology/postern/internal/auth"
+	"github.com/Warewave-Technology/postern/internal/model"
 	"github.com/Warewave-Technology/postern/internal/store"
 )
 
@@ -113,6 +116,16 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 		// belirteç, henüz ikinci faktörünü kanıtlamamış birinin elinde
 		// duran bir şey olurdu.
 		Code string `json:"code"`
+
+		/*
+		 * Assertion, güvenlik anahtarının imzası (WebAuthn).
+		 *
+		 * ⚠️ KOD İLE AYNI YERDE DURUYOR VE AYNI KURALA TABİ: parola bu
+		 * istekte YİNE gönderiliyor. WebAuthn iki tur gerektiriyor ama
+		 * araya bir belirteç koymuyoruz; ilk turda dönen meydan okuma
+		 * tek kullanımlık bir nonce, bir kapı anahtarı değil.
+		 */
+		Assertion json.RawMessage `json:"assertion"`
 	}
 	if !readJSON(w, r, &in) {
 		return
@@ -332,6 +345,34 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 	// failedSince, son başarılı girişten bu yanaki başarısız kod denemesi.
 	var failedSince int
 
+	/*
+	 * ⚠️ ANAHTAR, KODDAN ÖNCE. Hesabın kayıtlı bir güvenlik anahtarı
+	 * varsa ikinci faktör oradan geçiyor; kod yalnızca hesap "yalnızca
+	 * anahtar" demediyse ve kullanıcı onu seçtiyse devreye giriyor.
+	 * Dönen false, yanıtın yazıldığı anlamına geliyor.
+	 */
+	if !s.secondFactor(w, r, u.Name, in.Assertion, in.Code) {
+		return
+	}
+
+	/*
+	 * ⚠️ "YALNIZCA ANAHTAR" AÇIKKEN KOD YOLU HİÇ AÇILMIYOR. Buraya
+	 * anahtarla gelen bir kullanıcı ikinci faktörünü zaten kanıtladı;
+	 * aşağıdaki switch'e düşseydi ondan bir de kod istenirdi.
+	 */
+	if len(in.Assertion) > 0 {
+		s.guessBackoff.succeed(bkey)
+		token, terr := s.createLocalWebSession(r.Context(), u.Name)
+		if terr != nil {
+			log.Error("web session could not be created", "user", u.Name, "error", terr)
+			writeErr(w, http.StatusInternalServerError, "sign-in failed")
+			return
+		}
+		s.finishLogin(w, r, log, u, token, failedSince)
+
+		return
+	}
+
 	switch c, terr := s.store.TOTP(r.Context(), u.Name); {
 	case terr != nil && !errors.Is(terr, store.ErrNotFound):
 		log.Error("totp lookup failed", "user", u.Name, "error", terr)
@@ -401,18 +442,33 @@ func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 		s.clearPrompt(u.Name)
 	}
 
-	// Parola VE (varsa) kod doğrulandı: sayaç ancak şimdi sıfırlanıyor.
+	// Parola VE ikinci faktör doğrulandı: sayaç ancak şimdi sıfırlanıyor.
 	s.guessBackoff.succeed(bkey)
 
-	// ⚠️ CreateLocal: oturumun kökeni yerel parola kapısı. Zorunlu
-	// parola değişikliği kısıtı buna bakıyor (weblogin.go'daki gate).
 	token, err := s.createLocalWebSession(r.Context(), u.Name)
 	if err != nil {
 		log.Error("web session create failed", "error", err)
 		writeErr(w, http.StatusInternalServerError, "sign-in failed")
 		return
 	}
+	s.finishLogin(w, r, log, u, token, failedSince)
+}
 
+/*
+ * finishLogin, ikinci faktörü geçmiş bir girişi tamamlar: çerez,
+ * damgalar, denetim satırı ve yanıt.
+ *
+ * ⚠️ TEK YERDE OLMAK ZORUNDA. İki ikinci faktör yolu var (kod ve
+ * güvenlik anahtarı) ve ikisi de buraya çıkıyor; kopyalansaydı,
+ * birine eklenen bir damga öbüründe eksik kalır ve hesap yaşam
+ * döngüsü işi yalnızca kodla girenleri "taze" sayardı.
+ *
+ * ⚠️ CreateLocal: oturumun kökeni yerel parola kapısı. Zorunlu parola
+ * değişikliği kısıtı buna bakıyor (weblogin.go'daki gate).
+ */
+func (s *Server) finishLogin(w http.ResponseWriter, r *http.Request,
+	log *slog.Logger, u model.User, token string, failedSince int,
+) {
 	// #nosec G124 -- Secure koşullu: bkz. Server.SetExternalURL
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,

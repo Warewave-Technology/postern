@@ -524,6 +524,21 @@ export type MyKeys = {
  * çünkü çalınmış bir oturumun ikinci faktör bağlaması, korumanın
  * kendisini atlatmanın yolu olurdu.
  */
+/** Hesaba kayıtlı bir güvenlik anahtarı. */
+export type SecurityKey = {
+  id: string;
+  name: string;
+  created_at: string;
+  last_used_at?: string;
+};
+
+/** Hesabın anahtarları ve kod kilidinin durumu. */
+export type SecurityKeys = {
+  credentials: SecurityKey[];
+  /** true ise kod artık kabul edilmiyor. */
+  only: boolean;
+};
+
 export type TOTPStatus = {
   enrolled: boolean;
   pending: boolean;
@@ -1082,6 +1097,17 @@ export const api = {
       { source },
     ),
   myKeys: () => req<MyKeys>("GET", "/api/me/keys"),
+  webauthnList: () => req<SecurityKeys>("GET", "/api/me/webauthn"),
+  webauthnBegin: () => req<unknown>("POST", "/api/me/webauthn/begin", {}),
+  webauthnFinish: (name: string, credential: unknown) =>
+    req<{ name: string; id: string }>("POST", "/api/me/webauthn/finish", {
+      name,
+      credential,
+    }),
+  webauthnRemove: (id: string) =>
+    req<void>("POST", "/api/me/webauthn/remove", { id }),
+  webauthnOnly: (only: boolean) =>
+    req<{ only: boolean }>("POST", "/api/me/webauthn/only", { only }),
   totpStatus: () => req<TOTPStatus>("GET", "/api/me/totp"),
   totpBegin: (reauth?: string) =>
     req<TOTPEnrolment>("POST", "/api/me/totp/begin", { reauth: reauth ?? "" }),
@@ -1113,9 +1139,17 @@ export const api = {
     username: string,
     password: string,
     code?: string,
+    assertion?: unknown,
   ): Promise<{
     ok: boolean;
     totpRequired: boolean;
+    /** Sunucu güvenlik anahtarının imzasını bekliyor. */
+    webauthnRequired?: boolean;
+    /** navigator.credentials.get'e verilecek seçenekler. */
+    options?: unknown;
+    /** Hesap koda geri düşmeye izin veriyor mu ("yalnızca anahtar"
+     *  açıkken false: panel o bağlantıyı hiç çizmemeli). */
+    codeAllowed?: boolean;
     error?: string;
     /** Kod isteminin kaç saniye geçerli olduğu; pencere kapalıysa yok. */
     expiresIn?: number;
@@ -1126,7 +1160,20 @@ export const api = {
     const r = await fetch("/auth/local", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password, code: code ?? "" }),
+      /*
+       * ⚠️ PAROLA HER TURDA GİDİYOR — ARA BELİRTEÇ YOK.
+       *
+       * Güvenlik anahtarı iki tur gerektiriyor (sunucu meydan okur,
+       * anahtar imzalar) ama arada bir belirteç taşımıyoruz: o belirteç,
+       * ikinci faktörünü henüz kanıtlamamış birinin elinde duran bir şey
+       * olurdu. Sunucu tarafındaki gerekçe locallogin.go'da.
+       */
+      body: JSON.stringify({
+        username,
+        password,
+        code: code ?? "",
+        assertion: assertion ?? undefined,
+      }),
     });
     if (r.ok) {
       let failedAttempts: number | undefined;
@@ -1144,14 +1191,33 @@ export const api = {
     noteStatus(r.status);
     let msg = r.statusText;
     let totpRequired = false;
+    let webauthnRequired = false;
+    let codeAllowed = false;
+    let options: unknown;
     let expiresIn: number | undefined;
     try {
       const b = await r.json();
       msg = b.error ?? msg;
       totpRequired = b.totp_required === true;
+      webauthnRequired = b.webauthn_required === true;
+      if (b.options) options = b.options;
+      // ⚠️ Varsayılan TRUE DEĞİL: alan yoksa kodun kabul edildiğini
+      // varsaymak, "yalnızca anahtar" açık bir hesapta panele olmayan
+      // bir çıkış yolu çizdirirdi.
+      codeAllowed = b.code_allowed === true;
       if (typeof b.expires_in === "number") expiresIn = b.expires_in;
     } catch {
       /* gövde JSON değilse statusText kalır */
+    }
+    if (webauthnRequired) {
+      return {
+        ok: false,
+        totpRequired: false,
+        webauthnRequired: true,
+        codeAllowed,
+        options,
+        error: msg,
+      };
     }
     if (totpRequired) {
       return { ok: false, totpRequired: true, error: msg, expiresIn };

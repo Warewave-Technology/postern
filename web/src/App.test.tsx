@@ -366,6 +366,25 @@ describe("App oturum bitisi", () => {
  * ama IdP'si olmayan kurum da paneli çalıştırabiliyor ve o kurulumda o
  * düğme 404'e giderdi: kullanıcı ürünü bozuk sanardı.
  */
+
+/*
+ * codeDialog, KOD penceresini adıyla bulur.
+ *
+ * ⚠️ querySelector("dialog") YETMİYOR — VE BİR KEZ YANILTTI. Giriş
+ * ekranında artık iki pencere var (güvenlik anahtarı ve kod); ilkini
+ * almak, DOM sırası değiştiği an testi sebepsiz düşürüyor ve düşerken
+ * "kod penceresi açılmadı" diyor. Hangi pencere olduğunu söylemek
+ * testin kendi işi.
+ */
+const codeDialog = (container: HTMLElement): HTMLDialogElement => {
+  const all = [...container.querySelectorAll("dialog")];
+  const found = all.find((d) =>
+    d.textContent?.includes("authenticator"),
+  ) as HTMLDialogElement | undefined;
+
+  return found ?? (all[0] as HTMLDialogElement);
+};
+
 describe("giris yollari", () => {
   it("oidc yoksa IdP dugmesini CIZMEZ, yerel formu cizer", async () => {
     vi.spyOn(api, "me").mockRejectedValue(new ApiError(401, "unauthenticated"));
@@ -440,7 +459,8 @@ describe("giris yollari", () => {
     await userEvent.click(screen.getByRole("button", { name: /^Sign in$/i }));
 
     await waitFor(() =>
-      expect(login).toHaveBeenCalledWith("ops", "AAAA-BBBB", ""),
+      // Dördüncü argüman imza: kod yolunda yok.
+      expect(login).toHaveBeenCalledWith("ops", "AAAA-BBBB", "", undefined),
     );
     expect(meSpy).toHaveBeenCalled();
   });
@@ -476,14 +496,14 @@ describe("giris yollari", () => {
     await waitFor(() =>
       expect(screen.getByLabelText(/^Password$/i)).toBeInTheDocument(),
     );
-    expect(container.querySelector("dialog")!.open).toBe(false);
+    expect(codeDialog(container).open).toBe(false);
 
     await userEvent.type(screen.getByLabelText(/Username/i), "ayse");
     await userEvent.type(screen.getByLabelText(/^Password$/i), "hunter2");
     await userEvent.click(screen.getByRole("button", { name: /^Sign in$/i }));
 
     await waitFor(() =>
-      expect(container.querySelector("dialog")!.open).toBe(true),
+      expect(codeDialog(container).open).toBe(true),
     );
 
     /*
@@ -498,7 +518,7 @@ describe("giris yollari", () => {
     await userEvent.click(screen.getByRole("button", { name: /Confirm/i }));
 
     await waitFor(() =>
-      expect(login).toHaveBeenLastCalledWith("ayse", "hunter2", "123456"),
+      expect(login).toHaveBeenLastCalledWith("ayse", "hunter2", "123456", undefined),
     );
   });
 
@@ -540,7 +560,7 @@ describe("giris yollari", () => {
     await userEvent.click(screen.getByRole("button", { name: /^Sign in$/i }));
 
     await waitFor(() =>
-      expect(container.querySelector("dialog")!.open).toBe(true),
+      expect(codeDialog(container).open).toBe(true),
     );
     await userEvent.type(screen.getByLabelText(/^Code$/i), "123456");
     await userEvent.click(screen.getByRole("button", { name: /Confirm/i }));
@@ -548,7 +568,7 @@ describe("giris yollari", () => {
     await waitFor(() =>
       expect(screen.getByText(/timed out/i)).toBeInTheDocument(),
     );
-    expect(container.querySelector("dialog")!.open).toBe(false);
+    expect(codeDialog(container).open).toBe(false);
   });
 
   /*
@@ -585,7 +605,7 @@ describe("giris yollari", () => {
     await userEvent.click(screen.getByRole("button", { name: /^Sign in$/i }));
 
     await waitFor(() =>
-      expect(container.querySelector("dialog")!.open).toBe(true),
+      expect(codeDialog(container).open).toBe(true),
     );
     await userEvent.type(screen.getByLabelText(/^Code$/i), "000000");
     await userEvent.click(screen.getByRole("button", { name: /Confirm/i }));
@@ -593,7 +613,7 @@ describe("giris yollari", () => {
     await waitFor(() =>
       expect(screen.getByText(/wrong code/i)).toBeInTheDocument(),
     );
-    expect(container.querySelector("dialog")!.open).toBe(false);
+    expect(codeDialog(container).open).toBe(false);
 
     /*
      * ⚠️ KAPANMA OLAYI HATAYI SİLMEMELİ.
@@ -1373,6 +1393,237 @@ describe("kod isteminin suresi", () => {
 
     await waitFor(() =>
       expect(screen.getByText(/3 wrong codes were tried/i)).toBeInTheDocument(),
+    );
+  });
+});
+
+/*
+ * ⚠️ BU BÖLÜM TEK BİR ŞEYİ KORUYOR: ANAHTAR İSTEMEK BİR HATA DEĞİL,
+ * VE OLMAYAN BİR ÇIKIŞ GÖSTERİLMEZ.
+ *
+ * Parola doğru; sunucu ikinci faktörü soruyor. Kullanıcının iptal
+ * etmesi de bir arıza değil — kendi kararı. "Yalnızca anahtar" açık bir
+ * hesapta koda geri düşme bağlantısı çizilirse, kullanıcı çalışmayan
+ * bir kapıya yollanmış olur.
+ */
+describe("guvenlik anahtariyla giris", () => {
+  const localOnly = () => {
+    vi.spyOn(api, "me").mockRejectedValue(new ApiError(401, "unauthenticated"));
+    vi.spyOn(api, "authMethods").mockResolvedValue({
+      source: "local",
+      oidc: false,
+      local: true,
+      ldap: false,
+    });
+  };
+
+  // fakeKey, tarayıcının WebAuthn yüzeyini taklit eder: jsdom'da yok.
+  const fakeKey = (result: "ok" | "cancel") => {
+    (window as any).PublicKeyCredential = function () {};
+    Object.defineProperty(navigator, "credentials", {
+      configurable: true,
+      value: {
+        create: vi.fn(),
+        get:
+          result === "ok"
+            ? vi.fn().mockResolvedValue({
+                id: "abc",
+                rawId: new Uint8Array([1]).buffer,
+                type: "public-key",
+                response: {
+                  clientDataJSON: new Uint8Array([2]).buffer,
+                  authenticatorData: new Uint8Array([3]).buffer,
+                  signature: new Uint8Array([4]).buffer,
+                  userHandle: null,
+                },
+              })
+            : vi.fn().mockRejectedValue(new Error("cancelled")),
+      },
+    });
+  };
+
+  const signIn = async () => {
+    const { container } = render(<App />);
+    await waitFor(() =>
+      expect(screen.getByLabelText(/^Password$/i)).toBeInTheDocument(),
+    );
+    await userEvent.type(screen.getByLabelText(/Username/i), "ayse");
+    await userEvent.type(screen.getByLabelText(/^Password$/i), "hunter2");
+    await userEvent.click(screen.getByRole("button", { name: /^Sign in$/i }));
+
+    return container;
+  };
+
+  it("imzayi alip girisi tamamliyor", async () => {
+    localOnly();
+    fakeKey("ok");
+    const login = vi
+      .spyOn(api, "localLogin")
+      .mockResolvedValueOnce({
+        ok: false,
+        totpRequired: false,
+        webauthnRequired: true,
+        codeAllowed: true,
+        options: { publicKey: { challenge: "QQ" } },
+        error: "touch your security key",
+      })
+      .mockResolvedValueOnce({ ok: true, totpRequired: false });
+
+    await signIn();
+
+    // İkinci çağrı imzayı taşıyor — ve parolayı YİNE taşıyor.
+    await waitFor(() => expect(login).toHaveBeenCalledTimes(2));
+    const second = login.mock.calls[1];
+    expect(second[1]).toBe("hunter2");
+    expect(second[3]).toBeTruthy();
+  });
+
+  /*
+   * ⚠️ İPTAL, KODA DÜŞÜRÜYOR — ama yalnızca hesap izin veriyorsa.
+   * Anahtarı takmayı unutan kişi kendi iptalini bir arıza olarak
+   * görmemeli.
+   */
+  it("iptal edilince koda dusuyor", async () => {
+    localOnly();
+    fakeKey("cancel");
+    vi.spyOn(api, "localLogin").mockResolvedValue({
+      ok: false,
+      totpRequired: false,
+      webauthnRequired: true,
+      codeAllowed: true,
+      options: { publicKey: { challenge: "QQ" } },
+      error: "touch your security key",
+    });
+
+    await signIn();
+
+    await waitFor(() =>
+      expect(screen.getByLabelText(/^Code$/i)).toBeInTheDocument(),
+    );
+  });
+
+  /*
+   * ⚠️ EN ÖNEMLİ İDDİA: "yalnızca anahtar" açıkken koda geri düşme
+   * YOLU HİÇ GÖSTERİLMİYOR. Gösterilseydi kullanıcı, sunucunun kabul
+   * etmeyeceği bir kutuya kod yazardı.
+   */
+  it("yalnizca anahtar acikken kod yolunu hic gostermiyor", async () => {
+    localOnly();
+    fakeKey("cancel");
+    vi.spyOn(api, "localLogin").mockResolvedValue({
+      ok: false,
+      totpRequired: false,
+      webauthnRequired: true,
+      codeAllowed: false,
+      options: { publicKey: { challenge: "QQ" } },
+      error: "touch your security key",
+    });
+
+    const container = await signIn();
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/that security key was not used/i),
+      ).toBeInTheDocument(),
+    );
+    /*
+     * ⚠️ KUTUNUN VARLIĞINA DEĞİL, PENCERENİN AÇIK OLUP OLMADIĞINA
+     * BAKILIYOR. Kapalı bir <dialog> çocuklarını DOM'da tutuyor
+     * (Modal'ın kendi notu); "kutu yok" diye sormak, kapalı pencereyi
+     * açık sanmaya yol açan yanlış bir soru.
+     */
+    expect(codeDialog(container).open).toBe(false);
+    expect(
+      screen.queryByRole("button", { name: /authenticator code instead/i }),
+    ).toBeNull();
+  });
+
+  /*
+   * ⚠️ PENCERE AÇIKKEN BAKILIYOR — VE BU TESTİN VAR OLMA SEBEBİ BİR
+   * MUTASYONUN HAYATTA KALMASI.
+   *
+   * İptal yolunda pencere kapanıyor, dolayısıyla "kod bağlantısı
+   * çizilmiyor" iddiası orada hiç sınanmıyordu: kodu koşulsuz
+   * gösterecek biçimde bozduğumda testler yeşil kalıyordu. Burada
+   * doğrulayıcı hiç cevap vermiyor, pencere açık kalıyor ve bağlantının
+   * yokluğu gerçekten ölçülüyor.
+   */
+  it("kilitli hesapta anahtar penceresinde kod baglantisi yok", async () => {
+    localOnly();
+    (window as any).PublicKeyCredential = function () {};
+    Object.defineProperty(navigator, "credentials", {
+      configurable: true,
+      // Hiç çözülmeyen istek: tören açık kalıyor.
+      value: { create: vi.fn(), get: vi.fn(() => new Promise(() => {})) },
+    });
+    vi.spyOn(api, "localLogin").mockResolvedValue({
+      ok: false,
+      totpRequired: false,
+      webauthnRequired: true,
+      codeAllowed: false,
+      options: { publicKey: { challenge: "QQ" } },
+      error: "touch your security key",
+    });
+
+    await signIn();
+
+    await waitFor(() =>
+      expect(screen.getByText(/Touch your security key/i)).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByRole("button", { name: /authenticator code instead/i }),
+    ).toBeNull();
+  });
+
+  // Karşı kanıt: izin varken bağlantı ÇİZİLİYOR.
+  it("izinli hesapta anahtar penceresinde kod baglantisi var", async () => {
+    localOnly();
+    (window as any).PublicKeyCredential = function () {};
+    Object.defineProperty(navigator, "credentials", {
+      configurable: true,
+      value: { create: vi.fn(), get: vi.fn(() => new Promise(() => {})) },
+    });
+    vi.spyOn(api, "localLogin").mockResolvedValue({
+      ok: false,
+      totpRequired: false,
+      webauthnRequired: true,
+      codeAllowed: true,
+      options: { publicKey: { challenge: "QQ" } },
+      error: "touch your security key",
+    });
+
+    await signIn();
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /authenticator code instead/i }),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  /*
+   * ⚠️ DESTEKLEMEYEN TARAYICIDA SESSİZCE KODA DÜŞÜLMÜYOR. Hesap
+   * yalnızca anahtar istiyorsa kod zaten kabul edilmiyor; kullanıcıya
+   * neyin eksik olduğunu söylemek, çalışmayan bir kutu çizmekten iyi.
+   */
+  it("webauthn desteklemeyen tarayicida ne eksik oldugunu soyluyor", async () => {
+    localOnly();
+    delete (window as any).PublicKeyCredential;
+    vi.spyOn(api, "localLogin").mockResolvedValue({
+      ok: false,
+      totpRequired: false,
+      webauthnRequired: true,
+      codeAllowed: false,
+      options: { publicKey: { challenge: "QQ" } },
+      error: "touch your security key",
+    });
+
+    await signIn();
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/cannot use a security key, and this account requires one/i),
+      ).toBeInTheDocument(),
     );
   });
 });

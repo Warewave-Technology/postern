@@ -245,7 +245,7 @@ $ ssh <span class="g">yigit:web-01</span>@bastion
         <li><strong>SSH and SFTP only.</strong> No HTTP, RDP, VNC, MySQL, PostgreSQL or Kubernetes proxying.</li>
         <li><strong>One node.</strong> No clustering and no shared state between instances. Recordings are files on the bastion's disk; finished ones can be copied to an S3-compatible bucket, but the bucket is a copy, not a second bastion.</li>
         <li><strong>No port forwarding.</strong> <code>direct-tcpip</code> is refused; a tunnel postern cannot record is a tunnel it will not carry.</li>
-        <li><strong>TOTP is the only second factor.</strong> Local accounts must enrol one and are asked for a code at every sign-in. Directory and identity-provider accounts get whatever that provider enforces. No recovery codes, no WebAuthn, no push.</li>
+        <li><strong>Codes are the baseline; security keys are the phishing-resistant option.</strong> Local accounts must enrol an authenticator and are asked for a code at every sign-in. A security key (WebAuthn) can be registered on top, and the account can then refuse codes. Directory and identity-provider accounts get whatever that provider enforces. No recovery codes, no passkeys as a first factor, no push.</li>
         <li><strong>No agent on the target.</strong> That is the point, and it is also the limit: postern sees the SSH channel, not the processes behind it.</li>
       </ul>
     </div>

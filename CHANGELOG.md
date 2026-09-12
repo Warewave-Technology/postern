@@ -74,6 +74,41 @@ audit rows into a shape it does not understand.
 
 ### Added
 
+- **Security keys for the panel (WebAuthn).** An account can register one or
+  more hardware keys and use them as its second factor. The panel is postern's
+  control plane, and a code is the part of it that can be phished: a page
+  pretending to be your bastion can ask for the six digits and replay them
+  within thirty seconds. A security key signs a challenge bound to the address
+  it was asked for, so the same page gets nothing it can use.
+
+  **While both are enabled, the account is as phishable as its code** — an
+  attacker with the password simply asks for the code and never touches the
+  key. The panel says exactly that rather than implying the key protects what
+  it does not, and the account can switch codes off once a key is registered.
+
+  Turning codes off cannot lock the account out by accident: it is refused
+  unless a key is already registered, and removing the last key switches codes
+  back on by itself. Losing every key is still an administrator reset from the
+  host — `postern admin reset-webauthn` — because there are still no recovery
+  codes, for the reason there never were: a second secret written down moves
+  the protection onto that piece of paper.
+
+  Registering and removing a key both need a fresh sign-in, the same gate the
+  authenticator already used: a stolen session cookie must not be able to
+  attach an attacker's key and take the account permanently.
+
+  **This brings the panel to where SSH already was.** Hardware-backed SSH keys
+  (`sk-ssh-ed25519`, `sk-ecdsa-sha2-nistp256`) have been accepted since 1.0;
+  the browser side was the half that was missing.
+
+  Two notes for operators. `http.external_url` must name a host, not an IP
+  address — browsers accept `localhost` as a special case but not `127.0.0.1`,
+  and postern refuses to start a ceremony rather than producing a key that
+  will not work later. And if that setting is wrong on an account that has
+  keys, sign-in fails loudly instead of quietly falling back to a code:
+  weakening a second factor because a URL changed is not something that should
+  happen silently.
+
 - **One command brings up a working bastion.** `./scripts/quickstart.sh` builds
   the binary, generates its own CA, host key and master key, migrates the
   schema, starts two target machines that trust the CA, registers them by

@@ -36,6 +36,7 @@ func newAdminCmd() *cobra.Command {
 	cmd.AddCommand(newAdminListCmd())
 	cmd.AddCommand(newAdminRevokeCmd())
 	cmd.AddCommand(newAdminResetTOTPCmd())
+	cmd.AddCommand(newAdminResetWebAuthnCmd())
 	cmd.AddCommand(newAdminUnlockCmd())
 	return cmd
 }
@@ -415,6 +416,87 @@ func newAdminRevokeCmd() *cobra.Command {
  * kimliği zaten doğrulayabilen tarafta kalıyor — burada o taraf host'a
  * erişebilen kişi, yani kurulumu ilk kuran güven kökünün ta kendisi.
  */
+/*
+ * newAdminResetWebAuthnCmd, hesabın güvenlik anahtarlarını host'tan siler.
+ *
+ * ⚠️ BU KOMUT, "YALNIZCA ANAHTAR" KİLİDİNİN TEK ÇIKIŞ YOLU. Bu projede
+ * kurtarma kodu bilerek yok (bir kâğıda yazılan ikinci sır, korumayı o
+ * kâğıda taşır). Anahtarlarını kaybeden kişi için geriye tek şey
+ * kalıyor: host'a erişebilen birinin kilidi açması. Panelden yapılamaz
+ * olması da bilinçli — ele geçirilmiş bir panel oturumu, hesabın
+ * ikinci faktörünü kendi başına söküp atabilirdi.
+ */
+func newAdminResetWebAuthnCmd() *cobra.Command {
+	var configPath, name string
+
+	cmd := &cobra.Command{
+		Use:   "reset-webauthn",
+		Short: "Remove an account's security keys, from the host",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if name == "" {
+				return errors.New("--name is required")
+			}
+			cfg, err := config.Load(configPath)
+			if err != nil {
+				return err
+			}
+			ctx := context.Background()
+
+			db, err := store.Open(ctx, cfg.Database.DSN)
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+
+			removed, err := db.ResetWebAuthn(ctx, name)
+			if err != nil {
+				if errors.Is(err, store.ErrNotFound) {
+					return fmt.Errorf(
+						"no account named %q (`postern user list` shows the ones there are)",
+						name)
+				}
+				return err
+			}
+
+			if err := db.LogAdmin(ctx, store.AdminLogEntry{
+				Actor: "cli", Via: "cli", Action: "admin.webauthn_reset", Entity: name,
+				Details: "security keys removed from the host",
+			}); err != nil {
+				return err
+			}
+
+			/*
+			 * ⚠️ SIFIR DA BİR CEVAP VE AYRI YAZILIYOR. Anahtarı olmayan
+			 * bir hesapta komut yine işe yarıyor (kilidi açıyor), ama
+			 * "1 anahtar silindi" demek yalan olurdu ve operatör
+			 * sildiğini sandığı bir şeyi aramaya devam ederdi.
+			 */
+			switch removed {
+			case 0:
+				fmt.Fprintf(cmd.OutOrStdout(),
+					"%q had no security key. Codes are accepted again if they "+
+						"had been switched off.\n", strings.TrimSpace(name))
+			case 1:
+				fmt.Fprintf(cmd.OutOrStdout(),
+					"1 security key removed from %q. Codes are accepted again; "+
+						"the account, its SSH keys and its audit trail are untouched.\n",
+					strings.TrimSpace(name))
+			default:
+				fmt.Fprintf(cmd.OutOrStdout(),
+					"%d security keys removed from %q. Codes are accepted again; "+
+						"the account, its SSH keys and its audit trail are untouched.\n",
+					removed, strings.TrimSpace(name))
+			}
+
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
+	cmd.Flags().StringVar(&name, "name", "", "postern username")
+
+	return cmd
+}
+
 func newAdminResetTOTPCmd() *cobra.Command {
 	var configPath, name string
 

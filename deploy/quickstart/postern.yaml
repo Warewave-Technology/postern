@@ -23,7 +23,11 @@ recording:
 
 http:
    addr: "0.0.0.0:8088"
-   external_url: "http://127.0.0.1:8088"
+   # ⚠️ 127.0.0.1 DEĞİL, localhost. Güvenlik anahtarları (WebAuthn)
+   # kaynağa bağlanıyor ve şartname RP ID'nin bir ALAN ADI olmasını
+   # istiyor; "localhost" özel bir istisna, "127.0.0.1" değil. IP
+   # yazılsaydı hızlı başlangıçta anahtar hiç kaydedilemezdi.
+   external_url: "http://localhost:8088"
    # ⚠️ Tarayıcı terminali burada AÇIK, ve bu yalnızca loopback olduğu
    # için savunulabilir. Üretimde HTTPS olmadan açmak, oturumun tamamını
    # ağa düz metin vermek demek.

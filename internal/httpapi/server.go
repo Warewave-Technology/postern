@@ -212,6 +212,15 @@ type Server struct {
 	 */
 	promptMu sync.Mutex
 	prompts  map[string]time.Time
+
+	/*
+	 * ⚠️ İKİ AYRI TÖREN DEFTERİ. Kayıt (enroll) oturumu olan birinin
+	 * anahtar bağlaması; giriş (login) ise henüz oturumu OLMAYAN
+	 * birinin imza atması. Tek haritada tutulsaydı, kayıt için
+	 * üretilmiş bir meydan okuma giriş töreninde harcanabilirdi.
+	 */
+	webauthnEnroll ceremonies
+	webauthnLogin  ceremonies
 }
 
 /*
@@ -427,6 +436,7 @@ func (s *Server) Handler() http.Handler {
 
 	// Kendi ikinci faktörüm (totp.go).
 	s.routeTOTP(mux)
+	s.routeWebAuthn(mux)
 
 	// Yönetim: oturum + admin + same-origin (admin.go, federation.go).
 	s.registerAdminRoutes(mux)

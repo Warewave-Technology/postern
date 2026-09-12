@@ -3,6 +3,7 @@ import { Me, api, toMessage } from "./api";
 import { ErrorLine, OkLine } from "./admin/common";
 import Authenticator from "./Authenticator";
 import MyKeys from "./MyKeys";
+import SecurityKeys from "./SecurityKeys";
 
 /*
  * Profile — giriş yapan kişinin KENDİ hesabı.
@@ -219,6 +220,16 @@ export default function Profile({ me, source }: { me: Me; source?: string }) {
         de iptal etmekten de mahrum bırakıyordu — üstelik iptal, bu
         ekrandaki acil olan işlem. Kapatılan yalnızca ekleme formu.
       */}
+      {/*
+        ⚠️ GÜVENLİK ANAHTARI KARTI, public_key_login'E BAĞLI DEĞİL.
+        O ayar HEDEFLERE SSH anahtarıyla girmeyi açıp kapatıyor; buradaki
+        anahtar ise PANELE girerken kullanılan ikinci faktör. İkisini
+        aynı düğmeye bağlamak, SSH anahtar girişini kapatan bir
+        operatörün paneldeki kimlik avı korumasını da sessizce
+        kaldırması demek olurdu.
+      */}
+      <SecurityKeys />
+
       <MyKeys canAdd={me.public_key_login} />
     </section>
   );

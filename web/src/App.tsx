@@ -7,6 +7,7 @@ import {
   onSessionLost,
   toMessage,
 } from "./api";
+import { assertionToJSON, supported, toRequestOptions } from "./webauthn";
 import { ErrorLine } from "./admin/common";
 import Modal from "./admin/Modal";
 import Users from "./admin/Users";
@@ -185,6 +186,10 @@ function LocalSignIn({
    * zaten parolayı biliyor.
    */
   const [needCode, setNeedCode] = useState(false);
+  // needKey: sunucu güvenlik anahtarının imzasını bekliyor.
+  const [needKey, setNeedKey] = useState(false);
+  // keyFallback: hesap koda geri düşmeye izin veriyor mu.
+  const [keyFallback, setKeyFallback] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   /*
@@ -235,6 +240,7 @@ function LocalSignIn({
    * gelmemesine BAĞLI DEĞİL: sıfırlama hatayı hiç ellemiyor.
    */
   const resetToStart = () => {
+    setNeedKey(false);
     setNeedCode(false);
     setCode("");
     setPassword("");
@@ -246,12 +252,65 @@ function LocalSignIn({
     setError(msg);
   };
 
-  const send = (withCode: string) => {
+  /*
+   * touchKey, güvenlik anahtarının imzasını alıp girişi tamamlar.
+   *
+   * ⚠️ KULLANICI İPTAL EDEBİLİR VE BU BİR HATA DEĞİL. Anahtarı takmayı
+   * unutan ya da vazgeçen kişi tarayıcı penceresini kapatıyor; bunu
+   * kırmızı bir hata satırı olarak çizmek, kendi iptalini bir arıza
+   * sanmasına yol açardı. Kod yolu açıksa oraya düşüyor.
+   */
+  const touchKey = (options: unknown, codeAllowed: boolean) => {
+    setBusy(true);
+    navigator.credentials
+      .get({ publicKey: toRequestOptions(options) })
+      .then((c) => {
+        if (!c) throw new Error("no credential");
+        send("", assertionToJSON(c as PublicKeyCredential));
+      })
+      .catch(() => {
+        setBusy(false);
+        setNeedKey(false);
+        if (codeAllowed) {
+          setNeedCode(true);
+          setCode("");
+          return;
+        }
+        setError("that security key was not used; try signing in again");
+      });
+  };
+
+  const send = (withCode: string, assertion?: unknown) => {
     setBusy(true);
     setError("");
     api
-      .localLogin(username.trim(), password, withCode)
+      .localLogin(username.trim(), password, withCode, assertion)
       .then((res) => {
+        if (res.webauthnRequired) {
+          /*
+           * ⚠️ ANAHTAR İSTEMEK DE BİR HATA DEĞİL — kod isteminin
+           * aynısı: parola DOĞRU, sunucu ikinci faktörü soruyor.
+           */
+          if (!supported()) {
+            /*
+             * ⚠️ TARAYICI DESTEKLEMİYORSA SESSİZCE KODA DÜŞMEK YANLIŞ
+             * OLURDU. "Yalnızca anahtar" açık bir hesapta kod zaten
+             * kabul edilmiyor; kullanıcıya neyin eksik olduğunu
+             * söylemek, çalışmayan bir kutu çizmekten iyi.
+             */
+            backToStart(
+              res.codeAllowed
+                ? "this browser cannot use a security key; use your code"
+                : "this browser cannot use a security key, and this account requires one",
+            );
+            if (res.codeAllowed) setNeedCode(true);
+            return;
+          }
+          setKeyFallback(res.codeAllowed === true);
+          setNeedKey(true);
+          touchKey(res.options, res.codeAllowed === true);
+          return;
+        }
         if (res.totpRequired) {
           /*
            * ⚠️ KOD İSTEMEK BİR HATA DEĞİL. Parola DOĞRU; sunucu ikinci
@@ -360,6 +419,36 @@ function LocalSignIn({
         gösteriyor — ve kapatmak baştan başlamak demek, ki yanlış koddan
         sonraki davranışla aynı.
       */}
+      {/*
+        ⚠️ ANAHTAR PENCERESİ, KOD PENCERESİYLE AYNI ADIMDA DURUYOR.
+        Tarayıcı kendi istemini çiziyor; buradaki pencerenin işi
+        kullanıcının hangi adımda olduğunu göstermek ve — izin varsa —
+        koda geri düşme yolunu vermek. O bağlantı, hesap "yalnızca
+        anahtar" derken HİÇ çizilmiyor: olmayan bir çıkışı göstermek,
+        kullanıcıyı çalışmayan bir kapıya yollamak olurdu.
+      */}
+      <Modal
+        open={needKey}
+        title="Security key"
+        narrow
+        description="Touch your security key to finish signing in."
+        onClose={resetToStart}
+      >
+        {keyFallback && (
+          <button
+            className="btn"
+            disabled={busy}
+            onClick={() => {
+              setNeedKey(false);
+              setNeedCode(true);
+              setCode("");
+            }}
+          >
+            Use my authenticator code instead
+          </button>
+        )}
+      </Modal>
+
       <Modal
         open={needCode}
         title="Authenticator code"

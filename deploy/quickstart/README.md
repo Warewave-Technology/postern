@@ -37,7 +37,11 @@ creates lives under `deploy/quickstart/.state` and in one Docker volume;
 ## Ports
 
 Defaults are `8088` for the panel and `2222` for SSH, both bound to
-`127.0.0.1`. Override before running:
+loopback. Open the panel as `http://localhost:8088`, not by IP: security
+keys bind to the address you visit, and the WebAuthn spec accepts
+`localhost` as a special case but not `127.0.0.1`.
+
+Override before running:
 
 ```bash
 POSTERN_HTTP_PORT=9090 POSTERN_SSH_PORT=2200 ./scripts/quickstart.sh
