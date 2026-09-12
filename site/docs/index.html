@@ -363,8 +363,9 @@ Verified OK
       </p>
 <pre>$ sha256sum -c checksums.txt --ignore-missing     <span class="c"># macOS: shasum -a 256 in place of sha256sum</span>
 $ tar xzf postern_1.1.0_linux_amd64.tar.gz
-$ sudo install -o root -g root -m 0755 postern /usr/local/bin/postern   <span class="c"># where the systemd unit looks</span>
+$ sudo install -o root -g root -m 0755 postern /usr/bin/postern   <span class="c"># where the systemd unit looks</span>
 </pre>
+      <div class="note"><b>Or install the package</b><p>Releases also carry <code>.deb</code>, <code>.rpm</code> and <code>.apk</code> packages, which place the binary at the same path, install the systemd unit, and create the <code>postern</code> account and its directories with the right ownership. They deliberately do <i>not</i> start the service: postern needs a configuration, a CA key, a master key and a database before it can open, so the package installs and then tells you the five commands that come next. Removing the package stops the service and leaves recordings, keys, configuration and the database where they are — uninstalling a bastion is not the same as deleting its evidence.</p></div>
       <div class="note"><b>Ask a binary what it is</b><p><code>postern version</code> prints the tag it was built from, the commit, and whether that commit's tree was clean. A build that did not come from a release tag says so rather than inventing a number, and a binary built from a modified tree is marked <code>MODIFIED</code> — which is the distinction that matters when you are checking whether a patch is really in the thing you are running. <code>go version -m ./postern</code> lists the dependency versions it was compiled with.</p></div>
 
       <h3>1b. Or build from source</h3>

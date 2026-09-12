@@ -6,7 +6,8 @@
 # Aşağıdaki kısıtların her biri o kayıp yüzeyini küçültüyor ve hiçbiri
 # süsleme değil.
 #
-# Kurulum:
+# Kurulum (elle; deb/rpm kuranlar için paket zaten yapıyor):
+#   install -o root -g root -m 0755 postern /usr/bin/postern
 #   install -o root -g root -m 0644 postern.service /etc/systemd/system/
 #   systemctl daemon-reload && systemctl enable --now postern
 
@@ -39,7 +40,12 @@ StartLimitIntervalSec=120
 Type=simple
 User=postern
 Group=postern
-ExecStart=/usr/local/bin/postern serve --config /etc/postern/postern.yaml
+# ⚠️ /usr/bin, /usr/local/bin DEĞİL — ve bu yol paketle ORTAK. deb/rpm
+# ikiliyi /usr/bin'e koyuyor (Debian politikası /usr/local'ı yerel
+# yöneticiye ayırıyor), bu birim de paketin içinde aynı dosya olarak
+# gidiyor. İki ayrı yol tutmak, paketle elle kurulumun bir gün farklı
+# şeyler çalıştırması demekti.
+ExecStart=/usr/bin/postern serve --config /etc/postern/postern.yaml
 
 # ⚠️ VERİTABANI PAROLASI KOMUT SATIRINDA DEĞİL, DOSYADA.
 # Komut satırındaki bir DSN'i makinedeki her kullanıcı `ps` ile görür.

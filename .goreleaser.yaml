@@ -110,6 +110,78 @@ archives:
       # olmayan dosyalara yönlendiriyordu. Rol birkaç kB metin.
       - deploy/ansible
 
+# ⚠️ PAKETLER, ARŞİVİN YERİNE DEĞİL YANINA. Sunucuya kuran kişi
+# `apt install` bekliyor; tarball hâlâ duruyor çünkü paket yöneticisi
+# olmayan ortamlar (konteyner, macOS CLI) onunla kuruyor.
+#
+# ⚠️ İKİLİ /usr/bin'E GİRİYOR, /usr/local/bin'E DEĞİL. Debian politikası
+# /usr/local'ı yerel yöneticiye ayırıyor; paketin oraya yazması,
+# yöneticinin elle koyduğu bir ikiliyi sessizce ezmek olurdu. systemd
+# birimi de aynı yolu gösteriyor ve TEK bir dosya: iki birim tutup
+# birinde yolu değiştirmek, ikisinin bir gün ayrışması demekti.
+nfpms:
+  - id: postern
+    package_name: postern
+    ids: [postern]
+    formats: [deb, rpm, apk]
+
+    vendor: Warewave Technology
+    homepage: https://postern.warewave.tech
+    maintainer: Warewave Technology <security@warewave.tech>
+    description: |-
+      Certificate-based, session-recording SSH bastion.
+      Targets hold no authorized_keys, users land as themselves, and a
+      session that cannot be recorded does not start.
+    license: Apache-2.0
+    section: admin
+
+    # ⚠️ BAĞIMLILIK YAZILMIYOR. İkili statik (CGO_ENABLED=0) ve
+    # PostgreSQL genellikle BAŞKA bir makinede; `Depends: postgresql`
+    # yazmak, veritabanını ayrı tutan her kuruluma gereksiz bir sunucu
+    # kurdururdu.
+
+    contents:
+      - src: deploy/systemd/postern.service
+        dst: /lib/systemd/system/postern.service
+        file_info:
+          mode: 0644
+
+      - src: LICENSE
+        dst: /usr/share/doc/postern/LICENSE
+      - src: THIRD-PARTY-NOTICES.md
+        dst: /usr/share/doc/postern/THIRD-PARTY-NOTICES.md
+      - src: CHANGELOG.md
+        dst: /usr/share/doc/postern/CHANGELOG.md
+      - src: SECURITY.md
+        dst: /usr/share/doc/postern/SECURITY.md
+      - src: deploy/README.md
+        dst: /usr/share/doc/postern/deploy-README.md
+
+      # ⚠️ YAPILANDIRMA ÖRNEK OLARAK GİRİYOR, /etc/postern/postern.yaml
+      # OLARAK DEĞİL. Paket gerçek config'i yazsaydı, yükseltme
+      # operatörün yazdığının üzerine gelme riski taşırdı; dosyayı
+      # kurulumdan sonra operatör oluşturuyor.
+      - src: deploy/packaging/postern.yaml.example
+        dst: /usr/share/doc/postern/postern.yaml.example
+
+      - dst: /var/lib/postern/recordings
+        type: dir
+        file_info:
+          mode: 0700
+          owner: postern
+          group: postern
+
+    scripts:
+      postinstall: deploy/packaging/postinstall.sh
+      preremove: deploy/packaging/preremove.sh
+
+    rpm:
+      signature:
+        key_file: ""
+    deb:
+      signature:
+        key_file: ""
+
 checksum:
   name_template: "checksums.txt"
   algorithm: sha256

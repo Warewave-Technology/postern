@@ -30,6 +30,27 @@ audit rows into a shape it does not understand.
 
 ## Unreleased
 
+### Needs action if you installed the binary by hand
+
+- **The systemd unit now runs `/usr/bin/postern`, not `/usr/local/bin/postern`.**
+  This release adds `.deb`, `.rpm` and `.apk` packages, and a packaged binary
+  belongs in `/usr/bin` — Debian policy reserves `/usr/local` for the local
+  administrator, so a package writing there would silently overwrite a binary
+  you put there yourself. Rather than ship two unit files that would drift
+  apart, there is one, and it points at the packaged path.
+
+  If you installed from the tarball and copied the unit, either move the
+  binary or leave the unit alone:
+
+  ```bash
+  sudo install -o root -g root -m 0755 /usr/local/bin/postern /usr/bin/postern
+  sudo systemctl daemon-reload && sudo systemctl restart postern
+  ```
+
+  The failure is loud if you miss it — systemd refuses to start a unit whose
+  `ExecStart` does not exist — but it is a restart away from being noticed, so
+  it is here rather than in a footnote.
+
 ### Needs action if you rely on recordings as evidence
 
 - **Recordings now carry a tamper-evident chain, and five schema migrations
@@ -68,6 +89,61 @@ audit rows into a shape it does not understand.
 
   It is not production shape and says so:
   [deploy/quickstart](deploy/quickstart/README.md) lists what changes.
+
+- **Linux packages: `.deb`, `.rpm` and `.apk`.** They install the binary and
+  the systemd unit, create the `postern` system account, and make
+  `/var/lib/postern/recordings` and `/etc/postern` with the ownership the unit
+  expects. They do **not** start the service — postern needs a configuration, a
+  CA key, a master key and a database first, so the package prints the five
+  commands that come next instead of leaving a failed unit behind.
+
+  Removing the package stops the service and leaves recordings, keys,
+  configuration and the database untouched. Uninstalling a bastion is not the
+  same as deleting its evidence, and a package manager is the wrong place to
+  make that decision.
+
+- **The session list says which sessions have something to look at.** Two
+  counts now travel with every row and are drawn in an **Evidence** column:
+  events postern could not write to the file journal, and requests postern
+  refused. Until now a session in which `/etc/shadow` was refused looked
+  exactly like a session in which nothing happened; the difference only
+  appeared after opening the row and reading its file events. On a
+  200-session list that is 200 clicks, which in practice means nobody looks.
+
+  **The column never says a session is fine.** It draws at most one badge and
+  has nothing to say about a clean row — the cell stays empty, and the note
+  under the table says what empty does *not* mean. Whether the journal
+  actually matches the recording is a question about the rows themselves;
+  the server answers it when you open a session and press **Verify**, and
+  putting a green tick in the list would be crediting a check nobody ran.
+
+  A refusal is drawn as a plain badge, not a red one. Red is reserved in this
+  panel for a contradiction — a recording that is sealed but does not match —
+  and a refused request is also the rule *working*.
+
+  **The count is refused requests, not journal rows, and it can be much
+  larger than the number of rows you then see.** Consecutive identical
+  refusals are folded into one row on purpose: a client pushing 300 MB at a
+  path it may not write produces over ten thousand refusals in 32 KiB
+  chunks, and a row each would exceed the journal ceiling and kill the
+  session. Counting rows would have reported that session as *2 refused* —
+  the most persistent session in the list carrying the smallest number,
+  which is the opposite of what the column is for. The folded row says how
+  many it stands for.
+
+  **Sessions that closed before this release are not counted, and the field
+  is absent rather than zero.** Zero would read as "nothing was refused here",
+  which is a claim about the past that postern cannot make. The same
+  distinction is already in the schema for `sftp_events` (037).
+
+  Two columns left the table to make room: **OS user** and **Src**. Neither
+  answers "which session should I open", both answer the question after it,
+  and both are still there — in the header of the opened session, and in
+  search, so an auditor typing an address still finds the row.
+
+  **`postern session list` grew the same column.** It is the only list the
+  auditor working on the bastion host has, and answering the same question
+  differently depending on where you stand is worse than not answering it.
 
 - **A target that stops answering no longer hangs the panel.** The browser's
   SFTP client had no deadline of any kind: a target that went silent left a

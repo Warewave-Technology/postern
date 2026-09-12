@@ -11,12 +11,12 @@ filesystem except the recordings directory, no capabilities at all, and
 a syscall filter.
 
 ```bash
-# The unit runs /usr/local/bin/postern — put the binary there first.
+# The unit runs /usr/bin/postern — put the binary there first.
 # Nothing else in the documentation does this step, and without it
 # systemd reports status=203/EXEC, which reads like a permissions
 # problem rather than a missing file.
 tar xzf postern_1.0.0_linux_amd64.tar.gz
-install -o root -g root -m 0755 postern /usr/local/bin/postern
+install -o root -g root -m 0755 postern /usr/bin/postern
 
 useradd --system --home /var/lib/postern --shell /usr/sbin/nologin postern
 install -d -o postern -g postern -m 0700 /var/lib/postern/recordings

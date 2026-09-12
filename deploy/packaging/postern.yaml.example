@@ -1,0 +1,40 @@
+# postern — example configuration.
+#
+# Copy to /etc/postern/postern.yaml and edit. The unit reads this path
+# and nothing else; the package deliberately does not install it, so an
+# upgrade can never overwrite what you wrote.
+
+listen:
+   # The bastion's SSH port. 22 is deliberately not the default: the
+   # unit grants no CAP_NET_BIND_SERVICE, so a port below 1024 needs a
+   # redirect in front rather than a capability on the process.
+   addr: "0.0.0.0:2222"
+
+host_key: /etc/postern/host_ed25519
+
+ca:
+   key_file: /etc/postern/ca_ed25519
+
+# The database password does NOT belong here. Put the whole DSN in
+# /etc/postern/postern.env as POSTERN_DATABASE_DSN=... — that file is
+# owned by root:postern and mode 0640, and the unit reads it.
+database: {}
+
+session:
+   idle_timeout: 30m
+   sftp: true
+   # The panel's file browser. ANDed with sftp above; an account with no
+   # path rules never sees it.
+   sftp_panel: true
+
+recording:
+   dir: /var/lib/postern/recordings
+
+http:
+   addr: "127.0.0.1:8088"
+   external_url: "https://postern.example.com"
+   # The browser terminal is off by default. Switching it on without
+   # HTTPS puts the whole session on the network in clear.
+   terminal_enabled: false
+
+secret_key_file: /etc/postern/secret.key
