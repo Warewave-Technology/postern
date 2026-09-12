@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -116,4 +117,68 @@ func observe(t *testing.T, r sshRunner, d Desired) Observed {
 	}
 
 	return o
+}
+
+/*
+ * TestRevokeAgainstARealTarget, sökme planını gerçek makinede koşturur.
+ *
+ * ⚠️ BU ADIMLAR YIKICI VE BU YÜZDEN YALNIZCA AÇIKÇA VERİLEN BİR HEDEFTE
+ * KOŞUYOR. Testin kendisi de küçük bir kanıt: planın ürettiği komutlar
+ * gerçekten çalışıyor mu, ve arkasında bir şey bırakıyor mu.
+ */
+func TestRevokeAgainstARealTarget(t *testing.T) {
+	key := os.Getenv("POSTERN_LIVE_KEY")
+	addr := os.Getenv("POSTERN_LIVE_TARGET")
+	if key == "" || addr == "" {
+		t.Skip("POSTERN_LIVE_TARGET ve POSTERN_LIVE_KEY verilmedi")
+	}
+	port := os.Getenv("POSTERN_LIVE_PORT")
+	if port == "" {
+		port = "22"
+	}
+	user := os.Getenv("POSTERN_LIVE_REVOKE_USER")
+	if user == "" {
+		t.Skip("POSTERN_LIVE_REVOKE_USER verilmedi")
+	}
+
+	r := sshRunner{key: key, addr: addr, port: port}
+	caps := upstream.ManageCapabilities{
+		Sudo: true, AddUser: "/usr/sbin/useradd", AddGroup: "/usr/sbin/groupadd",
+		ModUser: "/usr/sbin/usermod", DelUser: "/usr/sbin/userdel",
+		Visudo: "/usr/sbin/visudo", Family: "debian",
+	}
+
+	uidOut, err := r.Exec(context.Background(), "id -u "+user, "")
+	if err != nil {
+		t.Fatalf("uid okunamadı: %v", err)
+	}
+	uid, err := strconv.Atoi(strings.TrimSpace(uidOut))
+	if err != nil {
+		t.Fatalf("uid sayı değil: %q", uidOut)
+	}
+
+	steps, err := RevokePlan(caps, Revoke{
+		User: user, Mode: ModeDelete, UID: uid, InJITGroup: true,
+		Home:      "/home/" + user,
+		SudoFiles: []string{"/etc/sudoers.d/postern-yayilim"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rep := Apply(context.Background(), r, steps)
+	t.Logf("sökme: %s", rep.Summary())
+	for _, res := range rep.Results {
+		if res.Outcome == OutcomeFail {
+			t.Errorf("%s düştü: %v — %s", res.Step.Kind, res.Err, res.Output)
+		}
+		if res.Step.Kind == StepReportOwned {
+			t.Logf("kalan dosyalar:\n%s", res.Output)
+		}
+	}
+
+	// Hesap gerçekten gitmiş olmalı.
+	if out, err := r.Exec(context.Background(), "id "+user, ""); err == nil {
+		t.Errorf("HESAP DURUYOR: %s", out)
+	}
 }
