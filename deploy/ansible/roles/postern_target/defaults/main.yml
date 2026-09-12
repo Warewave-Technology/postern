@@ -26,3 +26,28 @@ postern_principals: {}
 postern_ca_path: /etc/ssh/postern_ca.pub
 postern_principals_dir: /etc/ssh/auth_principals
 postern_sshd_config: /etc/ssh/sshd_config.d/50-postern.conf
+
+# ⚠️ YÖNETİM HESABI VARSAYILAN OLARAK KAPALI.
+#
+# Açıldığında hedefte parolasız tam sudo'su olan bir hesap açılıyor.
+# Rolü yükselten birine bunu sessizce yapmak, filoya haberi olmadan
+# root eşdeğeri bir hesap dağıtmak olurdu. Açmak bilinçli bir karar.
+postern_manage_host: false
+
+# Hedefteki yönetim hesabının adı.
+postern_manage_user: postern
+
+# ⚠️ YÖNETİM PRINCIPAL'I İNSAN PRINCIPAL'LARINDAN AYRI.
+#
+# postern insanların os_user'ını principal olarak imzalıyor. Yönetim
+# hesabı aynı isim alanını paylaşsaydı, "postern" adlı bir OS hesabı
+# olan herhangi bir kişi yönetim hesabına girebilirdi.
+postern_manage_principal: postern-manage
+
+# ⚠️ KABUK GEREKLİ. postern komutları SSH exec ile gönderiyor ve exec
+# hedefin kabuğuyla çalışıyor; nologin bir hesapla hiçbir şey
+# çalıştırılamaz.
+postern_manage_shell: /bin/sh
+
+postern_manage_home: /var/lib/postern-managed
+postern_manage_sudoers: /etc/sudoers.d/postern

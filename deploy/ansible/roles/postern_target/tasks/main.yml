@@ -119,3 +119,106 @@
   register: postern_ca_effective
   changed_when: false
   failed_when: postern_ca_path not in postern_ca_effective.stdout
+
+# ───────────────────────────────────────────────────────────────────
+# Yönetim hesabı (postern_manage_host)
+#
+# ⚠️ BURADAN SONRASI HEDEFİ POSTERN'E YÖNETTİRİYOR ve bu, yukarıdaki
+# her şeyden farklı bir güven kararı. Yukarısı "bu CA'nın imzasına
+# güven" diyor; burası "postern bu makinede kullanıcı açabilir, gruba
+# ekleyebilir, sudoers yazabilir" diyor. Kapalıyken rolün davranışı
+# birebir eskisi.
+#
+# ⚠️ SUDO DAR DEĞİL, VE BU BİLİNÇLİ. Dar bir kural yazsaydık, postern'in
+# yapabileceklerini her genişletme ihtiyacı BÜTÜN FİLOYA bir playbook
+# koşusu demek olurdu — yani hedeflerde sürümlenmesi gereken bir parça,
+# yani küçük bir ajan. Geniş hak bir kez veriliyor ve bir daha
+# dokunulmuyor; daraltmanın tamamı postern tarafında, sudoers
+# şablonlarının doğrulanmasıyla yapılıyor.
+# ───────────────────────────────────────────────────────────────────
+
+# ⚠️ İKİ KAYNAK ÇAKIŞMASIN. Yönetim hesabının principal dosyasını bu rol
+# ayrıca yazıyor; aynı hesap postern_principals içinde de sayılmışsa
+# hangisinin kazandığı koşum sırasına kalırdı. Tahmin etmek yerine
+# duruyoruz.
+- name: Refuse a management account that is also listed as a human target
+  ansible.builtin.assert:
+    that:
+      - postern_manage_user not in postern_principals
+    fail_msg: >-
+      {{ postern_manage_user }} appears in postern_principals as well. The
+      management account's principals are written by this role; listing it
+      twice would make the winner depend on task order. Remove it from
+      postern_principals.
+  when: postern_manage_host
+
+- name: Create the group postern manages the host as
+  ansible.builtin.group:
+    name: "{{ postern_manage_user }}"
+    system: true
+    state: present
+  when: postern_manage_host
+
+# ⚠️ PAROLA ALANI "*", "!" DEĞİL — VE ARADAKİ FARK HESABI AÇIYOR YA DA
+# KAPATIYOR. useradd parolasız bir hesabı KİLİTLİ ("!") açıyor ve
+# OpenSSH kilitli bir hesaba sertifikayla bile giriş vermiyor
+# ("account is locked"). "*" ise parolayla girişi kapatıyor ama hesabı
+# kilitlemiyor — istediğimiz tam olarak bu: giriş yalnızca sertifikayla.
+- name: Create the account postern manages the host as
+  ansible.builtin.user:
+    name: "{{ postern_manage_user }}"
+    group: "{{ postern_manage_user }}"
+    system: true
+    shell: "{{ postern_manage_shell }}"
+    home: "{{ postern_manage_home }}"
+    create_home: true
+    password: "*"
+  when: postern_manage_host
+
+# ⚠️ HEDEFTE ANAHTAR YOK. Yönetim hesabına da authorized_keys
+# yazmıyoruz: giriş, postern'in kendi CA'sının imzaladığı kısa ömürlü
+# sertifikayla oluyor. Böylece bu hesap için çalınabilecek statik bir
+# sır hiç var olmuyor.
+- name: Let the management principal open the management account
+  ansible.builtin.copy:
+    content: "{{ postern_manage_principal }}\n"
+    dest: "{{ postern_principals_dir }}/{{ postern_manage_user }}"
+    owner: root
+    group: root
+    mode: "0644"
+  when: postern_manage_host
+  notify: Reload sshd
+
+# ⚠️ visudo İLE DOĞRULANIYOR VE ASLA /etc/sudoers'A YAZILMIYOR.
+# Geçersiz bir sudoers dosyası o makinede HERKESİN sudo'sunu götürür —
+# postern'in kendi hesabı dahil, yani kendini onaramaz hâle gelir.
+# validate, dosya yerine konmadan önce hedefin KENDİ visudo'suyla
+# koşuyor: sözdizimi sudo sürümüne göre değişiyor ve bastion'da
+# doğrulamak arkasını dolduramayacağımız bir iddia olurdu.
+- name: Grant the management account sudo
+  ansible.builtin.copy:
+    content: |
+      # postern — managed host account.
+      #
+      # Written by the postern_target Ansible role. postern narrows what
+      # it actually does on this machine; this grant exists so that
+      # narrowing never requires touching the fleet again.
+      {{ postern_manage_user }} ALL=(ALL) NOPASSWD:ALL
+    dest: "{{ postern_manage_sudoers }}"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
+  when: postern_manage_host
+
+# ⚠️ SON SÖZÜ sudo'nun KENDİSİ SÖYLÜYOR — sshd kontrolüyle aynı gerekçe.
+# Dosyayı yazmış olmak, sudo'nun onu OKUDUĞU anlamına gelmiyor:
+# sudoers.d ancak ana dosyada bir #includedir satırı varsa okunuyor ve
+# bazı sıkılaştırılmış kurulumlarda o satır kaldırılmış oluyor. O hâlde
+# rol "changed, failed=0" der ve postern hiçbir şey yönetemez.
+- name: Confirm sudo really grants the management account
+  ansible.builtin.command: sudo -n -l -U {{ postern_manage_user }}
+  register: postern_sudo_effective
+  changed_when: false
+  failed_when: "'NOPASSWD: ALL' not in postern_sudo_effective.stdout"
+  when: postern_manage_host

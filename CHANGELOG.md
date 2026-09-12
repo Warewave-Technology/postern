@@ -74,6 +74,59 @@ audit rows into a shape it does not understand.
 
 ### Added
 
+- **postern can manage the accounts on a target, not just broker access to
+  them.** The Ansible role gained an opt-in management account
+  (`postern_manage_host`, off by default): a `postern` system account that
+  signs in with a certificate from postern's own CA — no key is stored on the
+  target — and holds passwordless sudo.
+
+  The sudo grant is deliberately broad and written **once**. A narrow grant
+  would mean that every change to what postern does requires a playbook run
+  across the whole fleet, which is a versioned component on every machine —
+  an agent by another name. The narrowing happens on postern's side instead,
+  where it can be changed by upgrading one binary.
+
+  Two things had to be measured rather than assumed. The account's password
+  field is `*`, not `!`: a locked account is refused by OpenSSH even with a
+  valid certificate. And the role does not believe its own success — it runs
+  `sudo -n -l -U postern` and fails unless sudo itself reports the grant,
+  because `sudoers.d` is only read when the main file includes it.
+
+- **postern refuses to manage a machine it does not understand.** A capability
+  probe records which tools a target actually has and names what is missing
+  rather than guessing. On Alpine it finds busybox's `adduser` but no
+  `usermod`, no `visudo` and no sudo, and reports the target as not
+  manageable — a half-configured machine is worse than an untouched one,
+  because the panel looks green and nobody looks again.
+
+  `command -v` takes one name: dash prints only the first of several, busybox
+  prints nothing. Both were measured; the probe uses a loop.
+
+- **Sudo rules are checked for what they mean, not just for whether they
+  parse.** `visudo` says a file will not break sudo. It does not say the rule
+  is narrow, and the difference is usually root:
+
+  ```
+  denetci ALL=(root) NOPASSWD: /usr/bin/find /var/log *
+  ```
+
+  That rule was written on a Debian 13 machine, `visudo` accepted it, and the
+  account it was written for got `uid=0(root)` through `find -exec`. postern
+  now refuses rules with wildcards, relative paths, `ALL`, negations,
+  sudoers tags, or line breaks outright, and refuses known shell-escape
+  binaries unless an operator explicitly acknowledges the risk — which is then
+  recorded rather than silently assumed.
+
+- **Propagation plans are computed before anything is touched.** Given what a
+  target has and what it should have, postern produces an ordered, stable,
+  idempotent list of steps; a second run produces none. A target that cannot
+  be managed gets no steps at all rather than a partial application. Names
+  that would become a second shell command are refused before they reach a
+  command line, and sudo rule text is passed on stdin rather than interpolated
+  into one. Sudo files are staged, checked with the target's own `visudo`, and
+  only then installed — writing directly would let an invalid file take sudo
+  away from everyone on that machine, postern's own account included.
+
 - **Security keys for the panel (WebAuthn).** An account can register one or
   more hardware keys and use them as its second factor. The panel is postern's
   control plane, and a code is the part of it that can be phished: a page
