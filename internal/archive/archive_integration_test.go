@@ -61,8 +61,19 @@ func newDB(t *testing.T) *store.Store {
  * Konteyner SÜREÇ BOYUNCA PAYLAŞILIYOR (testdb ile aynı desen); testler
  * birbirinden KOVA adıyla ayrılıyor.
  */
+/*
+ * ⚠️ İMAJ quay.io'DAN, Docker Hub'dan DEĞİL — ÖLÇÜLDÜ.
+ *
+ * "minio/minio" kimliksiz bir daemon'dan çekilemiyor ve hata
+ * "repository does not exist or may require 'docker login'" diyor.
+ * Arıza sessiz değil ama YERİ yanıltıcı: testcontainers çekmeyi
+ * deniyor, paket 25 dakikalık zaman aşımına gidiyor ve geriye
+ * "test timed out" kalıyor — yani imaj sorununu gösteren hiçbir şey.
+ * quay.io MinIO'nun kendi kayıt defteri; hem çekilebiliyor hem de
+ * Docker Hub'ın anonim indirme kotasına bağlı kalmıyoruz.
+ */
 const (
-	minioImage = "minio/minio:RELEASE.2024-01-16T16-07-38Z"
+	minioImage = "quay.io/minio/minio:RELEASE.2024-01-16T16-07-38Z"
 	minioUser  = "posterntest"
 	minioPass  = "posterntest123"
 )

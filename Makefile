@@ -27,7 +27,7 @@ LDFLAGS := -X github.com/Warewave-Technology/postern/internal/version.version=$(
 GOSEC_VERSION        ?= v2.29.0
 GOVULNCHECK_VERSION  ?= v1.7.0
 
-.PHONY: build test test-race test-short test-integration vet fmt lint sec vuln fuzz audit ci web web-test web-check notices notices-check release-snapshot release-check release-clean-check release-docs-check clean
+.PHONY: build test test-race test-short test-images test-integration vet fmt lint sec vuln fuzz audit ci web web-test web-check notices notices-check release-snapshot release-check release-clean-check release-docs-check clean
 
 build:
 	$(GO) build -ldflags "$(LDFLAGS)" -o bin/postern ./cmd/postern
@@ -58,7 +58,17 @@ test-short:
 # önce Actions öldürüyordu ve geriye teşhis kalmıyordu: iş CANCELLED
 # görünüyor, hangi testin asıldığı hiçbir yerde yazmıyordu. Go'nunki önce
 # dolunca yığın dökümü çıkıyor ve soru cevaplanabilir hâle geliyor.
-test-integration:
+# ⚠️ TEST İMAJI MAKE'TE DERLENİYOR, TESTİN İÇİNDE DEĞİL.
+#
+# testcontainers'ın FromDockerfile'ı Docker'ın KLASİK derleme ucunu
+# çağırıyor ve OrbStack o uca yanıt vermiyor: paket 25 dakika boyunca
+# geri çekilmeyle yeniden deneyip "test timed out" diyor, derleyiciyi
+# gösteren tek bir satır bırakmadan (ölçüldü). Burada derlenince hem
+# taşınabilir oluyor hem de her koşuda yeniden derlenmiyor.
+test-images:
+	docker build -q -t postern-certtarget:test test/integration/testdata/certtarget >/dev/null
+
+test-integration: test-images
 	$(GO) test -race -tags integration -count=1 -timeout 25m \
 		./test/... ./internal/archive/...
 

@@ -33,6 +33,21 @@ type certTarget struct {
 	cont    testcontainers.Container
 }
 
+/*
+ * certTargetImage, testdata/certtarget'tan ÖNCEDEN derlenen imaj.
+ *
+ * ⚠️ İMAJI TESTCONTAINERS DERLEMİYOR — VE SEBEBİ ÖLÇÜLDÜ. FromDockerfile,
+ * Docker'ın KLASİK (BuildKit olmayan) derleme ucunu çağırıyor; OrbStack
+ * o uca hiç yanıt vermiyor ve testcontainers geri çekilme (backoff) ile
+ * sonsuza kadar yeniden deniyor. Sonuç, 25 dakikalık "test timed out" ve
+ * derleyiciyi gösteren hiçbir iz değil. Derlemeyi make'e taşımak hem bu
+ * bağımlılığı kaldırıyor hem de her koşuda yeniden derlemeyi bitiriyor.
+ *
+ * Dockerfile hâlâ ÇALIŞTIRILABİLİR DOKÜMANTASYON; yalnızca onu derleyen
+ * yer değişti (Makefile: test-images).
+ */
+const certTargetImage = "postern-certtarget:test"
+
 // startCertTarget, verilen CA'ya güvenen bir OpenSSH konteyneri kaldırır.
 //
 // Hedef tarafının yapılandırması testdata/certtarget/Dockerfile'da ve
@@ -44,10 +59,7 @@ func startCertTarget(t *testing.T, caAuthorizedKey string) certTarget {
 
 	cont, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
-			FromDockerfile: testcontainers.FromDockerfile{
-				Context:   filepath.Join("testdata", "certtarget"),
-				KeepImage: true, // her testte yeniden derlemesin
-			},
+			Image:        certTargetImage,
 			ExposedPorts: []string{"22/tcp"},
 			Files: []testcontainers.ContainerFile{{
 				// CA'nın public anahtarı: hedefin güvendiği TEK şey.
@@ -60,7 +72,12 @@ func startCertTarget(t *testing.T, caAuthorizedKey string) certTarget {
 		Started: true,
 	})
 	if err != nil {
-		t.Fatalf("sertifika hedefi başlatılamadı (Docker ayakta mı?): %v", err)
+		// ⚠️ EKSİK İMAJ, AYRI BİR CÜMLE HAK EDİYOR. Buraya düşen kişinin
+		// ilk varsayımı "Docker kapalı" oluyor; oysa çoğu zaman imaj
+		// derlenmemiş ve yapılacak şey tek komut.
+		t.Fatalf("sertifika hedefi başlatılamadı: %v\n\n"+
+			"%s imajı yoksa önce `make test-images` çalıştır; Docker ayakta mı diye de bak.",
+			err, certTargetImage)
 	}
 	t.Cleanup(func() { _ = cont.Terminate(context.Background()) })
 
