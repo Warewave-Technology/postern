@@ -273,3 +273,47 @@ func TestSameRequestInAnyOrderGivesTheSamePlan(t *testing.T) {
 		}
 	}
 }
+
+/*
+ * ⚠️ HER ADIM GERÇEKTEN ROOT OLARAK KOŞMALI — VE BU TESTİN VAR OLMA
+ * SEBEBİ, BİR KUSURUN TESTLERDEN KAÇMASI.
+ *
+ * Plan bir süre `cat > /etc/sudoers.d/…` üretti. O komut hedefte
+ * `postern` hesabıyla koştuğunda çalışmaz: yönlendirme sudo'dan ÖNCE,
+ * çağıran kabukta yapılıyor ve dosya YETKİSİZ kullanıcı olarak
+ * açılmaya çalışılıyor. Canlı denemede farkında olmadan `sudo -n tee`
+ * yazıp doğruladığım için de görünmedi — yani planın kendisini değil,
+ * elle düzeltilmiş hâlini ölçmüşüm.
+ *
+ * İki şey sabitleniyor: komut sudo ile başlıyor, ve ayrıcalıklı bir
+ * yola kabuk yönlendirmesiyle yazılmıyor.
+ */
+func TestEveryStepActuallyRunsAsRoot(t *testing.T) {
+	steps, err := Plan(able(), Desired{
+		Groups: []Group{{Name: "dba", Sudo: sudoers.Rule{
+			Commands: []sudoers.Command{{Path: "/usr/bin/nginx", Args: []string{"-t"}}},
+		}}},
+		Users: []User{{Name: "ayse", Groups: []string{"dba"}}},
+	}, empty())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, s := range steps {
+		if !strings.HasPrefix(s.Command, "sudo -n ") {
+			t.Errorf("%s adımı sudo'suz koşuyor: %q", s.Kind, s.Command)
+		}
+
+		/*
+		 * ⚠️ Ayrıcalıklı yola yönlendirme, sudo'dan önce çalışır.
+		 * ">/dev/null" zararsız (çıktıyı atıyor); "/etc" altına
+		 * yönlendirme ise sessizce yetkisiz kalır.
+		 */
+		for _, bad := range []string{"> /etc", ">/etc", "> /var", ">/var"} {
+			if strings.Contains(s.Command, bad) {
+				t.Errorf("%s adımı ayrıcalıklı yola kabuk yönlendirmesiyle yazıyor: %q",
+					s.Kind, s.Command)
+			}
+		}
+	}
+}

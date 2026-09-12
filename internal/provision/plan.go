@@ -75,7 +75,15 @@ const (
  * çalışıyor.
  */
 type Step struct {
-	Kind    StepKind
+	Kind StepKind
+
+	/*
+	 * Command, hedefte AYNEN çalıştırılacak komut — sudo dahil.
+	 *
+	 * ⚠️ SUDO PLANDA, UYGULAYICIDA DEĞİL. Plan operatöre gösterilen
+	 * şey; "ne çalışacak" sorusunun cevabı burada eksiksiz durmalı.
+	 * Uygulayıcı komutu değiştirirse, onaylanan ile koşan farklı olur.
+	 */
 	Command string
 	// Content, varsa komutun stdin'ine verilecek metin.
 	Content string
@@ -115,7 +123,7 @@ func Plan(caps upstream.ManageCapabilities, d Desired, o Observed) ([]Step, erro
 		}
 		steps = append(steps, Step{
 			Kind:    StepGroupAdd,
-			Command: caps.AddGroup + " " + g.Name,
+			Command: "sudo -n " + caps.AddGroup + " " + g.Name,
 			Why:     "group " + g.Name + " is missing",
 		})
 	}
@@ -129,7 +137,7 @@ func Plan(caps upstream.ManageCapabilities, d Desired, o Observed) ([]Step, erro
 		if !exists {
 			steps = append(steps, Step{
 				Kind:    StepUserAdd,
-				Command: caps.AddUser + " -m -s /bin/bash " + u.Name,
+				Command: "sudo -n " + caps.AddUser + " -m -s /bin/bash " + u.Name,
 				Why:     "account " + u.Name + " is missing",
 			})
 		}
@@ -137,9 +145,10 @@ func Plan(caps upstream.ManageCapabilities, d Desired, o Observed) ([]Step, erro
 		missing := missingGroups(u.Groups, have)
 		if len(missing) > 0 {
 			steps = append(steps, Step{
-				Kind:    StepUserGroup,
-				Command: caps.ModUser + " -a -G " + strings.Join(missing, ",") + " " + u.Name,
-				Why:     u.Name + " is not in " + strings.Join(missing, ", "),
+				Kind: StepUserGroup,
+				Command: "sudo -n " + caps.ModUser + " -a -G " +
+					strings.Join(missing, ",") + " " + u.Name,
+				Why: u.Name + " is not in " + strings.Join(missing, ", "),
 			})
 		}
 	}
@@ -176,21 +185,30 @@ func Plan(caps upstream.ManageCapabilities, d Desired, o Observed) ([]Step, erro
 		 */
 		steps = append(steps,
 			Step{
-				Kind:    StepSudoStage,
-				Command: "cat > " + stagePath(g.Name),
+				Kind: StepSudoStage,
+				/*
+				 * ⚠️ tee, `cat >` DEĞİL — VE FARK KOMUTU ÇALIŞTIRIYOR
+				 * YA DA ÇALIŞTIRMIYOR. Yönlendirme sudo'dan ÖNCE,
+				 * çağıran kabukta yapılıyor: `sudo -n cat > /etc/...`
+				 * dosyayı YETKİSİZ kullanıcı olarak açmaya çalışır ve
+				 * "permission denied" ile düşer. İlk yazdığım plan bu
+				 * hatayı taşıyordu; canlı denemede farkında olmadan
+				 * tee'ye çevirip doğruladığım için de görünmemişti.
+				 */
+				Command: "sudo -n tee " + stagePath(g.Name) + " >/dev/null",
 				Content: content,
 				Why:     "sudo rule for " + g.Name + " is missing or has changed",
 			},
 			Step{
 				Kind:    StepSudoCheck,
-				Command: caps.Visudo + " -cf " + stagePath(g.Name),
+				Command: "sudo -n " + caps.Visudo + " -cf " + stagePath(g.Name),
 				Why:     "the target's own visudo must accept it before it is installed",
 			},
 			Step{
 				Kind: StepSudoInstall,
-				Command: "install -o root -g root -m 0440 " +
+				Command: "sudo -n install -o root -g root -m 0440 " +
 					stagePath(g.Name) + " " + sudoPath(g.Name) +
-					" && rm -f " + stagePath(g.Name),
+					" && sudo -n rm -f " + stagePath(g.Name),
 				Why: "install the checked rule",
 			},
 		)
