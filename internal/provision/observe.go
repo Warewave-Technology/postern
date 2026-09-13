@@ -45,7 +45,7 @@ func absent(err error) (bool, error) {
  */
 func Observe(ctx context.Context, r Runner, d Desired) (Observed, error) {
 	o := Observed{
-		Groups: map[string]bool{}, Users: map[string][]string{},
+		Groups: map[string]bool{}, GIDs: map[string]int{}, Users: map[string][]string{},
 		PosternSudoers: map[string]string{},
 	}
 
@@ -57,12 +57,25 @@ func Observe(ctx context.Context, r Runner, d Desired) (Observed, error) {
 		if bad := checkName(g.Name); bad != "" {
 			return Observed{}, fmt.Errorf("provision.Observe: group %q: %s", g.Name, bad)
 		}
-		_, err := r.Exec(ctx, "getent group "+g.Name, "")
+		out, err := r.Exec(ctx, "getent group "+g.Name, "")
 		gone, err := absent(err)
 		if err != nil {
 			return Observed{}, fmt.Errorf("provision.Observe: group %s: %w", g.Name, err)
 		}
 		o.Groups[g.Name] = !gone
+		if !gone {
+			/*
+			 * ⚠️ NUMARA DA OKUNUYOR. Plan, geçici hesabı 1000'in altındaki
+			 * (sistem) gruplara almayı reddediyor ve bunun için grubun
+			 * numarasını bilmek zorunda; "var" bilgisi tek başına
+			 * docker'ı dba'dan ayıramaz.
+			 */
+			info, err := parseGroupLine(strings.TrimSpace(out))
+			if err != nil {
+				return Observed{}, fmt.Errorf("provision.Observe: group %s: %w", g.Name, err)
+			}
+			o.GIDs[g.Name] = info.GID
+		}
 
 		if len(g.Sudo.Commands) == 0 {
 			continue
@@ -107,6 +120,73 @@ func readSudoFile(ctx context.Context, r Runner, path string, o Observed) error 
 	}
 
 	return nil
+}
+
+/*
+ * MinJITGID, bir geçici hesabın alınabileceği en küçük grup numarası.
+ *
+ * ⚠️ ALTINDAKİLER KORUNUYOR. Linux'ta 1000'in altı sistem gruplarıdır
+ * (login.defs: SYS_GID_MAX 999, GID_MIN 1000): root, wheel/sudo, adm,
+ * shadow, docker… Bunlardan birine üyelik, hiçbir sudo kuralı yazmadan
+ * root'a giden bir yol — docker grubu root eşdeğeridir, shadow parola
+ * özetlerini okutur. Geçici hesap yalnızca kullanıcı gruplarına
+ * alınabilir; sınır kullanıcının kararı (2026-09-13).
+ */
+const MinJITGID = 1000
+
+// GroupInfo, hedefteki bir grubun adı, numarası ve üyeleri.
+type GroupInfo struct {
+	Name    string   `json:"name"`
+	GID     int      `json:"gid"`
+	Members []string `json:"members"`
+}
+
+// Protected, grubun geçici hesaplara kapalı olup olmadığı.
+func (g GroupInfo) Protected() bool { return g.GID < MinJITGID }
+
+/*
+ * Groups, hedefin bütün gruplarını okur — panelin "hangi gruba alayım"
+ * seçicisi için. Observe'un aksine envanterin tamamı isteniyor; seçici
+ * ancak listeyi görerek seçebilir. `getent group` sudo istemiyor ve NSS
+ * üzerinden dizin gruplarını da veriyor.
+ */
+func Groups(ctx context.Context, r Runner) ([]GroupInfo, error) {
+	out, err := r.Exec(ctx, "getent group", "")
+	if err != nil {
+		return nil, fmt.Errorf("provision.Groups: %w", err)
+	}
+	groups := make([]GroupInfo, 0)
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		g, err := parseGroupLine(line)
+		if err != nil {
+			return nil, fmt.Errorf("provision.Groups: %w", err)
+		}
+		groups = append(groups, g)
+	}
+
+	return groups, nil
+}
+
+// parseGroupLine, "ad:x:gid:üye,üye" satırını çözer.
+func parseGroupLine(line string) (GroupInfo, error) {
+	f := strings.Split(line, ":")
+	if len(f) < 3 {
+		return GroupInfo{}, fmt.Errorf("unexpected group entry %q", line)
+	}
+	gid, err := strconv.Atoi(f[2])
+	if err != nil {
+		return GroupInfo{}, fmt.Errorf("group %s: gid %q is not a number", f[0], f[2])
+	}
+	g := GroupInfo{Name: f[0], GID: gid, Members: []string{}}
+	if len(f) > 3 && f[3] != "" {
+		g.Members = strings.Split(f[3], ",")
+	}
+
+	return g, nil
 }
 
 // AccountFacts, sökme planının bir hesap hakkında bilmesi gerekenler.

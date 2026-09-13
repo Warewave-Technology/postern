@@ -77,6 +77,8 @@ type Desired struct {
 // Observed, hedefte ŞU AN olan durum.
 type Observed struct {
 	Groups map[string]bool
+	// GIDs, var olan grupların numaraları — sistem grubu ayrımı için.
+	GIDs map[string]int
 	// Users, hesabın üye olduğu gruplar.
 	Users map[string][]string
 	// PosternSudoers, postern'in yazdığı sudo dosyalarının içeriği.
@@ -213,6 +215,25 @@ func Plan(caps upstream.ManageCapabilities, d Desired, o Observed) ([]Step, erro
 				return nil, fmt.Errorf("provision.Plan: account %q already exists on the target "+
 					"and postern did not create it; refusing to take it over as a temporary account",
 					u.Name)
+			}
+			/*
+			 * ⚠️ SİSTEM GRUBUNA GEÇİCİ HESAP ALINMIYOR. Grup adı temiz ve
+			 * grup var olabilir; ama numarası 1000'in altındaysa o bir
+			 * sistem grubu (docker, wheel, shadow, adm…) ve üyeliği sudo
+			 * kuralı yazmadan verilen bir yetki. Yalnızca hedefte VAR OLAN
+			 * grup için soruluyor: olmayan grubu postern açıyor ve groupadd
+			 * ona GID_MIN üstü bir numara veriyor. Döngü u.Groups üzerinde,
+			 * `want` üzerinde DEĞİL: postern-jit oraya aşağıda ekleniyor ve
+			 * o bir kanıt grubu, yetki grubu değil — numarası ne olursa
+			 * olsun üyelik verilmeli (mutasyonla ölçüldü: muafiyet için
+			 * ayrı bir koşul gerekmiyor, döngünün kapsamı yetiyor).
+			 */
+			for _, g := range u.Groups {
+				if gid, known := o.GIDs[g]; known && gid < MinJITGID {
+					return nil, fmt.Errorf("provision.Plan: group %q on the target is a system group "+
+						"(gid %d, below %d); a temporary account is not added to protected groups",
+						g, gid, MinJITGID)
+				}
 			}
 		}
 		if !exists {

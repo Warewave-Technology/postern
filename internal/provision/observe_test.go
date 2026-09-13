@@ -3,6 +3,7 @@ package provision
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/Warewave-Technology/postern/internal/sudoers"
@@ -91,5 +92,61 @@ func TestAccountReadsWhatTheRevokePlanNeeds(t *testing.T) {
 	}
 	if gone.Exists {
 		t.Errorf("olmayan hesap var göründü: %+v", gone)
+	}
+}
+
+/*
+ * ⚠️ GRUP ENVANTERİ NUMARASIYLA OKUNUYOR ve 1000'in altı korunuyor. Panelin
+ * seçicisi bu listeyle çiziliyor; numara olmadan docker'ı dba'dan ayıramaz.
+ * Sınır tam 1000'de: GID_MIN'in kendisi kullanıcı grubudur.
+ */
+func TestGroupsAreReadWithTheirNumbersAndProtection(t *testing.T) {
+	r := runnerFor(t, hostAnswers(map[string]string{
+		"getent group": "root:x:0:\nwheel:x:10:ayse\nusers:x:100:\ndocker:x:998:veli\n" +
+			"ops:x:1000:\ndba:x:1001:ayse,veli\n" + JITGroup + ":x:1002:\n",
+	}))
+	groups, err := Groups(context.Background(), r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		"root": true, "wheel": true, "users": true, "docker": true,
+		"ops": false, "dba": false, JITGroup: false,
+	}
+	if len(groups) != len(want) {
+		t.Fatalf("%d grup bekleniyordu, %d okundu: %+v", len(want), len(groups), groups)
+	}
+	for _, g := range groups {
+		if g.Protected() != want[g.Name] {
+			t.Errorf("%s (gid %d): protected=%v, beklenen %v", g.Name, g.GID, g.Protected(), want[g.Name])
+		}
+		if g.Name == "dba" && strings.Join(g.Members, ",") != "ayse,veli" {
+			t.Errorf("dba üyeleri yanlış okundu: %v", g.Members)
+		}
+		if g.Name == "root" && g.Members == nil {
+			t.Error("üyesiz grup nil üye listesiyle döndü — JSON'da null olur, panel .length okuyamaz")
+		}
+	}
+
+	// Cevapsızlık envanter değil, hata.
+	if _, err := Groups(context.Background(), runnerFor(t, answerSilence)); err == nil {
+		t.Fatal("cevapsız hedef boş bir envanter gibi döndü")
+	}
+	if _, err := Groups(context.Background(), runnerFor(t, hostAnswers(map[string]string{
+		"getent group": "broken line\n",
+	}))); err == nil {
+		t.Fatal("bozuk satır sessizce yutuldu")
+	}
+}
+
+// Plan sistem grubunu numarasından tanıyor; numara Observe'dan geliyor.
+func TestObserveRecordsGroupNumbers(t *testing.T) {
+	r := runnerFor(t, hostAnswers(map[string]string{"getent group docker": "docker:x:998:\n"}))
+	obs, err := Observe(context.Background(), r, Desired{Groups: []Group{{Name: "docker"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !obs.Groups["docker"] || obs.GIDs["docker"] != 998 {
+		t.Fatalf("docker'ın numarası okunmadı: %+v", obs)
 	}
 }

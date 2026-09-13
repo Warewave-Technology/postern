@@ -492,3 +492,56 @@ func TestAPerUserSudoRuleIsWrittenAndRemovable(t *testing.T) {
 		t.Errorf("ikinci koşu iş üretti:\n%s", commandsOf(again))
 	}
 }
+
+/*
+ * ⚠️ SİSTEM GRUBUNA GEÇİCİ HESAP ALINMIYOR. docker grubuna üyelik root
+ * eşdeğeri, shadow parola özetlerini okutur; hiçbiri sudo kuralı yazmadan
+ * verilen bir yetki olmamalı. Sınır GID 1000 (login.defs GID_MIN) ve 1000'in
+ * kendisi serbest; var olmayan grubu postern açıyor, o zaten üstünde.
+ * postern-jit muaf: kanıt grubu, yetki grubu değil. Kalıcı hesaplara kural
+ * uygulanmıyor — onların gruplarını yönetici bilerek seçiyor.
+ */
+func TestATemporaryAccountIsNotAddedToASystemGroup(t *testing.T) {
+	d := Desired{
+		Users:  []User{{Name: "jit-ayse", Groups: []string{"docker"}, JIT: true}},
+		Groups: []Group{{Name: "docker"}},
+	}
+	withGID := func(gid int) Observed {
+		o := empty()
+		o.Groups["docker"] = true
+		o.GIDs = map[string]int{"docker": gid}
+		return o
+	}
+
+	if _, err := Plan(able(), d, withGID(998)); err == nil || !strings.Contains(err.Error(), "system group") {
+		t.Fatalf("docker (gid 998) geçici hesaba açıldı: %v", err)
+	}
+	if _, err := Plan(able(), d, withGID(999)); err == nil {
+		t.Fatal("gid 999 korunmuyor")
+	}
+	if _, err := Plan(able(), d, withGID(1000)); err != nil {
+		t.Fatalf("gid 1000 (GID_MIN) reddedildi: %v", err)
+	}
+	if _, err := Plan(able(), d, withGID(1001)); err != nil {
+		t.Fatalf("kullanıcı grubu reddedildi: %v", err)
+	}
+	// Olmayan grup: postern açacak, numarası bilinmiyor, ret yok.
+	if _, err := Plan(able(), d, empty()); err != nil {
+		t.Fatalf("henüz olmayan grup reddedildi: %v", err)
+	}
+
+	permanent := Desired{
+		Users:  []User{{Name: "ops", Groups: []string{"docker"}}},
+		Groups: []Group{{Name: "docker"}},
+	}
+	if _, err := Plan(able(), permanent, withGID(998)); err != nil {
+		t.Fatalf("kalıcı hesap için sistem grubu reddedildi: %v", err)
+	}
+
+	marker := empty()
+	marker.Groups[JITGroup] = true
+	marker.GIDs = map[string]int{JITGroup: 999}
+	if _, err := Plan(able(), Desired{Users: []User{{Name: "jit-ayse", JIT: true}}}, marker); err != nil {
+		t.Fatalf("düşük numaralı postern-jit grubu geçici hesabı engelledi: %v", err)
+	}
+}
