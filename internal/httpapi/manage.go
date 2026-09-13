@@ -128,7 +128,10 @@ func (s *Server) adminManageCheck(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	if aerr := s.store.LogAdmin(auditCtx, store.AdminLogEntry{
 		Actor: actor, Via: "web", Action: "target.manage_check", Entity: t.Name,
-		Details: "opened a management connection (two-minute certificate, read-only checks)",
+		// ⚠️ "opening", "opened" DEĞİL: satır bağlanmadan önce yazılıyor ve
+		// hedef reddederse düzeltilmiyor. Deftere olmuş gibi yazmak, reddedilen
+		// bir denemeyi başarılı bir root girişi gibi okutmak olurdu.
+		Details: "opening a management connection (two-minute certificate, read-only checks)",
 	}); aerr != nil {
 		s.logger.Error("admin audit write failed; refusing to open a management connection",
 			"target", t.Name, "error", aerr)
@@ -151,7 +154,7 @@ func (s *Server) adminManageCheck(w http.ResponseWriter, r *http.Request) {
 	runner, err := provision.Connect(ctx, t, s.manageAuthority, actor, "check management access")
 	if err != nil {
 		res.Stage = "connect"
-		res.Reason = connectReason(err)
+		res.Reason = connectReason(ctx, err)
 		res.Detail = err.Error()
 		s.logger.Warn("management check could not connect", "target", t.Name, "error", err)
 		writeJSON(w, http.StatusOK, res)
@@ -162,8 +165,12 @@ func (s *Server) adminManageCheck(w http.ResponseWriter, r *http.Request) {
 	caps, err := runner.Conn().Capabilities(ctx)
 	if err != nil {
 		res.Stage = "measure"
+		// "did not report", "stopped answering" DEĞİL: exec isteğini reddeden
+		// bir hedef bağlantıyı koparmıyor, açıkça cevap veriyor (bkz.
+		// upstream.ErrNoAnswer). "Sustu" demek operatörü ağa baktırırdı.
 		res.Reason = "postern signed in with its management account, but the target " +
-			"stopped answering while its tools were being checked; nothing was changed"
+			"did not report whether the tool checks ran (a closed channel, or an exec " +
+			"request it refused); nothing was changed"
 		res.Detail = err.Error()
 		s.logger.Warn("management check could not measure", "target", t.Name, "error", err)
 		writeJSON(w, http.StatusOK, res)
@@ -195,8 +202,19 @@ func (s *Server) adminManageCheck(w http.ResponseWriter, r *http.Request) {
  * bağımlılığın mesajı değiştiği gün sessizce yanlış cümleye düşerdi
  * (bkz. upstream/hostkey.go).
  */
-func connectReason(err error) string {
+func connectReason(ctx context.Context, err error) string {
 	switch {
+	/*
+	 * ⚠️ İPTAL ÖNCE SORULUYOR. Bağlam el sıkışmanın ortasında dolunca
+	 * dialer soketi kapatıyor; hedef host anahtarını çoktan sunmuşsa
+	 * kütüphanenin hatası "kapalı soket" oluyor ve sınıflandırıcı bunu
+	 * ret sayıyordu — cümle operatörü CA'yı karşılaştırmaya yollardı, oysa
+	 * olan şey sekmenin kapanması ya da sürenin dolmasıydı.
+	 */
+	case ctx.Err() != nil:
+		return "the check was cancelled or ran out of time before the target finished " +
+			"answering; nothing was changed. Try again, and if it keeps happening the " +
+			"target is answering too slowly"
 	case errors.Is(err, upstream.ErrRefused):
 		return "the target refused postern's management certificate. Either it does not " +
 			"trust this bastion's CA (compare the fingerprint below with the target's " +

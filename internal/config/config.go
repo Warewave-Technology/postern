@@ -204,11 +204,14 @@ func (a AuthConfig) PublicKeyLoginEnabled() bool {
 /*
  * TargetProbeConfig, hedefte KOMUT ÇALIŞTIRARAK yapılan tanıma.
  *
- * ⚠️ VARSAYILAN KAPALI VE ÖYLE KALMALI. Kapalıyken postern hedefte
- * kullanıcının oturumu dışında hiçbir şey çalıştırmaz; hedef hakkında
- * bildiği her şey el sıkışmadan gelir (SSH afişi, anahtar türü, süre).
- * Bu, bir bastion'ın taşıyabileceği en dar yetki ve birçok kurumun
- * denetim politikası tam olarak bunu şart koşuyor.
+ * ⚠️ VARSAYILAN KAPALI VE ÖYLE KALMALI. Bu ve manage.enabled kapalıyken
+ * postern hedefte kullanıcının oturumu dışında hiçbir şey çalıştırmaz;
+ * hedef hakkında bildiği her şey el sıkışmadan gelir (SSH afişi, anahtar
+ * türü, süre). Bu, bir bastion'ın taşıyabileceği en dar yetki ve birçok
+ * kurumun denetim politikası tam olarak bunu şart koşuyor. Bu yorum
+ * önceden yalnızca target_probe'u sayıyordu; yönetim bağlantısı
+ * (ManageConfig) aynı çizgiyi ikinci bir kapıdan geçiyor ve o kapı da
+ * varsayılan olarak kapalı.
  *
  * Açıldığında ne değişir, açıkça:
  *
@@ -243,7 +246,6 @@ type TargetProbeConfig struct {
 	Timeout time.Duration `yaml:"timeout"`
 }
 
-// RefreshOrDefault, yazılmamış Refresh için varsayılan.
 /*
  * ManageConfig, panelin hedefte yönetim hesabıyla iş yapabilmesi.
  *
@@ -260,6 +262,7 @@ type ManageConfig struct {
 	Enabled bool `yaml:"enabled"`
 }
 
+// RefreshOrDefault, yazılmamış Refresh için varsayılan.
 func (c TargetProbeConfig) RefreshOrDefault() time.Duration {
 	if c.Refresh <= 0 {
 		return 24 * time.Hour

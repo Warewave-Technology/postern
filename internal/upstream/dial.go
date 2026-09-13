@@ -32,9 +32,10 @@ type Conn struct {
 // ⚠️ KAPSAM KASITLI OLARAK DAR. Buradan çıkan her şey sunucunun
 // bağlantı kurarken kendiliğinden söylediği: afişi, anlaştığımız host
 // key türü, bir de ne kadar sürdüğü. Hedefte `uname` ya da
-// `/etc/os-release` okumak çok daha fazlasını verirdi — ve postern'in
-// güven modelini bozardı: kullanıcının oturumu dışında hedefte iş
-// çalıştırmıyoruz. Bir bastion'ın envanter aracına dönüşmesi, denetim
+// `/etc/os-release` okumak çok daha fazlasını verirdi — ve bunu yapan
+// iki yol da (target_probe, yönetim bağlantısı) varsayılan olarak kapalı
+// ve buraya YAZMIYOR: bu yapı yalnızca el sıkışmada öğrenileni tutuyor.
+// Bir bastion'ın kendiliğinden envanter aracına dönüşmesi, denetim
 // altındaki her makinede sessizce komut çalıştırması demek.
 func (c *Conn) Facts() model.TargetFacts {
 	if c == nil || c.client == nil {

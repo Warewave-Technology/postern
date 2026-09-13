@@ -23,8 +23,10 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 
@@ -65,6 +67,14 @@ func edSigner(t *testing.T) ssh.Signer {
 func managedHost(t *testing.T, authority *ca.CA, answers map[string]string) (host string, port int, hostKey string, conns *atomic.Int32) {
 	t.Helper()
 
+	return managedHostWith(t, authority, answers, nil)
+}
+
+// managedHostWith, onAuth verildiyse her kimlik doğrulamada — host anahtarı
+// sunulduktan SONRA, karar verilmeden ÖNCE — onu çağıran bir hedef kurar.
+func managedHostWith(t *testing.T, authority *ca.CA, answers map[string]string, onAuth func()) (host string, port int, hostKey string, conns *atomic.Int32) {
+	t.Helper()
+
 	hk := edSigner(t)
 	checker := &ssh.CertChecker{
 		IsUserAuthority: func(auth ssh.PublicKey) bool {
@@ -73,6 +83,9 @@ func managedHost(t *testing.T, authority *ca.CA, answers map[string]string) (hos
 	}
 	cfg := &ssh.ServerConfig{
 		PublicKeyCallback: func(c ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
+			if onAuth != nil {
+				onAuth()
+			}
 			cert, ok := key.(*ssh.Certificate)
 			if !ok || c.User() != model.ManagementAccount {
 				return nil, errors.New("refused")
@@ -485,5 +498,76 @@ func TestManagementCheckIsBehindTheAdminAndSameOriginGates(t *testing.T) {
 	// Karşı örnek: kapılardan geçince handler'a varılıyor — hedef yok, 404.
 	if code := post("same-origin"); code != http.StatusNotFound {
 		t.Errorf("yönetici + aynı köken %d aldı, handler'ın 404'ü bekleniyordu", code)
+	}
+}
+
+/*
+ * ⚠️ İPTAL EDİLEN İSTEK, REDDEDİLMİŞ SERTİFİKA GİBİ ANLATILMAMALI.
+ *
+ * Senaryo tam olarak sınıflandırıcının kör noktası: hedef host anahtarını
+ * sundu, kimlik doğrulaması sürerken istek iptal edildi (sekme kapandı,
+ * süre doldu). dialer soketi kapatıyor; kütüphanenin hatası "kapalı
+ * soket", host anahtarı sunulmuş olduğu için sınıf "reddedildi" çıkıyor ve
+ * operatör CA'yı karşılaştırmaya yollanıyordu. Hedef burada tam o anda
+ * tutuluyor ve istek o anda iptal ediliyor.
+ */
+func TestManagementCheckNamesACancelledRequest(t *testing.T) {
+	s, db := dbServer(t)
+	authority := manageCA(t)
+	s.UseManagement(authority)
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	host, port, hostKey, _ := managedHostWith(t, authority, debianAnswers(), func() {
+		once.Do(func() { close(entered) })
+		<-release
+	})
+	t.Cleanup(func() { close(release) })
+	if _, err := db.CreateTarget(t.Context(), model.Target{
+		Name: "web01", Host: host, Port: port, HostKey: hostKey,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), ctxUser, "ops"))
+	defer cancel()
+	r := httptest.NewRequest(http.MethodPost, "/api/admin/targets/web01/manage/check", nil).
+		WithContext(ctx)
+	r.SetPathValue("name", "web01")
+	w := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.adminManageCheck(w, r)
+	}()
+
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("hedef kimlik doğrulamaya hiç gelmedi")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("iptal edilen istek dönmedi")
+	}
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("durum = %d: %s", w.Code, w.Body.String())
+	}
+	var res manageCheckResult
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Stage != "connect" || res.Manageable {
+		t.Fatalf("sonuç = %+v", res)
+	}
+	if !strings.Contains(res.Reason, "cancelled or ran out of time") {
+		t.Errorf("sebep iptali söylemiyor: %q", res.Reason)
+	}
+	if strings.Contains(res.Reason, "refused") || strings.Contains(res.Reason, "fingerprint") {
+		t.Errorf("iptal, sertifika reddi gibi anlatılıyor: %q", res.Reason)
 	}
 }

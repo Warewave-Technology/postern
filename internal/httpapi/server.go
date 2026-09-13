@@ -195,7 +195,8 @@ type Server struct {
 
 	/*
 	 * manageAuthority, yönetim bağlantısı için CA. nil ise manage.enabled
-	 * kapalı ve yönetim uçları "kapalı" diyor (bkz. manage.go).
+	 * kapalı: yönetim uçları HİÇ kurulmuyor (404) ve hedef detayı bunu
+	 * manage_enabled bayrağıyla söylüyor (bkz. manage.go).
 	 */
 	manageAuthority *ca.CA
 

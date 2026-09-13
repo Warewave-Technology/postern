@@ -91,8 +91,9 @@ type Deps struct {
 	MaxLifetime time.Duration
 
 	// Probe, hedefte KOMUT ÇALIŞTIRARAK tanıma. Sıfır değeri KAPALI —
-	// yani hiçbir şey çağırmadıkça postern hedefte kullanıcının oturumu
-	// dışında bir şey çalıştırmaz.
+	// yani bu oturum yolu hedefte kullanıcının oturumu dışında bir şey
+	// çalıştırmaz. (Panelin yönetim bağlantısı ayrı bir yol ve ayrı bir
+	// ayar: config.ManageConfig.)
 	Probe ProbePolicy
 
 	/*

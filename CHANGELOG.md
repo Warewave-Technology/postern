@@ -136,10 +136,11 @@ audit rows into a shape it does not understand.
   changes nothing. The attempt is written to the admin log *before* connecting,
   and postern does not connect if that write fails; the certificate's key ID
   names the administrator, so the target's own sshd log says who pressed the
-  button. A refusal says which of four things went wrong — the target does not
+  button. A refusal says where the check stopped and why — the target does not
   trust this CA (the card shows the fingerprint to compare), the host key
-  changed, the host cannot be reached, or tools are missing — because each has
-  a different fix. `postern serve` logs a warning at every startup while this
+  changed, the host cannot be reached, the handshake did not finish, the host
+  did not report whether the checks ran, or tools are missing — because each
+  has a different fix. `postern serve` logs a warning at every startup while this
   is on.
 
   **No command gives a person a management certificate.** One was considered
