@@ -148,7 +148,19 @@ func TestPosternManagesATargetWithItsOwnCertificate(t *testing.T) {
 	if err != nil || !strings.Contains(rule, "/usr/bin/nginx -t") {
 		t.Errorf("sudo, kuralı suheda için okumuyor: %q (%v)", rule, err)
 	}
-	if staged, _ := r.Exec(ctx, "ls /etc/sudoers.d", ""); strings.Contains(staged, ".staged") {
+	/*
+	 * ⚠️ sudo İLE, VE HATA "TEMİZ" DEĞİL — ÖLÇÜLDÜ. Bu kontrol önceden
+	 * `ls /etc/sudoers.d`i yönetim hesabıyla, sudo'suz koşuyordu; dizin
+	 * 0750 root olduğu için ls "Permission denied" ile düşüyor, hata
+	 * `_` ile yutuluyor ve boş çıktıda ".staged" aranmıyordu. Kurulum
+	 * adımından `rm -f <staged>` silindiğinde test yine yeşildi:
+	 * artığı yakalayacak tek satır hiçbir şeyi göremiyordu.
+	 */
+	staged, err := r.Exec(ctx, "sudo -n ls /etc/sudoers.d", "")
+	if err != nil {
+		t.Fatalf("sudoers.d listelenemedi, artık kontrolü bir şey ölçmüyor: %v", err)
+	}
+	if strings.Contains(staged, ".staged") {
 		t.Errorf("doğrulama öncesi dosya geride kaldı: %q", staged)
 	}
 

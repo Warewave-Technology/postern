@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -27,6 +28,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/Warewave-Technology/postern/internal/auth"
 	"github.com/Warewave-Technology/postern/internal/ca"
 	"github.com/Warewave-Technology/postern/internal/model"
 )
@@ -432,5 +434,56 @@ func TestManagementCheckNamesAnUntrustedCA(t *testing.T) {
 	}
 	if strings.Contains(res.Detail, "could not be reached") {
 		t.Errorf("ham metin reddi 'ulaşılamadı' diye anlatıyor: %q", res.Detail)
+	}
+}
+
+/*
+ * ⚠️ KAPILAR ROTADA — VE ROTADAN GEÇİLMEDEN SINANAMAZLAR. Buradaki öbür
+ * testler handler'ı doğrudan çağırıyor; `requireAdmin` ya da `sameOrigin`
+ * zincirden silinse hepsi yeşil kalırdı (bir incelemede mutasyonla
+ * görüldü). Bu test isteği Handler()'dan, gerçek bir oturum çerezi ile
+ * gönderiyor: yönetici olmayan 403, çapraz köken 403, yönetici + aynı
+ * köken ise kapıdan geçip hedefin cevabını alıyor.
+ */
+func TestManagementCheckIsBehindTheAdminAndSameOriginGates(t *testing.T) {
+	db := migratedStore(t)
+	s := New(auth.NewOIDCHolder(), auth.NewLogins(auth.NewOIDCHolder()), db,
+		slog.New(slog.NewTextHandler(io.Discard, nil)))
+	s.UseManagement(manageCA(t))
+
+	ctx := t.Context()
+	if _, err := db.CreateUser(ctx, "veli", "veli@warewave.io", "veli"); err != nil {
+		t.Fatal(err)
+	}
+	token, err := s.createWebSession(ctx, "veli")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	post := func(site string) int {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodPost, "/api/admin/targets/yok/manage/check", nil)
+		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+		if site != "" {
+			r.Header.Set("Sec-Fetch-Site", site)
+		}
+		w := httptest.NewRecorder()
+		s.Handler().ServeHTTP(w, r)
+		return w.Code
+	}
+
+	if code := post("same-origin"); code != http.StatusForbidden {
+		t.Errorf("yönetici olmayan oturum %d aldı, 403 bekleniyordu", code)
+	}
+
+	if err := db.SetUserAdmin(ctx, "veli", true); err != nil {
+		t.Fatal(err)
+	}
+	if code := post("cross-site"); code != http.StatusForbidden {
+		t.Errorf("çapraz kökenli istek %d aldı, 403 bekleniyordu", code)
+	}
+	// Karşı örnek: kapılardan geçince handler'a varılıyor — hedef yok, 404.
+	if code := post("same-origin"); code != http.StatusNotFound {
+		t.Errorf("yönetici + aynı köken %d aldı, handler'ın 404'ü bekleniyordu", code)
 	}
 }

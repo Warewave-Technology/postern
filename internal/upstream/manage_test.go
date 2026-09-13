@@ -393,13 +393,21 @@ func TestExecStopsWhenTheContextEnds(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	start := time.Now()
-	_, err := conn.Exec(ctx, "hang", "")
-	if !errors.Is(err, ErrNoAnswer) {
-		t.Errorf("err = %v, ErrNoAnswer bekleniyordu", err)
-	}
-	if took := time.Since(start); took > 3*time.Second {
-		t.Errorf("Exec %v bekledi", took)
+	// ⚠️ Bekleme bir goroutine'de: bağlam dalı kaldırıldığında test paket
+	// zaman aşımına kadar asılı kalmak yerine kendi cümlesiyle düşmeli.
+	done := make(chan error, 1)
+	go func() {
+		_, err := conn.Exec(ctx, "hang", "")
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrNoAnswer) {
+			t.Errorf("err = %v, ErrNoAnswer bekleniyordu", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("susan komut Exec'i bağlam dolduktan sonra da tuttu")
 	}
 }
 
