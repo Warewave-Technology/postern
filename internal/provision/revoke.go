@@ -221,6 +221,32 @@ func RevokePlan(caps upstream.ManageCapabilities, r Revoke) ([]Step, error) {
 }
 
 /*
+ * RemoveSudoFilesPlan, yalnızca postern'in yazdığı sudo dosyalarını
+ * kaldıran adımlar — hesabı OLMAYAN bir hak için.
+ *
+ * ⚠️ NEDEN AYRI: sökme planı hesabın UID'sini ve üyeliğini istiyor, çünkü
+ * silme kararı onlara bağlı. Hesap çoktan gitmişse (yedek süre, elle
+ * silme, önceki yarım deneme) geride yalnızca sudo dosyası kalmış
+ * olabilir ve o dosya hesap yeniden açıldığı gün yeniden yetki verir.
+ * Yol kontrolü sökme planınınkinin aynısı.
+ */
+func RemoveSudoFilesPlan(files []string) ([]Step, error) {
+	var steps []Step
+	for _, f := range files {
+		if bad := checkSudoPath(f); bad != "" {
+			return nil, fmt.Errorf("provision.RemoveSudoFilesPlan: sudo file %q: %s", f, bad)
+		}
+		steps = append(steps, Step{
+			Kind:    StepSudoRemove,
+			Command: "sudo -n rm -f " + f,
+			Why:     "remove the rule of an account that is already gone",
+		})
+	}
+
+	return steps, nil
+}
+
+/*
  * ownedCommand, hesabın sahip olduğu dosyaları SINIRLI bir kümede arar.
  *
  * ⚠️ KÖKTEN ARAMA YOK. `find /` bir üretim makinesinde dakikalar sürüyor

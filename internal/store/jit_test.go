@@ -206,3 +206,29 @@ func TestRevokedGrantIsFinalAndExpireBringsTheEndForward(t *testing.T) {
 		t.Errorf("geri alınmış hak aktif listede: %d", len(active))
 	}
 }
+
+/*
+ * ⚠️ BASTION'IN KENDİ EYLEMİ DEFTERE YAZILABİLMELİ — VE YAZILAMIYORDU.
+ * via sütununun kısıtı 'system'i tanımıyordu; kayıt budayıcısı başından
+ * beri o değerle yazıyor ve her satırı reddediliyordu. Süpürücü aynı
+ * duvara çarpınca ortaya çıktı (göç 042).
+ */
+func TestTheBastionItselfCanWriteToTheAdminLog(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	if err := s.LogAdmin(ctx, AdminLogEntry{
+		Actor: "system", Via: "system", Action: "jit.revoke", Entity: "web01",
+		Details: "expired grant revoked unattended",
+	}); err != nil {
+		t.Fatalf("bastion kendi eylemini yazamadı: %v", err)
+	}
+
+	logs, err := s.AdminLog(ctx, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) != 1 || logs[0].Via != "system" {
+		t.Errorf("satır yok ya da via yanlış: %+v", logs)
+	}
+}

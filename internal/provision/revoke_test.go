@@ -285,3 +285,26 @@ func TestSystemAccountsAreNeverRevoked(t *testing.T) {
 		}
 	}
 }
+
+/*
+ * Hesabı gitmiş bir hakkın sudo dosyası da gitmeli — ve yalnızca
+ * postern'in yazdığı dosya. Yol kontrolü sökme planınınkiyle aynı kapı:
+ * gevşetilse buradan başka bir dosya silinebilirdi.
+ */
+func TestSudoFilesOfAGoneAccountAreRemovedThroughTheSameGate(t *testing.T) {
+	steps, err := RemoveSudoFilesPlan([]string{UserSudoPath("jit-ayse")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := commands(steps); !strings.Contains(got, "rm -f "+UserSudoPath("jit-ayse")) {
+		t.Errorf("dosya kaldırılmıyor:\n%s", got)
+	}
+	for _, f := range []string{"/etc/sudoers", "/etc/sudoers.d/00-admins", "/etc/sudoers.d/postern-x`id`"} {
+		if _, err := RemoveSudoFilesPlan([]string{f}); err == nil {
+			t.Errorf("%q kabul edildi", f)
+		}
+	}
+	if steps, err := RemoveSudoFilesPlan(nil); err != nil || len(steps) != 0 {
+		t.Errorf("boş liste: steps=%v err=%v", steps, err)
+	}
+}
