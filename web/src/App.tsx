@@ -752,7 +752,7 @@ export default function App() {
         <div className="msg msg-warn" role="status">
           {signInNotice}
           <button
-            className="btn btn-ghost"
+            className="btn btn-quiet"
             onClick={() => setSignInNotice("")}
             aria-label="Dismiss"
           >
@@ -825,9 +825,17 @@ export default function App() {
       */}
       {!me.must_change_password && me.must_enrol_totp && (
         <main className="app">
-          <div className="center-card">
-            <h1>Set up your authenticator</h1>
-            <p>
+          {/*
+            ⚠️ SAYFA BAŞLIĞI, center-card DEĞİL. center-card ortalanmış tek
+            kartlı ekranlar (giriş, ulaşılamıyor) için; burada `main.app`
+            içinde sola yaslı dar bir kutu olarak duruyor ve altındaki tam
+            genişlikteki kimlik doğrulayıcı kartıyla iki ayrı ürün gibi
+            görünüyordu (ekrana bakılarak görüldü). Panelin geri kalanı
+            başlık + alt satır + kart deseniyle çiziliyor; bu ekran da.
+          */}
+          <div className="page-head">
+            <h2>Set up your authenticator</h2>
+            <p className="page-sub">
               This bastion stands between people and their servers, so a
               password on its own is not enough to get in. Add an authenticator
               now — it takes a minute, and it is the last thing between you and

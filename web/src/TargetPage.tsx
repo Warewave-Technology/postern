@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Me, MyTargetDetail, api, toMessage } from "./api";
-import { ErrorLine } from "./admin/common";
+import { ErrorLine, Timestamp } from "./admin/common";
 import { HostIcon } from "./icons";
 import ShellMenu from "./ShellMenu";
 
@@ -40,7 +40,6 @@ export function targetURL(name: string): string {
   return `/target/${encodeURIComponent(name)}`;
 }
 
-const stamp = (v: string) => new Date(v).toLocaleString();
 
 export default function TargetPage({ me, name }: { me: Me; name: string }) {
   const [t, setT] = useState<MyTargetDetail | null>(null);
@@ -109,8 +108,14 @@ export default function TargetPage({ me, name }: { me: Me; name: string }) {
           <dl className="kv">
             <dt>Last reached</dt>
             <dd className="prose">
+              {/*
+                ⚠️ Timestamp, toLocaleString() DEĞİL: yönetim ekranlarının
+                hepsi "13 Sep 12:12:00" biçimini kullanıyor; burası
+                "9/13/2026, 12:12:00 PM" yazıyordu — aynı ürün içinde iki
+                ayrı saat biçimi (ekrana bakılarak görüldü).
+              */}
               {t.last_seen_at
-                ? stamp(t.last_seen_at)
+                ? <Timestamp value={t.last_seen_at} />
                 : /*
                      ⚠️ "Hiç ulaşılmadı" ile "bilinmiyor" ayrı: hedef
                      yeni eklenmiş olabilir de erişilemiyor olabilir de,
@@ -152,26 +157,35 @@ export default function TargetPage({ me, name }: { me: Me; name: string }) {
           */}
           <p>The last ten times you opened a session on this host.</p>
         </div>
-        <div className="card-body">
-          {t.sessions_error ? (
-            /* ⚠️ Sunucu bunu zaten log'a yazıyordu; eksik olan aynı
-               ayrımın EKRANDA olmasıydı. Log'daki bir uyarıyı
-               kullanıcı görmüyor. */
+        {t.sessions_error ? (
+          /* ⚠️ Sunucu bunu zaten log'a yazıyordu; eksik olan aynı
+             ayrımın EKRANDA olmasıydı. Log'daki bir uyarıyı
+             kullanıcı görmüyor. */
+          <div className="card-body">
             <p className="msg msg-warn">
               Your history for this host could not be read, so this is not a
               statement that you have never connected to it.
             </p>
-          ) : t.sessions.length === 0 ? (
-            /* ⚠️ PENCERE DOLDUYSA "HİÇ BAĞLANMADIN" DEME: tarama tüm
-               hedeflerin son N oturumuna bakıyor ve bu hedefinkiler
-               pencerenin dışında kalmış olabilir. */
+          </div>
+        ) : t.sessions.length === 0 ? (
+          /* ⚠️ PENCERE DOLDUYSA "HİÇ BAĞLANMADIN" DEME: tarama tüm
+             hedeflerin son N oturumuna bakıyor ve bu hedefinkiler
+             pencerenin dışında kalmış olabilir. */
+          <div className="card-body">
             <p className="state">
               {t.sessions_partial
                 ? `No session to this host among your last ${t.sessions_scanned ?? 200} — older ones may exist.`
                 : "You have not connected to this host yet."}
             </p>
-          ) : (
-            <table className="data">
+          </div>
+        ) : (
+          /* ⚠️ TABLO KARTIN DOĞRUDAN ÇOCUĞU ve kaydırma sarmalayıcısında —
+             card-body'nin içinde DEĞİL. Gövdenin dolgusu içindeki tablo
+             hem öbür kartlardaki kenardan kenara tablolardan farklı
+             duruyor hem de 390px'te kartın overflow:hidden'ı tarafından
+             kesiliyordu (ölçüldü: 129px). */
+          <div className="table-wrap">
+            <table>
               <thead>
                 <tr>
                   <th>Started</th>
@@ -182,9 +196,11 @@ export default function TargetPage({ me, name }: { me: Me; name: string }) {
               <tbody>
                 {t.sessions.map((s) => (
                   <tr key={s.id}>
-                    <td>{stamp(s.started)}</td>
+                    <td>
+                      <Timestamp value={s.started} />
+                    </td>
                     {/* Bitmemiş oturum: "—" değil, hâlâ açık olduğunu söyle. */}
-                    <td>{s.ended ? stamp(s.ended) : "still open"}</td>
+                    <td>{s.ended ? <Timestamp value={s.ended} /> : "still open"}</td>
                     <td>
                       <code>{s.os_user}</code>
                     </td>
@@ -192,8 +208,8 @@ export default function TargetPage({ me, name }: { me: Me; name: string }) {
                 ))}
               </tbody>
             </table>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       <p className="note">

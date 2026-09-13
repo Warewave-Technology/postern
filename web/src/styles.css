@@ -677,7 +677,16 @@ section > .page-head:not(:first-child) {
   position: relative;
 }
 
+/*
+ * --cell-x: hücrelerin yatay dolgusu, TEK YERDEN. 1.15rem'di; yedi
+ * sütunlu oturum tablosu 1280'de (yan menü açıkken 958px) 998px
+ * istiyor ve son sütun — "Watch" — kaydırmanın ardında kalıyordu.
+ * 0.9rem yedi sütunda 56px kazandırıyor ve hâlâ ferah. Başlık, sıralama
+ * düğmesi ve hücre aynı değişkeni okuyor; biri değişip diğeri kalırsa
+ * başlık değerlerle hizasını kaybeder (th notundaki ölçüm).
+ */
 table {
+  --cell-x: 0.9rem;
   border-collapse: collapse;
   width: 100%;
 }
@@ -697,7 +706,7 @@ table {
    başlık artık bozulmuyor. */
 th {
   text-align: left;
-  padding: 0.62rem 1.15rem;
+  padding: 0.62rem var(--cell-x);
   background: var(--sunken);
   border-bottom: 1px solid var(--line);
   color: var(--muted);
@@ -716,7 +725,7 @@ th:has(> button.sort) {
 }
 th .th-pad {
   display: block;
-  padding: 0.62rem 1.15rem;
+  padding: 0.62rem var(--cell-x);
 }
 
 /* Sıralanabilir başlık: başlığın TAMAMI düğme. Küçük bir ok simgesine
@@ -726,7 +735,7 @@ th button.sort {
   align-items: center;
   gap: 0.35rem;
   width: 100%;
-  padding: 0.62rem 1.15rem;
+  padding: 0.62rem var(--cell-x);
   border: 0;
   border-radius: 0;
   background: none;
@@ -762,10 +771,38 @@ th button.sort:hover .sort-arrow {
   opacity: 0.45;
 }
 
+/*
+ * ⚠️ HÜCRE VARSAYILAN OLARAK SARIYOR, SARMAMAK İSTİSNA — ve bu yön bir
+ * düzeltme. Eskiden `td { white-space: nowrap }` idi ve sarmayı sütun
+ * sütun `.wrap` ile açıyorduk. Ölçüldü (1280px, yan menü açıkken içerik
+ * 958px): tek bir uzun hostname Targets tablosunu 1458px'e, bir JSON
+ * ayrıntısı Admin log'u 1727px'e, bir dosya yolu File history'yi
+ * 1731px'e itiyordu — yani en sağdaki eylem sütunu ve en bilgilendirici
+ * sütun yatay kaydırmanın ardında kalıyordu. `.wrap` da yetmiyordu:
+ * boşluksuz bir dize (`{"username":...}`, `/srv/app/.../artifact.tgz`)
+ * normal sarmada kırılmıyor; kırılabilmesi için overflow-wrap gerek.
+ *
+ * Sarmaması GEREKENLER aşağıda ayrı: damgalar, eylem düğmeleri,
+ * sayılar. Onlar dışında bir hücrenin uzaması, tablonun taşmasından
+ * her zaman ucuz.
+ *
+ * ⚠️ VARSAYILAN YALNIZCA BOŞLUKTAN SARIYOR; kelime ORTASINDAN kırma
+ * (overflow-wrap: anywhere) yalnızca `.wrap` sütunlarında. İlk deneme
+ * her hücreye anywhere veriyordu ve tablo algoritması bunu "her sütun
+ * bir karaktere kadar daralabilir" diye okuyor: Admin log'da Actor
+ * sütunu "yigit.bas / alma" diye kırılırken Details 730px alıyordu
+ * (ekrana bakılarak görüldü). Kimlik ve ad bütün kalmalı; kırılması
+ * kabul edilen şey yol, JSON, hostname gibi uzun tek parçalar — ve
+ * onlar hangi sütunda olduklarını `.wrap` ile söylüyor.
+ */
 td {
-  padding: 0.72rem 1.15rem;
+  padding: 0.72rem var(--cell-x);
   border-bottom: 1px solid var(--line-soft);
   vertical-align: middle;
+}
+td.actions,
+td.nowrap,
+td time {
   white-space: nowrap;
 }
 tbody tr:last-child td {
@@ -775,10 +812,17 @@ tbody tr:hover {
   background: var(--hover);
 }
 
+/*
+ * .wrap: uzun tek parçalı değer taşıyan sütun (yol, JSON, hostname).
+ * Kelime ortasından kırılabilir; taban genişliği 10rem — 15rem'di ve iki
+ * .wrap sütunlu Admin log'u 1280'de yeniden taşırıyordu (6 sütun,
+ * 530px sabit + 2×240px > 958px). 10rem hâlâ okunur bir sütun.
+ */
 td.wrap,
 th.wrap {
   white-space: normal;
-  min-width: 15rem;
+  min-width: 10rem;
+  overflow-wrap: anywhere;
 }
 /*
  * .state, sarılan ama GENİŞ OLMAYAN sütun. .wrap 15rem taban genişlik
@@ -790,6 +834,10 @@ td.state,
 th.state {
   white-space: normal;
   min-width: 9rem;
+  /* Durum cümlesi ham hata zinciri taşıyabiliyor ("upstream.DialManagement:"
+     gibi 24 karakterlik tek parçalar); kırılamayınca sütun 190px'e
+     açılıp geçici erişim tablosunu detay sütunundan taşırıyordu (ölçüldü). */
+  overflow-wrap: anywhere;
 }
 td.num,
 th.num {
@@ -805,7 +853,7 @@ td.actions {
   width: 1%;
 }
 th.actions .th-pad {
-  padding-inline: 1.15rem;
+  padding-inline: var(--cell-x);
 }
 
 /* Arama hiçbir satırla eşleşmediğinde: "kayıt yok" ile "aramanla
@@ -888,6 +936,16 @@ button:disabled {
 .btn-quiet:hover:not(:disabled) {
   background: var(--active);
   color: var(--ink);
+}
+/*
+ * Küçük düğme: kabuk çubuğu ve dosya tarayıcısı gibi bir satıra çok şey
+ * sığdıran araç çubukları için. ⚠️ Bu sınıf ay boyunca YAZILIP TANIMSIZ
+ * kaldı (classnames.test.ts'teki dondurulmuş borç): düğmeler tam boy
+ * çiziliyor ve araç çubuğu iki satıra kırılıyordu.
+ */
+.btn-sm {
+  padding: 0.34rem 0.6rem;
+  font-size: 12px;
 }
 /*
  * Yıkıcı düğme.
@@ -1044,8 +1102,13 @@ label.check input[type="checkbox"] {
   gap: 0.4rem;
   align-items: center;
 }
+/* ⚠️ ÜST SINIR ŞART: bir <select>'in doğal genişliği EN UZUN seçeneği
+   kadar. Roller tablosunda 55 karakterlik bir hedef adı kutuyu 400px'e
+   açıyor ve tabloyu 1280'de bile yatay kaydırmaya itiyordu (ölçüldü).
+   Uzun seçenek kutunun içinde kesilir; listede tam görünür. */
 .cell-form select {
   min-width: 8rem;
+  max-width: 14rem;
 }
 
 /* ============================================================
@@ -1572,9 +1635,16 @@ label.check input[type="checkbox"] {
 /* ============================================================
    17. Canlı izleme
    ============================================================ */
+/* 9rem: altı kutu 1280'de (yan menü açıkken 958px) tek satıra sığsın.
+   11rem'de beşi sığıyor, altıncısı — uzun notuyla "waiting to archive" —
+   ikinci satırda tek başına, dört boş kutuluk boşluğun yanında
+   duruyordu (ekrana bakılarak görüldü). */
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  /* Kutular satırın boyuna UZAMASIN: "waiting to archive" sekiz satırlık
+     notuyla öbür beş kutuyu da uzatıyor ve onların altı boş kalıyordu. */
+  align-items: start;
   gap: 0.9rem;
   margin-bottom: 1.5rem;
 }
@@ -2165,6 +2235,19 @@ label.check input[type="checkbox"] {
   font-weight: 550;
   text-decoration: underline;
   text-underline-offset: 2px;
+  /* ⚠️ SARIYOR: global `button` kuralı nowrap veriyor ve bu bir DÜĞME.
+     Hücre varsayılanı sarmaya döndükten sonra bile 55 karakterlik bir
+     hedef adı Ad sütununu 409px'te tutuyor, tabloyu 1280'de 21px
+     kaydırıyordu (ölçüldü). Bağlantı gibi görünen bir metin, metin
+     gibi sarmalı. */
+  white-space: normal;
+  text-align: left;
+  overflow-wrap: anywhere;
+  /* Taban genişlik: anywhere olmadan tablo taşıyor, anywhere ile de
+     tablo algoritması bu sütunu 100px'e sıkıştırıp "auditor.external.kp /
+     mg" diye kırıyordu (ekrana bakılarak görüldü). 14rem'de bir hostname
+     iki satıra, tirelerinden bölünüyor. */
+  min-width: 14rem;
 }
 .link-cell:hover {
   background: none;
@@ -2223,6 +2306,18 @@ label.check input[type="checkbox"] {
    hizalama demekti. */
 .detail-grid .kv {
   grid-template-columns: 7.5rem minmax(0, 1fr);
+}
+/* Detay sütunu 1280'de 578px; beş sütunlu geçici erişim tablosu tam
+   dolgulu hücrelerle 104px taşıyor ve Revoke düğmesi kaydırmanın
+   ardında kalıyordu (ölçüldü). Dar sütunda dar dolgu. */
+.detail-grid td,
+.detail-grid th,
+.detail-grid th .th-pad {
+  padding-inline: 0.7rem;
+}
+.detail-grid td.state,
+.detail-grid th.state {
+  min-width: 8rem;
 }
 
 /* ============================================================
@@ -2899,6 +2994,9 @@ a.tcard-name:focus-visible {
 .role-list li > div,
 .key-list-admin li > div {
   min-width: 0;
+  /* Hedef adları tek parça; sarmayınca 1024'te "…02.internal.example.com"
+     kutudan 25px taşıp Revoke düğmesinin altına giriyordu (ölçüldü). */
+  overflow-wrap: anywhere;
 }
 /* Parmak izi uzun ve KESİLMEMELİ: yanlış anahtarı silmemek için
    tamamının okunabilmesi gerekiyor. */

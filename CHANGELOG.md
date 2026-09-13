@@ -724,6 +724,27 @@ audit rows into a shape it does not understand.
 
 ### Fixed
 
+- **Panel tables no longer scroll sideways at laptop width just because
+  one value is long.** Every table cell was set not to wrap, so a single
+  55-character hostname, a JSON detail in the admin log or a deep file
+  path pushed the whole table — and its action column — behind a
+  horizontal scrollbar even on a 1280-pixel screen; measured, the admin
+  log wanted 1727 pixels of 958. Cells now wrap; identifiers stay whole,
+  and the columns that carry long single tokens (paths, details,
+  hostnames, addresses) may break inside them. The role table's target
+  picker no longer grows to the width of its longest option, cell padding
+  is a little tighter, and the overview's six counters fit one row. The
+  target page and the security-key list use the same compact timestamp
+  as the rest of the panel instead of the browser's locale string, their
+  tables sit in the same scroll wrapper as every other table (on a phone
+  they used to scroll the page itself), the authenticator-enrolment screen
+  uses the ordinary page heading, and four CSS classes that had been
+  written but never defined (`btn-ghost`, `btn-sm`, `data`, `pathrules`)
+  are either defined or gone — the class check that used to tolerate them
+  now tolerates nothing. A page-level visual harness
+  (`web/test-node/pages.visual.test.tsx`) renders every screen with long,
+  crowded data so this can be measured again.
+
 - **Retention deletions were never written to the admin log.** The pruner
   has recorded every deletion it makes under `via = system` since it
   started doing so, and every one of those rows was refused by the

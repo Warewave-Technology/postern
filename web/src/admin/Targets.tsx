@@ -184,6 +184,8 @@ export default function Targets() {
     {
       key: "address",
       header: "Address",
+      // wrap: "host:port" tek parça ve host 55 karakter olabiliyor.
+      className: "wrap",
       value: (t) => `${t.host}:${t.port}`,
       render: (t) => (
         <code>

@@ -69,7 +69,7 @@ export default function PathRules({ role }: { role: string }) {
       : `Remove the rule for "${p}" from the role "${role}"?`;
 
   return (
-    <div className="pathrules">
+    <div>
       <ErrorLine msg={error} />
 
       {rules === null && <p className="muted">Loading…</p>}
@@ -93,7 +93,9 @@ export default function PathRules({ role }: { role: string }) {
           <tbody>
             {rules.map((r) => (
               <tr key={r.prefix}>
-                <td>
+                {/* wrap: uzun bir önek tek parça; sarmayınca tablo
+                    modalın gövdesinden 33px taşıyordu (ölçüldü). */}
+                <td className="wrap">
                   <code>{r.prefix}</code>
                 </td>
                 <td>

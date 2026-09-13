@@ -612,7 +612,7 @@ export default function FileBrowser({
         >
           <header className="fb-pane-head">
             <h4>This computer</h4>
-            <label className="btn btn-ghost btn-sm fb-pick">
+            <label className="btn btn-quiet btn-sm fb-pick">
               Choose files
               <input
                 type="file"
@@ -757,7 +757,7 @@ export default function FileBrowser({
           <div className="fb-bar">
             <button
               type="button"
-              className="btn btn-ghost btn-sm"
+              className="btn btn-quiet btn-sm"
               disabled={atRoot || busy || phase !== "ready"}
               onClick={() => open(parentPath(cwd))}
             >
@@ -964,7 +964,7 @@ export default function FileBrowser({
                 {!isSettled(t) && (
                   <button
                     type="button"
-                    className="btn btn-ghost btn-sm fb-job-stop"
+                    className="btn btn-quiet btn-sm fb-job-stop"
                     onClick={() => stop(t.id)}
                   >
                     Stop

@@ -125,7 +125,11 @@ function SessionFiles({
           actually crossed, not the bytes requested.
         </p>
       </div>
-      <table className="data">
+      {/* Kaydırma sarmalayıcısı: yol sütunu sarıyor ama beş sütun
+          dar bir ekranda yine sığmayabilir; sığmazsa tablo kayar,
+          kart onu kesmez. */}
+      <div className="table-wrap">
+      <table>
         <thead>
           <tr>
             <th>Time</th>
@@ -176,6 +180,7 @@ function SessionFiles({
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
@@ -344,13 +349,18 @@ export function Sessions({ theme }: { theme: Resolved }) {
     {
       key: "id",
       header: "ID",
+      // nowrap: hücreler artık varsayılan olarak sarıyor ve bir oturum
+      // kimliği tirelerinden dört satıra bölünüyordu; kimlik tek satır.
+      className: "nowrap",
       value: (s) => s.id,
       // Kısaltılmış kimliğin tamamı title'da: bir olayı sunucu
       // günlüğünde aratacak olan kişiye 12 hane yetmiyor.
       render: (s) => <code title={s.id}>{s.id.slice(0, 12)}…</code>,
     },
     { key: "user", header: "User", value: (s) => s.user },
-    { key: "target", header: "Target", value: (s) => s.target },
+    // wrap: hostname'ler tek parça; 55 karakterlik bir ad sarmadan
+    // tabloyu 1280'de 330px kaydırıyordu (ölçüldü).
+    { key: "target", header: "Target", className: "wrap", value: (s) => s.target },
     /*
      * ⚠️ "OS user" VE "Src" SÜTUNDAN ÇIKTI, VERİDEN ÇIKMADI. İlk bakışın
      * cevaplaması gereken soru "hangisini açayım"; hedefteki hesap ve
@@ -546,7 +556,8 @@ export function AdminLog() {
       value: (e) => e.action,
       render: (e) => <code>{e.action}</code>,
     },
-    { key: "entity", header: "Entity", value: (e) => e.entity },
+    // wrap: "target/<uzun hostname>" tek parça; sarmazsa sütun 460px.
+    { key: "entity", header: "Entity", className: "wrap", value: (e) => e.entity },
     {
       key: "details",
       header: "Details",

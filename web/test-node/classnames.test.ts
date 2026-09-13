@@ -31,18 +31,16 @@ describe("panel sınıfları", () => {
     /*
      * ⚠️ DONDURULMUŞ BORÇ — SİLİNECEK, GENİŞLEMEYECEK.
      *
-     * Bu sınıflar kontrol yazıldığında zaten tanımsızdı. Hepsini aynı
-     * anda düzeltmek, görünüşü tek seferde ve gözden geçirilmeden
-     * değiştirmek olurdu; bu yüzden liste donduruldu. Kontrolün işi
-     * YENİ bir tanesinin eklenmesini engellemek. Listeye ekleme
-     * yapmak, borcu büyütmek demek — kaldırmak ise onu ödemek.
+     * Bu liste kontrol yazıldığında zaten tanımsız olan dört sınıfı
+     * taşıyordu (btn-ghost, btn-sm, data, pathrules). 2026-09-13'te
+     * hepsi ödendi: btn-ghost kullanımları panelin kendi btn-quiet'ine
+     * çevrildi, btn-sm tanımlandı, data ve pathrules sökülüp yerlerine
+     * gerçek sarmalayıcı (.table-wrap) geldi — ve her biri ekrana
+     * bakılarak doğrulandı. Küme BOŞ kalıyor; kontrolün işi yeni bir
+     * tanesinin eklenmesini engellemek. Listeye ekleme yapmak, borcu
+     * yeniden açmak demek.
      */
-    const known = new Set([
-      "btn-ghost", // düğme varyantı: görünüşü değiştirir, ayrı karar
-      "btn-sm",
-      "data", // tablolarda anlamsal işaret; stili global `table` veriyor
-      "pathrules",
-    ]);
+    const known = new Set<string>([]);
 
     const missing: string[] = [];
     const walk = (dir: string) => {

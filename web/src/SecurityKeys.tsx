@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { SecurityKeys as Keys, api, toMessage } from "./api";
-import { ActionButton, ErrorLine } from "./admin/common";
+import { ActionButton, ErrorLine, Timestamp } from "./admin/common";
 import { attestationToJSON, supported, toCreationOptions } from "./webauthn";
 import { toast } from "./toast";
 
@@ -130,48 +130,56 @@ export default function SecurityKeys() {
       {/* ⚠️ TABLO KARTIN DOĞRUDAN ÇOCUĞU. `.card`ın kendi dolgusu yok
           (Audit'teki not); tabloyu `.card-body` içine koyunca iki kat
           dolgu oluşuyor ve son sütundaki düğme kartın kenarına
-          taşıyordu — ölçüldü, ekrana bakarak görüldü. */}
+          taşıyordu — ölçüldü, ekrana bakarak görüldü.
+          ⚠️ VE KAYDIRMA SARMALAYICISINDA: 390px'te dört sütun karta
+          sığmıyor ve sarmalayıcı yokken SAYFANIN KENDİSİ yatay
+          kayıyordu (ölçüldü, 708px'e kadar). */}
       {list.length === 0 ? (
         <div className="card-body">
           <ErrorLine msg={error} />
           <p className="state">No security key is registered on this account.</p>
         </div>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Added</th>
-              <th>Last used</th>
-              <th className="actions">
-                <span className="sr-only">Actions</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.map((k) => (
-              <tr key={k.id}>
-                <td>{k.name}</td>
-                <td>{new Date(k.created_at).toLocaleDateString()}</td>
-                <td>
-                  {/* ⚠️ "Hiç kullanılmadı" ile bir tarih AYRI: kaybolan
-                      anahtarı silecek kişi tam olarak buna bakıyor. */}
-                  {k.last_used_at
-                    ? new Date(k.last_used_at).toLocaleDateString()
-                    : "never"}
-                </td>
-                <td className="actions">
-                  <ActionButton
-                    onClick={() => remove(k.id, k.name)}
-                    label={`remove ${k.name}`}
-                  >
-                    Remove
-                  </ActionButton>
-                </td>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Added</th>
+                <th>Last used</th>
+                <th className="actions">
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {list.map((k) => (
+                <tr key={k.id}>
+                  <td>{k.name}</td>
+                  {/* Timestamp, toLocaleDateString() DEĞİL: panelin geri
+                      kalanı "13 Sep 12:12:00" yazıyor; burası "9/13/2026"
+                      diyordu. Tam değer title'da duruyor. */}
+                  <td>
+                    <Timestamp value={k.created_at} />
+                  </td>
+                  <td>
+                    {/* ⚠️ "Hiç kullanılmadı" ile bir tarih AYRI: kaybolan
+                        anahtarı silecek kişi tam olarak buna bakıyor. */}
+                    {k.last_used_at ? <Timestamp value={k.last_used_at} /> : "never"}
+                  </td>
+                  <td className="actions">
+                    <ActionButton
+                      onClick={() => remove(k.id, k.name)}
+                      label={`remove ${k.name}`}
+                    >
+                      Remove
+                    </ActionButton>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       <div className="card-body">

@@ -58,13 +58,17 @@ export default function ShellPage({
           <GateMark size={17} />
           <span className="brand-word">postern</span>
         </span>
-        <span className="shell-target">{target}</span>
+        {/* Dar pencerede ad üç noktayla kesiliyor (.shell-target); tam
+            hâli title'da dursun ki hangi makinede olduğun kaybolmasın. */}
+        <span className="shell-target" title={target}>
+          {target}
+        </span>
         <span className="badge badge-ok">recording</span>
         <span className="shell-spacer" />
         {filesEnabled && (
           <button
             type="button"
-            className="btn btn-ghost btn-sm shell-files"
+            className="btn btn-quiet btn-sm shell-files"
             onClick={() => setFiles(true)}
           >
             <FolderIcon />

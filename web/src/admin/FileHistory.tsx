@@ -305,7 +305,7 @@ function Result({ result }: { result: History }) {
           </span>
         ),
     },
-    { key: "target", header: "Target", value: (f) => f.target },
+    { key: "target", header: "Target", className: "wrap", value: (f) => f.target },
     { key: "op", header: "Op", value: (f) => f.op },
     {
       key: "path",
