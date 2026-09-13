@@ -158,8 +158,8 @@ audit rows into a shape it does not understand.
 
 - **Temporary access: postern opens an account on a target for a fixed time
   and removes it when the time is up.** On a host with the management
-  account, an administrator can grant a postern user an account on that
-  host for between five minutes and thirty days, in named groups, optionally
+  account, an administrator can grant one person an account on that host
+  for between five minutes and thirty days, in named groups, optionally
   with a sudo rule written for that account alone. When the grant expires —
   or when an administrator ends it early — postern closes the person's open
   sessions on that host, kills what the account is still running, deletes
