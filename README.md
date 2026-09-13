@@ -530,6 +530,32 @@ because on a target where the principals file is not in effect, a
 certificate with the principal `postern` opens that account. That was
 measured, not assumed.
 
+### Temporary access
+
+With management on, the target page also has a **Temporary access** card.
+An administrator picks a postern user, the groups the account should join,
+optionally a sudo rule for that account alone, and a duration between five
+minutes and thirty days. postern signs in with its own certificate,
+creates the account in the `postern-jit` group, and writes the rule
+through the same stage → `visudo` → install steps as everything else.
+
+When the grant ends, or when an administrator ends it early, the same
+function runs in reverse: the person's open sessions on that host are
+closed, what the account is still running is killed, the account and its
+home are deleted, the rule is removed, and anything the account owned
+elsewhere on the machine is reported — not deleted. A sweeper checks
+every minute; there is no separate switch for it, because a bastion that
+can open temporary accounts but not close them would make the word
+temporary a lie.
+
+What it refuses: to take over an account that already exists on the host
+(only accounts postern created, proven by the `postern-jit` membership,
+are ever deleted); to leave a half-applied grant standing (it falls due at
+once); and to give up on a revocation that fails (the reason stays on the
+grant, and it is retried at growing intervals capped at an hour). As a
+backstop for the day postern is not there, the account is also created
+with `useradd -e` set to the day after the grant ends.
+
 ### Sending recordings off the bastion
 
 Until now the audit trail lived only on the machine being audited:

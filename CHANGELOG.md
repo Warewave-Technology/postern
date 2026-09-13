@@ -156,6 +156,38 @@ audit rows into a shape it does not understand.
   identity provider or a directory, and again by policy and by the ordinary
   connection.
 
+- **Temporary access: postern opens an account on a target for a fixed time
+  and removes it when the time is up.** On a host with the management
+  account, an administrator can grant a postern user an account on that
+  host for between five minutes and thirty days, in named groups, optionally
+  with a sudo rule written for that account alone. When the grant expires —
+  or when an administrator ends it early — postern closes the person's open
+  sessions on that host, kills what the account is still running, deletes
+  the account and its home, removes its sudo rule, and reports what it left
+  behind elsewhere on the machine rather than deleting it. Every grant and
+  every revocation is in the admin log, before the target is touched.
+
+  Three refusals are worth knowing about. A grant never takes over an
+  account that already exists on the host: only accounts in the
+  `postern-jit` group, which postern itself creates, are ever deleted, and
+  an existing account of the same name stops the grant before anything is
+  written. A grant that could only be half applied falls due at once, so
+  the sweeper cleans it up on its next pass instead of leaving an unapproved
+  account for the requested hours. And a revocation that cannot complete
+  keeps its reason on the grant and is retried at growing intervals capped
+  at an hour — the grant stays visible as *not revoked* until it is.
+
+  `useradd -e` is written as a backstop for the day postern is not there:
+  the host itself disables the account the day after the grant ends.
+
+  Migration 041 adds the grant table. The setting is the same
+  `manage.enabled`; there is no second switch, because a bastion that can
+  open temporary accounts but not close them would make "temporary" a lie.
+
+  `POST /api/admin/targets/{name}/grants` creates a grant,
+  `GET /api/admin/targets/{name}/grants` lists them,
+  `POST /api/admin/grants/{id}/revoke` ends one early.
+
 - **postern refuses to manage a machine it does not understand.** A capability
   probe reports which tools a target actually has and names what is missing
   rather than guessing. On Alpine it finds busybox's `adduser` but no
@@ -679,6 +711,16 @@ audit rows into a shape it does not understand.
   action needed; the panel reads it to decide whether to draw the button.
 
 ### Fixed
+
+- **Retention deletions were never written to the admin log.** The pruner
+  has recorded every deletion it makes under `via = system` since it
+  started doing so, and every one of those rows was refused by the
+  `admin_log` check constraint, which listed every door a person can come
+  through and not the bastion acting on its own. The panel's promise that
+  "the admin log explains" a missing recording was therefore never kept.
+  Migration 042 admits the value; the rows that were refused are gone and
+  cannot be reconstructed. Found when the temporary-access sweeper, which
+  also acts on its own, hit the same constraint.
 
 - **A session the bastion is no longer streaming is no longer drawn as
   running.** The green *running* badge in the session list came from the

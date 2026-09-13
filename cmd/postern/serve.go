@@ -24,6 +24,7 @@ import (
 	"github.com/Warewave-Technology/postern/internal/config"
 	"github.com/Warewave-Technology/postern/internal/events"
 	"github.com/Warewave-Technology/postern/internal/httpapi"
+	"github.com/Warewave-Technology/postern/internal/jit"
 	"github.com/Warewave-Technology/postern/internal/ldap"
 	"github.com/Warewave-Technology/postern/internal/model"
 	"github.com/Warewave-Technology/postern/internal/objstore"
@@ -705,10 +706,22 @@ func newServeCmd() *cobra.Command {
 				 */
 				if cfg.Manage.Enabled {
 					webAPI.UseManagement(s.Authority())
+					/*
+					 * ⚠️ SÜPÜRÜCÜ YÖNETİMLE BİRLİKTE AÇILIYOR, AYRI BİR AYARLA
+					 * DEĞİL. Hak verebilen ama süresi dolanı geri alamayan bir
+					 * bastion, "geçici" dediği erişimi kalıcı yapar; ikisini
+					 * ayrı anahtarlara bağlamak, birini unutmayı mümkün
+					 * kılardı. Süpürücü canlı oturum defterini alıyor ki geri
+					 * alma önce açık oturumları kessin.
+					 */
+					sweeper := jit.New(db, s.Authority(), s.LiveSessions(), logger)
+					webAPI.UseJIT(sweeper)
+					go sweeper.Run(ctx)
 					// ⚠️ UYARI, BİLGİ DEĞİL — target_probe ile aynı: hedefte
 					// iş yapan her açık ayar her başlangıçta hatırlatılıyor.
 					logger.Warn("management is enabled: panel administrators can " +
-						"sign in as postern's management account on targets that have one")
+						"sign in as postern's management account on targets that have one, " +
+						"and open temporary accounts there that postern removes when they expire")
 				}
 
 				/*

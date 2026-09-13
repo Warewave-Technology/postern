@@ -17,6 +17,7 @@ import (
 	"github.com/Warewave-Technology/postern/internal/config"
 	"github.com/Warewave-Technology/postern/internal/events"
 	"github.com/Warewave-Technology/postern/internal/groupsync"
+	"github.com/Warewave-Technology/postern/internal/jit"
 	"github.com/Warewave-Technology/postern/internal/proxy"
 	"github.com/Warewave-Technology/postern/internal/record"
 	"github.com/Warewave-Technology/postern/internal/store"
@@ -207,6 +208,10 @@ type Server struct {
 	 * gereksiz yere doldururdu.
 	 */
 	manageSlots chan struct{}
+
+	// jit, geçici erişim hizmeti; nil ise uçlar kurulmuyor (manage.enabled
+	// kapalı). Yönetim bağlantısıyla aynı kapı, aynı gerekçe.
+	jit *jit.Service
 
 	/*
 	 * archiveClient, arşivdeki zincir başını okumak için. nil ise arşiv

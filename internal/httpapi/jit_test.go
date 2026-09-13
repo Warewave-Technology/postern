@@ -1,0 +1,286 @@
+package httpapi
+
+/*
+ * Geçici erişim uçları. Makineye giden yolun kendisi test/integration'da
+ * gerçek OpenSSH ile ölçülüyor; burada ölçülen şey uçların kapıları,
+ * doğrulaması ve başarısız bir koşunun cevaba nasıl girdiği.
+ */
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/Warewave-Technology/postern/internal/auth"
+	"github.com/Warewave-Technology/postern/internal/jit"
+	"github.com/Warewave-Technology/postern/internal/model"
+	"github.com/Warewave-Technology/postern/internal/store"
+)
+
+func jitServer(t *testing.T) (*Server, *store.Store, string, int, string) {
+	t.Helper()
+	s, db := dbServer(t)
+	authority := manageCA(t)
+	s.UseManagement(authority)
+	s.UseJIT(jit.New(db, authority, nil, slog.New(slog.NewTextHandler(io.Discard, nil))))
+
+	host, port, hostKey, _ := managedHost(t, authority, debianAnswers())
+	if _, err := db.CreateTarget(t.Context(), model.Target{
+		Name: "web01", Host: host, Port: port, HostKey: hostKey,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CreateUser(t.Context(), "ayse", "", "ayse"); err != nil {
+		t.Fatal(err)
+	}
+
+	return s, db, host, port, hostKey
+}
+
+func asAdmin(r *http.Request) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), ctxUser, "ops"))
+}
+
+func postGrant(t *testing.T, s *Server, target, body string) (*httptest.ResponseRecorder, map[string]any) {
+	t.Helper()
+	r := httptest.NewRequest(http.MethodPost, "/api/admin/targets/"+target+"/grants", strings.NewReader(body))
+	r.SetPathValue("name", target)
+	w := httptest.NewRecorder()
+	s.adminCreateGrant(w, asAdmin(r))
+	out := map[string]any{}
+	_ = json.Unmarshal(w.Body.Bytes(), &out)
+
+	return w, out
+}
+
+/*
+ * ⚠️ KAPALIYKEN UÇ YOK. Yönetim açık ama jit bağlanmamışsa bile uç
+ * kurulmamalı: root'la hesap açan bir yol, yarım kablolanmış bir sunucuda
+ * "var ama 500 dönüyor" olarak durmamalı.
+ */
+func TestGrantRoutesExistOnlyWhenTheServiceIsWired(t *testing.T) {
+	s := &Server{}
+	s.UseManagement(manageCA(t))
+	mux := http.NewServeMux()
+	s.registerJITRoutes(mux)
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/targets/web01/grants", nil)
+	if _, pattern := mux.Handler(req); pattern != "" {
+		t.Errorf("hizmet yokken uç kuruldu: %q", pattern)
+	}
+
+	s.UseJIT(&jit.Service{})
+	mux = http.NewServeMux()
+	s.registerJITRoutes(mux)
+	if _, pattern := mux.Handler(req); pattern == "" {
+		t.Error("hizmet varken uç kurulmadı")
+	}
+}
+
+/*
+ * ⚠️ DOĞRULAMA HEDEFE GİTMEDEN, 400 İLE. Süre sınırı, boş kullanıcı, kaçış
+ * riski taşıyan sudo kuralı: üçü de bağlantı açılmadan reddedilmeli ve
+ * cümle operatörün düzelteceği alanı söylemeli.
+ */
+func TestGrantRequestIsValidatedBeforeTheTargetIsTouched(t *testing.T) {
+	s, db, _, _, _ := jitServer(t)
+
+	for name, body := range map[string]string{
+		"boş kullanıcı":    `{"username":"","duration":"2h"}`,
+		"bozuk süre":       `{"username":"ayse","duration":"iki saat"}`,
+		"çok kısa":         `{"username":"ayse","duration":"1m"}`,
+		"çok uzun":         `{"username":"ayse","duration":"1000h"}`,
+		"kaçış veren sudo": `{"username":"ayse","duration":"2h","sudo":{"commands":[{"path":"/usr/bin/vim"}]}}`,
+	} {
+		w, out := postGrant(t, s, "web01", body)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("%s: durum = %d, 400 bekleniyordu: %s", name, w.Code, w.Body.String())
+		}
+		if out["error"] == "" {
+			t.Errorf("%s: sebep yok", name)
+		}
+	}
+
+	w, _ := postGrant(t, s, "yok", `{"username":"ayse","duration":"2h"}`)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("bilinmeyen hedef: durum = %d", w.Code)
+	}
+
+	grants, _ := db.JITGrantsForTarget(t.Context(), "web01", 10)
+	if len(grants) != 0 {
+		t.Errorf("reddedilen istek kayıt bıraktı: %d", len(grants))
+	}
+	logs, _ := db.AdminLog(t.Context(), 20)
+	for _, e := range logs {
+		if strings.HasPrefix(e.Action, "jit.") {
+			t.Errorf("reddedilen istek deftere yazıldı: %+v", e)
+		}
+	}
+}
+
+/*
+ * ⚠️ HEDEFTE YARIM KALAN KOŞU ADIM ADIM CEVABA GİRİYOR. Sahte hedef
+ * `useradd`i tanımıyor (127); plan grup ve hesap adımlarını üretiyor,
+ * ilki düşüyor, gerisi denenmiyor. Cevap 502 ve hangi adımın nerede
+ * kaldığını taşıyor; kayıt hemen vadesi dolmuş, denetim defteri denemeyi
+ * ve sonucu ayrı satırlarda tutuyor.
+ */
+func TestAFailedGrantReportsEveryStepAndFallsDue(t *testing.T) {
+	s, db, _, _, _ := jitServer(t)
+
+	w, out := postGrant(t, s, "web01", `{"username":"ayse","groups":["dba"],"duration":"2h"}`)
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("durum = %d: %s", w.Code, w.Body.String())
+	}
+	steps, _ := out["steps"].([]any)
+	if len(steps) == 0 {
+		t.Fatalf("adımlar cevapta yok: %s", w.Body.String())
+	}
+	first, _ := steps[0].(map[string]any)
+	if first["outcome"] != "failed" || first["kind"] != "group.add" {
+		t.Errorf("ilk adım = %+v, group.add/failed bekleniyordu", first)
+	}
+	last, _ := steps[len(steps)-1].(map[string]any)
+	if last["outcome"] != "not attempted" {
+		t.Errorf("son adım = %+v, 'not attempted' bekleniyordu", last)
+	}
+
+	grants, err := db.JITGrantsForTarget(t.Context(), "web01", 10)
+	if err != nil || len(grants) != 1 {
+		t.Fatalf("kayıt = %v (%v)", grants, err)
+	}
+	g := grants[0]
+	if !g.AppliedAt.IsZero() || !g.Due(time.Now()) {
+		t.Errorf("yarım kalan hak uygulanmış/vadesi gelmemiş görünüyor: %+v", g)
+	}
+	if out["grant"] == nil {
+		t.Error("cevapta kayıt yok; operatör süpürücünün neyi toplayacağını göremez")
+	}
+
+	seen := map[string]bool{}
+	logs, _ := db.AdminLog(t.Context(), 20)
+	for _, e := range logs {
+		seen[e.Action] = true
+	}
+	if !seen["jit.grant"] || !seen["jit.grant.failed"] {
+		t.Errorf("denetim defteri deneme ve sonucu ayrı satırlarda tutmuyor: %v", seen)
+	}
+}
+
+// Listeleme hedefi doğruluyor; geri alma bilinmeyen ve çoktan geri alınmış
+// hakka doğru durumla cevap veriyor.
+func TestGrantListAndRevokeAnswerAboutTheRightGrant(t *testing.T) {
+	s, db, _, _, _ := jitServer(t)
+	ctx := t.Context()
+
+	r := httptest.NewRequest(http.MethodGet, "/api/admin/targets/yok/grants", nil)
+	r.SetPathValue("name", "yok")
+	w := httptest.NewRecorder()
+	s.adminListGrants(w, asAdmin(r))
+	if w.Code != http.StatusNotFound {
+		t.Errorf("bilinmeyen hedefin listesi: %d", w.Code)
+	}
+
+	now := time.Now()
+	id, err := db.CreateJITGrant(ctx, store.JITGrant{
+		Username: "ayse", Target: "web01", OSUser: "ayse", GrantedBy: "ops",
+		GrantedAt: now, ExpiresAt: now.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.MarkJITGrantRevoked(ctx, id, "gone", now); err != nil {
+		t.Fatal(err)
+	}
+
+	r = httptest.NewRequest(http.MethodGet, "/api/admin/targets/web01/grants", nil)
+	r.SetPathValue("name", "web01")
+	w = httptest.NewRecorder()
+	s.adminListGrants(w, asAdmin(r))
+	var list struct {
+		Grants []store.JITGrant `json:"grants"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil || len(list.Grants) != 1 || list.Grants[0].ID != id {
+		t.Errorf("liste = %s (%v)", w.Body.String(), err)
+	}
+
+	revoke := func(id string) int {
+		r := httptest.NewRequest(http.MethodPost, "/api/admin/grants/"+id+"/revoke", nil)
+		r.SetPathValue("id", id)
+		w := httptest.NewRecorder()
+		s.adminRevokeGrant(w, asAdmin(r))
+		return w.Code
+	}
+	if code := revoke("yok"); code != http.StatusNotFound {
+		t.Errorf("bilinmeyen hak: %d", code)
+	}
+	if code := revoke(id); code != http.StatusConflict {
+		t.Errorf("çoktan geri alınmış hak: %d, 409 bekleniyordu", code)
+	}
+}
+
+/*
+ * ⚠️ KAPILAR ROTADA — yönetim denetimiyle aynı ders: handler doğrudan
+ * çağrılınca requireAdmin ve sameOrigin hiç koşmuyor. Root'la hesap açan
+ * uç için üçü de ölçülüyor: yönetici olmayan 403, çapraz köken 403,
+ * yönetici + aynı köken kapıdan geçip handler'ın kendi cevabını alıyor.
+ */
+func TestGrantEndpointsAreBehindTheAdminAndSameOriginGates(t *testing.T) {
+	db := migratedStore(t)
+	s := New(auth.NewOIDCHolder(), auth.NewLogins(auth.NewOIDCHolder()), db,
+		slog.New(slog.NewTextHandler(io.Discard, nil)))
+	authority := manageCA(t)
+	s.UseManagement(authority)
+	s.UseJIT(jit.New(db, authority, nil, slog.New(slog.NewTextHandler(io.Discard, nil))))
+
+	ctx := t.Context()
+	if _, err := db.CreateUser(ctx, "veli", "", "veli"); err != nil {
+		t.Fatal(err)
+	}
+	token, err := s.createWebSession(ctx, "veli")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	call := func(method, path, site string) int {
+		t.Helper()
+		r := httptest.NewRequest(method, path, strings.NewReader(`{"username":"veli","duration":"2h"}`))
+		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+		if site != "" {
+			r.Header.Set("Sec-Fetch-Site", site)
+		}
+		w := httptest.NewRecorder()
+		s.Handler().ServeHTTP(w, r)
+		return w.Code
+	}
+
+	for _, ep := range []struct{ method, path string }{
+		{http.MethodPost, "/api/admin/targets/yok/grants"},
+		{http.MethodGet, "/api/admin/targets/yok/grants"},
+		{http.MethodPost, "/api/admin/grants/yok/revoke"},
+	} {
+		if code := call(ep.method, ep.path, "same-origin"); code != http.StatusForbidden {
+			t.Errorf("%s %s yönetici olmayana %d verdi, 403 bekleniyordu", ep.method, ep.path, code)
+		}
+	}
+	if err := db.SetUserAdmin(ctx, "veli", true); err != nil {
+		t.Fatal(err)
+	}
+	for _, ep := range []struct{ method, path string }{
+		{http.MethodPost, "/api/admin/targets/yok/grants"},
+		{http.MethodPost, "/api/admin/grants/yok/revoke"},
+	} {
+		if code := call(ep.method, ep.path, "cross-site"); code != http.StatusForbidden {
+			t.Errorf("%s %s çapraz kökene %d verdi, 403 bekleniyordu", ep.method, ep.path, code)
+		}
+		// Karşı örnek: kapılardan geçince handler'ın 404'ü.
+		if code := call(ep.method, ep.path, "same-origin"); code != http.StatusNotFound {
+			t.Errorf("%s %s yönetici + aynı köken %d verdi, 404 bekleniyordu", ep.method, ep.path, code)
+		}
+	}
+}

@@ -42,6 +42,7 @@ func (s *Server) registerTargetRoutes(mux *http.ServeMux) {
 		noStore(s.requireSession(s.requireAdmin(s.sameOrigin(http.HandlerFunc(s.adminTargetDetail))))))
 
 	s.registerManageRoutes(mux)
+	s.registerJITRoutes(mux)
 }
 
 // targetCard, ana ekrandaki kutunun ihtiyacı.
