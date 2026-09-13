@@ -1,4 +1,5 @@
 import { render, screen, within } from "@testing-library/react";
+import { useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import DataTable, { Column, compare } from "./DataTable";
@@ -154,5 +155,54 @@ describe("compare", () => {
     expect(compare(0.5, 0.25)).toBeGreaterThan(0);
     expect(compare(-1, -2)).toBeGreaterThan(0);
     expect(compare(2, 30)).toBeLessThan(0);
+  });
+});
+
+/*
+ * ⚠️ BAŞLIK KUTUSU SÜZÜLMÜŞ LİSTEYE UYGULANIYOR: "web" yazıp tümünü seçmek
+ * web satırlarını seçer, tabloyu değil; seçilemeyen satır kutu almıyor ve
+ * "tümü"ne girmiyor. Süzgeç kalkınca daha önce seçilenler duruyor.
+ */
+describe("DataTable seçim", () => {
+  function Harness() {
+    const [selected, setSelected] = useState<string[]>([]);
+    return (
+      <>
+        <DataTable
+          rows={rows}
+          columns={columns}
+          rowKey={(r) => r.name}
+          noun="target"
+          searchLabel="search targets"
+          selection={{
+            selected,
+            onChange: setSelected,
+            canSelect: (r) => r.name !== "db-01",
+            label: (r) => `select ${r.name}`,
+          }}
+        />
+        <output data-testid="sel">{selected.join(",")}</output>
+      </>
+    );
+  }
+
+  it("gösterilen seçilebilir satırları seçer, süzgeçle daralır, seçimi korur", async () => {
+    render(<Harness />);
+    const sel = () => screen.getByTestId("sel").textContent;
+
+    expect(screen.queryByRole("checkbox", { name: "select db-01" })).toBeNull();
+    await userEvent.click(screen.getByRole("checkbox", { name: "select web-2" }));
+    expect(sel()).toBe("web-2");
+    const all = screen.getByRole("checkbox", { name: "select all targets" }) as HTMLInputElement;
+    expect(all.indeterminate).toBe(true);
+
+    await userEvent.type(screen.getByRole("searchbox", { name: "search targets" }), "web-10");
+    await userEvent.click(screen.getByRole("checkbox", { name: "select all matching targets" }));
+    expect(sel()).toBe("web-2,web-10"); // süzülmüş satır eklendi, öncekisi durdu
+
+    await userEvent.clear(screen.getByRole("searchbox", { name: "search targets" }));
+    expect((screen.getByRole("checkbox", { name: "select all targets" }) as HTMLInputElement).checked).toBe(true);
+    await userEvent.click(screen.getByRole("checkbox", { name: "select all targets" }));
+    expect(sel()).toBe("");
   });
 });

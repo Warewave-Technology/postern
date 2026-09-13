@@ -857,6 +857,19 @@ td.actions {
   text-align: right;
   width: 1%;
 }
+/* Seçim sütunu (DataTable selection): dar, kutu ortalı. */
+th.select,
+td.select {
+  width: 1%;
+  padding-right: 0;
+  text-align: center;
+}
+th.select input,
+td.select input {
+  width: auto;
+  margin: 0;
+  vertical-align: middle;
+}
 th.actions .th-pad {
   padding-inline: var(--cell-x);
 }

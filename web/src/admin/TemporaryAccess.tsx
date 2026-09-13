@@ -70,6 +70,10 @@ export default function TemporaryAccess() {
   const [error, setError] = useState("");
   const [result, setResult] = useState<GrantResult | null>(null);
 
+  // Toplu geri alma: seçili hakların kimlikleri ve her birinin sonucu.
+  const [selected, setSelected] = useState<string[]>([]);
+  const [bulk, setBulk] = useState<HostOutcome[]>([]);
+
   const load = useCallback(
     () =>
       api
@@ -107,6 +111,38 @@ export default function TemporaryAccess() {
         // operatör kırmızı satırı görmez.
         return load();
       });
+  };
+
+  /*
+   * ⚠️ SEÇİLENLERİ SIRAYLA GERİ AL — biri düşünce durma. Yüz hostta açık
+   * bir hakkı tek tek kapatmak yapılmıyor (kullanıcı söyledi); ama yüz
+   * geri almayı tek bir "başarılı/başarısız"a indirgemek de olmaz:
+   * ulaşılamayan hedefin hakkı açık kalıyor ve süpürücü yeniden deneyecek,
+   * operatör hangisi olduğunu görmeli. Her hak kendi satırında; liste her
+   * hakkın ardından değil sonda tazeleniyor, seçim sonda temizleniyor.
+   */
+  const revokeSelected = async () => {
+    setError("");
+    setResult(null);
+    const out: HostOutcome[] = [];
+    for (const id of selected) {
+      const g = grants.find((x) => x.id === id);
+      const target = g ? `${g.username} on ${g.target}` : id;
+      try {
+        const r = await api.revokeGrant(id);
+        out.push({
+          target,
+          summary:
+            r.summary + (r.sessions_closed ? ` — ${r.sessions_closed} open session(s) closed` : ""),
+          steps: r.steps,
+        });
+      } catch (e: unknown) {
+        out.push({ target, summary: "", steps: [], error: toMessage(e) });
+      }
+      setBulk([...out]);
+    }
+    setSelected([]);
+    await load();
   };
 
   const columns: Column<Grant>[] = [
@@ -192,6 +228,23 @@ export default function TemporaryAccess() {
 
       <ErrorLine msg={error} />
       {result && <Outcome summary={result.summary} steps={result.steps} closed={result.sessions_closed} />}
+      {bulk.length > 0 && (
+        <>
+          <ul className="host-outcomes">
+            {bulk.map((o, i) => (
+              <li key={i}>
+                <h4>{o.target}</h4>
+                <Outcome summary={o.summary} steps={o.steps} error={o.error} />
+              </li>
+            ))}
+          </ul>
+          <p>
+            <button type="button" className="btn-quiet" onClick={() => setBulk([])}>
+              Dismiss these results
+            </button>
+          </p>
+        </>
+      )}
       <ErrorLine msg={listError} />
 
       <ListState
@@ -211,6 +264,34 @@ export default function TemporaryAccess() {
           searchLabel="Search grants by person, host or group"
           searchPlaceholder="Search grants…"
           noun="grant"
+          /*
+            Seçim: yalnızca açık haklar. Başlık kutusu aramanın gösterdiğini
+            seçiyor — "ayse" yazıp tümünü seç, sonra "Revoke selected".
+          */
+          selection={{
+            selected,
+            onChange: setSelected,
+            canSelect: (g) => !g.revoked_at,
+            label: (g) => `select ${g.username} on ${g.target}`,
+          }}
+          toolbarExtra={
+            selected.length > 0 && (
+              <>
+                <span className="count">{selected.length} selected</span>
+                <ActionButton
+                  variant="danger"
+                  onClick={revokeSelected}
+                  confirm={`End ${selected.length} temporary access grant(s) now? On every host involved, the person's open sessions are closed and the account, its home and its processes are removed.`}
+                  label="revoke the selected grants"
+                >
+                  Revoke selected
+                </ActionButton>
+                <button type="button" className="btn-quiet" onClick={() => setSelected([])}>
+                  Clear selection
+                </button>
+              </>
+            )
+          }
         />
       )}
 

@@ -37,6 +37,24 @@ export type Column<T> = {
 
 type Dir = "asc" | "desc";
 
+/*
+ * Selection, satır seçimi: ilk sütunda onay kutuları ve başlıkta
+ * "gösterilenlerin tümünü seç".
+ *
+ * ⚠️ BAŞLIK KUTUSU SÜZÜLMÜŞ LİSTEYE UYGULANIYOR, tabloya değil: kutuya
+ * "ayse" yazıp tümünü seçmek ayse'nin haklarını seçer, yüz hostun
+ * tamamını değil. Kutu üç durumlu (hiç / bazıları / hepsi). Seçilemeyen
+ * satırlar (canSelect false) kutu almıyor ve "tümü"ne girmiyor.
+ */
+export type Selection<T> = {
+  selected: string[];
+  onChange: (next: string[]) => void;
+  /** Verilmezse her satır seçilebilir. */
+  canSelect?: (row: T) => boolean;
+  /** Satır kutusunun erişilebilir adı: "select ayse on web-01". */
+  label: (row: T) => string;
+};
+
 /**
  * compare, iki hücre değerini sıralar.
  *
@@ -73,10 +91,12 @@ export default function DataTable<T>({
   noun,
   match,
   onRowClick,
+  selection,
 }: {
   rows: T[];
   columns: Column<T>[];
   rowKey: (row: T) => string;
+  selection?: Selection<T>;
   initialSort?: { key: string; dir: Dir };
   searchLabel: string;
   searchPlaceholder?: string;
@@ -146,6 +166,27 @@ export default function DataTable<T>({
 
   const searching = query.trim() !== "";
 
+  // Seçim: gösterilen VE seçilebilir satırlar başlık kutusunun kapsamı.
+  const canSelect = (r: T) => selection?.canSelect?.(r) ?? true;
+  const shownKeys = sorted.filter(canSelect).map(rowKey);
+  const selectedSet = new Set(selection?.selected ?? []);
+  const allShown = shownKeys.length > 0 && shownKeys.every((k) => selectedSet.has(k));
+  const someShown = shownKeys.some((k) => selectedSet.has(k));
+  const toggleAllShown = () => {
+    if (!selection) return;
+    selection.onChange(
+      allShown
+        ? selection.selected.filter((k) => !shownKeys.includes(k))
+        : Array.from(new Set([...selection.selected, ...shownKeys])),
+    );
+  };
+  const toggleOne = (k: string) => {
+    if (!selection) return;
+    selection.onChange(
+      selectedSet.has(k) ? selection.selected.filter((x) => x !== k) : [...selection.selected, k],
+    );
+  };
+
   return (
     <div className="card">
       <div className="table-tools">
@@ -184,6 +225,21 @@ export default function DataTable<T>({
         <table>
           <thead>
             <tr>
+              {selection && (
+                <th className="select">
+                  <input
+                    type="checkbox"
+                    aria-label={searching ? `select all matching ${noun}s` : `select all ${noun}s`}
+                    checked={allShown}
+                    disabled={shownKeys.length === 0}
+                    // indeterminate yalnızca DOM özelliği; React niteliği yok.
+                    ref={(el) => {
+                      if (el) el.indeterminate = !allShown && someShown;
+                    }}
+                    onChange={toggleAllShown}
+                  />
+                </th>
+              )}
               {columns.map((c) => {
                 const sortable = c.sortable ?? Boolean(c.value);
                 const active = sort?.key === c.key;
@@ -240,14 +296,26 @@ export default function DataTable<T>({
                          * hâle gelirdi.
                          */
                         if (window.getSelection()?.toString()) return;
-                        // Hücre içindeki gerçek bir düğme kendi işini
-                        // yapsın; iki kez tetiklenmesin.
-                        if ((e.target as HTMLElement).closest("button")) return;
+                        // Hücre içindeki gerçek bir düğme ya da seçim
+                        // kutusu kendi işini yapsın; iki kez tetiklenmesin.
+                        if ((e.target as HTMLElement).closest("button, input")) return;
                         onRowClick(r);
                       }
                     : undefined
                 }
               >
+                {selection && (
+                  <td className="select">
+                    {canSelect(r) && (
+                      <input
+                        type="checkbox"
+                        aria-label={selection.label(r)}
+                        checked={selectedSet.has(rowKey(r))}
+                        onChange={() => toggleOne(rowKey(r))}
+                      />
+                    )}
+                  </td>
+                )}
                 {columns.map((c) => (
                   <td key={c.key} className={c.className}>
                     {c.render

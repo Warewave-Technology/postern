@@ -764,6 +764,9 @@ describe("sayfa düzeyinde görsel çıktı", () => {
     click("Temporary access");
     await settle();
     page("jit");
+    fireEvent.click(screen.getByRole("checkbox", { name: "select all grants" }));
+    await settle();
+    page("jit-selected");
 
     click(/new temporary access/i);
     await settle();

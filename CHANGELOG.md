@@ -196,7 +196,10 @@ audit rows into a shape it does not understand.
   ever is: `docker`, `wheel`, `shadow` and the rest are system groups, and
   membership in one is root without a sudo rule. The server refuses those
   regardless of what the panel sent. The list below the button covers
-  every host, newest first.
+  every host, newest first; open grants can be ticked — all of a search's
+  matches at once — and revoked together, each host answering on its own
+  line, so a hundred hosts do not mean a hundred clicks and one host
+  that cannot be reached does not hide the ninety-nine that were.
 
   Migration 041 adds the grant table. The setting is the same
   `manage.enabled`; there is no second switch, because a bastion that can

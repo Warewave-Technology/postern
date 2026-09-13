@@ -189,3 +189,43 @@ it("bir hedef düşünce diğerleri açılır, sonuçlar hedef başına yazılı
   expect(screen.queryByRole("button", { name: /^grant temporary access$/i })).toBeNull();
   expect(screen.getByRole("button", { name: /^done$/i })).toBeTruthy();
 });
+
+/*
+ * ⚠️ TOPLU GERİ ALMA: seçilenler sırayla, biri düşünce durmadan, her hak
+ * kendi satırında. Yüz hostta açık bir hakkı tek tek kapatmak yapılmıyor;
+ * ama ulaşılamayan hedefin hakkı açık kalıyor ve operatör hangisi olduğunu
+ * görmeli. Geri alınmış hak seçilemiyor; iş bitince liste tazeleniyor ve
+ * seçim temizleniyor.
+ */
+it("seçilen hakları sırayla geri alır ve her birinin sonucunu yazar", async () => {
+  const list = vi.spyOn(api, "allGrants").mockResolvedValue({
+    grants: [
+      grant({ id: "a", target: "web-01" }),
+      grant({ id: "b", target: "db-01" }),
+      grant({ id: "c", target: "cache-03", revoked_at: "2026-09-13T11:00:00Z" }),
+    ],
+    now,
+  });
+  const revoke = vi.spyOn(api, "revokeGrant").mockImplementation((id) =>
+    id === "a"
+      ? Promise.resolve({ grant: grant({ id: "a", revoked_at: now }), summary: "5 applied", steps: [step], sessions_closed: 1 })
+      : Promise.reject(new Error("could not connect: no route to host")),
+  );
+  render(<TemporaryAccess />);
+  await screen.findByText("cache-03");
+
+  expect(screen.queryByRole("checkbox", { name: /select ayse on cache-03/ })).toBeNull();
+  fireEvent.click(screen.getByRole("checkbox", { name: "select all grants" }));
+  expect(screen.getByText("2 selected")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: /revoke the selected grants/i }));
+
+  await screen.findByText(/no route to host/);
+  expect(screen.getByText(/5 applied — 1 open session\(s\) closed/)).toBeTruthy();
+  expect(revoke).toHaveBeenCalledTimes(2);
+  expect(revoke).toHaveBeenCalledWith("a");
+  expect(revoke).toHaveBeenCalledWith("b");
+  await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+  expect(screen.queryByText("2 selected")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: /dismiss these results/i }));
+  expect(screen.queryByText(/no route to host/)).toBeNull();
+});
