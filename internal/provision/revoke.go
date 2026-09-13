@@ -240,8 +240,39 @@ func checkSudoPath(p string) string {
 		// kimsenin beklemediği biçimde değiştirirdi.
 		return "is not a file postern wrote"
 	}
-	if strings.Contains(p, "..") || strings.ContainsAny(p, " \t\n;|&$*?") {
-		return "contains path traversal or shell syntax"
+	if bad := unsafePathByte(p); bad != "" {
+		return bad
+	}
+	if strings.Contains(p, "..") {
+		return "contains path traversal"
+	}
+
+	return ""
+}
+
+/*
+ * unsafePathByte, yolun komut satırına girmesi güvenli olmayan bir bayt
+ * taşıyıp taşımadığını söyler.
+ *
+ * ⚠️ İZİN LİSTESİ, YASAK LİSTESİ DEĞİL — VE FARK ÖLÇÜLDÜ. Bu kontrol
+ * önceden " \t\n;|&$*?" karakterlerini yasaklıyordu; ters tırnak, `<`,
+ * `>`, süslü parantez ve tırnak geçiyordu. "/srv/build/`sh</tmp/p`"
+ * bütün kontrollerden geçip `sudo -n rm -rf /srv/build/`sh</tmp/p``
+ * üretti: kabuk ters tırnağı rm'den ÖNCE açıyor ve /tmp/p'yi parolasız
+ * root sudo tutan hesapla çalıştırıyor. Aynı sınıf hata plan.go'da
+ * usermod satırı için kapatılmıştı (7a85bab); buradaki yollar aynı
+ * kapıdan geçmemişti. Kabuğun yorumlayabileceği her şeyi saymak yerine
+ * bir yolun taşıması GEREKENİ sayıyoruz: harf, rakam, /, ., _ ve -.
+ */
+func unsafePathByte(p string) string {
+	for i := 0; i < len(p); i++ {
+		c := p[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case c == '/', c == '.', c == '_', c == '-':
+		default:
+			return fmt.Sprintf("contains %q, which is not allowed in a path postern removes", c)
+		}
 	}
 
 	return ""
@@ -261,8 +292,9 @@ func checkScratch(p, home string) string {
 		return "is not an absolute path"
 	case strings.Contains(p, ".."):
 		return "contains .."
-	case strings.ContainsAny(p, " \t\n;|&$*?"):
-		return "contains shell syntax"
+	}
+	if bad := unsafePathByte(p); bad != "" {
+		return bad
 	}
 
 	clean := path.Clean(p)

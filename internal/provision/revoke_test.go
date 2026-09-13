@@ -140,6 +140,20 @@ func TestScratchPathsThatWouldDestroyTheMachineAreRefused(t *testing.T) {
 		 * hiçbir yasak listesinde yoktur.
 		 */
 		"/data", "/mnt", "/scratch", "/veri",
+		/*
+		 * ⚠️ NOKTALI VİRGÜL DIŞINDAKİ KABUK SÖZDİZİMİ — VE BU SATIRLAR BİR
+		 * İNCELEMENİN BULDUĞU ENJEKSİYONLA EKLENDİ. Kontrol bir yasak
+		 * listesiydi ve yalnızca ";|&$*?" ile boşlukları tanıyordu; ters
+		 * tırnak, yönlendirme ve süslü parantez geçiyordu.
+		 * "/srv/build/`sh</tmp/p`" hatasız bir `sudo -n rm -rf` satırı
+		 * üretti: kabuk ters tırnağı rm'den ÖNCE açıyor. Yukarıdaki
+		 * ";" örneği bu sınıfı hiç sınamıyordu — yasak listesinin kendi
+		 * kör noktasını miras almıştı.
+		 */
+		"/srv/build/`sh</tmp/p`", "/srv/build/$(id)", "/srv/build/{a,b}",
+		"/srv/build/a>b", "/srv/build/a<b", "/srv/build/'a'", "/srv/build/\"a\"",
+		"/srv/build/a\\b", "/srv/build/(a)", "/srv/build/~x", "/srv/build/a!b",
+		"/srv/build/ünite",
 	} {
 		_, err := RevokePlan(able(), Revoke{
 			User: "jit-ayse", Mode: ModeDelete, UID: 1001, InJITGroup: true,
@@ -172,6 +186,9 @@ func TestOnlyPosternsOwnSudoFilesAreRemoved(t *testing.T) {
 	for _, f := range []string{
 		"/etc/sudoers.d/00-admins", "/etc/sudoers", "/etc/sudoers.d/../sudoers",
 		"/etc/sudoers.d/postern-jit; rm -rf /",
+		// Aynı sınıf, aynı kör nokta: ters tırnak ve yönlendirme.
+		"/etc/sudoers.d/postern-x`{sudo,-n,id}>/tmp/pwn`",
+		"/etc/sudoers.d/postern-$(id)", "/etc/sudoers.d/postern-a>b",
 	} {
 		_, err := RevokePlan(able(), Revoke{
 			User: "jit-ayse", Mode: ModeDelete, UID: 1001, InJITGroup: true,
