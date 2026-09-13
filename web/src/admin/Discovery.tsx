@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   DiscoveredMachine,
   DiscoveryOverview,
+  DiscoveryProbe,
   DiscoverySource,
   DiscoverySourceInput,
   MachineRef,
@@ -456,12 +457,19 @@ function LastRun({ s }: { s: DiscoverySource }) {
 }
 
 /*
- * SourceForm — kaynak ekleme/düzenleme.
+ * SourceForm — kaynak ekleme/düzenleme, dört bölüm: platform, kimlik,
+ * ne bulunacak, program. Kaydetmeden önce "Test connection" formdaki
+ * değerlerle kaynağa bağlanıp saydığını söylüyor; hiçbir şey yazmıyor.
  *
  * ⚠️ SIR ALANI DÜZENLEMEDE BOŞ GELİYOR ve boş gönderilirse kayıtlı sır
  * KALIYOR: panel sırrı hiç okumuyor, dolayısıyla "değiştirmedim"i
- * söylemenin tek yolu boş bırakmak. Tür düzenlemede değişmiyor —
- * makine kimlikleri türe özgü ("qemu/101" bir vSphere makinesi olamaz).
+ * söylemenin tek yolu boş bırakmak. Test de aynı kuralla: id + boş sır =
+ * kayıtlı sırla dene. Tür düzenlemede değişmiyor — makine kimlikleri
+ * türe özgü ("qemu/101" bir vSphere makinesi olamaz).
+ *
+ * ⚠️ ETİKET ANAHTARI TESTTE GÖRÜNÜYOR. CLI'da ölçülen arıza: yanlış
+ * anahtar hata vermiyor, her makine sessizce etiketsiz kalıyor. Test
+ * "0 machine(s) carry the tag, tags seen: …" diyor ve sarı çiziyor.
  */
 function SourceForm({
   source,
@@ -486,145 +494,221 @@ function SourceForm({
   const [insecure, setInsecure] = useState(source?.insecure ?? false);
   const [enabled, setEnabled] = useState(source?.enabled ?? true);
   const [error, setError] = useState("");
+  const [probe, setProbe] = useState<DiscoveryProbe | null>(null);
+  const [probeError, setProbeError] = useState("");
 
   const proxmox = kind === "proxmox";
+  const input = (): DiscoverySourceInput => ({
+    name: name.trim(),
+    kind,
+    url: url.trim(),
+    username: username.trim(),
+    secret,
+    ca_pem: caPem.trim(),
+    insecure,
+    node: proxmox ? node.trim() : "",
+    tag_key: tagKey.trim(),
+    name_pattern: namePattern.trim(),
+    port: Number(port) || 22,
+    interval_seconds: interval,
+    enabled,
+  });
+
+  const test = async () => {
+    setProbeError("");
+    setProbe(null);
+    try {
+      setProbe(await api.testDiscoverySource({ ...input(), id: source?.id }));
+    } catch (e: unknown) {
+      setProbeError(toMessage(e));
+    }
+  };
+
   const save = async () => {
     setError("");
-    const input: DiscoverySourceInput = {
-      name: name.trim(),
-      kind,
-      url: url.trim(),
-      username: username.trim(),
-      secret,
-      ca_pem: caPem.trim(),
-      insecure,
-      node: proxmox ? node.trim() : "",
-      tag_key: tagKey.trim(),
-      name_pattern: namePattern.trim(),
-      port: Number(port) || 22,
-      interval_seconds: interval,
-      enabled,
-    };
     try {
-      if (source) await api.updateDiscoverySource(source.id, input);
-      else await api.createDiscoverySource(input);
+      if (source) await api.updateDiscoverySource(source.id, input());
+      else await api.createDiscoverySource(input());
       await onSaved();
     } catch (e: unknown) {
       setError(toMessage(e));
     }
   };
 
+  const key = tagKey.trim() || "role";
+  const platform = proxmox ? "Proxmox" : "vCenter";
+
   return (
     <>
-      <div className="field-row">
-        <label>
-          Kind
-          <select
-            value={kind}
-            disabled={source !== null}
-            onChange={(e) => setKind(e.target.value as "proxmox" | "vsphere")}
-          >
-            <option value="proxmox">Proxmox VE</option>
-            <option value="vsphere">vSphere (vCenter)</option>
-          </select>
-        </label>
-        <label>
-          Name
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="lab cluster" />
-        </label>
-      </div>
-      <div className="field-row">
-        <label>
-          Address
-          <input
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder={proxmox ? "https://pve.example:8006" : "https://vcenter.example"}
-          />
-        </label>
-        <label>
-          {proxmox ? "API token id" : "vCenter user"}
-          <input
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            placeholder={proxmox ? "postern@pve!discovery" : "postern@vsphere.local (read-only)"}
-          />
-        </label>
-        <label>
-          {proxmox ? "API token secret" : "Password"}
-          <input
-            type="password"
-            autoComplete="off"
-            value={secret}
-            onChange={(e) => setSecret(e.target.value)}
-            placeholder={source?.secret_set ? "unchanged unless you type a new one" : ""}
-          />
-        </label>
-      </div>
-      <div className="field-row">
-        <label>
-          Tag key
-          <input value={tagKey} onChange={(e) => setTagKey(e.target.value)} />
-        </label>
-        <label>
-          Name pattern
-          <input
-            value={namePattern}
-            onChange={(e) => setNamePattern(e.target.value)}
-            placeholder="web-*, db-* (empty: every machine)"
-          />
-        </label>
-        <label>
-          SSH port
-          <input value={port} inputMode="numeric" onChange={(e) => setPort(e.target.value)} />
-        </label>
-        {proxmox && (
+      <div className="form-section" role="group" aria-labelledby="src-platform">
+        <h4 id="src-platform">Platform</h4>
+        <div className="form-grid cols-3">
           <label>
-            Node
-            <input value={node} onChange={(e) => setNode(e.target.value)} placeholder="all nodes" />
+            Kind
+            <select
+              value={kind}
+              disabled={source !== null}
+              onChange={(e) => setKind(e.target.value as "proxmox" | "vsphere")}
+            >
+              <option value="proxmox">Proxmox VE</option>
+              <option value="vsphere">vSphere (vCenter)</option>
+            </select>
           </label>
-        )}
-        <label>
-          Schedule
-          <select value={interval} onChange={(e) => setIntervalSeconds(Number(e.target.value))}>
-            {SCHEDULES.filter(([v]) => v === 0 || v >= minInterval).map(([v, label]) => (
-              <option key={v} value={v}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
+          <label>
+            Name
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="lab cluster" />
+          </label>
+          <label>
+            Address
+            <input
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder={proxmox ? "https://pve.example:8006" : "https://vcenter.example"}
+            />
+          </label>
+        </div>
       </div>
-      <p className="muted small">
-        {proxmox
-          ? `Proxmox tags cannot contain = or :, so write the role as ${tagKey || "role"}_<role>, e.g. ${tagKey || "role"}_ops. The token needs VM.Audit only.`
-          : `The tag key names a tag CATEGORY in vCenter; the tag in it is the role. The account should be read-only.`}
-      </p>
-      <label>
-        CA certificate (PEM)
-        <textarea
-          rows={4}
-          value={caPem}
-          onChange={(e) => setCaPem(e.target.value)}
-          placeholder="-----BEGIN CERTIFICATE----- … leave empty to trust the system roots"
-        />
-      </label>
-      <label className="check">
-        <input type="checkbox" checked={insecure} onChange={(e) => setInsecure(e.target.checked)} />
-        Skip TLS verification. Anyone between postern and the hypervisor can then decide which
-        machines appear here and with which tags. Paste the CA certificate instead.
-      </label>
-      <label className="check">
-        <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
-        Enabled (a disabled source keeps its machines but is not run on schedule)
-      </label>
+
+      <div className="form-section" role="group" aria-labelledby="src-credentials">
+        <h4 id="src-credentials">How postern signs in</h4>
+        <div className="form-grid cols-2">
+          <label>
+            {proxmox ? "API token id" : "vCenter user"}
+            <input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder={proxmox ? "postern@pve!discovery" : "postern@vsphere.local"}
+            />
+          </label>
+          <label>
+            {proxmox ? "API token secret" : "Password"}
+            <input
+              type="password"
+              autoComplete="off"
+              value={secret}
+              onChange={(e) => setSecret(e.target.value)}
+              placeholder={source?.secret_set ? "unchanged unless you type a new one" : ""}
+            />
+          </label>
+          <label className="span-all">
+            CA certificate (PEM)
+            <textarea
+              rows={3}
+              value={caPem}
+              onChange={(e) => setCaPem(e.target.value)}
+              placeholder="-----BEGIN CERTIFICATE----- … leave empty to trust the system roots"
+            />
+          </label>
+          <label className="check span-all">
+            <input type="checkbox" checked={insecure} onChange={(e) => setInsecure(e.target.checked)} />
+            Skip TLS verification. Anyone between postern and {platform} can then decide which
+            machines appear here and with which tags. Paste the CA certificate instead.
+          </label>
+        </div>
+        <p className="muted small">
+          {proxmox
+            ? "A read-only token is enough: it needs VM.Audit and nothing else."
+            : "Use a read-only account; postern only lists machines and their tags."}
+        </p>
+      </div>
+
+      <div className="form-section" role="group" aria-labelledby="src-scope">
+        <h4 id="src-scope">What to discover</h4>
+        <div className={proxmox ? "form-grid cols-4" : "form-grid cols-3"}>
+          <label>
+            Tag key
+            <input value={tagKey} onChange={(e) => setTagKey(e.target.value)} />
+          </label>
+          <label>
+            Name pattern
+            <input
+              value={namePattern}
+              onChange={(e) => setNamePattern(e.target.value)}
+              placeholder="web-*, db-* (empty: every machine)"
+            />
+          </label>
+          {proxmox && (
+            <label>
+              Node
+              <input value={node} onChange={(e) => setNode(e.target.value)} placeholder="all nodes" />
+            </label>
+          )}
+          <label>
+            SSH port
+            <input value={port} inputMode="numeric" onChange={(e) => setPort(e.target.value)} />
+          </label>
+        </div>
+        <p className="muted small">
+          {proxmox
+            ? `Proxmox tags cannot contain = or :, so a machine's role is written as ${key}_<role>, e.g. ${key}_ops. A machine without that tag is listed as untagged.`
+            : `The tag key names a tag category in vCenter; the tag in that category is the role. A machine without one is listed as untagged.`}
+        </p>
+      </div>
+
+      <div className="form-section" role="group" aria-labelledby="src-schedule">
+        <h4 id="src-schedule">Schedule</h4>
+        <div className="form-grid cols-2">
+          <label>
+            Runs
+            <select value={interval} onChange={(e) => setIntervalSeconds(Number(e.target.value))}>
+              {SCHEDULES.filter(([v]) => v === 0 || v >= minInterval).map(([v, label]) => (
+                <option key={v} value={v}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+            Enabled — a disabled source keeps its machines but is not run on schedule
+          </label>
+        </div>
+      </div>
+
+      {probe && <ProbeResult probe={probe} platform={platform} tagKey={key} pattern={namePattern.trim()} />}
+      <ErrorLine msg={probeError} />
       <ErrorLine msg={error} />
-      <div className="page-actions">
-        <ActionButton variant="primary" onClick={save}>
-          {source ? "Save changes" : "Save source"}
+      <div className="form-actions">
+        <ActionButton onClick={test} disabled={!url.trim()}>
+          Test connection
         </ActionButton>
+        <span className="muted small">
+          Signs in with the values above and counts what {platform} reports. Nothing is saved.
+        </span>
+        <span className="form-push">
+          <ActionButton variant="primary" onClick={save}>
+            {source ? "Save changes" : "Save source"}
+          </ActionButton>
+        </span>
       </div>
     </>
+  );
+}
+
+/* Test bağlantısının cümlesi: etiket anahtarı hiçbir makinede yoksa sarı. */
+function ProbeResult({
+  probe,
+  platform,
+  tagKey,
+  pattern,
+}: {
+  probe: DiscoveryProbe;
+  platform: string;
+  tagKey: string;
+  pattern: string;
+}) {
+  const untagged = probe.machines > 0 && probe.tagged === 0;
+  return (
+    <p className={untagged ? "msg msg-warn" : "msg msg-ok"} role="status">
+      Reached {platform}: {probe.machines} machine(s), {probe.running} running, {probe.with_address} with an
+      address{pattern ? `, ${probe.matching} matching "${pattern}"` : ""}. {probe.tagged} carry a "{tagKey}" tag
+      {probe.roles.length ? ` (roles: ${probe.roles.join(", ")})` : ""}.
+      {untagged && probe.tags.length > 0
+        ? ` Not one machine carries that key — the tags actually seen were ${probe.tags.join(", ")}.`
+        : untagged
+          ? " These machines carry no tags at all."
+          : ""}
+    </p>
   );
 }
 

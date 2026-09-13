@@ -479,6 +479,17 @@ export type DiscoveredMachine = {
   missing_since?: string;
 };
 export type MachineRef = { source_id: string; ref: string };
+/** "Test connection"ın cevabı: platform ne bildirdi. Hiçbir şey yazılmadı. */
+export type DiscoveryProbe = {
+  machines: number;
+  running: number;
+  with_address: number;
+  matching: number;
+  tagged: number;
+  roles: string[];
+  tags: string[];
+  took_ms: number;
+};
 export type DiscoveryOverview = {
   sources: DiscoverySource[];
   machines: DiscoveredMachine[];
@@ -1239,6 +1250,9 @@ export const api = {
   allGrants: () => req<{ grants: Grant[]; now: string }>("GET", "/api/admin/grants"),
 
   discovery: () => req<DiscoveryOverview>("GET", "/api/admin/discovery"),
+  /** Formdaki değerlerle kaynağa bağlanır; id verilirse ve sır boşsa kayıtlı sır. */
+  testDiscoverySource: (s: DiscoverySourceInput & { id?: string }) =>
+    req<DiscoveryProbe>("POST", "/api/admin/discovery/test", s),
   createDiscoverySource: (s: DiscoverySourceInput) =>
     req<{ id: string }>("POST", "/api/admin/discovery/sources", s),
   updateDiscoverySource: (id: string, s: DiscoverySourceInput) =>

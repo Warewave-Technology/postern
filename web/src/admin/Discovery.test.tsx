@@ -172,6 +172,10 @@ it("kaynak formu sırrı yalnızca yazıldığında gönderiyor", async () => {
   vi.spyOn(api, "discovery").mockResolvedValue(overview);
   const create = vi.spyOn(api, "createDiscoverySource").mockResolvedValue({ id: "s2" });
   const update = vi.spyOn(api, "updateDiscoverySource").mockResolvedValue({ ok: true });
+  const test = vi
+    .spyOn(api, "testDiscoverySource")
+    .mockResolvedValueOnce({ machines: 3, running: 2, with_address: 1, matching: 3, tagged: 2, roles: ["ops", "dba"], tags: ["role_ops"], took_ms: 40 })
+    .mockResolvedValueOnce({ machines: 3, running: 2, with_address: 1, matching: 3, tagged: 0, roles: [], tags: ["rol_ops", "env_prod"], took_ms: 40 });
   render(<Discovery />);
   await screen.findByText("Every hour");
 
@@ -180,6 +184,19 @@ it("kaynak formu sırrı yalnızca yazıldığında gönderiyor", async () => {
   await userEvent.type(screen.getByLabelText(/^address$/i), "https://pve.prod:8006");
   await userEvent.type(screen.getByLabelText(/api token id/i), "postern@pve!prod");
   await userEvent.type(screen.getByLabelText(/api token secret/i), "gizli");
+
+  // Test kaydetmeden bağlanıyor: sayımlar ve roller; anahtar tutmayınca sarı ve görülen etiketler.
+  fireEvent.click(screen.getByRole("button", { name: /test connection/i }));
+  await waitFor(() => expect(test).toHaveBeenCalledTimes(1));
+  expect(test.mock.calls[0][0]).toMatchObject({ url: "https://pve.prod:8006", secret: "gizli", id: undefined });
+  const first = await screen.findByText(/reached proxmox/i);
+  expect(first.textContent).toMatch(/3 machine\(s\), 2 running, 1 with an address\. 2 carry a "role" tag \(roles: ops, dba\)/);
+  expect(first.className).toContain("msg-ok");
+  expect(create).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: /test connection/i }));
+  await waitFor(() => expect(screen.getByText(/reached proxmox/i).className).toContain("msg-warn"));
+  expect(screen.getByText(/reached proxmox/i).textContent).toMatch(/tags actually seen were rol_ops, env_prod/);
+
   fireEvent.click(screen.getByRole("button", { name: /save source/i }));
   await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
   expect(create.mock.calls[0][0]).toMatchObject({
@@ -199,6 +216,12 @@ it("kaynak formu sırrı yalnızca yazıldığında gönderiyor", async () => {
   const kind = (await screen.findByLabelText(/^kind$/i)) as HTMLSelectElement;
   expect(kind.disabled).toBe(true);
   expect((screen.getByLabelText(/api token secret/i) as HTMLInputElement).placeholder).toMatch(/unchanged/);
+  // Düzenlemede test kayıtlı sırla: id gidiyor, sır boş.
+  test.mockResolvedValueOnce({ machines: 1, running: 1, with_address: 1, matching: 1, tagged: 1, roles: ["web"], tags: ["role_web"], took_ms: 5 });
+  fireEvent.click(screen.getByRole("button", { name: /test connection/i }));
+  await waitFor(() => expect(test).toHaveBeenCalledTimes(3));
+  expect(test.mock.calls[2][0]).toMatchObject({ id: "s1", secret: "" });
+
   fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
   await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
   expect(update.mock.calls[0][0]).toBe("s1");

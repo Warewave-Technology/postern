@@ -62,7 +62,7 @@ func newFixture(t *testing.T) *fixture {
 	host, port := fakeSSH(t)
 
 	f := &fixture{db: db, src: &fakeSource{}, host: host, port: port, now: time.Now().Truncate(time.Second)}
-	f.svc = NewService(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	f.svc = NewService(db, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	f.svc.open = func(_ store.DiscoverySource, secret string) (Source, error) {
 		f.secret = secret
 		return f.src, nil
@@ -480,5 +480,48 @@ func TestValidateSourceRefusesWhatWouldNotWork(t *testing.T) {
 	}
 	if !matchesPattern("web-*, db-*", "DB-01") || matchesPattern("web-*", "db-01") || !matchesPattern("", "anything") {
 		t.Error("ad kalıbı yanlış eşleşiyor")
+	}
+}
+
+/*
+ * ⚠️ TEST BAĞLANTISI HİÇBİR ŞEY YAZMIYOR: ne kaynak, ne makine, ne koşu.
+ * Sayımlar formun dört sorusunu cevaplıyor: adres/sır doğru mu (liste
+ * geldi mi), ad kalıbı kaç makineyi tutuyor, etiket anahtarı kaç makinede
+ * var ve hangi roller çıkıyor; sıfırsa görülen etiketler ne.
+ */
+func TestProbeCountsWhatThePlatformReportsWithoutWriting(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	f.src.set(
+		Machine{Name: "web-01", Host: f.host, Tags: []string{"role_ops", "env_prod"}, Running: true, Key: "qemu/101"},
+		Machine{Name: "db-01", Tags: []string{"role_dba"}, Running: false, Key: "qemu/102"},
+		Machine{Name: "other", Running: true, Key: "qemu/103"},
+	)
+	src := f.source
+	src.NamePattern = "web-*, db-*"
+	p, err := f.svc.Probe(ctx, src, "test-sır")
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if f.secret != "test-sır" {
+		t.Errorf("kaynağa giden sır %q", f.secret)
+	}
+	if p.Machines != 3 || p.Running != 2 || p.WithAddress != 1 || p.Matching != 2 || p.Tagged != 2 ||
+		strings.Join(p.Roles, ",") != "ops,dba" || len(p.Tags) != 3 {
+		t.Errorf("sayımlar: %+v", p)
+	}
+	if runs, _ := f.db.DiscoveryRuns(ctx, f.source.ID, 5); len(runs) != 0 {
+		t.Errorf("test koşu satırı yazdı: %+v", runs)
+	}
+	if ms, _ := f.db.DiscoveredMachines(ctx, ""); len(ms) != 0 {
+		t.Errorf("test makine yazdı: %+v", ms)
+	}
+	src.TagKey = "yanlis"
+	if p, _ = f.svc.Probe(ctx, src, "x"); p.Tagged != 0 || len(p.Tags) == 0 {
+		t.Errorf("yanlış anahtar: %+v", p)
+	}
+	f.src.err = errors.New("401 unauthorized")
+	if _, err := f.svc.Probe(ctx, src, "x"); err == nil || !strings.Contains(err.Error(), "401") {
+		t.Errorf("kaynak hatası: %v", err)
 	}
 }

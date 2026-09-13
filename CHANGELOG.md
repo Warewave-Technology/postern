@@ -196,9 +196,17 @@ audit rows into a shape it does not understand.
   is gone" (an API token whose permissions were narrowed returns an
   empty list, not an error; such a run fails and marks nothing).
   Machines can be ignored, which also stops postern from scanning them.
-  A source's credentials need the bastion's `secret_key_file`; without
-  it the screen says so and no source can be saved. Migration 045 adds
-  the three tables.
+  The source form has a **Test connection** button: it signs in with the
+  values in the form (for a saved source, with the stored credentials
+  when the secret field is left empty) and reports how many machines the
+  platform lists, how many are running and have an address, how many
+  match the name pattern and carry the tag key, and which roles the tags
+  name — so a wrong tag key shows up before the source is saved, as "not
+  one machine carries that key, the tags seen were …", rather than
+  afterwards as a silent pile of untagged machines. A test writes
+  nothing. A source's credentials need the bastion's `secret_key_file`;
+  without it the screen says so and no source can be saved. Migration
+  045 adds the three tables.
 
 - **Temporary access: postern opens an account on a target for a fixed time
   and removes it when the time is up.** On a host with the management

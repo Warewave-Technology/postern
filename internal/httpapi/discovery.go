@@ -36,6 +36,7 @@ func (s *Server) registerDiscoveryRoutes(mux *http.ServeMux) {
 	}
 	mux.Handle("GET /api/admin/discovery", admin(s.adminDiscovery))
 	mux.Handle("POST /api/admin/discovery/sources", admin(s.adminCreateDiscoverySource))
+	mux.Handle("POST /api/admin/discovery/test", admin(s.adminTestDiscoverySource))
 	mux.Handle("PUT /api/admin/discovery/sources/{id}", admin(s.adminUpdateDiscoverySource))
 	mux.Handle("DELETE /api/admin/discovery/sources/{id}", admin(s.adminDeleteDiscoverySource))
 	mux.Handle("POST /api/admin/discovery/sources/{id}/run", admin(s.adminRunDiscoverySource))
@@ -203,6 +204,47 @@ func (s *Server) adminCreateDiscoverySource(w http.ResponseWriter, r *http.Reque
 	}
 	s.audit(r, "discovery.source_create", d.Name, sourceDetails(d))
 	writeJSON(w, http.StatusOK, map[string]any{"id": id})
+}
+
+/*
+ * adminTestDiscoverySource: POST /api/admin/discovery/test — formdaki
+ * değerlerle kaynağa bağlanır ve saydığını döner; HİÇBİR ŞEY YAZMAZ.
+ * id doluysa ve sır boşsa kayıtlı sır kullanılıyor: düzenleme ekranı
+ * sırrı hiç görmüyor, "kayıtlı sırla dene" demenin başka yolu yok.
+ */
+func (s *Server) adminTestDiscoverySource(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		sourceInput
+		ID string `json:"id"`
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	d := in.source()
+	secret := in.Secret
+	if secret == "" && in.ID != "" {
+		cur, err := s.store.DiscoverySource(r.Context(), in.ID)
+		if err != nil {
+			s.storeErr(w, "discovery.test", err)
+			return
+		}
+		d.Kind = cur.Kind
+		if secret, err = s.store.DiscoverySourceSecret(r.Context(), in.ID); err != nil {
+			s.storeErr(w, "discovery.test", err)
+			return
+		}
+	}
+	if err := discover.ValidateSource(d, secret, true); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	p, err := s.discovery.Probe(r.Context(), d, secret)
+	s.logger.Info("discovery source tested", "actor", sessionUser(r), "kind", d.Kind, "url", d.URL, "ok", err == nil)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
 }
 
 // adminUpdateDiscoverySource: PUT /api/admin/discovery/sources/{id}

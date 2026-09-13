@@ -869,6 +869,15 @@ describe("sayfa düzeyinde görsel çıktı", () => {
     cleanup();
     vi.restoreAllMocks();
 
+    mockAll({ ...base, discovery });
+    await openSettings("Discovery");
+    click(/^add source$/i);
+    await settle();
+    document.querySelector("dialog")?.setAttribute("open", "");
+    page("settings-discovery-source");
+    cleanup();
+    vi.restoreAllMocks();
+
     mockAll({ ...base, discovery: { sources: [], machines: [], secrets_available: false, min_interval_seconds: 300 } });
     await openSettings("Discovery");
     page("settings-discovery-empty");

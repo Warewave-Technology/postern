@@ -68,13 +68,92 @@ const (
 // ErrRunning: kaynağın bir koşusu zaten sürüyor.
 var ErrRunning = errors.New("discover: a run of this source is already in progress")
 
-// NewService, gerçek kaynaklar ve gerçek host anahtarı taramasıyla kurar.
-func NewService(db *store.Store, logger *slog.Logger) *Service {
+// Opener, kayıtlı kaynağı ve açılmış sırrını bir Source'a çevirir.
+type Opener func(store.DiscoverySource, string) (Source, error)
+
+// NewService kurar; open nil ise gerçek Proxmox/vSphere istemcileri
+// (OpenSource). Host anahtarı taraması her zaman gerçek.
+func NewService(db *store.Store, logger *slog.Logger, open Opener) *Service {
+	if open == nil {
+		open = OpenSource
+	}
 	return &Service{
 		db: db, logger: logger,
-		open: OpenSource, scan: upstream.ScanHostKey, now: time.Now,
+		open: open, scan: upstream.ScanHostKey, now: time.Now,
 		running: map[string]bool{},
 	}
+}
+
+const (
+	probeTimeout = 30 * time.Second
+	probeSample  = 8
+)
+
+// Probe, "Test connection"ın cevabı: platformun ne bildirdiği.
+type Probe struct {
+	Machines    int `json:"machines"`
+	Running     int `json:"running"`
+	WithAddress int `json:"with_address"`
+	// Matching, ad kalıbına uyan makine sayısı (kalıp boşsa hepsi).
+	Matching int `json:"matching"`
+	// Tagged, etiket anahtarını taşıyan makine sayısı; Roles onlardan
+	// çıkan rol adlarının örneği, Tags görülen etiketlerin örneği.
+	Tagged int      `json:"tagged"`
+	Roles  []string `json:"roles"`
+	Tags   []string `json:"tags"`
+	TookMS int64    `json:"took_ms"`
+}
+
+/*
+ * Probe, formdaki değerlerle kaynağa bağlanıp makineleri sayar.
+ *
+ * ⚠️ HİÇBİR ŞEY YAZMIYOR — ne kaynak, ne makine satırı, ne koşu. Amaç
+ * kaydetmeden önce adresin, sırrın ve ETİKET ANAHTARININ doğru olduğunu
+ * görmek. CLI'da ölçülen arıza burada da geçerli: yanlış anahtar hata
+ * vermiyor, her makineyi sessizce etiketsiz bırakıyor. "0 makine etiketli,
+ * görülen etiketler şunlar" cümlesi bunu kaydetmeden önce söylüyor.
+ */
+func (s *Service) Probe(ctx context.Context, src store.DiscoverySource, secret string) (Probe, error) {
+	source, err := s.open(src, secret)
+	if err != nil {
+		return Probe{}, err
+	}
+	start := time.Now()
+	lctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	listed, err := source.Machines(lctx)
+	if err != nil {
+		return Probe{}, fmt.Errorf("%s: %w", src.Kind, err)
+	}
+	p := Probe{Roles: []string{}, Tags: []string{}}
+	seenRole, seenTag := map[string]bool{}, map[string]bool{}
+	for _, m := range listed {
+		p.Machines++
+		if m.Running {
+			p.Running++
+		}
+		if strings.TrimSpace(m.Host) != "" {
+			p.WithAddress++
+		}
+		if matchesPattern(src.NamePattern, m.Name) {
+			p.Matching++
+		}
+		if role, tagged := RoleFromTags(m.Tags, src.TagKey); tagged {
+			p.Tagged++
+			if !seenRole[role] && len(p.Roles) < probeSample {
+				seenRole[role] = true
+				p.Roles = append(p.Roles, role)
+			}
+		}
+		for _, t := range m.Tags {
+			if t = strings.TrimSpace(t); t != "" && !seenTag[t] && len(p.Tags) < probeSample {
+				seenTag[t] = true
+				p.Tags = append(p.Tags, t)
+			}
+		}
+	}
+	p.TookMS = time.Since(start).Milliseconds()
+	return p, nil
 }
 
 // OpenSource, kayıtlı kaynağı ve açılmış sırrını bir Source'a çevirir.

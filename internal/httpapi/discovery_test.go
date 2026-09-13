@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -32,8 +33,71 @@ func discoveryServer(t *testing.T, withBox bool) (*Server, *store.Store) {
 		}
 		db.UseSecretBox(box)
 	}
-	s.UseDiscovery(discover.NewService(db, slog.New(slog.NewTextHandler(io.Discard, nil))))
+	s.UseDiscovery(discover.NewService(db, slog.New(slog.NewTextHandler(io.Discard, nil)), nil))
 	return s, db
+}
+
+// probeSource, test ucunun bağlandığı sahte platform.
+type probeSource struct{ machines []discover.Machine }
+
+func (probeSource) Name() string { return "fake" }
+func (p probeSource) Machines(context.Context) ([]discover.Machine, error) {
+	return p.machines, nil
+}
+
+/*
+ * ⚠️ TEST UCU HİÇBİR ŞEY YAZMIYOR ve düzenlemede boş sır yerine KAYITLI
+ * sırla bağlanıyor. Ulaşılamayan kaynak 502 ve sebep; geçersiz form 400.
+ */
+func TestTheSourceFormCanBeTestedBeforeItIsSaved(t *testing.T) {
+	s, db := discoveryServer(t, true)
+	ctx := context.Background()
+	var gotSecret string
+	s.UseDiscovery(discover.NewService(db, slog.New(slog.NewTextHandler(io.Discard, nil)),
+		func(src store.DiscoverySource, secret string) (discover.Source, error) {
+			gotSecret = secret
+			if strings.Contains(src.URL, "down.example") {
+				return nil, errors.New("dial tcp: connection refused")
+			}
+			return probeSource{machines: []discover.Machine{
+				{Name: "web-01", Host: "10.0.0.5", Running: true, Tags: []string{"role_ops", "env_prod"}, Key: "qemu/101"},
+				{Name: "db-01", Running: false, Tags: []string{"role_dba"}, Key: "qemu/102"},
+				{Name: "other", Running: true, Key: "qemu/103"},
+			}}, nil
+		}))
+
+	body := strings.Replace(sourceBody, `"tag_key":"role"`, `"tag_key":"role","name_pattern":"web-*, db-*"`, 1)
+	w, out := callDiscovery(t, s, s.adminTestDiscoverySource, http.MethodPost, body, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("test: %d %s", w.Code, w.Body.String())
+	}
+	if out["machines"] != float64(3) || out["running"] != float64(2) || out["with_address"] != float64(1) ||
+		out["matching"] != float64(2) || out["tagged"] != float64(2) || gotSecret != "gizli-jeton" {
+		t.Errorf("sayımlar: %v (sır %q)", out, gotSecret)
+	}
+	if sources, _ := db.DiscoverySources(ctx); len(sources) != 0 {
+		t.Fatalf("TEST KAYNAK YAZDI: %+v", sources)
+	}
+
+	// Düzenleme: id var, sır boş → kayıtlı sır.
+	_, created := callDiscovery(t, s, s.adminCreateDiscoverySource, http.MethodPost, sourceBody, nil)
+	id, _ := created["id"].(string)
+	gotSecret = ""
+	edit := strings.Replace(sourceBody, `"secret":"gizli-jeton"`, `"secret":"","id":"`+id+`"`, 1)
+	if w, _ = callDiscovery(t, s, s.adminTestDiscoverySource, http.MethodPost, edit, nil); w.Code != http.StatusOK || gotSecret != "gizli-jeton" {
+		t.Errorf("düzenlemede kayıtlı sır kullanılmadı: %d %q", w.Code, gotSecret)
+	}
+	// Yeni kaynakta sır boş → 400, bağlanma denenmiyor.
+	gotSecret = "dokunulmadı"
+	blank := strings.Replace(sourceBody, `"secret":"gizli-jeton"`, `"secret":""`, 1)
+	if w, _ = callDiscovery(t, s, s.adminTestDiscoverySource, http.MethodPost, blank, nil); w.Code != http.StatusBadRequest || gotSecret != "dokunulmadı" {
+		t.Errorf("sırsız test: %d %q", w.Code, gotSecret)
+	}
+	down := strings.Replace(sourceBody, "https://pve.example:8006", "https://down.example", 1)
+	if w, _ = callDiscovery(t, s, s.adminTestDiscoverySource, http.MethodPost, down, nil); w.Code != http.StatusBadGateway ||
+		!strings.Contains(w.Body.String(), "connection refused") {
+		t.Errorf("ulaşılamayan kaynak: %d %s", w.Code, w.Body.String())
+	}
 }
 
 func callDiscovery(t *testing.T, s *Server, h http.HandlerFunc, method, body string, path map[string]string) (*httptest.ResponseRecorder, map[string]any) {
@@ -213,7 +277,7 @@ func TestDiscoveryEndpointsAreBehindTheAdminAndSameOriginGates(t *testing.T) {
 	}
 
 	s := New(auth.NewOIDCHolder(), auth.NewLogins(auth.NewOIDCHolder()), db, logger)
-	s.UseDiscovery(discover.NewService(db, logger))
+	s.UseDiscovery(discover.NewService(db, logger, nil))
 	ctx := t.Context()
 	if _, err := db.CreateUser(ctx, "veli", "", "veli"); err != nil {
 		t.Fatal(err)
@@ -236,6 +300,7 @@ func TestDiscoveryEndpointsAreBehindTheAdminAndSameOriginGates(t *testing.T) {
 	endpoints := []struct{ method, path string }{
 		{http.MethodGet, "/api/admin/discovery"},
 		{http.MethodPost, "/api/admin/discovery/sources"},
+		{http.MethodPost, "/api/admin/discovery/test"},
 		{http.MethodPost, "/api/admin/discovery/sources/yok/run"},
 		{http.MethodPost, "/api/admin/discovery/register"},
 		{http.MethodPost, "/api/admin/discovery/ignore"},

@@ -3727,3 +3727,63 @@ a.tcard-name:focus-visible {
   margin-top: 0.4rem;
   max-width: 62ch;
 }
+
+/* ---- bölümlü form (keşif kaynağı) ----
+   ⚠️ MODAL İÇİNDE .field-row HER ETİKETİ TAM SATIRA YAYIYOR (dar modallar
+   için doğru karar) ve on iki alanlı kaynak formunu tek sütunlu bir
+   merdivene çeviriyordu (ekrana bakılarak görüldü). Bu form kendi
+   düzenini taşıyor: başlıklı bölümler, aralarında çizgi, bölüm içinde
+   yan yana alanlar; dar ekranda ızgara kendiliğinden tek sütuna iniyor. */
+.form-section {
+  border-top: 1px solid var(--line);
+  padding: 0.95rem 0 0.35rem;
+}
+.form-section:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.form-section > h4 {
+  margin: 0 0 0.7rem;
+  font-size: 13px;
+}
+.form-section > p {
+  margin: 0.55rem 0 0;
+}
+/* Sütun sayısı SATIR BAŞINA açık: auto-fit kabın genişliğine göre beş
+   sütun açıp iki alanlı satırı sola sıkıştırıyordu (ekranda görüldü —
+   jeton alanları kısa, sağ yarı boş). Dar ekranda hepsi tek sütun. */
+.form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.8rem 1rem;
+  align-items: end;
+}
+@media (min-width: 700px) {
+  .form-grid.cols-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .form-grid.cols-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .form-grid.cols-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+.form-grid > label {
+  min-width: 0;
+}
+.form-grid > .span-all {
+  grid-column: 1 / -1;
+}
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 1rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line);
+}
+.form-actions > .form-push {
+  margin-left: auto;
+}

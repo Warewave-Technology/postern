@@ -636,7 +636,7 @@ func newServeCmd() *cobra.Command {
 				 * anahtarı yok — kaynak kaydedilmemişse döngünün yapacağı
 				 * bir şey yok, kaydedilmişse operatör onu istemiş demek.
 				 */
-				discovery := discover.NewService(db, logger)
+				discovery := discover.NewService(db, logger, nil)
 				webAPI.UseDiscovery(discovery)
 				go discovery.Loop(ctx)
 				/*

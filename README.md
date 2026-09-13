@@ -489,7 +489,11 @@ pattern, the SSH port, and a schedule. postern reads the source on that
 schedule, or when you press **Run now**, reads the host key of every
 running machine it reports, and lists the machines with what stands in
 the way of registering each one. The credentials are sealed with the
-bastion's secret key and never shown again.
+bastion's secret key and never shown again. **Test connection** in the
+form signs in with what you typed and counts what the platform reports —
+machines, running ones, those matching the name pattern, those carrying
+the tag key and the roles their tags name — without saving anything, so
+a wrong tag key is caught before the source exists.
 
 Nothing becomes a target by itself. A discovered machine is a row until
 an administrator ticks it and walks through three steps — the roles to
