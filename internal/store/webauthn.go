@@ -30,6 +30,24 @@ type WebAuthnCredential struct {
 	// SignCount, doğrulayıcının bildirdiği son sayaç.
 	SignCount uint32 `json:"-"`
 
+	/*
+	 * Flags, doğrulayıcının bildirdiği bayrakların ham sekizlisi
+	 * (UP/UV/BE/BS...). FlagsKnown, satırın bayraklar saklanmaya
+	 * başlamadan önce (göç 040 öncesi) yazılıp yazılmadığını söylüyor.
+	 *
+	 * ⚠️ BUNU SAKLAMAMAK GİRİŞİ TAMAMEN KIRIYORDU — ÖLÇÜLDÜ.
+	 * Şartname "yedeklenebilir" bayrağının hiç değişmemesini istiyor ve
+	 * kütüphane her imzada kayıttakiyle karşılaştırıyor. Saklamayınca
+	 * karşılaştırma sıfır değere düşüyor, Touch ID ve senkron olan her
+	 * passkey (BE=1) "bu güvenlik anahtarı kabul edilmedi" alıyordu.
+	 *
+	 * ⚠️ "BİLİNMİYOR" İLE "HEPSİ KAPALI" AYRI. Sütun bu yüzden NULL
+	 * kabul ediyor: ikisini aynı saymak, eski satırları da tam olarak
+	 * yukarıdaki hataya düşürürdü.
+	 */
+	Flags      byte `json:"-"`
+	FlagsKnown bool `json:"-"`
+
 	// Name, kişinin verdiği ad: kayıp anahtarı silecek olan buna bakıyor.
 	Name string `json:"name"`
 
@@ -79,12 +97,17 @@ func (s *Store) AddWebAuthnCredential(ctx context.Context, username string, c We
 		c.PublicKey = []byte{}
 	}
 
+	var flags any
+	if c.FlagsKnown {
+		flags = int64(c.Flags)
+	}
+
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO webauthn_credentials
-		       (id, user_id, public_key, aaguid, sign_count, name, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7);`,
+		       (id, user_id, public_key, aaguid, sign_count, name, created_at, flags)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8);`,
 		c.ID, userID, c.PublicKey, c.AAGUID, int64(c.SignCount), c.Name,
-		time.Now().Unix())
+		time.Now().Unix(), flags)
 	if err != nil {
 		return translateErr("store.AddWebAuthnCredential", err)
 	}
@@ -100,7 +123,7 @@ func (s *Store) WebAuthnCredentials(ctx context.Context, username string) ([]Web
 	}
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, public_key, aaguid, sign_count, name, created_at, last_used_at
+		SELECT id, public_key, aaguid, sign_count, name, created_at, last_used_at, flags
 		FROM webauthn_credentials
 		WHERE user_id = $1
 		ORDER BY created_at, id;`, userID)
@@ -113,11 +136,22 @@ func (s *Store) WebAuthnCredentials(ctx context.Context, username string) ([]Web
 	for rows.Next() {
 		var c WebAuthnCredential
 		var signCount, createdAt int64
-		var lastUsed sql.NullInt64
+		var lastUsed, flags sql.NullInt64
 
 		if err := rows.Scan(&c.ID, &c.PublicKey, &c.AAGUID, &signCount,
-			&c.Name, &createdAt, &lastUsed); err != nil {
+			&c.Name, &createdAt, &lastUsed, &flags); err != nil {
 			return nil, translateErr("store.WebAuthnCredentials", err)
+		}
+
+		/*
+		 * ⚠️ ARALIK DIŞI BİR DEĞER "BİLİNMİYOR" SAYILIYOR. Bayraklar tek
+		 * bir sekizli; sütun SMALLINT olduğu için elle yazılmış bir satır
+		 * 0-255 dışına çıkabilir. Sarmak, gerçekte kapalı olan bir bayrağı
+		 * açık (ya da tersi) gösterip her imzayı reddettirirdi.
+		 */
+		if flags.Valid && flags.Int64 >= 0 && flags.Int64 <= math.MaxUint8 {
+			c.Flags = byte(flags.Int64)
+			c.FlagsKnown = true
 		}
 
 		/*
@@ -152,19 +186,27 @@ func (s *Store) WebAuthnCredentials(ctx context.Context, username string) ([]Web
 }
 
 /*
- * TouchWebAuthnCredential, başarılı bir girişten sonra sayacı ve son
- * kullanım anını yazar.
+ * TouchWebAuthnCredential, başarılı bir girişten sonra sayacı, bayrakları
+ * ve son kullanım anını yazar.
  *
  * ⚠️ SAYAÇ GERİ GİTMİYOR. Doğrulayıcı sayacı artırmıyorsa (bazı platform
  * anahtarları hep 0 gönderiyor) yazdığımız değer 0 kalıyor; kontrolü
  * yapan taraf bunu bilerek atlıyor (bkz. httpapi/webauthn.go). Burada
  * küçülen bir sayıyı yazmak, klon sezgisini sessizce kapatırdı.
+ *
+ * ⚠️ BAYRAKLAR SAYAÇTAN FARKLI: OLDUĞU GİBİ YAZILIYOR. "Yedeklenmiş"
+ * bayrağı iki yöne de gidebiliyor (anahtar buluta senkronlanır ya da
+ * senkrondan çıkar) ve şartname kaydın her başarılı imzadan sonra
+ * güncellenmesini istiyor. Buraya yalnızca DOĞRULANMIŞ bir imzadan gelen
+ * değer giriyor; çağıran onu kütüphanenin döndürdüğü kayıttan alıyor.
  */
-func (s *Store) TouchWebAuthnCredential(ctx context.Context, id string, signCount uint32) error {
+func (s *Store) TouchWebAuthnCredential(ctx context.Context, id string,
+	signCount uint32, flags byte,
+) error {
 	res, err := s.db.ExecContext(ctx, `
 		UPDATE webauthn_credentials
-		SET sign_count = GREATEST(sign_count, $2), last_used_at = $3
-		WHERE id = $1;`, id, int64(signCount), time.Now().Unix())
+		SET sign_count = GREATEST(sign_count, $2), last_used_at = $3, flags = $4
+		WHERE id = $1;`, id, int64(signCount), time.Now().Unix(), int64(flags))
 	if err != nil {
 		return translateErr("store.TouchWebAuthnCredential", err)
 	}

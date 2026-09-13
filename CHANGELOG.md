@@ -53,8 +53,8 @@ audit rows into a shape it does not understand.
 
 ### Needs action if you rely on recordings as evidence
 
-- **Recordings now carry a tamper-evident chain, and five schema migrations
-  land with this release (034–038).** Run `postern db migrate` before starting
+- **Recordings now carry a tamper-evident chain, and seven schema migrations
+  land with this release (034–040).** Run `postern db migrate` before starting
   the new binary; the bastion refuses to start against a schema it does not
   match rather than writing audit rows into a shape it does not understand.
 
@@ -149,6 +149,17 @@ audit rows into a shape it does not understand.
   Registering and removing a key both need a fresh sign-in, the same gate the
   authenticator already used: a stolen session cookie must not be able to
   attach an attacker's key and take the account permanently.
+
+  **If you registered a key against a build from `main` before 040, register
+  it again.** The specification says a credential's "backup eligible" flag
+  must never change, and postern now records it and checks every signature
+  against it. Earlier builds did not record it, so the check ran against a
+  blank value and every synced passkey — Touch ID, iCloud and Android keys —
+  was refused at sign-in. Keys enrolled by those builds keep working: the
+  first successful signature adopts the flag they report, and it is enforced
+  from then on. Only an account that had already turned codes off is stuck,
+  and `postern admin reset-webauthn --name <account>` on the host is the way
+  back in.
 
   **This brings the panel to where SSH already was.** Hardware-backed SSH keys
   (`sk-ssh-ed25519`, `sk-ecdsa-sha2-nistp256`) have been accepted since 1.0;

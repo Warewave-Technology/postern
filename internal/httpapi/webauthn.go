@@ -110,6 +110,12 @@ type webauthnUser struct {
 	id    []byte
 	name  string
 	creds []webauthn.Credential
+
+	/*
+	 * legacy, bayrakları saklanmadan önce (göç 040 öncesi) kaydedilmiş
+	 * anahtarların kimlikleri.
+	 */
+	legacy map[string]bool
 }
 
 func (u webauthnUser) WebAuthnID() []byte                         { return u.id }
@@ -129,7 +135,7 @@ func (s *Server) webauthnUserFor(r *http.Request, username string) (webauthnUser
 		return webauthnUser{}, err
 	}
 
-	u := webauthnUser{id: []byte(id), name: username}
+	u := webauthnUser{id: []byte(id), name: username, legacy: map[string]bool{}}
 	for _, c := range stored {
 		raw, derr := base64.RawURLEncoding.DecodeString(c.ID)
 		if derr != nil {
@@ -140,9 +146,22 @@ func (s *Server) webauthnUserFor(r *http.Request, username string) (webauthnUser
 				"user", username, "id", c.ID)
 			continue
 		}
+		// Bayrağı olmayan satır ayrıca işaretleniyor; sebebi adoptFlags'ta.
+		if !c.FlagsKnown {
+			u.legacy[c.ID] = true
+		}
+
+		/*
+		 * ⚠️ BAYRAKLAR GERİ YÜKLENMEZSE HİÇBİR GİRİŞ ÇALIŞMIYOR.
+		 * Kütüphane her imzada kayıttaki "yedeklenebilir" bayrağını
+		 * gelenle karşılaştırıyor; sıfır değer bırakmak, BE=1 bildiren
+		 * her doğrulayıcıyı (Touch ID, senkron passkey'ler) kalıcı
+		 * olarak reddettiriyordu. Gerçek bir anahtarla ölçüldü.
+		 */
 		u.creds = append(u.creds, webauthn.Credential{
 			ID:        raw,
 			PublicKey: c.PublicKey,
+			Flags:     webauthn.NewCredentialFlags(protocol.AuthenticatorFlags(c.Flags)),
 			Authenticator: webauthn.Authenticator{
 				AAGUID:    c.AAGUID,
 				SignCount: c.SignCount,
@@ -151,6 +170,28 @@ func (s *Server) webauthnUserFor(r *http.Request, username string) (webauthnUser
 	}
 
 	return u, nil
+}
+
+/*
+ * adoptFlags, bayrakları saklanmadan önce kaydedilmiş anahtarların
+ * bayraklarını, DOĞRULANACAK imzada bildirilenlerden alır.
+ *
+ * ⚠️ BU BİR KONTROL ATLAMA DEĞİL, KARŞILAŞTIRACAK DEĞERİN OLMAMASI.
+ * "Yedeklenebilir" bayrağı kaydın değişmemesi gereken bir alanı; eski
+ * satırlar için o alan hiç yazılmadı, dolayısıyla karşılaştıracak bir
+ * şey yok. Reddetmek, yalnızca yükseltmeden önce kaydolmuş kişileri
+ * yöneticiye muhtaç bırakırdı; ilk başarılı imzada değeri kabul etmek
+ * ise satırın yazıldığı gündeki duruma eşit. Kabul edilen değer aynı
+ * girişte satıra yazılıyor (bkz. TouchWebAuthnCredential) ve sonraki
+ * girişlerde artık karşılaştırılıyor — yani bu yol satır başına BİR KEZ
+ * açılıyor.
+ */
+func (u *webauthnUser) adoptFlags(observed protocol.AuthenticatorFlags) {
+	for i := range u.creds {
+		if u.legacy[base64url(u.creds[i].ID)] {
+			u.creds[i].Flags = webauthn.NewCredentialFlags(observed)
+		}
+	}
 }
 
 /*
@@ -238,14 +279,45 @@ func credentialName(raw string) string {
 	return name
 }
 
+/*
+ * flagsByte, kütüphanenin bayraklarını saklanacak tek sekizliye çevirir.
+ *
+ * ⚠️ HAM SEKİZLİ TEK BAŞINA YETMİYOR. raw alanı yalnızca kayıt
+ * NewCredentialFlags ile üretildiğinde doluyor; elle kurulmuş bir
+ * CredentialFlags'ta sıfır kalır ve biz sessizce "hiçbir bayrak yok"
+ * yazardık. O da tam olarak düzelttiğimiz hataya geri dönmek olurdu:
+ * BE=0 saklanınca BE=1 bildiren her doğrulayıcı reddediliyor. Bu yüzden
+ * dört bayrak ayrıca ekleniyor — ikisi de aynı şeyi söylüyorsa sonuç
+ * değişmiyor, söylemiyorsa doğru olan taraf kazanıyor.
+ */
+func flagsByte(f webauthn.CredentialFlags) byte {
+	raw := f.ProtocolValue()
+	if f.UserPresent {
+		raw |= protocol.FlagUserPresent
+	}
+	if f.UserVerified {
+		raw |= protocol.FlagUserVerified
+	}
+	if f.BackupEligible {
+		raw |= protocol.FlagBackupEligible
+	}
+	if f.BackupState {
+		raw |= protocol.FlagBackupState
+	}
+
+	return byte(raw)
+}
+
 // storedFrom, doğrulanmış bir kimlik bilgisini saklanacak biçime çevirir.
 func storedFrom(c *webauthn.Credential, name string) store.WebAuthnCredential {
 	return store.WebAuthnCredential{
-		ID:        base64.RawURLEncoding.EncodeToString(c.ID),
-		PublicKey: c.PublicKey,
-		AAGUID:    c.Authenticator.AAGUID,
-		SignCount: c.Authenticator.SignCount,
-		Name:      name,
+		ID:         base64.RawURLEncoding.EncodeToString(c.ID),
+		PublicKey:  c.PublicKey,
+		AAGUID:     c.Authenticator.AAGUID,
+		SignCount:  c.Authenticator.SignCount,
+		Flags:      flagsByte(c.Flags),
+		FlagsKnown: true,
+		Name:       name,
 	}
 }
 

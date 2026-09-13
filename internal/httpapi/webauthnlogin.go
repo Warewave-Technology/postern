@@ -128,6 +128,10 @@ func (s *Server) secondFactor(w http.ResponseWriter, r *http.Request,
 		return false
 	}
 
+	// ⚠️ YALNIZCA GÖÇTEN ÖNCE KAYDEDİLMİŞ SATIRLARI ETKİLİYOR; gerekçe
+	// adoptFlags'ın başında yazılı.
+	u.adoptFlags(parsed.Response.AuthenticatorData.Flags)
+
 	cred, err := wa.ValidateLogin(u, session, parsed)
 	if err != nil {
 		/*
@@ -159,7 +163,7 @@ func (s *Server) secondFactor(w http.ResponseWriter, r *http.Request,
 
 	id := base64url(cred.ID)
 	if err := s.store.TouchWebAuthnCredential(r.Context(), id,
-		cred.Authenticator.SignCount); err != nil {
+		cred.Authenticator.SignCount, flagsByte(cred.Flags)); err != nil {
 		// Sayaç yazılamadıysa giriş yine geçerli: doğrulama zaten
 		// yapıldı. Ama klon sezgisi körelir, o yüzden yüksek sesle.
 		s.logger.Error("webauthn sign count not recorded",

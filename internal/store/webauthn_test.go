@@ -17,14 +17,24 @@ func keyUser(t *testing.T, s *Store, name string) {
 	}
 }
 
+/*
+ * upUVBEBS, gerçek bir platform anahtarının bildirdiği bayraklar:
+ * kullanıcı orada (UP), doğrulandı (UV), anahtar yedeklenebilir (BE) ve
+ * yedeklenmiş (BS). Touch ID ve senkron passkey'ler tam olarak bunu
+ * gönderiyor; BE'nin açık olması bu yüzden testlerin varsayılanı.
+ */
+const upUVBEBS = byte(0x01 | 0x04 | 0x08 | 0x10)
+
 // aKey, saklanabilir bir kimlik bilgisi üretir.
 func aKey(id, name string) WebAuthnCredential {
 	return WebAuthnCredential{
-		ID:        id,
-		PublicKey: []byte("cose-public-key-" + id),
-		AAGUID:    []byte("aaguid"),
-		SignCount: 7,
-		Name:      name,
+		ID:         id,
+		PublicKey:  []byte("cose-public-key-" + id),
+		AAGUID:     []byte("aaguid"),
+		SignCount:  7,
+		Flags:      upUVBEBS,
+		FlagsKnown: true,
+		Name:       name,
 	}
 }
 
@@ -108,7 +118,7 @@ func TestWebAuthnSignCountNeverGoesBackwards(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := s.TouchWebAuthnCredential(ctx, "k1", 3); err != nil {
+	if err := s.TouchWebAuthnCredential(ctx, "k1", 3, upUVBEBS); err != nil {
 		t.Fatal(err)
 	}
 
@@ -123,12 +133,88 @@ func TestWebAuthnSignCountNeverGoesBackwards(t *testing.T) {
 		t.Error("son kullanım yazılmadı")
 	}
 
-	if err := s.TouchWebAuthnCredential(ctx, "k1", 9); err != nil {
+	if err := s.TouchWebAuthnCredential(ctx, "k1", 9, upUVBEBS); err != nil {
 		t.Fatal(err)
 	}
 	got, _ = s.WebAuthnCredentials(ctx, "ayse")
 	if got[0].SignCount != 9 {
 		t.Errorf("artan sayaç yazılmadı: %d, 9 bekleniyordu", got[0].SignCount)
+	}
+}
+
+/*
+ * ⚠️ BAYRAKLAR GERİ OKUNAMAZSA GİRİŞ TAMAMEN KIRILIYOR.
+ *
+ * Şartname "yedeklenebilir" (BE) bayrağının kayıt boyunca hiç
+ * değişmemesini istiyor ve kütüphane her imzada kayıttakiyle
+ * karşılaştırıyor. Bayrağı saklamadığımız sürümde karşılaştırma sıfır
+ * değere düşüyordu: Touch ID ve senkron olan her passkey BE=1 bildirdiği
+ * için hesabına anahtar bağlayan herkes kalıcı olarak dışarıda kaldı —
+ * gerçek bir anahtarla ölçüldü.
+ */
+func TestWebAuthnFlagsSurviveTheRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	keyUser(t, s, "ayse")
+
+	if err := s.AddWebAuthnCredential(ctx, "ayse", aKey("k1", "telefon")); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.WebAuthnCredentials(ctx, "ayse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got[0].FlagsKnown {
+		t.Fatal("BAYRAKLAR KAYBOLDU: saklanan satır 'bilinmiyor' dönüyor")
+	}
+	if got[0].Flags != upUVBEBS {
+		t.Errorf("bayraklar = %#02x, %#02x bekleniyordu", got[0].Flags, upUVBEBS)
+	}
+
+	/*
+	 * ⚠️ BAŞARILI İMZA BAYRAKLARI GÜNCELLİYOR. "Yedeklenmiş" (BS) bayrağı
+	 * iki yöne de gidebiliyor: anahtar buluta senkronlanınca açılıyor,
+	 * senkrondan çıkınca kapanıyor. Kaydı güncellemezsek sonraki girişte
+	 * karşılaştırdığımız değer bayat olurdu.
+	 */
+	const noBackupYet = byte(0x01 | 0x04 | 0x08)
+	if err := s.TouchWebAuthnCredential(ctx, "k1", 8, noBackupYet); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = s.WebAuthnCredentials(ctx, "ayse")
+	if got[0].Flags != noBackupYet {
+		t.Errorf("giriş sonrası bayraklar = %#02x, %#02x bekleniyordu",
+			got[0].Flags, noBackupYet)
+	}
+}
+
+/*
+ * ⚠️ "BİLİNMİYOR" İLE "HEPSİ KAPALI" AYRI SATIRLAR.
+ *
+ * Bayraklar saklanmadan önce (göç 040 öncesi) kaydolmuş anahtarların
+ * satırında NULL var. Bunu sıfır bayrak saymak, o kişileri tam da bu
+ * göçün düzelttiği hataya düşürürdü: BE=0 diye karşılaştırılır ve
+ * anahtarları bir daha kabul edilmezdi. Çağıran ayrımı görebilmeli
+ * (bkz. httpapi.webauthnUser.adoptFlags).
+ */
+func TestFlagsRecordedBeforeTheMigrationReadBackAsUnknown(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	keyUser(t, s, "ayse")
+
+	old := aKey("k1", "eski")
+	old.Flags, old.FlagsKnown = 0, false
+	if err := s.AddWebAuthnCredential(ctx, "ayse", old); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.WebAuthnCredentials(ctx, "ayse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[0].FlagsKnown {
+		t.Error("BAYRAKLARI OLMAYAN SATIR 'biliniyor' dönüyor")
 	}
 }
 

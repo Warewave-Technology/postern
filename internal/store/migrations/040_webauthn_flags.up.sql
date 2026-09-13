@@ -1,0 +1,11 @@
+-- Persist the authenticator flags reported when a security key was registered.
+--
+-- The library compares the Backup Eligible flag of every assertion against the
+-- one recorded at registration, because the specification says it must never
+-- change. We never stored it, so the comparison ran against a zero value and
+-- every backup-eligible credential (Touch ID, iCloud and Android passkeys) was
+-- rejected at sign-in.
+--
+-- The column is nullable on purpose: NULL means "registered before we recorded
+-- flags", which is not the same as "no flags were set".
+ALTER TABLE webauthn_credentials ADD COLUMN flags SMALLINT;
