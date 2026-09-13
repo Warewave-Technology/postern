@@ -125,9 +125,13 @@ audit rows into a shape it does not understand.
   if it is not. That check exists because of a measurement: with
   `AuthorizedPrincipalsFile` absent, sshd looks for the login name among a
   certificate's principals, and a certificate with the principal `postern`
-  opened the management account. The Include repair for older OpenSSH, which
-  had never actually run because its probe matched `trustedusercakeys none`,
-  now does.
+  opened the management account. On hosts whose sshd does not read
+  `sshd_config.d` — Amazon Linux 2's OpenSSH 7.4 does not know `Include` at
+  all, and RHEL 8's stock file has no Include line — the role now writes the
+  two directives into `sshd_config` itself, at the top, where the first value
+  wins. The Include repair that used to be there had never run: its probe
+  matched `trustedusercakeys none`, and on 7.4 the line it would have written
+  is refused by `sshd -t` anyway.
 
 - **The panel can check whether postern can manage a target** — behind a new
   setting, `manage.enabled`, off by default. With it on, the target page has a

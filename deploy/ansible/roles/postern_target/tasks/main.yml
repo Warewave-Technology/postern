@@ -87,7 +87,7 @@
 # ⚠️ ANAHTARIN VARLIĞINA DEĞİL DEĞERİNE BAKILIYOR — İLK HÂLİ ÖLÜ KODDU.
 # Bu yoklama `grep '^trustedusercakeys'` idi. sshd -T yönerge hiç yokken
 # de satırı basıyor ("trustedusercakeys none"), grep 0 dönüyor ve
-# aşağıdaki Include onarımı YAZILDIĞI DURUMDA BİLE hiç koşmuyordu.
+# aşağıdaki ana dosya yazımı YAZILMASI GEREKEN DURUMDA BİLE hiç koşmuyordu.
 # Ölçüldü, OpenSSH 9.7p1: yönerge yokken grep rc=0, değer eşleşmesi rc=1.
 - name: Find out whether sshd actually reads the drop-in
   ansible.builtin.shell: >-
@@ -100,14 +100,23 @@
   changed_when: false
   failed_when: false
 
-# Include satırı EN ÜSTE giriyor: OpenSSH çoğu anahtar için İLK değeri
-# alıyor, dolayısıyla altta duran bir Include drop-in'i etkisiz bırakır.
-- name: Make sshd read sshd_config.d on OpenSSH older than 8.2
-  ansible.builtin.lineinfile:
+# ⚠️ DROP-IN OKUNMUYORSA YÖNERGELER ANA DOSYAYA YAZILIYOR — Include
+# ONARIMI DEĞİL. İlk hâl ana dosyaya bir `Include` satırı ekliyordu.
+# Ölçüldü: Amazon Linux 2'nin OpenSSH 7.4'ü Include'ı tanımıyor
+# ("Bad configuration option"), validate düşüyor ve onarım o makinede
+# hiç çalışamıyor; Rocky 8'in 8.0p1'i tanıyor ama stok dosyada satır yok.
+# İki yönergeyi ana dosyanın BAŞINA yazmak her sürümde çalışıyor: OpenSSH
+# çoğu anahtar için İLK değeri alıyor, dolayısıyla üstte duran blok
+# aşağıdaki her şeyi ezer. İşaretli blok ikinci koşuda yeniden yazılmıyor,
+# değer değişirse güncelleniyor.
+- name: Put the directives in sshd_config itself where the drop-in is not read
+  ansible.builtin.blockinfile:
     path: /etc/ssh/sshd_config
-    line: "Include /etc/ssh/sshd_config.d/*.conf"
+    marker: "# {mark} postern — managed by deploy/ansible/roles/postern_target"
     insertbefore: BOF
-    firstmatch: true
+    block: |
+      TrustedUserCAKeys {{ postern_ca_path }}
+      AuthorizedPrincipalsFile {{ postern_principals_dir }}/%u
     owner: root
     group: root
     mode: "0600"
