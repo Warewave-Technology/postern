@@ -39,3 +39,10 @@ target_probe:
    enabled: true
    refresh: 1m
    timeout: 5s
+
+# ⚠️ YÖNETİM BURADA AÇIK, ÇÜNKÜ DEMO HEDEFLERİNDE YÖNETİM HESABI VAR.
+# Açıkken panelin yönetici oturumu, postern_target rolünü
+# postern_manage_host ile koşmuş her makinede parolasız root demek. Bu
+# satırı bir üretim yapılandırmasına kopyalamak bilinçli bir karar olmalı.
+manage:
+   enabled: true

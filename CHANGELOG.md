@@ -624,6 +624,23 @@ audit rows into a shape it does not understand.
 
 ### Changed
 
+- **The quickstart's demo machines are set up the way the Ansible role sets up
+  a real target**, so *Check management access* can be tried from the panel
+  right after `./scripts/quickstart.sh`. They now have per-account principals
+  files and a `postern` management account. Their host keys are kept under
+  `deploy/quickstart/.state/hostkeys`: the panel pins those keys, and the demo
+  machines used to generate new ones at every start, so any change to their
+  image would have broken every session with a host key mismatch.
+  `./scripts/quickstart.sh --refresh` now rebuilds the demo machines too, and
+  on a demo created before this change it first copies their current keys out
+  of the running containers.
+
+  The demo accounts were unlocked with busybox `passwd -u`, which left their
+  password field empty — "no password required" rather than "no password".
+  `su` is not setuid in that image, so it could not be used, but it was the
+  opposite of what the image claimed. They use `*` now, like the management
+  account.
+
 - **The code prompt at sign-in is bounded, counted, and locks.** The prompt
   lives for two minutes. Wrong or expired attempts are counted, and at three
   the account locks for fifteen minutes. All three are settings, and the

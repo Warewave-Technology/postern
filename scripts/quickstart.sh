@@ -57,13 +57,33 @@ case "${1:-}" in
 		red "nothing to refresh — run './scripts/quickstart.sh' first"
 		exit 1
 	fi
-	say "rebuilding the bastion image"
-	run docker compose build --quiet postern
+	# ⚠️ ÖNCE HEDEFLERİN HOST ANAHTARLARI. Panel onları kurulumda
+	# sabitledi; hedefler eskiden anahtarı her başlangıçta yeniden
+	# üretiyordu, dolayısıyla hedef imajını tazelemek her oturumu
+	# "host key mismatch" ile düşürürdü. Anahtarlar artık .state'te
+	# duruyor — bu blok, o değişiklikten ÖNCE kurulmuş bir demonun
+	# çalışan konteynerlerinden onları bir kereliğine kurtarıyor.
+	for m in demo-a demo-b; do
+		if ! ls "$STATE/hostkeys/$m"/ssh_host_*_key >/dev/null 2>&1; then
+			if docker compose exec -T "$m" true >/dev/null 2>&1; then
+				say "keeping $m's host keys"
+				mkdir -p "$STATE/hostkeys/$m"
+				docker compose exec -T "$m" sh -c 'cd /etc/ssh && tar -cf - ssh_host_*' |
+					tar -C "$STATE/hostkeys/$m" -xf -
+				ls "$STATE/hostkeys/$m"/ssh_host_ed25519_key >/dev/null 2>&1 || {
+					red "could not copy $m's host keys; refusing to rebuild it with new ones"
+					exit 1
+				}
+			fi
+		fi
+	done
+	say "rebuilding the images"
+	run docker compose build --quiet
 	say "migrating the schema"
 	run docker compose run --rm --entrypoint postern postern \
 		db migrate --config /etc/postern/postern.yaml
 	say "restarting"
-	run docker compose up -d postern
+	run docker compose up -d postern demo-a demo-b
 	say "up to date"
 	exit 0
 	;;

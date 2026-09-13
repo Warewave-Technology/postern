@@ -50,11 +50,15 @@ services:
     build: ./target
     volumes:
       - ./.state/keys/ca_ed25519.pub:/etc/ssh/postern_ca.pub:ro
+      # Host anahtarları kalıcı: panel onları sabitliyor (entrypoint.sh).
+      - ./.state/hostkeys/demo-a:/var/lib/demo-hostkeys
 
   demo-b:
     build: ./target
     volumes:
       - ./.state/keys/ca_ed25519.pub:/etc/ssh/postern_ca.pub:ro
+      # Host anahtarları kalıcı: panel onları sabitliyor (entrypoint.sh).
+      - ./.state/hostkeys/demo-b:/var/lib/demo-hostkeys
 
 volumes:
   db-data:
