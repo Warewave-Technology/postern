@@ -155,7 +155,7 @@ describe("geçici erişim kartı görsel çıktısı", () => {
       { name: "ayse", os_user: "ayse", admin: false, roles: [], keys: 1 } as never,
       { name: "veli", os_user: "veli", admin: true, roles: [], keys: 0 } as never,
     ]);
-    vi.spyOn(api, "grants").mockResolvedValue({
+    vi.spyOn(api, "allGrants").mockResolvedValue({
       now: "2026-09-13T12:00:00Z",
       grants: [
         g({ id: "1" }),
@@ -180,7 +180,7 @@ describe("geçici erişim kartı görsel çıktısı", () => {
     });
     vi.spyOn(window, "confirm").mockReturnValue(true);
 
-    const { container, findByText, findAllByText, getAllByRole } = render(<TemporaryAccess name="demo-a" />);
+    const { container, findByText, findAllByText, getAllByRole } = render(<TemporaryAccess />);
     await findAllByText("veli");
     fireEvent.click(getAllByRole("button", { name: /revoke ayse's temporary access/i })[0]);
     await findByText(/left behind/);

@@ -830,13 +830,18 @@ th.wrap {
  * aşıp son sütundaki düğmeyi kaydırma çubuğunun ardına itiyordu (geçici
  * erişim tablosu, ekrana bakılarak görüldü).
  */
-td.state,
-th.state {
+/*
+ * .grant-state, geçici erişim tablosunun durum sütunu. ⚠️ ADI "state"
+ * DEĞİL: `.state` boş-durum kutusunun sınıfı (kesikli çerçeve, ortalı,
+ * 2.5rem dolgu) ve `td.state` olarak kullanılınca sütunun tamamı kesikli
+ * çerçeveyle çiziliyordu — kullanıcı ekran görüntüsüyle gösterdi. Durum
+ * cümlesi ham hata zinciri taşıyabiliyor ("upstream.DialManagement:" gibi
+ * tek parçalar); kırılamayınca sütun 190px'e açılıyordu (ölçüldü).
+ */
+td.grant-state,
+th.grant-state {
   white-space: normal;
   min-width: 9rem;
-  /* Durum cümlesi ham hata zinciri taşıyabiliyor ("upstream.DialManagement:"
-     gibi 24 karakterlik tek parçalar); kırılamayınca sütun 190px'e
-     açılıp geçici erişim tablosunu detay sütunundan taşırıyordu (ölçüldü). */
   overflow-wrap: anywhere;
 }
 td.num,
@@ -1076,6 +1081,64 @@ label.check {
   gap: 0.5rem;
   max-width: 60ch;
 }
+/*
+ * Seçici listesi (sihirbazdaki hedefler ve gruplar): kaydırılabilir bir
+ * kutu içinde satır satır onay kutuları. Global `label` sütun yönlü; .check
+ * satıra çeviriyor. .off: seçilemeyen (korunan) satır soluk ama okunur —
+ * gizlenseydi operatör "docker neden listede yok" diye arardı.
+ */
+/* Seçicinin başlığı label değil (label içinde label olmaz); görünüşü
+   satırdaki etiketlerle aynı, genişliği satırın tamamı. */
+.field-row > .pick-field {
+  flex: 1 1 100%;
+  /* min-width: 0 ŞART — flex çocuğu içeriğinin en-content genişliğinin
+     altına inmez; 55 karakterlik bir hostname 390px'te kutuyu modalın
+     dışına taşırıyordu (ölçüldü: +84px, sayfa yatay kayıyordu). */
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.pick-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  max-height: 13rem;
+  overflow: auto;
+  margin-top: 0.35rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.pick-list label.check {
+  align-items: center;
+  flex-wrap: wrap;
+  max-width: none;
+  min-width: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.pick-list label.off {
+  color: var(--faint);
+}
+.pick-list label.off code {
+  color: inherit;
+}
+.host-outcomes {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.host-outcomes h4 {
+  margin: 0 0 0.3rem;
+  font-size: 13px;
+  font-family: var(--mono);
+}
+
 label.check input[type="checkbox"] {
   width: auto;
   margin: 0.2rem 0 0;
@@ -2314,10 +2377,6 @@ label.check input[type="checkbox"] {
 .detail-grid th,
 .detail-grid th .th-pad {
   padding-inline: 0.7rem;
-}
-.detail-grid td.state,
-.detail-grid th.state {
-  min-width: 8rem;
 }
 
 /* ============================================================

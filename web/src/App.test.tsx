@@ -1627,3 +1627,37 @@ describe("guvenlik anahtariyla giris", () => {
     );
   });
 });
+
+describe("Geçici erişim sekmesi", () => {
+  /*
+   * ⚠️ SEKME YALNIZCA HİZMET BAĞLI YÖNETİCİYE. jit_enabled olmadan
+   * çizilseydi uçları olmayan bir bastion'da her tıklama 404 olurdu;
+   * yönetici olmayana çizilseydi 403 — ikisi de olmayan bir yetkiyi vaat
+   * etmek.
+   */
+  it("hizmet bağlı yöneticiye çizilir ve listeyi açar", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({ ...me, admin: true, jit_enabled: true });
+    vi.spyOn(api, "allGrants").mockResolvedValue({ grants: [], now: "2026-09-13T12:00:00Z" });
+
+    render(<App />);
+    await userEvent.click(await screen.findByRole("button", { name: "Temporary access" }));
+    expect(await screen.findByText(/No temporary access has been granted/)).toBeInTheDocument();
+  });
+
+  it("hizmet bağlı değilse sekme yok", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({ ...me, admin: true });
+
+    render(<App />);
+    await screen.findByRole("button", { name: "Settings" });
+    expect(screen.queryByRole("button", { name: "Temporary access" })).not.toBeInTheDocument();
+  });
+
+  it("yönetici değilse sekme yok", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({ ...me, jit_enabled: true });
+    vi.spyOn(api, "myTargets").mockResolvedValue(myTargets);
+
+    render(<App />);
+    await screen.findByText("web01");
+    expect(screen.queryByRole("button", { name: "Temporary access" })).not.toBeInTheDocument();
+  });
+});

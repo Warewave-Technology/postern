@@ -21,6 +21,7 @@ import AuthSource from "./admin/AuthSource";
 import Settings from "./admin/Settings";
 import OIDCSettingsScreen from "./admin/OIDCSettings";
 import Setup from "./admin/Setup";
+import TemporaryAccess from "./admin/TemporaryAccess";
 import Authenticator from "./Authenticator";
 import ChangePassword from "./ChangePassword";
 import Profile from "./Profile";
@@ -48,7 +49,7 @@ import {
 
 // Rota kütüphanesi yok: iki üst sekme ve bir kenar listesi için useState
 // yeter. URL'de yer tutmamanın bedeli, paylaşılabilir bağlantı olmaması.
-type Top = "home" | "profile" | "settings";
+type Top = "home" | "profile" | "jit" | "settings";
 type Section =
   | "setup"
   | "overview"
@@ -730,10 +731,19 @@ export default function App() {
    * anahtarlarını yönetici ekranına koymak, yönetici olmayan herkesi
    * kendi hesabının dışında bırakırdı.
    */
+  /*
+   * ⚠️ GEÇİCİ ERİŞİM KENDİ SEKMESİNDE, hedef sayfasının altında değil.
+   * Kart hedef başınaydı; "kimin nerede açık hesabı var" sorusu N hedefi
+   * gezdiriyordu ve kartın tablosu hedef sayfasının dar sütununa
+   * sığmıyordu (kullanıcı ekrana bakıp söyledi). Sekme yalnızca hizmet
+   * bağlıyken (jit_enabled) ve yalnızca yöneticiye: uçları olmayan ya da
+   * 403 dönecek bir sekme, olmayan bir yetkiyi vaat etmek olurdu.
+   */
   const tops: [Top, string][] = me.admin
     ? [
         ["home", "Home"],
         ["profile", "Profile"],
+        ...(me.jit_enabled ? [["jit", "Temporary access"] as [Top, string]] : []),
         ["settings", "Settings"],
       ]
     : [
@@ -945,6 +955,8 @@ export default function App() {
               ))}
 
             {top === "profile" && <Profile me={me} source={methods?.source} />}
+
+            {top === "jit" && me.admin && me.jit_enabled && <TemporaryAccess />}
 
             {top === "settings" && me.admin && (
               <div className="settings">

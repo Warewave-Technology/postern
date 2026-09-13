@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
@@ -257,6 +257,7 @@ const meAdmin: Me = {
   dir_bound: false,
   can_change_password: true,
   password_policy: { min_length: 12, max_length: 128, min_distinct: 6 },
+  jit_enabled: true,
 };
 
 const meUser: Me = { ...meAdmin, name: "ayse.yilmaz-demirtas", os_user: "ayse", admin: false };
@@ -442,6 +443,19 @@ const base: Fixtures = {
   targets,
   targetDetail: (name: string) => Promise.resolve(targetDetail(name)),
   grants: { grants, now: T(12) },
+  allGrants: { grants: [...grants, { ...grants[0], id: "6", target: "web-01", username: "svc-backup-nightly-runner", os_user: "svcbackup", groups: ["backup-operators", "systemd-journal"] }], now: T(12) },
+  targetGroups: (name: string) =>
+    Promise.resolve({
+      target: name, min_gid: 1000, checked_at: T(12),
+      groups: [
+        { name: "root", gid: 0, members: [], protected: true },
+        { name: "wheel", gid: 10, members: ["ops"], protected: true },
+        { name: "docker", gid: 998, members: ["veli"], protected: true },
+        { name: "dba", gid: 1001, members: ["ayse"], protected: false },
+        { name: "developer", gid: 1002, members: [], protected: false },
+        ...(name === "web-01" ? [{ name: "web-deployers-with-a-long-group-name", gid: 1003, members: ["mkaya", "ayse"], protected: false }] : []),
+      ],
+    }),
   checkManagement: {
     target: LONG_HOST, stage: "done", manageable: true, ca_fingerprint: "SHA256:I3mJ5osOLjwSlMDq4UpW+nBcTtBCjux2CiFcN0Mudns", family: "rhel", missing: [],
     tools: { add_user: "/usr/sbin/useradd", add_group: "/usr/sbin/groupadd", mod_user: "/usr/sbin/usermod", del_user: "/usr/sbin/userdel", del_group: "/usr/sbin/groupdel", visudo: "/usr/sbin/visudo" },
@@ -741,6 +755,39 @@ describe("sayfa düzeyinde görsel çıktı", () => {
     click("Overview");
     await settle();
     page("settings-overview-empty");
+  });
+
+  it("geçici erişim sekmesi ve sihirbazı", async () => {
+    mockAll(base);
+    render(<App />);
+    await settle();
+    click("Temporary access");
+    await settle();
+    page("jit");
+
+    click(/new temporary access/i);
+    await settle();
+    fireEvent.change(screen.getByLabelText(/^Person/), { target: { value: "ayse.yilmaz-demirtas" } });
+    const hosts = screen.getByRole("group", { name: "Hosts" });
+    fireEvent.click(within(hosts).getByLabelText(/web-01/));
+    fireEvent.click(within(hosts).getByLabelText(/prod-eu-west/));
+    click(/load groups from the selected hosts/i);
+    await settle();
+    const groups = screen.getByRole("group", { name: /groups on the selected hosts/i });
+    fireEvent.click(within(groups).getByLabelText(/^dba/));
+    fireEvent.change(screen.getByLabelText(/Commands the account may run/), {
+      target: { value: "/usr/bin/systemctl restart nginx" },
+    });
+    page("jit-new");
+    cleanup();
+    vi.restoreAllMocks();
+
+    mockAll({ ...base, allGrants: { grants: [], now: T(12) } });
+    render(<App />);
+    await settle();
+    click("Temporary access");
+    await settle();
+    page("jit-empty");
   });
 
   it("kabuk sayfası", async () => {

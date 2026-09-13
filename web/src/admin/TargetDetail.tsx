@@ -3,7 +3,6 @@ import { TargetDetail as Detail, api, toMessage } from "../api";
 import { ActionButton, ErrorLine, OkLine, Timestamp } from "./common";
 import { BackIcon } from "../icons";
 import ManageAccess from "./ManageAccess";
-import TemporaryAccess from "./TemporaryAccess";
 
 /**
  * TargetDetail — bir hedefin kendi sayfası.
@@ -240,11 +239,10 @@ export default function TargetDetail({
             */}
             <ManageAccess name={name} enabled={!!t.manage_enabled} />
             {/*
-              Geçici erişim yönetim kartının ALTINDA: aynı kimlikle (postern'in
-              yönetim hesabı) yapılıyor ve o kart "bağlanabiliyor muyum" sorusunu
-              cevaplamadan hak vermek, ilk denemede 502 görmek demek.
+              Geçici erişim burada DEĞİL, kendi sekmesinde: kart hedef
+              başınaydı ve tablosu bu dar sütuna sığmıyordu (kullanıcı
+              ekrana bakıp söyledi). Sekme hedefi de seçtiriyor.
             */}
-            {t.manage_enabled && <TemporaryAccess name={name} />}
           </div>
 
           <div className="detail-side">

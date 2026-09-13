@@ -30,6 +30,9 @@ export type Me = {
   /** Hesap bir dizin kimliğine bağlı mı. Sihirbaz buna bakıyor: zaten
    *  bağlı olana "önce bağla" demek, ilerleyemeyeceği bir duvar olurdu. */
   dir_bound?: boolean;
+  /** Geçici erişim uçları kurulu mu (manage.enabled). Sekme yalnızca
+   *  bu doğruyken çiziliyor; uçları olmayan bir sekme 404'lük kapı olurdu. */
+  jit_enabled?: boolean;
   /** ⚠️ Kurulum yapılmadıysa panel SADECE sihirbazdan ibaret. İsteğe
    *  bağlı bir ekran olarak bırakıldığında atlanıyor ve geriye kaynağı
    *  seçilmemiş bir kurulum kalıyordu. */
@@ -398,6 +401,26 @@ export type GrantResult = {
   summary: string;
   steps: GrantStep[];
   sessions_closed?: number;
+};
+
+/*
+ * TargetGroup, hedefteki bir grup. protected: numarası sınırın altında —
+ * sistem grubu (docker, wheel, shadow…); geçici hesap ona alınmıyor.
+ * Bayrak seçiciyi çizmek için; asıl ret sunucuda, plan aşamasında.
+ */
+export type TargetGroup = {
+  name: string;
+  gid: number;
+  members: string[];
+  protected: boolean;
+};
+export type TargetGroups = {
+  target: string;
+  groups: TargetGroup[];
+  /** Geçici hesabın alınabileceği en küçük numara; panel bunu yazıyor,
+   *  kendi başına bilmiyor. */
+  min_gid: number;
+  checked_at: string;
 };
 
 export type Mapping = { group: string; role: string; created_by: string };
@@ -1098,6 +1121,15 @@ export const api = {
     req<GrantResult>("POST", `/api/admin/targets/${encodeURIComponent(name)}/grants`, g),
   revokeGrant: (id: string) =>
     req<GrantResult>("POST", `/api/admin/grants/${encodeURIComponent(id)}/revoke`),
+  /** Bütün hedeflerin hakları, en yeni önce — sekmenin listesi. */
+  allGrants: () => req<{ grants: Grant[]; now: string }>("GET", "/api/admin/grants"),
+  /** POST: hedefe yönetim sertifikasıyla bağlanıp defter satırı yazıyor;
+   *  GET olsaydı bir <img> ile tetiklenebilirdi (manage/check ile aynı). */
+  targetGroups: (name: string) =>
+    req<TargetGroups>(
+      "POST",
+      `/api/admin/targets/${encodeURIComponent(name)}/manage/groups`,
+    ),
   createTarget: (t: {
     name: string;
     host: string;
