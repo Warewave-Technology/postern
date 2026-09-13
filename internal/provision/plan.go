@@ -132,6 +132,24 @@ func Plan(caps upstream.ManageCapabilities, d Desired, o Observed) ([]Step, erro
 		if bad := checkName(u.Name); bad != "" {
 			return nil, fmt.Errorf("provision.Plan: user %q: %s", u.Name, bad)
 		}
+		/*
+		 * ⚠️ ÜYELİK LİSTESİNDEKİ HER GRUP DA DOĞRULANIYOR — VE BU SATIR
+		 * ÖLÇÜLMÜŞ BİR ENJEKSİYONU KAPATIYOR. Grup adları yalnızca
+		 * d.Groups'tan geçerken kontrol ediliyordu; kullanıcının Groups
+		 * listesi hiç bakılmadan usermod satırına yapıştırılıyordu.
+		 * "dba;id>/tmp/pwn" verildiğinde plan hatasız şunu üretti:
+		 *
+		 *   sudo -n /usr/sbin/usermod -a -G dba;id>/tmp/pwn ayse
+		 *
+		 * Bu satır parolasız root sudo tutan hesabın kabuğunda koşuyor;
+		 * noktalı virgülden sonrası ikinci bir komut. O gün üretimde bu
+		 * planı çağıran bir yol yoktu — panele bağlanmadan önce kapandı.
+		 */
+		for _, g := range u.Groups {
+			if bad := checkName(g); bad != "" {
+				return nil, fmt.Errorf("provision.Plan: user %q: group %q: %s", u.Name, g, bad)
+			}
+		}
 
 		have, exists := o.Users[u.Name]
 		if !exists {

@@ -203,7 +203,29 @@ func TestNamesThatWouldBecomeCommandsAreRefused(t *testing.T) {
 		if _, err := Plan(able(), Desired{Users: []User{{Name: name}}}, empty()); err == nil {
 			t.Errorf("%q hesap adı kabul edildi", name)
 		}
+		/*
+		 * ⚠️ ÜYELİK LİSTESİ AYRI BİR YOL — VE BU TEST ONU DENEMEDİĞİ İÇİN
+		 * ENJEKSİYON YAŞADI. Grup d.Groups'ta tanımlı olmasa da kullanıcının
+		 * Groups listesi usermod satırına giriyor. "dba;id>/tmp/pwn"
+		 * verildiğinde plan hatasız
+		 * `sudo -n /usr/sbin/usermod -a -G dba;id>/tmp/pwn ayse` üretti.
+		 */
+		steps, err := Plan(able(), Desired{Users: []User{{Name: "ayse", Groups: []string{name}}}}, empty())
+		if err == nil {
+			t.Errorf("%q üyelik listesinde kabul edildi: %v", name, commandsOf(steps))
+		}
 	}
+}
+
+// commandsOf, adımların komutlarını tek dizede verir: hata mesajında
+// neyin hedefe gideceği görünsün.
+func commandsOf(steps []Step) string {
+	out := make([]string, 0, len(steps))
+	for _, s := range steps {
+		out = append(out, s.Command)
+	}
+
+	return strings.Join(out, " | ")
 }
 
 /*
