@@ -363,3 +363,36 @@ func TestAUserWithOpenTemporaryAccountsIsNotDeleted(t *testing.T) {
 		t.Errorf("hakları kapanmış kişi silinemedi: %d %s", w.Code, w.Body.String())
 	}
 }
+
+/*
+ * ⚠️ DEFTERE YAZILAMIYORSA HEDEFE HİÇ GİDİLMİYOR — yönetim denetimiyle aynı
+ * kural, bu kez root'la hesap AÇAN yol için. Bağlantı sayacı sıfır kalmalı:
+ * ret hedefte değil, defterde.
+ */
+func TestAGrantIsNotAttemptedWithoutAnAuditRow(t *testing.T) {
+	s, db, dsn := dbServerDSN(t)
+	authority := manageCA(t)
+	s.UseManagement(authority)
+	s.UseJIT(jit.New(db, authority, nil, slog.New(slog.NewTextHandler(io.Discard, nil))))
+	host, port, hostKey, conns := managedHost(t, authority, debianAnswers())
+	ctx := t.Context()
+	if _, err := db.CreateTarget(ctx, model.Target{Name: "web01", Host: host, Port: port, HostKey: hostKey}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CreateUser(ctx, "ayse", "", "ayse"); err != nil {
+		t.Fatal(err)
+	}
+
+	dropTable(t, dsn, "admin_log")
+
+	w, _ := postGrant(t, s, "web01", `{"username":"ayse","duration":"2h"}`)
+	if w.Code < 500 {
+		t.Errorf("defter yazılamazken istek %d aldı: %s", w.Code, w.Body.String())
+	}
+	if n := conns.Load(); n != 0 {
+		t.Errorf("defter yazılamadığı hâlde hedefe %d bağlantı açıldı", n)
+	}
+	if grants, _ := db.JITGrantsForTarget(ctx, "web01", 10); len(grants) != 0 {
+		t.Errorf("defter yazılamadığı hâlde hak kaydedildi: %d", len(grants))
+	}
+}
