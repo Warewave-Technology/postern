@@ -133,7 +133,11 @@ function SessionFiles({
             <th>Path</th>
             <th>Read</th>
             <th>Wrote</th>
-            <th>Result</th>
+            {/* ⚠️ SARIYOR: td varsayılanı nowrap ve ret gerekçesi uzun
+                bir cümle ("postern: this path is explicitly denied").
+                Sarmayınca cümlenin sonu kesiliyordu — yani denetçinin
+                okuması gereken tek şey görünmüyordu. */}
+            <th className="wrap">Result</th>
           </tr>
         </thead>
         <tbody>
@@ -154,7 +158,7 @@ function SessionFiles({
               </td>
               <td>{bytes(f.read)}</td>
               <td>{bytes(f.wrote)}</td>
-              <td>
+              <td className="wrap">
                 {/*
                   Başarısız satırlar SİLİNMİYOR, işaretleniyor: reddedilen
                   bir silme denemesi engelin çalıştığının kanıtı ve
@@ -424,26 +428,6 @@ export function Sessions({ theme }: { theme: Resolved }) {
 
       {why && <WarnLine msg={why} />}
 
-      {playing && (
-        <CastPlayer
-          sessionId={playing}
-          theme={theme}
-          onClose={() => {
-            setPlaying(null);
-            setFiles([]);
-            setFilesFailed(false);
-            setJournal(undefined);
-            setChainOf(null);
-            setOpened(null);
-          }}
-        />
-      )}
-
-      {/*
-        ⚠️ Oynatıcıya BAĞLI DEĞİL. SFTP oturumunda terminal kaydı boş
-        olduğu için oynatıcı hiç açılmayabiliyor; tabloyu oynatıcının
-        içine koymak, tam da onun gerektiği oturumlarda gizlerdi.
-      */}
       {/*
         ⚠️ SÜTUNDAN ÇIKAN ALANLAR BURADA. Satırdan kaldırılan bir alanın
         hiçbir yerde görünmemesi, "sadeleştirme" adı altında bilgi
@@ -468,6 +452,26 @@ export function Sessions({ theme }: { theme: Resolved }) {
         </div>
       )}
 
+      {playing && (
+        <CastPlayer
+          sessionId={playing}
+          theme={theme}
+          onClose={() => {
+            setPlaying(null);
+            setFiles([]);
+            setFilesFailed(false);
+            setJournal(undefined);
+            setChainOf(null);
+            setOpened(null);
+          }}
+        />
+      )}
+
+      {/*
+        ⚠️ Oynatıcıya BAĞLI DEĞİL. SFTP oturumunda terminal kaydı boş
+        olduğu için oynatıcı hiç açılmayabiliyor; tabloyu oynatıcının
+        içine koymak, tam da onun gerektiği oturumlarda gizlerdi.
+      */}
       {chainOf && <ChainStatus sessionId={chainOf.id} chain={chainOf.chain} />}
 
       <SessionFiles files={files} failed={filesFailed} journal={journal} />

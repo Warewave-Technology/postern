@@ -34,6 +34,7 @@ export default defineConfig({
      * tarayıcıda var olmayan bir şeyi kullanmak derlenir hâle gelirdi.
      * Ayrı dizin + ayrı tsconfig, o kapıyı kapalı tutuyor.
      */
-    include: ["src/**/*.test.{ts,tsx}", "test-node/**/*.test.ts"],
+    // tsx de dahil: görsel kontrol aracı bir bileşen render ediyor.
+    include: ["src/**/*.test.{ts,tsx}", "test-node/**/*.test.{ts,tsx}"],
   },
 });

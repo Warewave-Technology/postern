@@ -466,3 +466,44 @@ describe("kanıt sütunu", () => {
     expect(screen.getByText("veli")).toBeTruthy();
   });
 });
+
+/*
+ * ⚠️ RET GEREKÇESİ KESİLMEMELİ — VE BU TEST PANELDE GÖRÜLEN BİR
+ * KUSURDAN DOĞDU.
+ *
+ * `td` varsayılanı nowrap; ret satırının gerekçesi ise uzun bir cümle
+ * ("postern: this path is explicitly denied"). Sarmayan hücrede
+ * cümlenin sonu kartın dışında kalıyordu — yani denetçinin okuması
+ * gereken TEK şey görünmüyordu. Sütun artık sarıyor.
+ */
+describe("dosya defteri görünümü", () => {
+  it("ret gerekçesi sarabilen bir hücrede duruyor", async () => {
+    vi.spyOn(api, "sessions").mockResolvedValue([session()]);
+    vi.spyOn(api, "sessionDetail").mockResolvedValue({
+      ...session(),
+      recording: { state: "none", size: 0 },
+      files: [
+        {
+          id: "f1",
+          at: "2026-09-13T04:03:38Z",
+          op: "denied.stat",
+          path: "/etc/shadow",
+          read: 0,
+          wrote: 0,
+          ok: false,
+          detail: "postern: this path is explicitly denied",
+        },
+      ],
+    });
+    render(<Sessions theme="dark" />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /watch/i }),
+    );
+
+    const cell = await screen.findByText(/explicitly denied/i);
+    const td = cell.closest("td");
+    expect(td).not.toBeNull();
+    expect(td!.className).toContain("wrap");
+  });
+});

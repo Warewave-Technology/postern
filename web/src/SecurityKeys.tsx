@@ -95,33 +95,49 @@ export default function SecurityKeys() {
 
   if (!supported()) {
     return (
-      <section className="card">
-        <h2>Security keys</h2>
-        <p className="muted">
-          This browser cannot use security keys. Open the panel in a browser
-          that supports WebAuthn to register one.
-        </p>
-      </section>
+      <div className="card">
+        <div className="card-head">
+          <h3>Security keys</h3>
+          <p>
+            This browser cannot use security keys. Open the panel in a browser
+            that supports WebAuthn to register one.
+          </p>
+        </div>
+      </div>
     );
   }
 
   const list = keys?.credentials ?? [];
 
   return (
-    <section className="card">
-      <h2>Security keys</h2>
-      <ErrorLine msg={error} />
+    <div className="card">
+      {/*
+        ⚠️ KART YAPISI PROJENİN KENDİ DESENİ: card-head başlığı ve
+        açıklamayı, card-body içeriği, card-actions düğmeleri taşıyor
+        (bkz. MyKeys). İlk yazdığımda bunları kullanmamıştım ve kart
+        öbürlerinin yanında yamalı duruyordu — etiket ile düğme aynı
+        satıra düşmüştü, çünkü `label` inline-flex.
+      */}
+      <div className="card-head">
+        <h3>Security keys</h3>
+        <p>
+          A security key signs a challenge that is tied to this site's address,
+          so a page pretending to be postern cannot use it. A code can be typed
+          into that page and replayed within thirty seconds.
+        </p>
+      </div>
 
-      <p className="muted">
-        A security key signs a challenge that is tied to this site's address,
-        so a page pretending to be postern cannot use it. A code can be typed
-        into that page and replayed within thirty seconds.
-      </p>
-
+      {/* ⚠️ TABLO KARTIN DOĞRUDAN ÇOCUĞU. `.card`ın kendi dolgusu yok
+          (Audit'teki not); tabloyu `.card-body` içine koyunca iki kat
+          dolgu oluşuyor ve son sütundaki düğme kartın kenarına
+          taşıyordu — ölçüldü, ekrana bakarak görüldü. */}
       {list.length === 0 ? (
-        <p className="muted">No security key is registered on this account.</p>
+        <div className="card-body">
+          <ErrorLine msg={error} />
+          <p className="state">No security key is registered on this account.</p>
+        </div>
       ) : (
-        <table className="tight">
+        <table>
           <thead>
             <tr>
               <th>Name</th>
@@ -138,8 +154,8 @@ export default function SecurityKeys() {
                 <td>{k.name}</td>
                 <td>{new Date(k.created_at).toLocaleDateString()}</td>
                 <td>
-                  {/* ⚠️ "Hiç kullanılmadı" ile "bugün kullanıldı" AYRI:
-                      kaybolan anahtarı silecek kişi buna bakıyor. */}
+                  {/* ⚠️ "Hiç kullanılmadı" ile bir tarih AYRI: kaybolan
+                      anahtarı silecek kişi tam olarak buna bakıyor. */}
                   {k.last_used_at
                     ? new Date(k.last_used_at).toLocaleDateString()
                     : "never"}
@@ -158,41 +174,50 @@ export default function SecurityKeys() {
         </table>
       )}
 
-      <label>
-        Name this key
-        <input
-          value={name}
-          placeholder="work laptop"
-          onChange={(e) => setName(e.target.value)}
-        />
-      </label>
-      <ActionButton onClick={register} label="register a security key">
-        {busy ? "Waiting for the key…" : "Register a security key"}
-      </ActionButton>
+      <div className="card-body">
+        {list.length > 0 && <ErrorLine msg={error} />}
 
-      {list.length > 0 && (
-        <div className="stop">
-          {/*
-            ⚠️ BU KUTU BİR UYARI, BİR AYAR DEĞİL — VE SÖYLEDİĞİ ŞEY
-            ÖLÇÜLEBİLİR: kod açıkken hesabın kimlik avına dayanıklılığı
-            KODUNKİ kadar, çünkü saldırgan anahtarı hiç sormadan kodu
-            ister. Bunu yazmadan bir anahtar kaydettirmek, kullanıcıya
-            kazanmadığı bir güvence satmak olurdu.
-          */}
-          <b>{keys?.only ? "Codes are off" : "Codes are still accepted"}</b>
-          <p>
-            {keys?.only
-              ? "This account signs in with a security key only. If you lose every key you have registered, an administrator has to reset this — there are no recovery codes."
-              : "While your authenticator code still works, this account is as phishable as that code: an attacker who copies your password can ask for the code and never touch the key."}
-          </p>
-          <ActionButton
-            onClick={() => setOnly(!keys?.only)}
-            label={keys?.only ? "accept codes again" : "stop accepting codes"}
-          >
-            {keys?.only ? "Accept codes again" : "Stop accepting codes"}
+        <div className="field-row">
+          <label>
+            Name this key
+            <input
+              value={name}
+              placeholder="work laptop"
+              onChange={(e) => setName(e.target.value)}
+            />
+          </label>
+          <ActionButton onClick={register} label="register a security key">
+            {busy ? "Waiting for the key…" : "Register a security key"}
           </ActionButton>
         </div>
-      )}
-    </section>
+
+        {list.length > 0 && (
+          /* ⚠️ msg-warn, PROJENİN uyarı sınıfı. İlk yazdığımda site
+             belgelerindeki `.stop` sınıfını kullanmıştım ve o sınıf
+             panel CSS'inde HİÇ YOK: blok stilsiz çiziliyordu. */
+          <p className="msg msg-warn" role="status">
+            {/* ⚠️ ÖZET CÜMLE KALIN VE ÖNDE. Kullanıcı kartın tamamını
+                okumuyor; "kodlar hâlâ kabul ediliyor" bilgisi bir
+                paragrafın içinde kaybolursa, kazanılmamış bir güven
+                duygusu bırakır. */}
+            <b>{keys?.only ? "Codes are off." : "Codes are still accepted."}</b>{" "}
+            {keys?.only
+              ? "This account signs in with a security key only. If you lose every key you have registered, an administrator has to reset this — there are no recovery codes."
+              : "Your authenticator code still works, so this account is as phishable as that code: an attacker who copies your password can ask for the code and never touch the key."}
+          </p>
+        )}
+
+        {list.length > 0 && (
+          <div className="card-actions">
+            <ActionButton
+              onClick={() => setOnly(!keys?.only)}
+              label={keys?.only ? "accept codes again" : "stop accepting codes"}
+            >
+              {keys?.only ? "Accept codes again" : "Stop accepting codes"}
+            </ActionButton>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

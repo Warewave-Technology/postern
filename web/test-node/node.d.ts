@@ -36,10 +36,13 @@ declare module "node:child_process" {
 declare module "node:fs" {
   export function existsSync(path: string): boolean;
   export function mkdtempSync(prefix: string): string;
-  export function mkdirSync(path: string): void;
+  export function mkdirSync(path: string, options?: { recursive: boolean }): void;
   export function writeFileSync(path: string, data: string | Uint8Array): void;
   export function readFileSync(path: string): Uint8Array;
+  export function readFileSync(path: string, encoding: "utf8"): string;
   export function readdirSync(path: string): string[];
+  // Sınıf denetimi için (classnames.test.ts).
+  export function statSync(path: string): { isDirectory(): boolean };
   export function symlinkSync(target: string, path: string): void;
   export function rmSync(
     path: string,
@@ -53,4 +56,11 @@ declare module "node:os" {
 
 declare module "node:path" {
   export function join(...parts: string[]): string;
+  // Görsel kontrol aracı için (visual.test.tsx).
+  export function resolve(...parts: string[]): string;
+  // Sınıf denetiminin okunur çıktısı için (classnames.test.ts).
+  export function relative(from: string, to: string): string;
 }
+
+// cwd, görsel kontrol çıktısını depoya göre yazmak için.
+declare const process: { cwd(): string };

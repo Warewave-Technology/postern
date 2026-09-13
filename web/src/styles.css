@@ -1192,6 +1192,26 @@ label > textarea {
 .msg-ok::before {
   content: "OK:";
 }
+/*
+ * ⚠️ .bad ve .warn METİN İÇİ VURGULAR — VE UZUN SÜRE TANIMSIZDILAR.
+ *
+ * İkisi de panelde kullanılıyordu ama bu dosyada karşılıkları YOKTU:
+ * reddedilen bir dosya satırı ("denied — postern: this path is
+ * explicitly denied") öbür satırlarla birebir aynı renkte çiziliyordu.
+ * Denetçinin fark etmesi gereken TEK şey, hiçbir vurgu taşımıyordu.
+ * Sınıf denetimi (test-node/classnames.test.ts) bunu yakaladı.
+ *
+ * ⚠️ ARKA PLAN YOK, YALNIZCA RENK. Bunlar bir tablo hücresinin
+ * içindeki metin; kutu vermek satırı rozete çevirir ve tablonun
+ * hizasını bozar.
+ */
+.bad {
+  color: var(--danger);
+}
+.warn {
+  color: var(--warn);
+}
+
 .msg-warn {
   background: var(--warn-bg);
   color: var(--warn);
@@ -3279,11 +3299,14 @@ a.tcard-name:focus-visible {
  * Sütundan çıkan alanlar burada duruyor: ilk bakışın cevapladığı soru
  * "hangisini açayım", bunlar ise açtıktan sonraki soru.
  */
+/* ⚠️ IZGARA, ESNEK KUTU DEĞİL — ve sebebi ölçüldü: esnek kutuda
+   uzun oturum kimliği satırı taşırıyor ve dar ekranda ilk sütun
+   kırpılıyordu. Izgara, sütunları taşmadan sarıyor. */
 .detail-head dl {
   margin: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem 2rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.9rem 2rem;
 }
 .detail-head dt {
   font-size: 0.72rem;
@@ -3296,6 +3319,13 @@ a.tcard-name:focus-visible {
   margin: 0;
   /* Kimlik uzun: dar ekranda taşmak yerine sarsın. */
   overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+/* Künye, oturumun EN ÜSTÜNDE duruyor: "bu kim, nereden" sorusu
+   kayıttan da defterden de önce geliyor. */
+.detail-head {
+  margin-bottom: 1rem;
 }
 
 /* Kayıt zinciri durumu (admin/ChainStatus.tsx). */
