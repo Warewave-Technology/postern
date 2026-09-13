@@ -1037,6 +1037,8 @@ func (s *Server) adminListSessions(w http.ResponseWriter, r *http.Request) {
 		Started string  `json:"started_at"`
 		Ended   *string `json:"ended_at"`
 		Running bool    `json:"running"`
+		// Temporary, oturumu rol değil süreli hak açtı; yoksa alan da yok.
+		Temporary bool `json:"temporary,omitempty"`
 		// Denied, postern'in reddettiği istek sayısı; sayılmadıysa yok.
 		Denied *int64 `json:"denied,omitempty"`
 		// Lost, postern'in deftere koyamadığı olay sayısı.
@@ -1059,9 +1061,9 @@ func (s *Server) adminListSessions(w http.ResponseWriter, r *http.Request) {
 		out = append(out, row{
 			ID: sess.ID, User: sess.User, Target: sess.Target, OSUser: sess.OSUser,
 			SrcIP: sess.SrcIP, Started: sess.StartedAt.Format(time.RFC3339), Ended: ended,
-			Running: running[sess.ID],
-			Denied:  denied,
-			Lost:    sess.SFTPJournal.Lost,
+			Running: running[sess.ID], Temporary: sess.Temporary,
+			Denied: denied,
+			Lost:   sess.SFTPJournal.Lost,
 		})
 	}
 	writeJSON(w, http.StatusOK, out)

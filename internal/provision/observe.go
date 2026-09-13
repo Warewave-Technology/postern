@@ -103,7 +103,7 @@ func Observe(ctx context.Context, r Runner, d Desired) (Observed, error) {
 			}
 		}
 		// Geçici hesabın principals dosyası: plan bayt bayt karşılaştırıyor.
-		if u.JIT && d.PrincipalsFile != "" {
+		if d.PrincipalsFile != "" {
 			path, err := PrincipalsPath(d.PrincipalsFile, u.Name)
 			if err != nil {
 				return Observed{}, fmt.Errorf("provision.Observe: user %s: %w", u.Name, err)
@@ -202,6 +202,70 @@ func parseGroupLine(line string) (GroupInfo, error) {
 	}
 
 	return g, nil
+}
+
+/*
+ * GroupFacts, bir grubun hedefteki kullanımı: üyeleri ve birincil grubu o
+ * olan hesaplar. Geri alma "boş mu" sorusunu bununla cevaplıyor.
+ */
+type GroupFacts struct {
+	Exists    bool
+	GID       int
+	Members   []string
+	PrimaryOf []string
+}
+
+// UsedByOthers, except dışında birinin grubu kullanıp kullanmadığı.
+func (f GroupFacts) UsedByOthers(except string) bool {
+	for _, m := range f.Members {
+		if m != except {
+			return true
+		}
+	}
+	for _, p := range f.PrimaryOf {
+		if p != except {
+			return true
+		}
+	}
+	return false
+}
+
+/*
+ * GroupUsage, bir grubun üyelerini ve birincil grubu o olan hesapları okur.
+ *
+ * ⚠️ İKİSİ DE OKUNUYOR. /etc/group'taki üye listesi birincil grubu
+ * göstermiyor: `useradd -g dba veli` ile açılan hesap dba'nın üyesi
+ * görünmez ama grubu siler silmez o hesap sahipsiz bir GID'e düşer.
+ */
+func GroupUsage(ctx context.Context, r Runner, name string) (GroupFacts, error) {
+	if bad := checkName(name); bad != "" {
+		return GroupFacts{}, fmt.Errorf("provision.GroupUsage: %q: %s", name, bad)
+	}
+	out, err := r.Exec(ctx, "getent group "+name, "")
+	gone, err := absent(err)
+	if err != nil {
+		return GroupFacts{}, fmt.Errorf("provision.GroupUsage: %s: %w", name, err)
+	}
+	if gone {
+		return GroupFacts{}, nil
+	}
+	g, err := parseGroupLine(strings.TrimSpace(out))
+	if err != nil {
+		return GroupFacts{}, fmt.Errorf("provision.GroupUsage: %s: %w", name, err)
+	}
+	f := GroupFacts{Exists: true, GID: g.GID, Members: g.Members, PrimaryOf: []string{}}
+	passwd, err := r.Exec(ctx, "getent passwd", "")
+	if _, err := absent(err); err != nil {
+		return GroupFacts{}, fmt.Errorf("provision.GroupUsage: passwd: %w", err)
+	}
+	gid := strconv.Itoa(g.GID)
+	for _, line := range strings.Split(passwd, "\n") {
+		fields := strings.Split(strings.TrimSpace(line), ":")
+		if len(fields) >= 4 && fields[3] == gid {
+			f.PrimaryOf = append(f.PrimaryOf, fields[0])
+		}
+	}
+	return f, nil
 }
 
 // AccountFacts, sökme planının bir hesap hakkında bilmesi gerekenler.

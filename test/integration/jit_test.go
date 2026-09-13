@@ -72,8 +72,8 @@ func TestATemporaryAccountIsCreatedAndTakenAwayAgain(t *testing.T) {
 
 	rule := &sudoers.Rule{Commands: []sudoers.Command{{Path: "/usr/bin/nginx", Args: []string{"-t"}}}}
 	out, err := svc.Grant(ctx, jit.Request{
-		Username: "ayse", Target: "cert-target", Groups: []string{"yayilim"},
-		Sudo: rule, Duration: time.Hour,
+		Username: "ayse", Target: "cert-target", Groups: []string{"yayilim", "gecici"},
+		Sudo: rule, Duration: time.Hour, CleanupGroups: true,
 	}, "ops")
 	if err != nil {
 		t.Fatalf("Grant: %v\n%s", err, describe(out.Report))
@@ -90,8 +90,16 @@ func TestATemporaryAccountIsCreatedAndTakenAwayAgain(t *testing.T) {
 	if !facts.InJITGroup() {
 		t.Errorf("hesap %s grubunda değil: %v — süresi dolunca silinemez", provision.JITGroup, facts.Groups)
 	}
-	if !contains(facts.Groups, "yayilim") {
-		t.Errorf("istenen gruba girmemiş: %v", facts.Groups)
+	if !contains(facts.Groups, "yayilim") || !contains(facts.Groups, "gecici") {
+		t.Errorf("istenen gruplara girmemiş: %v", facts.Groups)
+	}
+	/*
+	 * ⚠️ İKİ GRUP DA POSTERN AÇTI; birini geri almadan önce başka bir hesap
+	 * (deploy, imajda hazır) kullanmaya başlıyor. Geri alma açtığını
+	 * silmeli — ama yalnızca boş kalanı: yayilim kalır, gecici gider.
+	 */
+	if _, err := r.Exec(ctx, "sudo -n usermod -a -G yayilim deploy", ""); err != nil {
+		t.Fatalf("deploy yayilim grubuna alınamadı: %v", err)
 	}
 	if list, err := r.Exec(ctx, "sudo -n -l -U jitayse", ""); err != nil || !strings.Contains(list, "/usr/bin/nginx -t") {
 		t.Errorf("sudo kuralı hedefte etkin değil: %q (%v)", list, err)
@@ -129,6 +137,9 @@ func TestATemporaryAccountIsCreatedAndTakenAwayAgain(t *testing.T) {
 	if g.AppliedAt.IsZero() || !g.Active() {
 		t.Errorf("kayıt uygulanmış görünmüyor: %+v", g)
 	}
+	if !contains(g.CreatedGroups, "yayilim") || !contains(g.CreatedGroups, "gecici") {
+		t.Errorf("açılan gruplar kayıtta yok: %v", g.CreatedGroups)
+	}
 
 	// Geri alma: hesap, evi ve kural gidiyor; kayıt kapanıyor.
 	rout, err := svc.Revoke(ctx, g.ID, "ops", "web")
@@ -150,6 +161,12 @@ func TestATemporaryAccountIsCreatedAndTakenAwayAgain(t *testing.T) {
 	}
 	if f, _ := r.Exec(ctx, "sudo -n test -e /etc/ssh/auth_principals/jitayse && echo VAR || echo YOK", ""); strings.TrimSpace(f) != "YOK" {
 		t.Errorf("principals dosyası duruyor")
+	}
+	if kept, _ := r.Exec(ctx, "getent group yayilim | cut -d: -f4", ""); !strings.Contains(kept, "deploy") {
+		t.Errorf("BAŞKASININ KULLANDIĞI GRUP SİLİNDİ ya da üyesi düştü: %q", kept)
+	}
+	if gone, _ := r.Exec(ctx, "getent group gecici && echo VAR || echo YOK", ""); !strings.Contains(gone, "YOK") {
+		t.Errorf("postern'in açtığı boş grup duruyor: %q", gone)
 	}
 	// Geri alınan hak sertifikayla da açılmıyor.
 	if c, err := upstream.DialWithCert(ctx, tgtModel, upstream.Identity{PosternUser: "ayse", OSUser: "jitayse"}, authority); err == nil {
@@ -175,7 +192,11 @@ func TestTheSweeperRevokesWhatHasExpired(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
-	out, err := svc.Grant(ctx, jit.Request{Username: "ayse", Target: "cert-target", Duration: time.Hour}, "ops")
+	// Temizleme izni verilmemiş bir hak: açtığı grup geri almada kalıyor.
+	out, err := svc.Grant(ctx, jit.Request{
+		Username: "ayse", Target: "cert-target", Duration: time.Hour,
+		Groups: []string{"kalici"}, CleanupGroups: false,
+	}, "ops")
 	if err != nil {
 		t.Fatalf("Grant: %v", err)
 	}
@@ -196,6 +217,9 @@ func TestTheSweeperRevokesWhatHasExpired(t *testing.T) {
 	after, _ := provision.Account(ctx, r, "jitayse")
 	if after.Exists {
 		t.Error("süpürücü hesabı silmedi")
+	}
+	if kept, _ := r.Exec(ctx, "getent group kalici && echo VAR || echo YOK", ""); !strings.Contains(kept, "VAR") {
+		t.Errorf("temizleme izni yokken grup silindi: %q", kept)
 	}
 }
 

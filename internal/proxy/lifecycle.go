@@ -669,7 +669,7 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 	err = deps.Store.StartSession(ctx, store.SessionStart{
 		ID: id, Username: req.Username, TargetName: target.Name,
 		OSUser: d.OSUser, SrcIP: req.SrcIP, StartedAt: start,
-		RecordingPath: path,
+		RecordingPath: path, Temporary: d.Temporary,
 	})
 	if err != nil {
 		log.Error("start session failed", "error", err)

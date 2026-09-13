@@ -132,6 +132,10 @@ type Step struct {
 	Content string
 	// Why, panelde ve denetim satırında görünen cümle.
 	Why string
+	// Subject, adımın üzerinde çalıştığı ad (grup ya da hesap) — rapordan
+	// "hangi grubu açtık" diye geri okunabilsin diye; komut metnini
+	// ayrıştırmak kırılgan olurdu.
+	Subject string
 }
 
 // SudoPath, bir grup için postern'in yazdığı dosyanın yolu. Dışa açık:
@@ -231,6 +235,7 @@ func Plan(caps upstream.ManageCapabilities, d Desired, o Observed) ([]Step, erro
 			Kind:    StepGroupAdd,
 			Command: "sudo -n " + caps.AddGroup + " " + g.Name,
 			Why:     "group " + g.Name + " is missing",
+			Subject: g.Name,
 		})
 	}
 
@@ -341,7 +346,9 @@ func Plan(caps upstream.ManageCapabilities, d Desired, o Observed) ([]Step, erro
 		 * OSUser). tee root'la, umask'la 0644 — sshd'nin StrictModes'u
 		 * için yeterli.
 		 */
-		if u.JIT && d.PrincipalsFile != "" {
+		// Her hesap için — postern'in açtığı kalıcı hesap da sertifikayla
+		// giriyor ve rolün sözlüğüne bağımlı kalmamalı.
+		if d.PrincipalsFile != "" {
 			path, err := PrincipalsPath(d.PrincipalsFile, u.Name)
 			if err != nil {
 				return nil, fmt.Errorf("provision.Plan: user %q: %w", u.Name, err)

@@ -379,7 +379,31 @@ export function Sessions({ theme }: { theme: Resolved }) {
       // günlüğünde aratacak olan kişiye 12 hane yetmiyor.
       render: (s) => <code title={s.id}>{s.id.slice(0, 12)}…</code>,
     },
-    { key: "user", header: "User", value: (s) => s.user },
+    {
+      key: "user",
+      header: "User",
+      // Rozet aramada da bulunuyor: "temporary" yazan denetçi bu satırları görsün.
+      value: (s) => `${s.user}${s.temporary ? " temporary" : ""}`,
+      /*
+       * ⚠️ SÜRELİ HAKLA AÇILAN OTURUM ÖYLE YAZIYOR. Kişinin bu hedefte
+       * rolü yok; rozet olmasa denetçi "nasıl girdi" diye arıza arardı.
+       * Karar anında kaydedildi (göç 044), hakkın bugünkü hâlinden
+       * türetilmiyor.
+       */
+      render: (s) => (
+        <>
+          {s.user}
+          {s.temporary && (
+            <>
+              {" "}
+              <span className="badge badge-warn" title="admitted by a temporary access grant, not by a role">
+                temporary
+              </span>
+            </>
+          )}
+        </>
+      ),
+    },
     // wrap: hostname'ler tek parça; 55 karakterlik bir ad sarmadan
     // tabloyu 1280'de 330px kaydırıyordu (ölçüldü).
     { key: "target", header: "Target", className: "wrap", value: (s) => s.target },
@@ -503,6 +527,12 @@ export function Sessions({ theme }: { theme: Resolved }) {
                 <dt>OS user</dt>
                 <dd className="mono">{opened.os_user}</dd>
               </div>
+              {opened.temporary && (
+                <div>
+                  <dt>Access</dt>
+                  <dd>temporary access, not a role</dd>
+                </div>
+              )}
               <div>
                 <dt>From</dt>
                 <dd className="mono">{opened.src_ip}</dd>

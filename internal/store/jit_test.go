@@ -266,3 +266,38 @@ func TestAllGrantsComeNewestFirstAcrossTargets(t *testing.T) {
 		t.Errorf("limit 1: %+v (%v)", one, err)
 	}
 }
+
+// Açılan gruplar ve temizleme izni kayıtta gidip geliyor.
+func TestCreatedGroupsAndCleanupFlagRoundTrip(t *testing.T) {
+	t.Parallel()
+	s := newTestStore(t)
+	ctx := t.Context()
+
+	g := aGrant(time.Hour)
+	g.CleanupGroups = true
+	id, err := s.CreateJITGrant(ctx, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.JITGrant(ctx, id)
+	if err != nil || !got.CleanupGroups || len(got.CreatedGroups) != 0 {
+		t.Fatalf("yeni hak: %+v (%v)", got, err)
+	}
+	if err := s.SetJITGrantCreatedGroups(ctx, id, []string{"gecici", "dba"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = s.JITGrant(ctx, id)
+	if len(got.CreatedGroups) != 2 || got.CreatedGroups[0] != "gecici" {
+		t.Errorf("açılan gruplar geri okunmadı: %+v", got.CreatedGroups)
+	}
+	if err := s.SetJITGrantCreatedGroups(ctx, "yok", []string{"x"}); err == nil {
+		t.Error("olmayan hak için hata yok")
+	}
+
+	off := aGrant(time.Hour)
+	off.CleanupGroups = false
+	id2, _ := s.CreateJITGrant(ctx, off)
+	if got, _ := s.JITGrant(ctx, id2); got.CleanupGroups {
+		t.Error("kapalı temizleme izni açık okundu")
+	}
+}

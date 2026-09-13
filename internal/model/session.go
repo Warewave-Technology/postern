@@ -29,6 +29,16 @@ type Session struct {
 	// SrcIP, kullanıcının bastion'a bağlandığı adres.
 	SrcIP string
 
+	/*
+	 * Temporary: oturumu bir ROL değil, SÜRELİ BİR HAK açtı (göç 044).
+	 *
+	 * ⚠️ KARAR ANINDA YAZILIYOR, SONRADAN TÜRETİLMİYOR. Hak geri
+	 * alındığında ya da süresi dolduğunda jit_grants'tan bakarak "o
+	 * saatte açık bir hak var mıydı" demek, denetim kaydını başka bir
+	 * tablonun sonraki hâline bağlar; denetçi bunu satırda görmeli.
+	 */
+	Temporary bool
+
 	// RecordingChain ve RecordingLinks, kaydın zincir başı ve halka
 	// sayısı (göç 034).
 	//

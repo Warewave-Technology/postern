@@ -163,6 +163,22 @@ func TestAFailedGrantReportsEveryStepAndFallsDue(t *testing.T) {
 	if out["grant"] == nil {
 		t.Error("cevapta kayıt yok; operatör süpürücünün neyi toplayacağını göremez")
 	}
+	// cleanup_groups söylenmemişse evet; açıkça hayır denmişse hayır.
+	if !g.CleanupGroups {
+		t.Error("cleanup_groups verilmeyince temizleme kapalı kaydedildi")
+	}
+	postGrant(t, s, "web01", `{"username":"ayse","groups":["dba"],"duration":"2h","cleanup_groups":false}`)
+	// İki kayıt aynı milisaniyede açılabiliyor; sıra değil sayı sayılıyor.
+	grants, _ = db.JITGrantsForTarget(t.Context(), "web01", 10)
+	off := 0
+	for _, g := range grants {
+		if !g.CleanupGroups {
+			off++
+		}
+	}
+	if len(grants) != 2 || off != 1 {
+		t.Errorf("cleanup_groups:false kaydedilmedi: %+v", grants)
+	}
 
 	seen := map[string]bool{}
 	logs, _ := db.AdminLog(t.Context(), 20)

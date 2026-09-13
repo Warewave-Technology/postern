@@ -2042,6 +2042,9 @@ type SessionStart struct {
 	SrcIP         string
 	StartedAt     time.Time
 	RecordingPath string
+
+	// Temporary, erişimi rol değil süreli hak verdi (model.Session.Temporary).
+	Temporary bool
 }
 
 func (s *Store) StartSession(ctx context.Context, rec SessionStart) error {
@@ -2069,7 +2072,7 @@ func (s *Store) StartSession(ctx context.Context, rec SessionStart) error {
 		return translateErr("store.StartSession", err)
 	}
 
-	if _, err = s.db.ExecContext(ctx, `INSERT INTO sessions (id, user_id, target_id, os_user, src_ip, recording_path, started_at) VALUES ($1, $2, $3, $4, $5, $6, $7);`, rec.ID, userID, targetID, rec.OSUser, rec.SrcIP, rec.RecordingPath, rec.StartedAt.Unix()); err != nil {
+	if _, err = s.db.ExecContext(ctx, `INSERT INTO sessions (id, user_id, target_id, os_user, src_ip, recording_path, started_at, temporary) VALUES ($1, $2, $3, $4, $5, $6, $7, $8);`, rec.ID, userID, targetID, rec.OSUser, rec.SrcIP, rec.RecordingPath, rec.StartedAt.Unix(), rec.Temporary); err != nil {
 		return translateErr("store.StartSession", err)
 	}
 
@@ -2191,7 +2194,8 @@ func (s *Store) Session(ctx context.Context, id string) (model.Session, error) {
 	       s.sftp_events,
 	       s.sftp_lost,
 	       s.sftp_digest,
-	       s.sftp_denied
+	       s.sftp_denied,
+	       s.temporary
 		FROM sessions s
 		JOIN users   u ON u.id = s.user_id
 		JOIN targets t ON t.id = s.target_id
@@ -2209,7 +2213,7 @@ func (s *Store) Session(ctx context.Context, id string) (model.Session, error) {
 		&session.SrcIP, &startedAt, &endedAt, &session.RecordingPath,
 		&session.RecordingChain, &session.RecordingLinks,
 		&sftpEvents, &session.SFTPJournal.Lost, &session.SFTPJournal.Digest,
-		&sftpDenied,
+		&sftpDenied, &session.Temporary,
 	)
 	if err != nil {
 		return model.Session{}, translateErr("store.Session", err)
@@ -2253,7 +2257,8 @@ func (s *Store) Sessions(ctx context.Context, username string, limit int) ([]mod
 	       s.recording_chain,
 	       s.sftp_events,
 	       s.sftp_lost,
-	       s.sftp_denied
+	       s.sftp_denied,
+	       s.temporary
 		FROM sessions s
 		JOIN users   u ON u.id = s.user_id
 		JOIN targets t ON t.id = s.target_id
@@ -2287,7 +2292,7 @@ func (s *Store) Sessions(ctx context.Context, username string, limit int) ([]mod
 		if err := rows.Scan(&session.ID, &session.User, &session.Target,
 			&session.OSUser, &session.SrcIP, &startedAt, &endedAt,
 			&session.RecordingPath, &session.RecordingChain,
-			&sftpEvents, &session.SFTPJournal.Lost, &sftpDenied); err != nil {
+			&sftpEvents, &session.SFTPJournal.Lost, &sftpDenied, &session.Temporary); err != nil {
 			return nil, translateErr("store.Sessions", err)
 		}
 

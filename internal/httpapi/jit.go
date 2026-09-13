@@ -107,6 +107,9 @@ func (s *Server) adminCreateGrant(w http.ResponseWriter, r *http.Request) {
 			} `json:"commands"`
 			Acknowledged bool `json:"acknowledged"`
 		} `json:"sudo"`
+		// cleanup_groups yoksa evet: geri almada boş kalan açılmış gruplar
+		// silinir. Panel onay kutusunu bu varsayılanla çiziyor.
+		CleanupGroups *bool `json:"cleanup_groups"`
 	}
 	if !readJSON(w, r, &in) {
 		return
@@ -128,7 +131,10 @@ func (s *Server) adminCreateGrant(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	req := jit.Request{Username: in.Username, Target: name, Groups: groups, Duration: dur}
+	req := jit.Request{
+		Username: in.Username, Target: name, Groups: groups, Duration: dur,
+		CleanupGroups: in.CleanupGroups == nil || *in.CleanupGroups,
+	}
 	if in.Sudo != nil {
 		rule := sudoers.Rule{RunAs: in.Sudo.RunAs, Acknowledged: in.Sudo.Acknowledged}
 		for _, c := range in.Sudo.Commands {

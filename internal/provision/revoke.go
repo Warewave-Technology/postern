@@ -85,6 +85,13 @@ type Revoke struct {
 	// PrincipalsFile, hesabın principals dosyası (PrincipalsPath ile
 	// çözülmüş); boşsa dosya yok.
 	PrincipalsFile string
+	/*
+	 * DeleteGroups, hesapla birlikte silinecek gruplar — çağıranın
+	 * "postern açtı ve başka kimse kullanmıyor" diye ÖLÇTÜĞÜ gruplar
+	 * (GroupUsage). Plan bunu yeniden ölçmüyor; hesap silindikten sonra
+	 * groupdel'e veriyor. Yalnızca silme kipinde.
+	 */
+	DeleteGroups []string
 }
 
 const (
@@ -93,6 +100,7 @@ const (
 	StepKill            StepKind = "user.kill"
 	StepLock            StepKind = "user.lock"
 	StepUserDel         StepKind = "user.delete"
+	StepGroupDel        StepKind = "group.delete"
 	StepScratchDel      StepKind = "scratch.delete"
 	StepReportOwned     StepKind = "files.report"
 )
@@ -216,7 +224,17 @@ func RevokePlan(caps upstream.ManageCapabilities, r Revoke) ([]Step, error) {
 			Kind:    StepUserDel,
 			Command: "sudo -n " + caps.DelUser + " -r " + r.User,
 			Why:     "delete the temporary account and its home",
+			Subject: r.User,
 		},
+	)
+	// Gruplar hesaptan SONRA: hesap hâlâ üyeyken groupdel reddediliyor
+	// (birincil gruptaysa) ya da üyeliği koparıyor.
+	gsteps, err := GroupDeleteSteps(caps, r.DeleteGroups)
+	if err != nil {
+		return nil, fmt.Errorf("provision.RevokePlan: %w", err)
+	}
+	steps = append(steps, gsteps...)
+	steps = append(steps,
 		/*
 		 * ⚠️ KAPSAM DIŞINDA KALANLAR SİLİNMİYOR, RAPORLANIYOR. Hesap
 		 * gittikten sonra sahipsiz kalan dosyalar varsa operatör
@@ -265,6 +283,31 @@ func PrincipalRemoveStep(path, user string) (Step, error) {
 		Command: "sudo -n rm -f " + path,
 		Why:     "stop the certificate for " + user + " from opening this account",
 	}, nil
+}
+
+/*
+ * GroupDeleteSteps, postern'in açtığı ve artık boş olan grupları silen
+ * adımlar. Adlar buraya gelmeden ölçülmüş olmalı (GroupUsage); burada
+ * yalnızca ad biçimi ve postern-jit koruması var — kanıt grubu hiçbir
+ * koşulda silinmiyor, başka geçici hesaplar ona bağlı.
+ */
+func GroupDeleteSteps(caps upstream.ManageCapabilities, groups []string) ([]Step, error) {
+	var steps []Step
+	for _, g := range groups {
+		if bad := checkName(g); bad != "" {
+			return nil, fmt.Errorf("group %q: %s", g, bad)
+		}
+		if g == JITGroup {
+			return nil, fmt.Errorf("group %q is postern's marker group and is never deleted", g)
+		}
+		steps = append(steps, Step{
+			Kind:    StepGroupDel,
+			Command: "sudo -n " + caps.DelGroup + " " + g,
+			Why:     "remove group " + g + ": postern created it for this account and nothing else uses it",
+			Subject: g,
+		})
+	}
+	return steps, nil
 }
 
 func RemoveSudoFilesPlan(files []string) ([]Step, error) {

@@ -152,11 +152,17 @@ it("sihirbaz kişi, hedefler ve gruplarla hedef başına bir istek atıyor", asy
   await user.click(screen.getByRole("option", { name: "dba" }));
   expect(screen.getByText(/Will join: developer, dba\./)).toBeTruthy();
 
+  // Onay kutusu kaldırılınca istek de bunu söylüyor.
+  const cleanup = screen.getByLabelText(/remove the groups postern created/i) as HTMLInputElement;
+  expect(cleanup.checked).toBe(true);
+  fireEvent.click(cleanup);
+  fireEvent.click(cleanup);
+
   fireEvent.click(grantButton);
   await screen.findAllByText(/4 applied/);
   expect(create).toHaveBeenCalledTimes(2);
-  expect(create).toHaveBeenCalledWith("web-01", { username: "ayse", groups: ["developer", "dba"], duration: "4h" });
-  expect(create).toHaveBeenCalledWith("db-01", { username: "ayse", groups: ["developer", "dba"], duration: "4h" });
+  expect(create).toHaveBeenCalledWith("web-01", { username: "ayse", groups: ["developer", "dba"], duration: "4h", cleanup_groups: true });
+  expect(create).toHaveBeenCalledWith("db-01", { username: "ayse", groups: ["developer", "dba"], duration: "4h", cleanup_groups: true });
 });
 
 /*

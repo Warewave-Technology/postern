@@ -416,6 +416,7 @@ function NewGrant({ onChanged, onClose }: { onChanged: () => Promise<unknown>; o
   const [duration, setDuration] = useState<string>("4h");
   const [commands, setCommands] = useState("");
   const [acknowledged, setAcknowledged] = useState(false);
+  const [cleanupGroups, setCleanupGroups] = useState(true);
   const [outcomes, setOutcomes] = useState<HostOutcome[]>([]);
   const [done, setDone] = useState(false);
 
@@ -445,7 +446,7 @@ function NewGrant({ onChanged, onClose }: { onChanged: () => Promise<unknown>; o
   const hostOnly = common.names.filter((n) => !roleNames.includes(n));
 
   const request = (): GrantRequest => {
-    const g: GrantRequest = { username, groups, duration };
+    const g: GrantRequest = { username, groups, duration, cleanup_groups: cleanupGroups };
     const lines = commands
       .split("\n")
       .map((l) => l.trim())
@@ -594,6 +595,21 @@ function NewGrant({ onChanged, onClose }: { onChanged: () => Promise<unknown>; o
           <p className="muted small">
             Will join: {groups.length ? groups.join(", ") : "no group besides postern-jit"}.
           </p>
+          {/*
+            ⚠️ GRUP SİLME ONAYI: postern'in bu hak için AÇTIĞI grup, hak
+            bitince boşsa silinir — önceden var olan grup asla. Kullanıcı
+            bunu bir onay kutusu olarak istedi; varsayılan evet, çünkü
+            geçici bir hak için açılan grubun makinede kalıcı işi yok.
+          */}
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={cleanupGroups}
+              onChange={(e) => setCleanupGroups(e.target.checked)}
+            />
+            When the access ends, remove the groups postern created for it if nothing
+            else uses them (groups that already existed are never removed)
+          </label>
 
           <div className="field-row">
             <label>

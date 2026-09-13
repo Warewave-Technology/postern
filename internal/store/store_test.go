@@ -369,6 +369,7 @@ func TestSessionLifecycle(t *testing.T) {
 		Username:      "yigit",
 		TargetName:    "web01",
 		OSUser:        "root", // policy'nin O ANKİ kararı — users.os_user değil
+		Temporary:     true,
 		SrcIP:         "192.168.1.10",
 		StartedAt:     start,
 		RecordingPath: "/var/lib/postern/recordings/2026-08-21/0123456789abcdef.cast",
@@ -394,6 +395,13 @@ func TestSessionLifecycle(t *testing.T) {
 	}
 	if sess.OSUser != "root" {
 		t.Errorf("OSUser = %q, beklenen %q — kaydın kendi değeri değil users.os_user okunmuş olabilir", sess.OSUser, "root")
+	}
+	// Süreli hakla açıldığı bilgisi listede de tek kayıtta da duruyor.
+	if !sess.Temporary {
+		t.Error("listede Temporary düşmüş")
+	}
+	if one, err := s.Session(ctx, rec.ID); err != nil || !one.Temporary {
+		t.Errorf("tek kayıtta Temporary düşmüş: %+v (%v)", one, err)
 	}
 	if !sess.StartedAt.Equal(start) {
 		t.Errorf("StartedAt = %v, beklenen %v", sess.StartedAt, start)

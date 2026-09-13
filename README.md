@@ -571,6 +571,12 @@ grant, and it is retried at growing intervals capped at an hour). As a
 backstop for the day postern is not there, the account is also created
 with `useradd -e` set to the day after the grant ends.
 
+A group postern had to create for the grant goes with it when nothing
+else uses it — a box in the dialog keeps such groups instead — and a
+group that existed before the grant is never removed. In the session
+list, a session that came in through a grant rather than a role is
+marked *temporary*, and the session's header says so.
+
 ### Sending recordings off the bastion
 
 Until now the audit trail lived only on the machine being audited:

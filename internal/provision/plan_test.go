@@ -620,10 +620,10 @@ func TestATemporaryAccountGetsAPrincipalsFileWhenSshdWantsOne(t *testing.T) {
 	if strings.Contains(commandsOf(steps), "auth_principals") {
 		t.Errorf("desensiz plan principals dosyası yazıyor:\n%s", commandsOf(steps))
 	}
-	// Kalıcı hesaba dokunulmuyor: onunkini rol yazıyor.
+	// Kalıcı hesap da: postern'in açtığı her hesap sertifikayla giriyor.
 	steps, _ = Plan(able(), Desired{Users: []User{{Name: "ops"}}, PrincipalsFile: d.PrincipalsFile}, empty())
-	if strings.Contains(commandsOf(steps), "auth_principals") {
-		t.Errorf("kalıcı hesap için principals dosyası yazılıyor:\n%s", commandsOf(steps))
+	if !strings.Contains(commandsOf(steps), "tee /etc/ssh/auth_principals/ops") {
+		t.Errorf("kalıcı hesap için principals dosyası yazılmıyor:\n%s", commandsOf(steps))
 	}
 	// Dosya zaten doğruysa yeniden yazılmıyor; yanlışsa yazılıyor.
 	have := empty()

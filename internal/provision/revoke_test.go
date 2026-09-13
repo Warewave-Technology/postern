@@ -339,3 +339,31 @@ func TestRevokeRemovesThePrincipalsFileBeforeKillingProcesses(t *testing.T) {
 		}
 	}
 }
+
+/*
+ * ⚠️ GRUP HESAPTAN SONRA SİLİNİYOR ve yalnızca çağıranın ölçüp verdiği
+ * gruplar; postern-jit kanıt grubu hiçbir koşulda silinmiyor. Silme
+ * kipinde; kilitleme kipi grupları hiç ellemiyor.
+ */
+func TestRevokeDeletesTheGroupsPosternCreatedAfterTheAccount(t *testing.T) {
+	steps := revokeSteps(t, Revoke{
+		User: "jit-ayse", Mode: ModeDelete, UID: 1001, InJITGroup: true,
+		Home: "/home/jit-ayse", DeleteGroups: []string{"gecici"},
+	})
+	got := commandsOf(steps)
+	if !strings.Contains(got, "groupdel gecici") {
+		t.Fatalf("grup silinmiyor:\n%s", got)
+	}
+	if strings.Index(got, "groupdel gecici") < strings.Index(got, "userdel") {
+		t.Errorf("grup hesaptan önce siliniyor:\n%s", got)
+	}
+	if _, err := RevokePlan(able(), Revoke{
+		User: "jit-ayse", Mode: ModeDelete, UID: 1001, InJITGroup: true,
+		Home: "/home/jit-ayse", DeleteGroups: []string{JITGroup},
+	}); err == nil {
+		t.Error("postern-jit grubunu silen plan kabul edildi")
+	}
+	if _, err := GroupDeleteSteps(able(), []string{"a;b"}); err == nil {
+		t.Error("kabuk karakterli grup adı kabul edildi")
+	}
+}

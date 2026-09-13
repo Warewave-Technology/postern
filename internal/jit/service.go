@@ -71,6 +71,9 @@ type Request struct {
 	Groups   []string
 	Sudo     *sudoers.Rule
 	Duration time.Duration
+	// CleanupGroups, geri almada postern'in bu hak için açtığı gruplardan
+	// boş kalanları silme izni. Panelin onay kutusu; varsayılan evet.
+	CleanupGroups bool
 }
 
 // Outcome, bir grant ya da revoke koşusunun sonucu: kayıt ve hedefte
@@ -112,7 +115,7 @@ func (s *Service) Grant(ctx context.Context, req Request, actor string) (Outcome
 	now := s.now()
 	grant := store.JITGrant{
 		Username: user.Name, Target: target.Name, OSUser: user.OSUser,
-		Groups: req.Groups, Sudo: req.Sudo,
+		Groups: req.Groups, Sudo: req.Sudo, CleanupGroups: req.CleanupGroups,
 		GrantedBy: actor, GrantedAt: now, ExpiresAt: now.Add(req.Duration),
 	}
 	desired := provision.Desired{Users: []provision.User{{
@@ -160,6 +163,31 @@ func (s *Service) Grant(ctx context.Context, req Request, actor string) (Outcome
 	grant.ID = id
 
 	report := provision.Apply(ctx, runner, steps)
+	/*
+	 * Postern'in bu hak için AÇTIĞI gruplar kayda giriyor: geri almada
+	 * boşsa silinecek olanlar bunlar — önceden var olan bir grup değil.
+	 * Rapordan okunuyor (adım koştu ve "done" dedi), plandan değil:
+	 * yarım kalan koşuda açılmamış grubu silmeye kalkmak olmaz.
+	 *
+	 * ⚠️ postern-jit KAYDA GİRMİYOR: ilk hak onu da açıyor ve rapor "done"
+	 * diyor; kayda girseydi geri alma planı onu silmeye kalkıp reddedilir,
+	 * hesap makinede kalırdı (entegrasyon testi tam bunu yaptı).
+	 */
+	var created []string
+	for _, res := range report.Results {
+		if res.Step.Kind == provision.StepGroupAdd && res.Outcome == provision.OutcomeDone &&
+			res.Step.Subject != provision.JITGroup {
+			created = append(created, res.Step.Subject)
+		}
+	}
+	if len(created) > 0 {
+		if cerr := s.store.SetJITGrantCreatedGroups(ctx, id, created); cerr != nil {
+			s.logger.Error("groups created for a grant could not be recorded; they will not be cleaned up",
+				"grant", id, "groups", created, "error", cerr)
+		} else {
+			grant.CreatedGroups = created
+		}
+	}
 	if merr := s.store.MarkJITGrantApplied(ctx, id, report.OK(), report.Summary(), s.now()); merr != nil {
 		// Makine değişti ama kayıt güncellenemedi: süpürücü kaydı vadesi
 		// gelince toplayacak. Yüksek sesle, çünkü panel bu hakkı
@@ -235,11 +263,15 @@ func (s *Service) Revoke(ctx context.Context, id, actor, via string) (Outcome, e
 	if err != nil {
 		return out, s.revokeFailedAfter(ctx, g, actor, via, "refused to locate the principals file", err, 6*time.Hour)
 	}
+	deleteGroups, err := s.groupsToDelete(ctx, runner, g)
+	if err != nil {
+		return out, s.revokeFailed(ctx, g, actor, via, "could not read the groups", err)
+	}
 	if facts.Exists {
 		steps, err = provision.RevokePlan(caps, provision.Revoke{
 			User: g.OSUser, Mode: provision.ModeDelete, UID: facts.UID,
 			InJITGroup: facts.InJITGroup(), Home: facts.Home, SudoFiles: sudoFiles,
-			PrincipalsFile: principals,
+			PrincipalsFile: principals, DeleteGroups: deleteGroups,
 		})
 		if err != nil {
 			/*
@@ -269,6 +301,12 @@ func (s *Service) Revoke(ctx context.Context, id, actor, via string) (Outcome, e
 			}
 			steps = append(steps, st)
 		}
+		// Açılmış gruplar da: hesap gitmiş, grup boş kalmış olabilir.
+		gsteps, gerr := provision.GroupDeleteSteps(caps, deleteGroups)
+		if gerr != nil {
+			return out, s.revokeFailedAfter(ctx, g, actor, via, "refused to remove a group", gerr, 6*time.Hour)
+		}
+		steps = append(steps, gsteps...)
 	}
 
 	report := provision.Apply(ctx, runner, steps)
@@ -290,6 +328,33 @@ func (s *Service) Revoke(ctx context.Context, id, actor, via string) (Outcome, e
 	_ = s.auditVia(ctx, actor, via, "jit.revoke.done", g.Target,
 		fmt.Sprintf("grant %s for %s: %s; %d open session(s) closed", g.ID, g.Username, summary, out.Terminated))
 
+	return out, nil
+}
+
+/*
+ * groupsToDelete, hakla açılmış gruplardan artık KİMSENİN kullanmadığını
+ * seçer: hesap dışında üyesi yok ve kimsenin birincil grubu değil.
+ *
+ * ⚠️ YALNIZCA POSTERN'İN AÇTIKLARI (CreatedGroups) ve yalnızca izinle
+ * (CleanupGroups). Sistem numaralı bir grup listede olamaz (groupadd
+ * GID_MIN üstü verir) ama yine de atlanıyor: "boş" görünen bir sistem
+ * grubunu silmek makineyi bozar.
+ */
+func (s *Service) groupsToDelete(ctx context.Context, r provision.Runner, g store.JITGrant) ([]string, error) {
+	if !g.CleanupGroups {
+		return nil, nil
+	}
+	var out []string
+	for _, name := range g.CreatedGroups {
+		u, err := provision.GroupUsage(ctx, r, name)
+		if err != nil {
+			return nil, err
+		}
+		if !u.Exists || u.GID < provision.MinJITGID || u.UsedByOthers(g.OSUser) {
+			continue
+		}
+		out = append(out, name)
+	}
 	return out, nil
 }
 

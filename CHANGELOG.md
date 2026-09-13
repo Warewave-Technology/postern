@@ -212,6 +212,19 @@ audit rows into a shape it does not understand.
   integration test now signs in as the temporary account with a
   certificate and proves the door closes again after revocation.
 
+  What a grant created, its revocation removes: a group postern had to
+  create for the grant is deleted when the grant ends, provided nothing
+  else uses it — no member left, no account with it as primary group —
+  and never a group that existed before the grant or the `postern-jit`
+  marker itself. The dialog has a box to keep such groups instead
+  (`cleanup_groups`, default on). Every account postern creates,
+  temporary or not, now gets its principals file when the host's sshd
+  asks for one. And a session admitted by a grant rather than a role is
+  marked *temporary* in the session list and in the session's header;
+  the mark is written when the session opens, not derived later from
+  what the grant table says. Migrations 043 (created groups, cleanup
+  flag) and 044 (session mark).
+
   Migration 041 adds the grant table. The setting is the same
   `manage.enabled`; there is no second switch, because a bastion that can
   open temporary accounts but not close them would make "temporary" a lie.

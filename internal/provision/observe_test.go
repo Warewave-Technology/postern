@@ -174,3 +174,40 @@ func TestObserveReadsTheTemporaryAccountsPrincipalsFile(t *testing.T) {
 		t.Errorf("her şey yerindeyken plan iş üretti:\n%s", commandsOf(steps))
 	}
 }
+
+/*
+ * ⚠️ "BOŞ" İKİ SORU: üyesi var mı, birincil grubu bu olan hesap var mı.
+ * /etc/group üye listesi ikincisini göstermiyor; groupdel'i buna
+ * dayandırmak `useradd -g` ile açılmış bir hesabı sahipsiz GID'e düşürürdü.
+ */
+func TestGroupUsageCountsMembersAndPrimaryGroups(t *testing.T) {
+	r := runnerFor(t, hostAnswers(map[string]string{
+		"getent group gecici":   "gecici:x:1010:jitayse\n",
+		"getent group birincil": "birincil:x:1011:\n",
+		"getent passwd":         "root:x:0:0::/root:/bin/sh\nveli:x:1005:1011::/home/veli:/bin/sh\njitayse:x:1042:1042::/home/jitayse:/bin/sh\n",
+	}))
+	ctx := context.Background()
+	g, err := GroupUsage(ctx, r, "gecici")
+	if err != nil || !g.Exists || g.GID != 1010 {
+		t.Fatalf("gecici: %+v (%v)", g, err)
+	}
+	if g.UsedByOthers("jitayse") {
+		t.Error("tek üyesi silinecek hesap olan grup 'kullanılıyor' sayıldı")
+	}
+	if !g.UsedByOthers("someoneelse") {
+		t.Error("üyesi olan grup boş sayıldı")
+	}
+	p, err := GroupUsage(ctx, r, "birincil")
+	if err != nil || len(p.PrimaryOf) != 1 || p.PrimaryOf[0] != "veli" {
+		t.Fatalf("birincil grup sahipleri okunmadı: %+v (%v)", p, err)
+	}
+	if !p.UsedByOthers("jitayse") {
+		t.Error("birincil grubu olan hesap görmezden gelindi")
+	}
+	if none, err := GroupUsage(ctx, r, "yok"); err != nil || none.Exists {
+		t.Errorf("olmayan grup: %+v (%v)", none, err)
+	}
+	if _, err := GroupUsage(ctx, runnerFor(t, answerSilence), "gecici"); err == nil {
+		t.Error("cevapsız hedef boş grup gibi döndü")
+	}
+}

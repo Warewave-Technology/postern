@@ -239,6 +239,7 @@ func (s *Server) adminTargetDetail(w http.ResponseWriter, r *http.Request) {
 		SrcIP     string `json:"src_ip"`
 		StartedAt string `json:"started_at"`
 		EndedAt   string `json:"ended_at,omitempty"`
+		Temporary bool   `json:"temporary,omitempty"`
 	}
 	recent := []sessionRow{}
 	/*
@@ -268,7 +269,7 @@ func (s *Server) adminTargetDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			row := sessionRow{
 				ID: sn.ID, User: sn.User, OSUser: sn.OSUser, SrcIP: sn.SrcIP,
-				StartedAt: sn.StartedAt.Format(time.RFC3339),
+				StartedAt: sn.StartedAt.Format(time.RFC3339), Temporary: sn.Temporary,
 			}
 			if !sn.EndedAt.IsZero() {
 				row.EndedAt = sn.EndedAt.Format(time.RFC3339)

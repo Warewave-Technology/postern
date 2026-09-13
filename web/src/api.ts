@@ -201,6 +201,8 @@ export type Session = {
   target: string;
   os_user: string;
   src_ip: string;
+  /** Oturumu rol değil süreli hak açtı; yoksa alan gelmiyor. */
+  temporary?: boolean;
   started_at: string;
   ended_at: string | null;
   /** Bu süreçte GERÇEKTEN akıyor mu.
@@ -305,6 +307,7 @@ export type TargetDetail = {
     src_ip: string;
     started_at: string;
     ended_at?: string;
+    temporary?: boolean;
   }[];
   /** Liste okunamadı. Boş listeyle karıştırılmamalı — "hiç oturum
    *  açılmamış" ile "bakamadık" farklı şeyler ve ikincisi bir denetim
@@ -384,6 +387,9 @@ export type Grant = {
   revoke_error?: string;
   revoke_attempts: number;
   next_attempt?: string;
+  /** Postern'in bu hak için açtığı gruplar; geri almada boş kalanlar silinir. */
+  created_groups?: string[];
+  cleanup_groups?: boolean;
 };
 
 export type GrantStep = {
@@ -399,6 +405,8 @@ export type GrantRequest = {
   username: string;
   groups: string[];
   duration: string;
+  /** Geri almada postern'in açtığı boş grupları sil (varsayılan evet). */
+  cleanup_groups: boolean;
   sudo?: { run_as?: string; commands: { path: string; args: string[] }[]; acknowledged: boolean };
 };
 

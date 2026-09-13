@@ -441,6 +441,21 @@ describe("kanıt sütunu", () => {
     expect(screen.getByText("running").className).toContain("badge-ok");
   });
 
+  // Süreli hakla açılan oturum listede ve başlıkta öyle yazıyor: denetçi
+  // "bu kişinin bu hedefte rolü yok" deyip arıza aramasın.
+  it("süreli hakla açılan oturumu işaretliyor", async () => {
+    vi.spyOn(api, "sessionDetail").mockResolvedValue({
+      ...session({ temporary: true }),
+      recording: { state: "none", size: 0 },
+      files: [],
+    });
+    show([session({ temporary: true })]);
+
+    await waitFor(() => expect(screen.getByText("temporary")).toBeTruthy());
+    await userEvent.click(await screen.findByRole("button", { name: /watch/i }));
+    await waitFor(() => expect(screen.getByText(/temporary access, not a role/)).toBeTruthy());
+  });
+
   /*
    * ⚠️ SÜTUNDAN ÇIKAN ALAN VERİDEN ÇIKMADI. "OS user" ve "Src" ilk
    * bakışın sorusuna ait değil, ama onları arayan denetçi yine

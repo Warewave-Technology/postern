@@ -40,6 +40,15 @@ type JITGrant struct {
 
 	RevokedAt    time.Time `json:"revoked_at,omitzero"`
 	RevokeReport string    `json:"revoke_report,omitempty"`
+	/*
+	 * CreatedGroups, postern'in BU hak için açtığı gruplar. Geri almada
+	 * boş kalanlar silinebiliyor; önceden var olan grup buraya girmiyor
+	 * ve hiç silinmiyor — "postern açtıysa siler" (hesaptaki kanıtın
+	 * grup için karşılığı).
+	 */
+	CreatedGroups []string `json:"created_groups"`
+	// CleanupGroups, geri almada boş kalan açılmış grupları silme izni.
+	CleanupGroups bool `json:"cleanup_groups"`
 
 	/*
 	 * RevokeError, son geri alma denemesinin neden bitmediği; NextAttempt,
@@ -62,7 +71,7 @@ func (g JITGrant) Due(now time.Time) bool {
 
 const jitColumns = `id, username, target, os_user, groups, sudo_rule, granted_by, granted_at,
 	expires_at, applied_at, apply_report, revoked_at, revoke_report, revoke_error,
-	revoke_attempts, next_attempt`
+	revoke_attempts, next_attempt, created_groups, cleanup_groups`
 
 /*
  * CreateJITGrant, hakkı UYGULAMADAN ÖNCE yazar ve kimliğini döner.
@@ -100,10 +109,10 @@ func (s *Store) CreateJITGrant(ctx context.Context, g JITGrant) (string, error) 
 
 	if _, err := s.db.ExecContext(ctx, `
 		INSERT INTO jit_grants
-		       (id, username, target, os_user, groups, sudo_rule, granted_by, granted_at, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);`,
+		       (id, username, target, os_user, groups, sudo_rule, granted_by, granted_at, expires_at, cleanup_groups)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);`,
 		id, g.Username, g.Target, g.OSUser, string(groups), rule, g.GrantedBy,
-		g.GrantedAt.Unix(), g.ExpiresAt.Unix()); err != nil {
+		g.GrantedAt.Unix(), g.ExpiresAt.Unix(), g.CleanupGroups); err != nil {
 		return "", translateErr("store.CreateJITGrant", err)
 	}
 
@@ -219,6 +228,20 @@ func (s *Store) JITGrantsForTarget(ctx context.Context, target string, limit int
 	return scanJITGrants("store.JITGrantsForTarget", rows)
 }
 
+// SetJITGrantCreatedGroups, hak uygulanırken postern'in AÇTIĞI grupları
+// kaydeder; geri alma yalnızca bunları silmeyi düşünür.
+func (s *Store) SetJITGrantCreatedGroups(ctx context.Context, id string, groups []string) error {
+	b, err := json.Marshal(nonNil(groups))
+	if err != nil {
+		return fmt.Errorf("store.SetJITGrantCreatedGroups: %w", err)
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE jit_grants SET created_groups = $2 WHERE id = $1;`, id, string(b))
+	if err != nil {
+		return translateErr("store.SetJITGrantCreatedGroups", err)
+	}
+	return oneRow("store.SetJITGrantCreatedGroups", res)
+}
+
 // JITGrants, bütün hedeflerdeki hakları yeniden eskiye döner — panelin
 // geçici erişim sekmesi "kimin nerede açık hesabı var" sorusunu tek
 // ekranda cevaplıyor.
@@ -273,16 +296,21 @@ func scanJITGrants(op string, rows *sql.Rows) ([]JITGrant, error) {
 	out := make([]JITGrant, 0)
 	for rows.Next() {
 		var g JITGrant
-		var groups string
+		var groups, created string
 		var rule sql.NullString
 		var grantedAt, expiresAt int64
 		var appliedAt, revokedAt, nextAttempt sql.NullInt64
 
 		if err := rows.Scan(&g.ID, &g.Username, &g.Target, &g.OSUser, &groups, &rule,
 			&g.GrantedBy, &grantedAt, &expiresAt, &appliedAt, &g.ApplyReport,
-			&revokedAt, &g.RevokeReport, &g.RevokeError, &g.RevokeAttempts, &nextAttempt); err != nil {
+			&revokedAt, &g.RevokeReport, &g.RevokeError, &g.RevokeAttempts, &nextAttempt,
+			&created, &g.CleanupGroups); err != nil {
 			return nil, translateErr(op, err)
 		}
+		if err := json.Unmarshal([]byte(created), &g.CreatedGroups); err != nil {
+			return nil, fmt.Errorf("%s: grant %s: created_groups are not a JSON list: %w", op, g.ID, err)
+		}
+		g.CreatedGroups = nonNil(g.CreatedGroups)
 		if err := json.Unmarshal([]byte(groups), &g.Groups); err != nil {
 			return nil, fmt.Errorf("%s: grant %s: groups are not a JSON list: %w", op, g.ID, err)
 		}
