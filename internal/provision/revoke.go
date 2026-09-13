@@ -82,15 +82,19 @@ type Revoke struct {
 
 	// SudoFiles, bu hesap için yazılmış postern sudo dosyaları.
 	SudoFiles []string
+	// PrincipalsFile, hesabın principals dosyası (PrincipalsPath ile
+	// çözülmüş); boşsa dosya yok.
+	PrincipalsFile string
 }
 
 const (
-	StepSudoRemove  StepKind = "sudo.remove"
-	StepKill        StepKind = "user.kill"
-	StepLock        StepKind = "user.lock"
-	StepUserDel     StepKind = "user.delete"
-	StepScratchDel  StepKind = "scratch.delete"
-	StepReportOwned StepKind = "files.report"
+	StepSudoRemove      StepKind = "sudo.remove"
+	StepPrincipalRemove StepKind = "principal.remove"
+	StepKill            StepKind = "user.kill"
+	StepLock            StepKind = "user.lock"
+	StepUserDel         StepKind = "user.delete"
+	StepScratchDel      StepKind = "scratch.delete"
+	StepReportOwned     StepKind = "files.report"
 )
 
 /*
@@ -147,6 +151,15 @@ func RevokePlan(caps upstream.ManageCapabilities, r Revoke) ([]Step, error) {
 	 * anlamına gelir. Yarım kalan iş kabul edilen bedel: doğru süre
 	 * istemek kullanıcının işi.
 	 */
+	// Principals dosyası süreçlerden ÖNCE: kalan süreçler ölene kadar yeni
+	// bir sertifika girişi olmasın.
+	if r.PrincipalsFile != "" {
+		st, err := PrincipalRemoveStep(r.PrincipalsFile, r.User)
+		if err != nil {
+			return nil, fmt.Errorf("provision.RevokePlan: %w", err)
+		}
+		steps = append(steps, st)
+	}
 	steps = append(steps, Step{
 		Kind:    StepKill,
 		Command: "sudo -n pkill -KILL -u " + r.User + " || true",
@@ -230,6 +243,30 @@ func RevokePlan(caps upstream.ManageCapabilities, r Revoke) ([]Step, error) {
  * olabilir ve o dosya hesap yeniden açıldığı gün yeniden yetki verir.
  * Yol kontrolü sökme planınınkinin aynısı.
  */
+/*
+ * PrincipalRemoveStep, hesabın principals dosyasını kaldıran adım.
+ *
+ * ⚠️ YOL HESABIN ADIYLA BİTMEK ZORUNDA. Silinen şey `rm -f` ile gidiyor;
+ * desenden gelen yol bir başka hesabın (ya da paylaşılan bir dosyanın)
+ * yolu olsaydı, geri alma başka birinin girişini kapatırdı.
+ */
+func PrincipalRemoveStep(path, user string) (Step, error) {
+	if bad := checkName(user); bad != "" {
+		return Step{}, fmt.Errorf("principals file for %q: %s", user, bad)
+	}
+	if bad := unsafePathByte(path); bad != "" {
+		return Step{}, fmt.Errorf("principals file %q: %s", path, bad)
+	}
+	if !strings.HasPrefix(path, "/") || !strings.HasSuffix(path, "/"+user) {
+		return Step{}, fmt.Errorf("principals file %q is not the file of account %q", path, user)
+	}
+	return Step{
+		Kind:    StepPrincipalRemove,
+		Command: "sudo -n rm -f " + path,
+		Why:     "stop the certificate for " + user + " from opening this account",
+	}, nil
+}
+
 func RemoveSudoFilesPlan(files []string) ([]Step, error) {
 	var steps []Step
 	for _, f := range files {

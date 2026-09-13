@@ -308,3 +308,34 @@ func TestSudoFilesOfAGoneAccountAreRemovedThroughTheSameGate(t *testing.T) {
 		t.Errorf("boş liste: steps=%v err=%v", steps, err)
 	}
 }
+
+/*
+ * ⚠️ PRINCIPALS DOSYASI SÜREÇLERDEN ÖNCE GİDİYOR — kalan süreçler ölene
+ * kadar yeni bir sertifika girişi olmasın — ve yalnızca hesabın KENDİ
+ * dosyası gidiyor: başka bir adla biten yol reddediliyor.
+ */
+func TestRevokeRemovesThePrincipalsFileBeforeKillingProcesses(t *testing.T) {
+	steps := revokeSteps(t, Revoke{
+		User: "jit-ayse", Mode: ModeDelete, UID: 1001, InJITGroup: true,
+		Home: "/home/jit-ayse", PrincipalsFile: "/etc/ssh/auth_principals/jit-ayse",
+	})
+	got := commandsOf(steps)
+	if !strings.Contains(got, "rm -f /etc/ssh/auth_principals/jit-ayse") {
+		t.Fatalf("principals dosyası kaldırılmıyor:\n%s", got)
+	}
+	if strings.Index(got, "rm -f /etc/ssh/auth_principals") > strings.Index(got, "pkill") {
+		t.Errorf("dosya süreçlerden sonra kaldırılıyor:\n%s", got)
+	}
+
+	if _, err := RevokePlan(able(), Revoke{
+		User: "jit-ayse", Mode: ModeDelete, UID: 1001, InJITGroup: true,
+		Home: "/home/jit-ayse", PrincipalsFile: "/etc/ssh/auth_principals/veli",
+	}); err == nil {
+		t.Error("başka hesabın principals dosyasını silen plan kabul edildi")
+	}
+	for _, bad := range []string{"/etc/ssh/auth_principals", "etc/jit-ayse", "/etc/ssh/x;rm/jit-ayse"} {
+		if _, err := PrincipalRemoveStep(bad, "jit-ayse"); err == nil {
+			t.Errorf("%q kabul edildi", bad)
+		}
+	}
+}

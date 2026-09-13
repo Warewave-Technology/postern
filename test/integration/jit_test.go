@@ -18,15 +18,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Warewave-Technology/postern/internal/ca"
 	"github.com/Warewave-Technology/postern/internal/jit"
 	"github.com/Warewave-Technology/postern/internal/provision"
 	"github.com/Warewave-Technology/postern/internal/store"
 	"github.com/Warewave-Technology/postern/internal/sudoers"
 	"github.com/Warewave-Technology/postern/internal/testdb"
+	"github.com/Warewave-Technology/postern/internal/upstream"
 )
 
 // jitFixture, hedefi, veritabanını ve hizmeti birlikte kurar.
-func jitFixture(t *testing.T) (*jit.Service, *store.Store, certTarget, *provision.SSHRunner) {
+func jitFixture(t *testing.T) (*jit.Service, *store.Store, certTarget, *provision.SSHRunner, *ca.CA) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -60,11 +62,11 @@ func jitFixture(t *testing.T) (*jit.Service, *store.Store, certTarget, *provisio
 	}
 	t.Cleanup(func() { _ = r.Close() })
 
-	return svc, db, tgt, r
+	return svc, db, tgt, r, authority
 }
 
 func TestATemporaryAccountIsCreatedAndTakenAwayAgain(t *testing.T) {
-	svc, db, _, r := jitFixture(t)
+	svc, db, _, r, authority := jitFixture(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
@@ -99,6 +101,27 @@ func TestATemporaryAccountIsCreatedAndTakenAwayAgain(t *testing.T) {
 		t.Errorf("useradd -e yedek süresi yazılmamış: %q (%v)", shadow, err)
 	}
 
+	/*
+	 * ⚠️ ASIL KANIT: SERTİFİKA HESABI AÇIYOR. Hesap var, gruplar doğru,
+	 * sudo kuralı yerinde — ama bunların hiçbiri kişinin girebildiğini
+	 * söylemiyor. Hedefin sshd'si AuthorizedPrincipalsFile ile kurulu ve
+	 * dosya yokken sertifika reddediliyor; bu satır olmadan test yeşil
+	 * kalırken hak kullanılamazdı (öyle de kaldı, bu satır yazılana dek).
+	 */
+	tgtModel, err := db.Target(ctx, "cert-target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := upstream.DialWithCert(ctx, tgtModel, upstream.Identity{PosternUser: "ayse", OSUser: "jitayse"}, authority)
+	if err != nil {
+		t.Fatalf("geçici hesap sertifikayla AÇILAMADI: %v", err)
+	}
+	who, err := conn.Exec(ctx, "id -un", "")
+	_ = conn.Close()
+	if err != nil || strings.TrimSpace(who) != "jitayse" {
+		t.Fatalf("sertifikayla giren hesap %q (%v), jitayse bekleniyordu", who, err)
+	}
+
 	g, err := db.JITGrant(ctx, out.Grant.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -125,6 +148,14 @@ func TestATemporaryAccountIsCreatedAndTakenAwayAgain(t *testing.T) {
 	if f, _ := r.Exec(ctx, "sudo -n test -e "+provision.UserSudoPath("jitayse")+" && echo VAR || echo YOK", ""); strings.TrimSpace(f) != "YOK" {
 		t.Errorf("sudo dosyası duruyor")
 	}
+	if f, _ := r.Exec(ctx, "sudo -n test -e /etc/ssh/auth_principals/jitayse && echo VAR || echo YOK", ""); strings.TrimSpace(f) != "YOK" {
+		t.Errorf("principals dosyası duruyor")
+	}
+	// Geri alınan hak sertifikayla da açılmıyor.
+	if c, err := upstream.DialWithCert(ctx, tgtModel, upstream.Identity{PosternUser: "ayse", OSUser: "jitayse"}, authority); err == nil {
+		_ = c.Close()
+		t.Error("GERİ ALINAN HESAP SERTİFİKAYLA HÂLÂ AÇILIYOR")
+	}
 	g, _ = db.JITGrant(ctx, g.ID)
 	if g.Active() || g.RevokeReport == "" {
 		t.Errorf("kayıt geri alınmış görünmüyor: %+v", g)
@@ -140,7 +171,7 @@ func TestATemporaryAccountIsCreatedAndTakenAwayAgain(t *testing.T) {
  * gitmeli.
  */
 func TestTheSweeperRevokesWhatHasExpired(t *testing.T) {
-	svc, db, _, r := jitFixture(t)
+	svc, db, _, r, _ := jitFixture(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
@@ -174,7 +205,7 @@ func TestTheSweeperRevokesWhatHasExpired(t *testing.T) {
  * hakka bağlanamaz. Hedefe dokunulmadığı için defterde bir hak da yok.
  */
 func TestAnExistingAccountIsNeverTurnedIntoATemporaryOne(t *testing.T) {
-	svc, db, _, r := jitFixture(t)
+	svc, db, _, r, _ := jitFixture(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 

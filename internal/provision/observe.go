@@ -46,7 +46,7 @@ func absent(err error) (bool, error) {
 func Observe(ctx context.Context, r Runner, d Desired) (Observed, error) {
 	o := Observed{
 		Groups: map[string]bool{}, GIDs: map[string]int{}, Users: map[string][]string{},
-		PosternSudoers: map[string]string{},
+		PosternSudoers: map[string]string{}, Principals: map[string]string{},
 	}
 
 	groups := append([]Group(nil), d.Groups...)
@@ -100,6 +100,21 @@ func Observe(ctx context.Context, r Runner, d Desired) (Observed, error) {
 		if u.Sudo != nil {
 			if err := readSudoFile(ctx, r, UserSudoPath(u.Name), o); err != nil {
 				return Observed{}, err
+			}
+		}
+		// Geçici hesabın principals dosyası: plan bayt bayt karşılaştırıyor.
+		if u.JIT && d.PrincipalsFile != "" {
+			path, err := PrincipalsPath(d.PrincipalsFile, u.Name)
+			if err != nil {
+				return Observed{}, fmt.Errorf("provision.Observe: user %s: %w", u.Name, err)
+			}
+			out, err := r.Exec(ctx, "sudo -n cat "+path, "")
+			gone, err := absent(err)
+			if err != nil {
+				return Observed{}, fmt.Errorf("provision.Observe: %s: %w", path, err)
+			}
+			if !gone {
+				o.Principals[path] = out
 			}
 		}
 	}

@@ -141,6 +141,9 @@ func (s *Service) Grant(ctx context.Context, req Request, actor string) (Outcome
 	if err != nil {
 		return Outcome{}, s.failed(ctx, actor, "jit.grant", target.Name, "could not measure the target", err)
 	}
+	// Hedefin sshd'si principals dosyası istiyorsa geçici hesabınki de
+	// yazılacak — yoksa hesap açılır ama sertifika onu açamaz.
+	desired.PrincipalsFile = caps.PrincipalsFile
 	observed, err := provision.Observe(ctx, runner, desired)
 	if err != nil {
 		return Outcome{}, s.failed(ctx, actor, "jit.grant", target.Name, "could not read the target", err)
@@ -228,10 +231,15 @@ func (s *Service) Revoke(ctx context.Context, id, actor, via string) (Outcome, e
 	if g.Sudo != nil {
 		sudoFiles = []string{provision.UserSudoPath(g.OSUser)}
 	}
+	principals, err := provision.PrincipalsPath(caps.PrincipalsFile, g.OSUser)
+	if err != nil {
+		return out, s.revokeFailedAfter(ctx, g, actor, via, "refused to locate the principals file", err, 6*time.Hour)
+	}
 	if facts.Exists {
 		steps, err = provision.RevokePlan(caps, provision.Revoke{
 			User: g.OSUser, Mode: provision.ModeDelete, UID: facts.UID,
 			InJITGroup: facts.InJITGroup(), Home: facts.Home, SudoFiles: sudoFiles,
+			PrincipalsFile: principals,
 		})
 		if err != nil {
 			/*
@@ -252,6 +260,14 @@ func (s *Service) Revoke(ctx context.Context, id, actor, via string) (Outcome, e
 		steps, err = provision.RemoveSudoFilesPlan(sudoFiles)
 		if err != nil {
 			return out, s.revokeFailedAfter(ctx, g, actor, via, "refused to remove the sudo file", err, 6*time.Hour)
+		}
+		// Principals dosyası da kalmış olabilir; hesapsız da kaldırılıyor.
+		if principals != "" {
+			st, perr := provision.PrincipalRemoveStep(principals, g.OSUser)
+			if perr != nil {
+				return out, s.revokeFailedAfter(ctx, g, actor, via, "refused to remove the principals file", perr, 6*time.Hour)
+			}
+			steps = append(steps, st)
 		}
 	}
 

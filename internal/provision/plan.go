@@ -72,6 +72,13 @@ type User struct {
 type Desired struct {
 	Groups []Group
 	Users  []User
+	/*
+	 * PrincipalsFile, hedefin sshd'sinin AuthorizedPrincipalsFile deseni
+	 * (upstream.ManageCapabilities.PrincipalsFile). Boş değilse geçici
+	 * hesabın dosyası yazılıyor; boşsa sshd giriş adını sertifikanın
+	 * principal'ında arıyor ve dosya gerekmiyor.
+	 */
+	PrincipalsFile string
 }
 
 // Observed, hedefte ŞU AN olan durum.
@@ -83,6 +90,8 @@ type Observed struct {
 	Users map[string][]string
 	// PosternSudoers, postern'in yazdığı sudo dosyalarının içeriği.
 	PosternSudoers map[string]string
+	// Principals, geçici hesapların principals dosyalarının içeriği (yol → içerik).
+	Principals map[string]string
 }
 
 // StepKind, adımın türü.
@@ -95,6 +104,8 @@ const (
 	StepSudoStage   StepKind = "sudo.stage"
 	StepSudoCheck   StepKind = "sudo.check"
 	StepSudoInstall StepKind = "sudo.install"
+	StepPrincipal   StepKind = "principal.write"
+	StepUserUnlock  StepKind = "user.unlock"
 )
 
 /*
@@ -132,6 +143,52 @@ func SudoPath(group string) string { return "/etc/sudoers.d/postern-" + group }
 // dosyalarından ayrı bir önek: "dba" adlı grup ile "dba" adlı hesabın
 // kuralları aynı dosyaya düşmesin.
 func UserSudoPath(user string) string { return "/etc/sudoers.d/postern-user-" + user }
+
+/*
+ * PrincipalsPath, sshd'nin AuthorizedPrincipalsFile desenini bir hesap
+ * için yola çevirir. Boş desen → "" (dosya gerekmiyor).
+ *
+ * ⚠️ DESENDE %u ŞART. %u'suz bir desen tek bir PAYLAŞILAN dosya demek
+ * ve ona yazmak makinedeki herkesin principal listesini ezmek olurdu.
+ * %h (ev dizini) gibi öbür belirteçler desteklenmiyor: ev dizinini
+ * varsaymak yerine reddetmek, yanlış yere dosya yazmaktan iyi. Sonuç
+ * kabuk komutuna giriyor; yol karakter kontrolünden geçmek zorunda.
+ */
+func PrincipalsPath(pattern, user string) (string, error) {
+	if pattern == "" {
+		return "", nil
+	}
+	if !strings.Contains(pattern, "%u") {
+		return "", fmt.Errorf("principals file %q is not per account (no %%u); refusing to write a shared file", pattern)
+	}
+	var b strings.Builder
+	for i := 0; i < len(pattern); i++ {
+		if pattern[i] != '%' {
+			b.WriteByte(pattern[i])
+			continue
+		}
+		if i+1 >= len(pattern) {
+			return "", fmt.Errorf("principals file %q ends with a bare %%", pattern)
+		}
+		switch pattern[i+1] {
+		case 'u':
+			b.WriteString(user)
+		case '%':
+			b.WriteByte('%')
+		default:
+			return "", fmt.Errorf("principals file %q uses %%%c, which postern does not expand", pattern, pattern[i+1])
+		}
+		i++
+	}
+	path := b.String()
+	if !strings.HasPrefix(path, "/") {
+		return "", fmt.Errorf("principals file %q is not an absolute path", path)
+	}
+	if bad := unsafePathByte(path); bad != "" {
+		return "", fmt.Errorf("principals file %q: %s", path, bad)
+	}
+	return path, nil
+}
 
 // stagePath, doğrulanmadan önce yazıldığı geçici yol.
 func stagePath(path string) string { return path + ".staged" }
@@ -237,7 +294,8 @@ func Plan(caps upstream.ManageCapabilities, d Desired, o Observed) ([]Step, erro
 			}
 		}
 		if !exists {
-			cmd := "sudo -n " + caps.AddUser + " -m -s /bin/bash"
+			// Kabuk hedeften: bash yoksa /bin/sh (upstream.ManageCapabilities.Shell).
+			cmd := "sudo -n " + caps.AddUser + " -m -s " + caps.Shell
 			if u.JIT && !u.ExpiresAt.IsZero() {
 				cmd += " -e " + expiryBackstop(u.ExpiresAt)
 			}
@@ -245,6 +303,21 @@ func Plan(caps upstream.ManageCapabilities, d Desired, o Observed) ([]Step, erro
 				Kind:    StepUserAdd,
 				Command: cmd + " " + u.Name,
 				Why:     "account " + u.Name + " is missing",
+			})
+			/*
+			 * ⚠️ PAROLASIZ HESAP sshd İÇİN KİLİTLİ — ölçüldü: useradd
+			 * shadow'a "!" yazıyor ve OpenSSH "!" ile başlayan hesaba
+			 * sertifikayla da girdirmiyor ("account is locked"). Hesap
+			 * açılmış, dosyası yazılmış, sertifika kabul edilmiş — ve
+			 * kapı yine kapalı. "*" parola DEĞİL (hiçbir girdi eşleşmez)
+			 * ama kilit de değil; sertifika girişi bununla açılıyor.
+			 * Yalnızca yeni açılan hesapta: var olanı postern açtıysa
+			 * zaten böyle, açmadıysa plana giremez.
+			 */
+			steps = append(steps, Step{
+				Kind:    StepUserUnlock,
+				Command: "sudo -n " + caps.ModUser + " -p '*' " + u.Name,
+				Why:     "sshd refuses a passwordless (\"locked\") account even with a certificate; '*' is no password but no lock",
 			})
 		}
 
@@ -256,6 +329,31 @@ func Plan(caps upstream.ManageCapabilities, d Desired, o Observed) ([]Step, erro
 					strings.Join(missing, ",") + " " + u.Name,
 				Why: u.Name + " is not in " + strings.Join(missing, ", "),
 			})
+		}
+
+		/*
+		 * ⚠️ HESAP AÇILDI AMA SERTİFİKA ONU AÇAMIYOR — ölçüldü: hedefin
+		 * sshd'si AuthorizedPrincipalsFile ile kuruluyken hesabın dosyası
+		 * olmayınca sertifika reddediliyor (principal, giriş adında
+		 * aranmıyor). Rol kalıcı hesapların dosyalarını yazıyor; geçici
+		 * hesabınkini postern yazmak zorunda. İçerik sertifikanın
+		 * principal'ı, yani hesabın adı (upstream/dial.go: Principals =
+		 * OSUser). tee root'la, umask'la 0644 — sshd'nin StrictModes'u
+		 * için yeterli.
+		 */
+		if u.JIT && d.PrincipalsFile != "" {
+			path, err := PrincipalsPath(d.PrincipalsFile, u.Name)
+			if err != nil {
+				return nil, fmt.Errorf("provision.Plan: user %q: %w", u.Name, err)
+			}
+			if content := u.Name + "\n"; o.Principals[path] != content {
+				steps = append(steps, Step{
+					Kind:    StepPrincipal,
+					Command: "sudo -n tee " + path + " >/dev/null",
+					Content: content,
+					Why:     "let the certificate for " + u.Name + " open this account",
+				})
+			}
 		}
 	}
 

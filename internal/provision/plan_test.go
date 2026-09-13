@@ -15,7 +15,7 @@ func able() upstream.ManageCapabilities {
 		Sudo: true, AddUser: "/usr/sbin/useradd", AddGroup: "/usr/sbin/groupadd",
 		ModUser: "/usr/sbin/usermod", DelUser: "/usr/sbin/userdel",
 		DelGroup: "/usr/sbin/groupdel", Visudo: "/usr/sbin/visudo",
-		Family: "debian",
+		Family: "debian", Shell: "/bin/bash",
 	}
 }
 
@@ -55,8 +55,10 @@ func TestStepsComeInAnOrderTheTargetAccepts(t *testing.T) {
 	}
 
 	got := kinds(steps)
+	// user.unlock hesabın hemen ardından: sshd parolasız hesabı kilitli
+	// sayıyor (plan.go'daki ölçüm) ve üyelik/sudo bundan sonra geliyor.
 	want := []StepKind{
-		StepGroupAdd, StepUserAdd, StepUserGroup,
+		StepGroupAdd, StepUserAdd, StepUserUnlock, StepUserGroup,
 		StepSudoStage, StepSudoCheck, StepSudoInstall,
 	}
 	if len(got) != len(want) {
@@ -543,5 +545,132 @@ func TestATemporaryAccountIsNotAddedToASystemGroup(t *testing.T) {
 	marker.GIDs = map[string]int{JITGroup: 999}
 	if _, err := Plan(able(), Desired{Users: []User{{Name: "jit-ayse", JIT: true}}}, marker); err != nil {
 		t.Fatalf("düşük numaralı postern-jit grubu geçici hesabı engelledi: %v", err)
+	}
+}
+
+/*
+ * ⚠️ %u ŞART, BAŞKA BELİRTEÇ YOK. %u'suz desen tek bir paylaşılan dosya:
+ * ona yazmak herkesin principal listesini ezer. %h ev dizinini varsaymak
+ * demek; reddetmek yanlış yere yazmaktan iyi. Sonuç kabuğa giriyor.
+ */
+func TestPrincipalsPathExpandsOnlyThePerAccountToken(t *testing.T) {
+	cases := []struct {
+		pattern, user, want string
+		bad                 bool
+	}{
+		{"", "ayse", "", false},
+		{"/etc/ssh/auth_principals/%u", "ayse", "/etc/ssh/auth_principals/ayse", false},
+		// %% açılır ama sonuçta kalan '%' yol kontrolünden geçmez: kabuğa
+		// giden yolda '%' yok (unsafePathByte). Reddedilmesi doğru.
+		{"/etc/ssh/p/%%u/%u", "ayse", "", true},
+		{"/etc/ssh/principals", "ayse", "", true},
+		{"%h/.ssh/principals/%u", "ayse", "", true},
+		{"/etc/ssh/auth_principals/%u%", "ayse", "", true},
+		{"etc/%u", "ayse", "", true},
+		{"/etc/ssh/%u\n", "ayse", "", true},
+	}
+	for _, c := range cases {
+		got, err := PrincipalsPath(c.pattern, c.user)
+		if c.bad {
+			if err == nil {
+				t.Errorf("%q kabul edildi: %q", c.pattern, got)
+			}
+			continue
+		}
+		if err != nil || got != c.want {
+			t.Errorf("%q → %q (%v), beklenen %q", c.pattern, got, err, c.want)
+		}
+	}
+}
+
+/*
+ * ⚠️ HESAP AÇILDI AMA SERTİFİKA ONU AÇAMIYORDU — ölçüldü. Hedefin sshd'si
+ * AuthorizedPrincipalsFile ile kuruluyken hesabın dosyası olmayınca
+ * sertifika reddediliyor. Plan artık geçici hesabın dosyasını, içinde
+ * principal (hesap adı) olacak biçimde yazıyor: yalnızca sshd bir desen
+ * veriyorsa, yalnızca geçici hesaplara, ve dosya zaten doğruysa değil.
+ */
+func TestATemporaryAccountGetsAPrincipalsFileWhenSshdWantsOne(t *testing.T) {
+	d := Desired{
+		Users:          []User{{Name: "jitayse", JIT: true}},
+		PrincipalsFile: "/etc/ssh/auth_principals/%u",
+	}
+	steps, err := Plan(able(), d, empty())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *Step
+	for i := range steps {
+		if steps[i].Kind == StepPrincipal {
+			found = &steps[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("principals adımı yok:\n%s", commandsOf(steps))
+	}
+	if found.Command != "sudo -n tee /etc/ssh/auth_principals/jitayse >/dev/null" || found.Content != "jitayse\n" {
+		t.Errorf("adım yanlış: %q içerik %q", found.Command, found.Content)
+	}
+	if got := commandsOf(steps); strings.Index(got, "useradd") > strings.Index(got, "tee /etc/ssh") {
+		t.Errorf("dosya hesaptan önce yazılıyor:\n%s", got)
+	}
+
+	// Desen yoksa (sshd "none" diyor) dosya da yok.
+	steps, _ = Plan(able(), Desired{Users: d.Users}, empty())
+	if strings.Contains(commandsOf(steps), "auth_principals") {
+		t.Errorf("desensiz plan principals dosyası yazıyor:\n%s", commandsOf(steps))
+	}
+	// Kalıcı hesaba dokunulmuyor: onunkini rol yazıyor.
+	steps, _ = Plan(able(), Desired{Users: []User{{Name: "ops"}}, PrincipalsFile: d.PrincipalsFile}, empty())
+	if strings.Contains(commandsOf(steps), "auth_principals") {
+		t.Errorf("kalıcı hesap için principals dosyası yazılıyor:\n%s", commandsOf(steps))
+	}
+	// Dosya zaten doğruysa yeniden yazılmıyor; yanlışsa yazılıyor.
+	have := empty()
+	have.Principals = map[string]string{"/etc/ssh/auth_principals/jitayse": "jitayse\n"}
+	steps, _ = Plan(able(), d, have)
+	if strings.Contains(commandsOf(steps), "tee /etc/ssh") {
+		t.Errorf("doğru dosya yeniden yazılıyor:\n%s", commandsOf(steps))
+	}
+	have.Principals["/etc/ssh/auth_principals/jitayse"] = "someoneelse\n"
+	steps, _ = Plan(able(), d, have)
+	if !strings.Contains(commandsOf(steps), "tee /etc/ssh") {
+		t.Errorf("yanlış içerikli dosya düzeltilmiyor:\n%s", commandsOf(steps))
+	}
+	// Reddedilen desen planı da düşürüyor: paylaşılan dosyaya yazılmaz.
+	if _, err := Plan(able(), Desired{Users: d.Users, PrincipalsFile: "/etc/ssh/principals"}, empty()); err == nil {
+		t.Error("paylaşılan principals dosyasına yazan plan kabul edildi")
+	}
+}
+
+/*
+ * ⚠️ YENİ HESAP sshd'YE GÖRE KİLİTLİ DOĞUYOR — ölçüldü: useradd shadow'a
+ * "!" yazıyor ve OpenSSH "!" ile başlayan hesaba sertifikayla da
+ * girdirmiyor. Plan hesabı açtıktan hemen sonra "*" yazıyor: parola
+ * değil, kilit de değil. Var olan hesaba dokunulmuyor.
+ */
+func TestANewAccountIsNotLeftLockedForSshd(t *testing.T) {
+	steps, err := Plan(able(), Desired{Users: []User{{Name: "jitayse", JIT: true}}}, empty())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := commandsOf(steps)
+	if !strings.Contains(got, "usermod -p '*' jitayse") {
+		t.Fatalf("kilit açılmıyor:\n%s", got)
+	}
+	if strings.Index(got, "usermod -p '*'") < strings.Index(got, "useradd") {
+		t.Errorf("kilit hesap açılmadan önce açılıyor:\n%s", got)
+	}
+	// Kalıcı hesap da sertifikayla giriyor: aynı kural.
+	steps, _ = Plan(able(), Desired{Users: []User{{Name: "ops"}}}, empty())
+	if !strings.Contains(commandsOf(steps), "usermod -p '*' ops") {
+		t.Errorf("kalıcı hesabın kilidi açılmıyor:\n%s", commandsOf(steps))
+	}
+	// Var olan hesabın parola alanına dokunulmuyor.
+	have := empty()
+	have.Users["ops"] = []string{"ops"}
+	steps, _ = Plan(able(), Desired{Users: []User{{Name: "ops"}}}, have)
+	if strings.Contains(commandsOf(steps), "-p '*'") {
+		t.Errorf("var olan hesabın parola alanı yeniden yazılıyor:\n%s", commandsOf(steps))
 	}
 }

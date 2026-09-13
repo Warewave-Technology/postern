@@ -32,7 +32,7 @@ const alpineWhich = `/usr/sbin/adduser
 /usr/sbin/addgroup`
 
 func TestDebianTargetIsManageable(t *testing.T) {
-	c := ParseCapabilities(debianSudo, debianWhich, "ID=debian\nID_LIKE=\n")
+	c := ParseCapabilities(debianSudo, debianWhich, "ID=debian\nID_LIKE=\n", "")
 
 	if !c.Manageable() {
 		t.Fatalf("yönetilebilir sayılmadı: %s", c.Summary())
@@ -62,7 +62,7 @@ func TestDebianTargetIsManageable(t *testing.T) {
  * yapılandırmamaktan kötü.
  */
 func TestAlpineTargetIsRefusedWithReasons(t *testing.T) {
-	c := ParseCapabilities("sudo: command not found", alpineWhich, "ID=alpine\n")
+	c := ParseCapabilities("sudo: command not found", alpineWhich, "ID=alpine\n", "")
 
 	if c.Manageable() {
 		t.Fatal("YÖNETİLEBİLİR SAYILDI: eksik araçlarla makine yarım kalırdı")
@@ -94,7 +94,7 @@ func TestAlpineTargetIsRefusedWithReasons(t *testing.T) {
 func TestSudoIsNotInferredFromTheWordSudo(t *testing.T) {
 	c := ParseCapabilities(
 		"sudo: a password is required\nsudo: unable to resolve host",
-		debianWhich, "ID=debian\n")
+		debianWhich, "ID=debian\n", "")
 
 	if c.Sudo {
 		t.Error("HAKKI OLMAYAN HESAP YETKİLİ SAYILDI")
@@ -124,7 +124,28 @@ func TestDerivedDistributionsFindTheirFamily(t *testing.T) {
  * ölçülmemiş bir şeyi ölçülmüş saymak, bu dosyadaki tek gerçek risk.
  */
 func TestEmptyOutputIsNotTakenAsSuccess(t *testing.T) {
-	if ParseCapabilities("", "", "").Manageable() {
+	if ParseCapabilities("", "", "", "").Manageable() {
 		t.Fatal("BOŞ YOKLAMA YÖNETİLEBİLİR SAYILDI")
+	}
+}
+
+/*
+ * ⚠️ PRINCIPALS DOSYASININ YERİ sshd'DEN GELİYOR. Geçici hesabın
+ * sertifikayla açılabilmesi bu desene göre yazılan dosyaya bağlı; "none"
+ * ve boş çıktı "dosya yok" demek — ikisi de yazmamaya yol açıyor.
+ */
+func TestPrincipalsFilePatternComesFromSshd(t *testing.T) {
+	c := ParseCapabilities(debianSudo, debianWhich, "ID=debian\n", "/etc/ssh/auth_principals/%u\n")
+	if c.PrincipalsFile != "/etc/ssh/auth_principals/%u" {
+		t.Errorf("desen = %q", c.PrincipalsFile)
+	}
+	for _, none := range []string{"", "none\n", "  none  "} {
+		if c := ParseCapabilities(debianSudo, debianWhich, "ID=debian\n", none); c.PrincipalsFile != "" {
+			t.Errorf("%q için desen = %q, boş bekleniyordu", none, c.PrincipalsFile)
+		}
+	}
+	// Sabit komut listesi sshd'ye soruyor; sorulmazsa hiçbir desen gelmez.
+	if len(CapabilityCommands) < 3 || !strings.Contains(CapabilityCommands[2], "sshd -T") {
+		t.Errorf("yoklama sshd -T'yi sormuyor: %v", CapabilityCommands)
 	}
 }

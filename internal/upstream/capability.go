@@ -55,7 +55,17 @@ var CapabilityCommands = []string{
 	 * bu dizeye girmiyor, dolayısıyla "değişken içerik kabuğa
 	 * verilmez" kuralı korunuyor.
 	 */
-	"for n in useradd adduser groupadd addgroup usermod userdel groupdel visudo; do command -v $n; done",
+	"for n in useradd adduser groupadd addgroup usermod userdel groupdel visudo bash; do command -v $n; done",
+	/*
+	 * ⚠️ sshd'YE SORULUYOR, YAPILANDIRMA DOSYASINA DEĞİL. Sertifikayla
+	 * giriş, hesabın principals dosyasında principal'ı bulmaya bağlı ve o
+	 * dosyanın YERİ sshd'nin ETKİN AuthorizedPrincipalsFile değeri —
+	 * sshd_config'i okumak, Include ile gelen ya da ilk-değer-kazanır
+	 * kuralıyla ezilen satırı yanlış okuturdu (Ansible rolündeki ölçüm).
+	 * sshd -T root istiyor; yönetim hesabının sudo'su var. Çıktı boşsa
+	 * (sshd yolda değil, -T desteklenmiyor) dosya bilinmiyor sayılıyor.
+	 */
+	"sudo -n sshd -T 2>/dev/null | awk 'tolower($1)==\"authorizedprincipalsfile\"{print $2}'",
 }
 
 /*
@@ -80,9 +90,24 @@ type ManageCapabilities struct {
 
 	// Family, os-release'den çıkan aile ("debian", "rhel", "alpine"…).
 	Family string
+	/*
+	 * Shell, açılan hesaba yazılacak kabuk: bash bulunduysa onun yolu,
+	 * yoksa /bin/sh. ⚠️ ÖLÇÜLDÜ: /bin/bash sabit yazılıydı ve Alpine'de
+	 * hesap açılıyor, sertifika kabul ediliyor ve sshd "shell /bin/bash
+	 * does not exist" diye kapıyı kapatıyordu.
+	 */
+	Shell string
 
 	// Missing, eksik olanların adı — panelin yazacağı cümle bu.
 	Missing []string
+	/*
+	 * PrincipalsFile, sshd'nin etkin AuthorizedPrincipalsFile deseni
+	 * ("/etc/ssh/auth_principals/%u"). Boşsa ya sshd "none" diyor (giriş
+	 * adı sertifikanın principal'ında aranır, dosya gerekmez) ya da
+	 * sorulamadı. Geçici hesabın sertifikayla açılabilmesi için plan bu
+	 * desene göre hesabın dosyasını yazıyor.
+	 */
+	PrincipalsFile string
 }
 
 /*
@@ -111,7 +136,7 @@ func (c ManageCapabilities) Summary() string {
  * Ayrı bir fonksiyon çünkü arıza burada yaşıyor: bağlantı kurmadan,
  * gerçek dağıtım çıktılarına karşı ölçülebiliyor.
  */
-func ParseCapabilities(sudoOut, whichOut, osRelease string) ManageCapabilities {
+func ParseCapabilities(sudoOut, whichOut, osRelease, sshdPrincipals string) ManageCapabilities {
 	var c ManageCapabilities
 
 	/*
@@ -153,10 +178,19 @@ func ParseCapabilities(sudoOut, whichOut, osRelease string) ManageCapabilities {
 			c.DelGroup = p
 		case "visudo":
 			c.Visudo = p
+		case "bash":
+			c.Shell = p
 		}
+	}
+	if c.Shell == "" {
+		c.Shell = "/bin/sh"
 	}
 
 	c.Family = familyOf(osRelease)
+	// "none" sshd'nin "dosya yok, giriş adına bak" cevabı; boşla aynı.
+	if pf := strings.TrimSpace(sshdPrincipals); pf != "" && pf != "none" {
+		c.PrincipalsFile = pf
+	}
 
 	// Eksik olanlar tek tek adlandırılıyor: "yönetilemiyor" demek,
 	// operatöre ne yapacağını söylemiyor.
@@ -257,7 +291,7 @@ func (c *Conn) Capabilities(ctx context.Context) (ManageCapabilities, error) {
 		return ManageCapabilities{}, fmt.Errorf("upstream.Capabilities: %w", err)
 	}
 
-	return ParseCapabilities(out[0], out[1], osRelease), nil
+	return ParseCapabilities(out[0], out[1], osRelease, out[2]), nil
 }
 
 /*

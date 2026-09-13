@@ -150,3 +150,27 @@ func TestObserveRecordsGroupNumbers(t *testing.T) {
 		t.Fatalf("docker'ın numarası okunmadı: %+v", obs)
 	}
 }
+
+// Principals dosyası okunuyor ki plan onu bayt bayt karşılaştırabilsin.
+func TestObserveReadsTheTemporaryAccountsPrincipalsFile(t *testing.T) {
+	r := runnerFor(t, hostAnswers(map[string]string{
+		"sudo -n cat /etc/ssh/auth_principals/jitayse": "jitayse\n",
+		"id -Gn jitayse":           "jitayse " + JITGroup + "\n",
+		"getent group " + JITGroup: JITGroup + ":x:1006:jitayse\n",
+	}))
+	d := Desired{Users: []User{{Name: "jitayse", JIT: true}}, PrincipalsFile: "/etc/ssh/auth_principals/%u"}
+	obs, err := Observe(context.Background(), r, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if obs.Principals["/etc/ssh/auth_principals/jitayse"] != "jitayse\n" {
+		t.Fatalf("principals dosyası okunmadı: %+v", obs.Principals)
+	}
+	steps, err := Plan(able(), d, obs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(steps) != 0 {
+		t.Errorf("her şey yerindeyken plan iş üretti:\n%s", commandsOf(steps))
+	}
+}
