@@ -4,7 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 import SecurityKeys from "../src/SecurityKeys";
 import ManageAccess from "../src/admin/ManageAccess";
-import { api, type ManageCheck } from "../src/api";
+import TemporaryAccess from "../src/admin/TemporaryAccess";
+import { api, type Grant, type ManageCheck } from "../src/api";
 
 /*
  * GÖRSEL KONTROL — birim testlerinin ölçmediği şey.
@@ -136,5 +137,64 @@ ${pieces
     );
 
     expect(pieces).toHaveLength(4);
+  });
+});
+
+/*
+ * Geçici erişim kartı: form + dört durumlu liste + bir sonuç. Tablonun son
+ * sütunu düğme; uzun bir "revocation failing" cümlesi kartı taşırmamalı.
+ */
+describe("geçici erişim kartı görsel çıktısı", () => {
+  it("formu, listeyi ve sonucu diske yazıyor", async () => {
+    const g = (over: Partial<Grant>): Grant => ({
+      id: "g", username: "ayse", target: "demo-a", os_user: "ayse", groups: ["dba"],
+      granted_by: "admin", granted_at: "2026-09-13T10:00:00Z", expires_at: "2026-09-13T18:00:00Z",
+      applied_at: "2026-09-13T10:00:05Z", revoke_attempts: 0, ...over,
+    });
+    vi.spyOn(api, "users").mockResolvedValue([
+      { name: "ayse", os_user: "ayse", admin: false, roles: [], keys: 1 } as never,
+      { name: "veli", os_user: "veli", admin: true, roles: [], keys: 0 } as never,
+    ]);
+    vi.spyOn(api, "grants").mockResolvedValue({
+      now: "2026-09-13T12:00:00Z",
+      grants: [
+        g({ id: "1" }),
+        g({ id: "2", username: "veli", os_user: "veli", groups: [], expires_at: "2026-09-13T11:00:00Z" }),
+        g({ id: "3", applied_at: undefined, apply_report: "1 applied, 1 failed, 2 not attempted" }),
+        g({
+          id: "4", expires_at: "2026-09-12T18:00:00Z", revoke_attempts: 4,
+          revoke_error: "could not connect: upstream.DialManagement: target demo-a: upstream: target unreachable: dial tcp 10.0.0.9:22: connect: no route to host",
+        }),
+        g({ id: "5", revoked_at: "2026-09-13T11:30:00Z", revoke_report: "5 applied" }),
+      ],
+    });
+    vi.spyOn(api, "revokeGrant").mockResolvedValue({
+      grant: g({ id: "1", revoked_at: "2026-09-13T12:01:00Z" }),
+      summary: "5 applied; left behind: /srv/build/ayse/out.log",
+      steps: [
+        { kind: "sudo.remove", command: "sudo -n rm -f /etc/sudoers.d/postern-user-ayse", why: "take the sudo rule away before anything else", outcome: "done" },
+        { kind: "user.kill", command: "sudo -n pkill -KILL -u ayse || true", why: "kill what the account is still running", outcome: "done" },
+        { kind: "user.delete", command: "sudo -n /usr/sbin/userdel -r ayse", why: "delete the temporary account and its home", outcome: "done" },
+      ],
+      sessions_closed: 1,
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const { container, findByText, findAllByText, getAllByRole } = render(<TemporaryAccess name="demo-a" />);
+    await findAllByText("veli");
+    fireEvent.click(getAllByRole("button", { name: /revoke ayse's temporary access/i })[0]);
+    await findByText(/left behind/);
+
+    const out = path.resolve(process.cwd(), ".visual");
+    fs.mkdirSync(out, { recursive: true });
+    fs.writeFileSync(
+      path.join(out, "temporary-access.html"),
+      `<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>${fs.readFileSync(path.resolve(process.cwd(), "src/styles.css"), "utf8")}</style>
+<body class="app" style="padding:2rem;max-width:72rem">
+<div class="detail-grid"><div class="detail-main">${container.innerHTML}</div><div class="detail-side"></div></div>
+</body>`,
+    );
+    expect(container.innerHTML).toContain("Temporary access");
   });
 });

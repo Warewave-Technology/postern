@@ -780,6 +780,17 @@ th.wrap {
   white-space: normal;
   min-width: 15rem;
 }
+/*
+ * .state, sarılan ama GENİŞ OLMAYAN sütun. .wrap 15rem taban genişlik
+ * istiyor; beş sütunlu bir tabloda o taban, kartın sütununu (≈660px)
+ * aşıp son sütundaki düğmeyi kaydırma çubuğunun ardına itiyordu (geçici
+ * erişim tablosu, ekrana bakılarak görüldü).
+ */
+td.state,
+th.state {
+  white-space: normal;
+  min-width: 9rem;
+}
 td.num,
 th.num {
   font-variant-numeric: tabular-nums;
@@ -992,6 +1003,25 @@ label > select,
 label > textarea {
   color: var(--ink);
   font-weight: 400;
+}
+
+/*
+ * .check, onay kutulu etiket: kutu ile metin AYNI satırda. Panelin öbür
+ * etiketleri sütun (metin üstte, alan altta); bir onay kutusunu o düzene
+ * koymak kutuyu metnin altına, tek başına bırakıyordu (ekrana bakılarak
+ * görüldü — geçici erişim formu).
+ */
+label.check {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.5rem;
+  max-width: 60ch;
+}
+label.check input[type="checkbox"] {
+  width: auto;
+  margin: 0.2rem 0 0;
+  flex: none;
 }
 
 .field-row {

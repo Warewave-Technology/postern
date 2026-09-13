@@ -348,6 +348,58 @@ export type ManageCheck = {
   checked_at: string;
 };
 
+/*
+ * Grant, bir hedefte süreli açılmış hesap (jit_grants).
+ *
+ * ⚠️ DURUM TEK BİR ALANDAN OKUNMUYOR. "revoked_at" dolu → bitti;
+ * "revoke_error" dolu → geri alma başarısız ve yeniden denenecek;
+ * "applied_at" boş → hedefte yarım kaldı, süpürücü toplayacak;
+ * "expires_at" geçmiş → vadesi doldu, geri alınıyor. Bunları tek bir
+ * "status" alanına indirmek sunucuya bir durum makinesi eklerdi ve panelin
+ * çizdiği şey kaydın kendisi olmaktan çıkardı.
+ */
+export type Grant = {
+  id: string;
+  username: string;
+  target: string;
+  os_user: string;
+  groups: string[];
+  sudo?: { run_as?: string; commands: { path: string; args?: string[] }[]; acknowledged?: boolean };
+  granted_by: string;
+  granted_at: string;
+  expires_at: string;
+  applied_at?: string;
+  apply_report?: string;
+  revoked_at?: string;
+  revoke_report?: string;
+  revoke_error?: string;
+  revoke_attempts: number;
+  next_attempt?: string;
+};
+
+export type GrantStep = {
+  kind: string;
+  command: string;
+  why: string;
+  outcome: string;
+  output?: string;
+  error?: string;
+};
+
+export type GrantRequest = {
+  username: string;
+  groups: string[];
+  duration: string;
+  sudo?: { run_as?: string; commands: { path: string; args: string[] }[]; acknowledged: boolean };
+};
+
+export type GrantResult = {
+  grant: Grant;
+  summary: string;
+  steps: GrantStep[];
+  sessions_closed?: number;
+};
+
 export type Mapping = { group: string; role: string; created_by: string };
 export type UnmappedGroup = {
   name: string;
@@ -1037,6 +1089,15 @@ export const api = {
       "POST",
       `/api/admin/targets/${encodeURIComponent(name)}/manage/check`,
     ),
+  grants: (name: string) =>
+    req<{ grants: Grant[]; now: string }>(
+      "GET",
+      `/api/admin/targets/${encodeURIComponent(name)}/grants`,
+    ),
+  createGrant: (name: string, g: GrantRequest) =>
+    req<GrantResult>("POST", `/api/admin/targets/${encodeURIComponent(name)}/grants`, g),
+  revokeGrant: (id: string) =>
+    req<GrantResult>("POST", `/api/admin/grants/${encodeURIComponent(id)}/revoke`),
   createTarget: (t: {
     name: string;
     host: string;

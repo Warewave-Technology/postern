@@ -188,6 +188,12 @@ audit rows into a shape it does not understand.
   `GET /api/admin/targets/{name}/grants` lists them,
   `POST /api/admin/grants/{id}/revoke` ends one early.
 
+  The target page has the same three things as a **Temporary access** card:
+  a form (person, groups, duration, optional sudo commands), the list of
+  grants on that host with their state — active, expired and being revoked,
+  not fully applied, or *revocation failing* with the reason — and a button
+  to end one early.
+
 - **postern refuses to manage a machine it does not understand.** A capability
   probe reports which tools a target actually has and names what is missing
   rather than guessing. On Alpine it finds busybox's `adduser` but no
