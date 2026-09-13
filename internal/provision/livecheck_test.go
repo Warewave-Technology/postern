@@ -118,28 +118,6 @@ func liveCaps(t *testing.T, r *SSHRunner) upstream.ManageCapabilities {
 	return caps
 }
 
-/*
- * absent, komutun "yok" cevabını cevapsızlıktan ayırır.
- *
- * ⚠️ err != nil "yok" DEMEK DEĞİL. İlk hâli öyle sayıyordu: bağlantı
- * koptuğunda grup "yok" görünüyor, plan onu yeniden yaratmaya kalkıyor ve
- * idempotenslik testi yanlış sebepten düşüyordu — ya da daha kötüsü,
- * silinmemiş bir hesap "gitti" görünüyordu.
- */
-func absent(t *testing.T, err error) bool {
-	t.Helper()
-	if err == nil {
-		return false
-	}
-	var cmdErr *upstream.CommandError
-	if errors.As(err, &cmdErr) {
-		return true
-	}
-	t.Fatalf("hedef cevap vermedi: %v", err)
-
-	return false
-}
-
 func TestApplyAgainstARealTarget(t *testing.T) {
 	r := liveRunner(t)
 	caps := liveCaps(t, r)
@@ -151,7 +129,11 @@ func TestApplyAgainstARealTarget(t *testing.T) {
 		Users: []User{{Name: "suheda", Groups: []string{"yayilim"}}},
 	}
 
-	steps, err := Plan(caps, d, observe(t, r, d))
+	obs, err := Observe(context.Background(), r, d)
+	if err != nil {
+		t.Fatalf("hedef okunamadı: %v", err)
+	}
+	steps, err := Plan(caps, d, obs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,41 +154,17 @@ func TestApplyAgainstARealTarget(t *testing.T) {
 	 * gözlenen durumu ELLE veriyor; burada durumu makinenin kendisi
 	 * söylüyor.
 	 */
-	again, err := Plan(caps, d, observe(t, r, d))
+	obs, err = Observe(context.Background(), r, d)
+	if err != nil {
+		t.Fatalf("hedef ikinci kez okunamadı: %v", err)
+	}
+	again, err := Plan(caps, d, obs)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, s := range again {
 		t.Errorf("ikinci koşu iş üretti: %s — %s", s.Kind, s.Command)
 	}
-}
-
-// observe, hedefin şu anki durumunu okur.
-func observe(t *testing.T, r *SSHRunner, d Desired) Observed {
-	t.Helper()
-	ctx := context.Background()
-	o := Observed{
-		Groups: map[string]bool{}, Users: map[string][]string{},
-		PosternSudoers: map[string]string{},
-	}
-
-	for _, g := range d.Groups {
-		if _, err := r.Exec(ctx, "getent group "+g.Name, ""); !absent(t, err) {
-			o.Groups[g.Name] = true
-		}
-		if out, err := r.Exec(ctx, "sudo -n cat "+SudoPath(g.Name), ""); !absent(t, err) {
-			o.PosternSudoers[SudoPath(g.Name)] = out
-		}
-	}
-	for _, u := range d.Users {
-		out, err := r.Exec(ctx, "id -Gn "+u.Name, "")
-		if absent(t, err) {
-			continue
-		}
-		o.Users[u.Name] = strings.Fields(strings.TrimSpace(out))
-	}
-
-	return o
 }
 
 /*
@@ -217,9 +175,10 @@ func observe(t *testing.T, r *SSHRunner, d Desired) Observed {
  *
  * ⚠️ JIT ÜYELİĞİ ÖLÇÜLÜYOR, VARSAYILMIYOR. İlk hâli InJITGroup'u elle
  * true veriyordu; oysa bu şart "postern bu hesabı kendisi açtı" demenin
- * tek kanıtı ve silmenin önündeki tek kapı. Bugün hiçbir plan hesabı
- * postern-jit grubuna eklemiyor (JIT yaşam döngüsü henüz yok), yani
- * doğru davranış silmeyi REDDETMEK — test de bunu söyleyerek duruyor.
+ * tek kanıtı ve silmenin önündeki tek kapı. Üyeliği yalnızca JIT planı
+ * kuruyor (User.JIT); TestApplyAgainstARealTarget'ın açtığı "suheda" JIT
+ * değil, dolayısıyla burada atlanır — silmek için önce JIT olarak açılmış
+ * bir hesap adı verilmeli.
  */
 func TestRevokeAgainstARealTarget(t *testing.T) {
 	user := os.Getenv("POSTERN_LIVE_REVOKE_USER")
@@ -230,45 +189,21 @@ func TestRevokeAgainstARealTarget(t *testing.T) {
 	caps := liveCaps(t, r)
 	ctx := context.Background()
 
-	uidOut, err := r.Exec(ctx, "id -u "+user, "")
-	if absent(t, err) {
+	facts, err := Account(ctx, r, user)
+	if err != nil {
+		t.Fatalf("hesap okunamadı: %v", err)
+	}
+	if !facts.Exists {
 		t.Fatalf("hedefte %q yok", user)
 	}
-	uid, err := strconv.Atoi(strings.TrimSpace(uidOut))
-	if err != nil {
-		t.Fatalf("uid sayı değil: %q", uidOut)
-	}
-
-	groups, err := r.Exec(ctx, "id -Gn "+user, "")
-	if absent(t, err) {
-		t.Fatalf("%q için gruplar okunamadı", user)
-	}
-	inJIT := false
-	for _, g := range strings.Fields(groups) {
-		if g == JITGroup {
-			inJIT = true
-		}
-	}
-	if !inJIT {
-		t.Skipf("%q, %s grubunda değil; postern yalnızca kendi açtığı hesabı siler "+
-			"ve bugün hiçbir plan bu üyeliği kurmuyor", user, JITGroup)
-	}
-
-	// Ev dizini hedeften okunuyor: "/home/<ad>" varsaymak, farklı evi olan
-	// bir hesapta karalama yolu kontrolünü yanlış yere baktırırdı.
-	passwd, err := r.Exec(ctx, "getent passwd "+user, "")
-	if absent(t, err) {
-		t.Fatalf("%q için passwd satırı okunamadı", user)
-	}
-	fields := strings.Split(strings.TrimSpace(passwd), ":")
-	if len(fields) < 7 {
-		t.Fatalf("passwd satırı beklenmedik: %q", passwd)
+	if !facts.InJITGroup() {
+		t.Skipf("%q, %s grubunda değil; postern yalnızca kendi açtığı hesabı siler", user, JITGroup)
 	}
 
 	steps, err := RevokePlan(caps, Revoke{
-		User: user, Mode: ModeDelete, UID: uid, InJITGroup: inJIT,
-		Home:      fields[5],
-		SudoFiles: []string{"/etc/sudoers.d/postern-yayilim"},
+		User: user, Mode: ModeDelete, UID: facts.UID, InJITGroup: facts.InJITGroup(),
+		Home:      facts.Home,
+		SudoFiles: []string{UserSudoPath(user)},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -286,7 +221,11 @@ func TestRevokeAgainstARealTarget(t *testing.T) {
 	}
 
 	// Hesap gerçekten gitmiş olmalı — "cevap yok" da "gitti" sayılmıyor.
-	if out, err := r.Exec(ctx, "id "+user, ""); !absent(t, err) {
-		t.Errorf("HESAP DURUYOR: %s", out)
+	after, err := Account(ctx, r, user)
+	if err != nil {
+		t.Fatalf("hesap sökmeden sonra okunamadı: %v", err)
+	}
+	if after.Exists {
+		t.Errorf("HESAP DURUYOR: uid %d", after.UID)
 	}
 }

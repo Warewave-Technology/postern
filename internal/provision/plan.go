@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/Warewave-Technology/postern/internal/model"
 	"github.com/Warewave-Technology/postern/internal/sudoers"
@@ -36,6 +37,35 @@ type Group struct {
 type User struct {
 	Name   string
 	Groups []string
+
+	/*
+	 * JIT true ise hesap GEÇİCİ: postern açıyor, süresi dolunca siliyor.
+	 *
+	 * ⚠️ ÜYELİK KANIT: JIT hesabı postern-jit grubuna giriyor ve sökme
+	 * planı YALNIZCA o gruptaki hesabı siliyor. Bu üyeliği kuran tek yer
+	 * burası; kurulmasaydı hiçbir hesap silinemez, ya da daha kötüsü,
+	 * kanıt elle verilirdi (canlı test bir süre öyle yapıyordu).
+	 */
+	JIT bool
+
+	/*
+	 * ExpiresAt, JIT hesabının süresi — hedefe `useradd -e` ile de
+	 * yazılıyor.
+	 *
+	 * ⚠️ YEDEK, ASIL MEKANİZMA DEĞİL. Sökmeyi postern yapıyor; bu tarih,
+	 * postern ölürse ya da hedefe ulaşamazsa hesabın sonsuza dek açık
+	 * kalmaması için. Gün çözünürlüğünde ve süre bitiminden SONRAKİ güne
+	 * yuvarlanıyor: yedeğin asıl süreden önce vurması, geçerli bir hakkı
+	 * ortasından kesmek olurdu.
+	 */
+	ExpiresAt time.Time
+
+	/*
+	 * Sudo, yalnızca bu hesaba yazılacak kural (grup kuralından ayrı).
+	 * nil ise kullanıcı dosyası yazılmıyor. Dosya postern-user-<ad>
+	 * adıyla gidiyor ve sökme planı onu adıyla kaldırıyor.
+	 */
+	Sudo *sudoers.Rule
 }
 
 // Desired, bir hedefte olması istenen durum.
@@ -96,8 +126,13 @@ type Step struct {
 // kullanmazsa plan dosyayı hiç "var" görmez ve her koşuda yeniden yazar.
 func SudoPath(group string) string { return "/etc/sudoers.d/postern-" + group }
 
+// UserSudoPath, bir hesap için postern'in yazdığı dosyanın yolu. Grup
+// dosyalarından ayrı bir önek: "dba" adlı grup ile "dba" adlı hesabın
+// kuralları aynı dosyaya düşmesin.
+func UserSudoPath(user string) string { return "/etc/sudoers.d/postern-user-" + user }
+
 // stagePath, doğrulanmadan önce yazıldığı geçici yol.
-func stagePath(group string) string { return SudoPath(group) + ".staged" }
+func stagePath(path string) string { return path + ".staged" }
 
 /*
  * Plan, gözlenen durumdan istenen duruma giden adımları üretir.
@@ -113,10 +148,20 @@ func Plan(caps upstream.ManageCapabilities, d Desired, o Observed) ([]Step, erro
 
 	var steps []Step
 
+	/*
+	 * ⚠️ JIT HESAP VARSA postern-jit GRUBU PLANA GİRİYOR — kimse
+	 * istemese de. Üyelik silmenin ön koşulu; grup yoksa üyelik de yok ve
+	 * hesap bir daha silinemez.
+	 */
+	groups := sortedGroups(d.Groups)
+	if anyJIT(d.Users) && !hasGroup(groups, JITGroup) {
+		groups = sortedGroups(append(groups, Group{Name: JITGroup}))
+	}
+
 	// ⚠️ SIRA ÖNEMLİ: grup, kullanıcı, üyelik, sudo. Kullanıcıyı
 	// olmayan bir gruba eklemek hedefte hata veriyor; sudo kuralını
 	// olmayan bir gruba yazmak ise sessizce etkisiz kalıyor.
-	for _, g := range sortedGroups(d.Groups) {
+	for _, g := range groups {
 		if bad := checkName(g.Name); bad != "" {
 			return nil, fmt.Errorf("provision.Plan: group %q: %s", g.Name, bad)
 		}
@@ -154,15 +199,35 @@ func Plan(caps upstream.ManageCapabilities, d Desired, o Observed) ([]Step, erro
 		}
 
 		have, exists := o.Users[u.Name]
+		want := u.Groups
+		if u.JIT {
+			want = append(append([]string(nil), u.Groups...), JITGroup)
+			/*
+			 * ⚠️ POSTERN'İN AÇMADIĞI BİR HESAP JIT YAPILMIYOR. Makinede
+			 * aynı adla önceden var olan bir hesabı postern-jit grubuna
+			 * almak, süresi dolunca onu SİLMEK demek — ve o hesap birinin
+			 * kalıcı hesabı olabilir. Var olan ama grupta olan hesap ise
+			 * önceki bir hakkın hesabı: uzatmak güvenli.
+			 */
+			if exists && !hasName(have, JITGroup) {
+				return nil, fmt.Errorf("provision.Plan: account %q already exists on the target "+
+					"and postern did not create it; refusing to take it over as a temporary account",
+					u.Name)
+			}
+		}
 		if !exists {
+			cmd := "sudo -n " + caps.AddUser + " -m -s /bin/bash"
+			if u.JIT && !u.ExpiresAt.IsZero() {
+				cmd += " -e " + expiryBackstop(u.ExpiresAt)
+			}
 			steps = append(steps, Step{
 				Kind:    StepUserAdd,
-				Command: "sudo -n " + caps.AddUser + " -m -s /bin/bash " + u.Name,
+				Command: cmd + " " + u.Name,
 				Why:     "account " + u.Name + " is missing",
 			})
 		}
 
-		missing := missingGroups(u.Groups, have)
+		missing := missingGroups(want, have)
 		if len(missing) > 0 {
 			steps = append(steps, Step{
 				Kind: StepUserGroup,
@@ -173,7 +238,23 @@ func Plan(caps upstream.ManageCapabilities, d Desired, o Observed) ([]Step, erro
 		}
 	}
 
-	for _, g := range sortedGroups(d.Groups) {
+	for _, u := range sortedUsers(d.Users) {
+		if u.Sudo == nil {
+			continue
+		}
+		// Kullanıcı kuralı grup kuralıyla aynı üç adımdan geçiyor.
+		content, err := sudoers.Render(u.Name, *u.Sudo, "user "+u.Name+" — written by postern")
+		if err != nil {
+			return nil, fmt.Errorf("provision.Plan: user %q: %w", u.Name, err)
+		}
+		if o.PosternSudoers[UserSudoPath(u.Name)] == content {
+			continue
+		}
+		steps = append(steps, sudoSteps(caps, UserSudoPath(u.Name), content,
+			"sudo rule for "+u.Name+" is missing or has changed")...)
+	}
+
+	for _, g := range groups {
 		if len(g.Sudo.Commands) == 0 {
 			continue
 		}
@@ -193,45 +274,8 @@ func Plan(caps upstream.ManageCapabilities, d Desired, o Observed) ([]Step, erro
 		if o.PosternSudoers[SudoPath(g.Name)] == content {
 			continue
 		}
-
-		/*
-		 * ⚠️ ÜÇ ADIM, TEK ADIM DEĞİL: yaz → doğrula → yerine koy.
-		 * Doğrudan hedef yola yazmak, geçersiz bir dosyanın o
-		 * makinede HERKESİN sudo'sunu götürmesi demek — postern'in
-		 * kendi hesabı dahil, yani makine kendini onaramaz hâle gelir.
-		 * Doğrulama hedefte koşuyor, çünkü sözdizimi sudo sürümüne
-		 * göre değişiyor ve bastion'da doğrulamak arkasını
-		 * dolduramayacağımız bir iddia olurdu.
-		 */
-		steps = append(steps,
-			Step{
-				Kind: StepSudoStage,
-				/*
-				 * ⚠️ tee, `cat >` DEĞİL — VE FARK KOMUTU ÇALIŞTIRIYOR
-				 * YA DA ÇALIŞTIRMIYOR. Yönlendirme sudo'dan ÖNCE,
-				 * çağıran kabukta yapılıyor: `sudo -n cat > /etc/...`
-				 * dosyayı YETKİSİZ kullanıcı olarak açmaya çalışır ve
-				 * "permission denied" ile düşer. İlk yazdığım plan bu
-				 * hatayı taşıyordu; canlı denemede farkında olmadan
-				 * tee'ye çevirip doğruladığım için de görünmemişti.
-				 */
-				Command: "sudo -n tee " + stagePath(g.Name) + " >/dev/null",
-				Content: content,
-				Why:     "sudo rule for " + g.Name + " is missing or has changed",
-			},
-			Step{
-				Kind:    StepSudoCheck,
-				Command: "sudo -n " + caps.Visudo + " -cf " + stagePath(g.Name),
-				Why:     "the target's own visudo must accept it before it is installed",
-			},
-			Step{
-				Kind: StepSudoInstall,
-				Command: "sudo -n install -o root -g root -m 0440 " +
-					stagePath(g.Name) + " " + SudoPath(g.Name) +
-					" && sudo -n rm -f " + stagePath(g.Name),
-				Why: "install the checked rule",
-			},
-		)
+		steps = append(steps, sudoSteps(caps, SudoPath(g.Name), content,
+			"sudo rule for "+g.Name+" is missing or has changed")...)
 	}
 
 	return steps, nil
@@ -301,4 +345,93 @@ func sortedUsers(in []User) []User {
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 
 	return out
+}
+
+/*
+ * sudoSteps, bir sudoers dosyasını yazan üç adım: yaz → doğrula → yerine koy.
+ * Grup ve kullanıcı dosyaları aynı yoldan geçiyor; iki kopya, birinde
+ * düzeltilen bir şeyin öbüründe unutulması demekti.
+ */
+func sudoSteps(caps upstream.ManageCapabilities, path, content, why string) []Step {
+	/*
+	 * ⚠️ ÜÇ ADIM, TEK ADIM DEĞİL: yaz → doğrula → yerine koy.
+	 * Doğrudan hedef yola yazmak, geçersiz bir dosyanın o
+	 * makinede HERKESİN sudo'sunu götürmesi demek — postern'in
+	 * kendi hesabı dahil, yani makine kendini onaramaz hâle gelir.
+	 * Doğrulama hedefte koşuyor, çünkü sözdizimi sudo sürümüne
+	 * göre değişiyor ve bastion'da doğrulamak arkasını
+	 * dolduramayacağımız bir iddia olurdu.
+	 */
+	return []Step{
+		{
+			Kind: StepSudoStage,
+			/*
+			 * ⚠️ tee, `cat >` DEĞİL — VE FARK KOMUTU ÇALIŞTIRIYOR
+			 * YA DA ÇALIŞTIRMIYOR. Yönlendirme sudo'dan ÖNCE,
+			 * çağıran kabukta yapılıyor: `sudo -n cat > /etc/...`
+			 * dosyayı YETKİSİZ kullanıcı olarak açmaya çalışır ve
+			 * "permission denied" ile düşer. İlk yazdığım plan bu
+			 * hatayı taşıyordu; canlı denemede farkında olmadan
+			 * tee'ye çevirip doğruladığım için de görünmemişti.
+			 */
+			Command: "sudo -n tee " + stagePath(path) + " >/dev/null",
+			Content: content,
+			Why:     why,
+		},
+		{
+			Kind:    StepSudoCheck,
+			Command: "sudo -n " + caps.Visudo + " -cf " + stagePath(path),
+			Why:     "the target's own visudo must accept it before it is installed",
+		},
+		{
+			Kind: StepSudoInstall,
+			Command: "sudo -n install -o root -g root -m 0440 " +
+				stagePath(path) + " " + path +
+				" && sudo -n rm -f " + stagePath(path),
+			Why: "put the checked file in place and remove the staging copy",
+		},
+	}
+}
+
+// anyJIT, en az bir geçici hesap var mı.
+func anyJIT(users []User) bool {
+	for _, u := range users {
+		if u.JIT {
+			return true
+		}
+	}
+
+	return false
+}
+
+func hasGroup(groups []Group, name string) bool {
+	for _, g := range groups {
+		if g.Name == name {
+			return true
+		}
+	}
+
+	return false
+}
+
+func hasName(names []string, name string) bool {
+	for _, n := range names {
+		if n == name {
+			return true
+		}
+	}
+
+	return false
+}
+
+/*
+ * expiryBackstop, useradd -e için tarih: sürenin bittiği günün ERTESİ.
+ *
+ * ⚠️ useradd -e gün çözünürlüğünde ve hesabı o günün BAŞINDA kapatıyor.
+ * Aynı günü yazsaydık, öğleden sonra biten bir hak sabah kesilirdi.
+ * Ertesi gün, yedeğin asıl süreden hiç önce vurmamasını garanti ediyor;
+ * bedeli, postern ölmüşse hesabın en çok bir gün fazla açık kalması.
+ */
+func expiryBackstop(t time.Time) string {
+	return t.UTC().Add(24 * time.Hour).Format("2006-01-02")
 }

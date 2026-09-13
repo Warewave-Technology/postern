@@ -3,6 +3,7 @@ package provision
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Warewave-Technology/postern/internal/sudoers"
 	"github.com/Warewave-Technology/postern/internal/upstream"
@@ -366,5 +367,128 @@ func TestEveryStepActuallyRunsAsRoot(t *testing.T) {
 					s.Kind, s.Command)
 			}
 		}
+	}
+}
+
+/*
+ * ⚠️ GEÇİCİ HESAP postern-jit GRUBUNA GİRİYOR VE BU ÜYELİĞİ KURAN TEK
+ * YER PLAN. Üyelik silmenin ön koşulu; kurulmasaydı süresi dolan hiçbir
+ * hesap silinemezdi. Grup kimse istemese de plana giriyor, hesap
+ * eklenmeden ÖNCE yaratılıyor, ve useradd'e yedek süre yazılıyor.
+ */
+func TestATemporaryAccountJoinsThePosternGroupWithABackstop(t *testing.T) {
+	expires := time.Date(2026, 9, 13, 15, 0, 0, 0, time.UTC)
+	steps, err := Plan(able(), Desired{
+		Users:  []User{{Name: "jit-ayse", Groups: []string{"dba"}, JIT: true, ExpiresAt: expires}},
+		Groups: []Group{{Name: "dba"}},
+	}, empty())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := commandsOf(steps)
+
+	if !strings.Contains(got, "groupadd "+JITGroup) {
+		t.Errorf("postern-jit grubu yaratılmıyor:\n%s", got)
+	}
+	if strings.Index(got, "groupadd "+JITGroup) > strings.Index(got, "useradd") {
+		t.Errorf("grup hesaptan sonra yaratılıyor:\n%s", got)
+	}
+	if !strings.Contains(got, "useradd -m -s /bin/bash -e 2026-09-14 jit-ayse") {
+		t.Errorf("yedek süre yazılmıyor ya da yanlış:\n%s", got)
+	}
+	if !strings.Contains(got, "usermod -a -G dba,"+JITGroup+" jit-ayse") {
+		t.Errorf("üyelik postern-jit'i içermiyor:\n%s", got)
+	}
+}
+
+/*
+ * ⚠️ POSTERN'İN AÇMADIĞI HESAP JIT YAPILMIYOR. Makinede aynı adla var olan
+ * bir hesabı postern-jit'e almak, süresi dolunca onu SİLMEK demek — ve o
+ * birinin kalıcı hesabı olabilir. Var olup grupta olan hesap ise önceki
+ * bir hakkın hesabı: uzatılıyor, yeniden yaratılmıyor.
+ */
+func TestATemporaryAccountNeverTakesOverAnExistingOne(t *testing.T) {
+	d := Desired{Users: []User{{Name: "ayse", JIT: true}}}
+
+	foreign := empty()
+	foreign.Users["ayse"] = []string{"ayse", "docker"}
+	if _, err := Plan(able(), d, foreign); err == nil {
+		t.Fatal("var olan hesap geçici hesaba ÇEVRİLDİ — süresi dolunca silinecekti")
+	}
+
+	ours := empty()
+	ours.Users["ayse"] = []string{"ayse", JITGroup}
+	ours.Groups[JITGroup] = true
+	steps, err := Plan(able(), d, ours)
+	if err != nil {
+		t.Fatalf("postern'in kendi açtığı hesap reddedildi: %v", err)
+	}
+	if got := commandsOf(steps); strings.Contains(got, "useradd") {
+		t.Errorf("var olan hesap yeniden yaratılıyor:\n%s", got)
+	}
+}
+
+/*
+ * ⚠️ YEDEK SÜRE ASIL SÜREDEN ÖNCE VURAMAZ. useradd -e hesabı verilen
+ * günün BAŞINDA kapatıyor; aynı gün yazılsaydı öğleden sonra biten bir
+ * hak sabah kesilirdi.
+ */
+func TestExpiryBackstopFallsOnTheDayAfter(t *testing.T) {
+	for _, tc := range []struct{ at, want string }{
+		{"2026-09-13T15:00:00Z", "2026-09-14"},
+		{"2026-09-13T00:00:00Z", "2026-09-14"},
+		{"2026-09-13T23:59:59Z", "2026-09-14"},
+		{"2026-09-13T22:30:00-03:00", "2026-09-15"}, // UTC'de ertesi gün 01:30
+	} {
+		at, _ := time.Parse(time.RFC3339, tc.at)
+		if got := expiryBackstop(at); got != tc.want {
+			t.Errorf("%s → %s, %s bekleniyordu", tc.at, got, tc.want)
+		}
+	}
+}
+
+/*
+ * ⚠️ KULLANICI KURALI AYRI DOSYAYA GİDİYOR VE SÖKME PLANI O DOSYAYI
+ * KABUL EDİYOR. Grup dosyasıyla aynı ada düşseydi "dba" grubu ile "dba"
+ * hesabı birbirinin kuralını ezerdi; sökme planının önek kontrolünden
+ * geçmeseydi hak biterken kural makinede kalırdı.
+ */
+func TestAPerUserSudoRuleIsWrittenAndRemovable(t *testing.T) {
+	rule := sudoers.Rule{Commands: []sudoers.Command{{Path: "/usr/bin/nginx", Args: []string{"-t"}}}}
+	steps, err := Plan(able(), Desired{Users: []User{{Name: "jit-ayse", JIT: true, Sudo: &rule}}}, empty())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := commandsOf(steps)
+	if !strings.Contains(got, "install -o root -g root -m 0440 "+UserSudoPath("jit-ayse")+".staged "+UserSudoPath("jit-ayse")) {
+		t.Errorf("kullanıcı kuralı yazılmıyor:\n%s", got)
+	}
+	if strings.Contains(got, SudoPath("jit-ayse")) {
+		t.Errorf("kullanıcı kuralı grup dosyasının yoluna gidiyor:\n%s", got)
+	}
+	for _, s := range steps {
+		if s.Kind == StepSudoStage && !strings.Contains(s.Content, "jit-ayse ALL=(root) NOPASSWD: /usr/bin/nginx -t") {
+			t.Errorf("içerik kullanıcının kuralı değil: %q", s.Content)
+		}
+	}
+
+	if _, err := RevokePlan(able(), Revoke{
+		User: "jit-ayse", Mode: ModeDelete, UID: 1001, InJITGroup: true,
+		SudoFiles: []string{UserSudoPath("jit-ayse")},
+	}); err != nil {
+		t.Errorf("sökme planı kullanıcı dosyasını reddetti: %v", err)
+	}
+
+	// Aynı kural ikinci koşuda hiç iş üretmemeli.
+	obs := empty()
+	obs.Users["jit-ayse"] = []string{"jit-ayse", JITGroup}
+	obs.Groups[JITGroup] = true
+	obs.PosternSudoers[UserSudoPath("jit-ayse")] = steps[len(steps)-3].Content
+	again, err := Plan(able(), Desired{Users: []User{{Name: "jit-ayse", JIT: true, Sudo: &rule}}}, obs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again) != 0 {
+		t.Errorf("ikinci koşu iş üretti:\n%s", commandsOf(again))
 	}
 }

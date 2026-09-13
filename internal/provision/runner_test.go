@@ -29,22 +29,37 @@ import (
 	"github.com/Warewave-Technology/postern/internal/upstream"
 )
 
-// answerMode, sahte hedefin bir exec isteğine ne yapacağı.
-type answerMode int
+/*
+ * script, sahte hedefin bir exec isteğine ne yapacağı. answered false ise
+ * kanal çıkış kodu gönderilmeden kapanıyor (cevapsızlık).
+ */
+type script func(cmd, stdin string) (stdout, stderr string, status int, answered bool)
 
-const (
-	// answerRefuse: komut koşuyor, sıfırdan farklı kodla bitiyor — bir CEVAP.
-	answerRefuse answerMode = iota
-	// answerSilence: kanal çıkış kodu gönderilmeden kapanıyor — cevapsızlık.
-	answerSilence
-)
+// answerRefuse: komut koşuyor, sıfırdan farklı kodla bitiyor — bir CEVAP.
+func answerRefuse(string, string) (string, string, int, bool) {
+	return "", "visudo: parse error\n", 1, true
+}
+
+// answerSilence: kanal çıkış kodu gönderilmeden kapanıyor — cevapsızlık.
+func answerSilence(string, string) (string, string, int, bool) { return "", "", 0, false }
+
+// hostAnswers, komut→stdout tablosu; tabloda olmayan komut 127 ile dönüyor
+// (busybox/dash "not found" gibi), yani "yok" cevabı.
+func hostAnswers(table map[string]string) script {
+	return func(cmd, _ string) (string, string, int, bool) {
+		if out, ok := table[cmd]; ok {
+			return out, "", 0, true
+		}
+		return "", cmd + ": not found\n", 127, true
+	}
+}
 
 /*
  * managedTarget, yönetim hesabını rolün kurduğu gibi taklit eden bir
  * sunucu açar: "postern" hesabı, yalnızca "postern-manage" principal'ı,
  * yalnızca verilen CA.
  */
-func managedTarget(t *testing.T, authority *ca.CA, mode answerMode) model.Target {
+func managedTarget(t *testing.T, authority *ca.CA, run script) model.Target {
 	t.Helper()
 
 	_, hostPriv, err := ed25519Key()
@@ -87,7 +102,7 @@ func managedTarget(t *testing.T, authority *ca.CA, mode answerMode) model.Target
 			if err != nil {
 				return
 			}
-			go serve(c, cfg, mode)
+			go serve(c, cfg, run)
 		}
 	}()
 
@@ -100,7 +115,7 @@ func managedTarget(t *testing.T, authority *ca.CA, mode answerMode) model.Target
 	}
 }
 
-func serve(c net.Conn, cfg *ssh.ServerConfig, mode answerMode) {
+func serve(c net.Conn, cfg *ssh.ServerConfig, run script) {
 	sc, chans, reqs, err := ssh.NewServerConn(c, cfg)
 	if err != nil {
 		c.Close()
@@ -121,12 +136,16 @@ func serve(c net.Conn, cfg *ssh.ServerConfig, mode answerMode) {
 					_ = req.Reply(false, nil)
 					continue
 				}
+				var p struct{ Command string }
+				_ = ssh.Unmarshal(req.Payload, &p)
 				_ = req.Reply(true, nil)
-				_, _ = io.ReadAll(ch)
-				if mode == answerRefuse {
-					_, _ = ch.Stderr().Write([]byte("visudo: parse error\n"))
+				stdin, _ := io.ReadAll(ch)
+				out, errOut, status, answered := run(p.Command, string(stdin))
+				_, _ = ch.Write([]byte(out))
+				_, _ = ch.Stderr().Write([]byte(errOut))
+				if answered {
 					_, _ = ch.SendRequest("exit-status", false,
-						ssh.Marshal(struct{ Status uint32 }{1}))
+						ssh.Marshal(struct{ Status uint32 }{uint32(status)})) // #nosec G115 -- test
 				}
 				return
 			}
@@ -134,7 +153,7 @@ func serve(c net.Conn, cfg *ssh.ServerConfig, mode answerMode) {
 	}
 }
 
-func runnerFor(t *testing.T, mode answerMode) *SSHRunner {
+func runnerFor(t *testing.T, run script) *SSHRunner {
 	t.Helper()
 
 	authority, err := ca.Init(t.TempDir() + "/ca")
@@ -144,7 +163,7 @@ func runnerFor(t *testing.T, mode answerMode) *SSHRunner {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	r, err := Connect(ctx, managedTarget(t, authority, mode), authority, "test", "runner test")
+	r, err := Connect(ctx, managedTarget(t, authority, run), authority, "test", "runner test")
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
