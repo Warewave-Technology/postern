@@ -196,7 +196,7 @@ describe("giriş bilgisi", () => {
   it("sıradan hesapta sıfırlama var ve değeri tek kez gösteriyor", async () => {
     const reset = vi.spyOn(api, "resetCredential").mockResolvedValue({
       username: "suheda",
-      secret: "AAAA-BBBB-CCCC",
+      password: "AAAA-BBBB-CCCC",
       replaced: true,
     });
     show({

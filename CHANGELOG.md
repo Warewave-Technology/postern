@@ -821,6 +821,16 @@ audit rows into a shape it does not understand.
 
 ### Fixed
 
+- **The sign-in value issued from the panel is shown again.** Since the
+  server started calling it `password` (1.1.0's "call the credential a
+  password"), the panel kept reading the old `secret` field, so
+  **Reset sign-in** and **Add user** drew the box that says "this is the
+  only time it is shown" — with nothing in it. The panel's own tests did
+  not notice because they answered themselves with the old name. The
+  server's test now reads the panel's type from `web/src/api.ts` and
+  fails when a response key has no field there. The value's box also
+  has its border back.
+
 - **Panel tables no longer scroll sideways at laptop width just because
   one value is long.** Every table cell was set not to wrap, so a single
   55-character hostname, a JSON detail in the admin log or a deep file

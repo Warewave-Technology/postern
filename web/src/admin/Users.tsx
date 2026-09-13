@@ -92,8 +92,8 @@ export default function Users({
          * bildirim satırında duramaz. Kutu sayfanın akışında ve
          * yönetici kapatana kadar orada.
          */
-        if (res?.secret) {
-          setIssued({ username: res.username ?? created, secret: res.secret });
+        if (res?.password) {
+          setIssued({ username: res.username ?? created, password: res.password });
           setNotice("");
         } else {
           setNotice(
@@ -297,7 +297,7 @@ export default function Users({
             Sign-in value for <b>{issued.username}</b>
           </h3>
           <p>The account is created and can sign in to the panel with this.</p>
-          <pre className="issued-secret">{issued.secret}</pre>
+          <pre className="issued-secret">{issued.password}</pre>
           <p className="msg warn">
             This is the only time it is shown. postern stores a verifier, not
             the value — it cannot be looked up or printed again. Give it to{" "}

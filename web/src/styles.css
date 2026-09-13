@@ -3147,7 +3147,8 @@ a.tcard-name:focus-visible {
   padding: 0.7rem 0.8rem;
   border-radius: var(--radius);
   background: var(--bg);
-  border: 1px solid var(--border);
+  /* --border diye bir değişken yok (çizgiler --line); kutu çerçevesiz çiziliyordu. */
+  border: 1px solid var(--line);
   margin: 0 0 0.6rem;
 }
 

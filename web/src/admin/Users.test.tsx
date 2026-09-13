@@ -64,7 +64,7 @@ describe("giriş bilgisi", () => {
     vi.spyOn(api, "users").mockResolvedValue([]);
     vi.spyOn(api, "createUser").mockResolvedValue({
       username: "ayse",
-      secret: "ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ",
+      password: "ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ",
     });
 
     render(<Users publicKeyLogin={true} localSource={true} />);
@@ -96,7 +96,7 @@ describe("giriş bilgisi", () => {
     vi.spyOn(api, "users").mockResolvedValue([]);
     vi.spyOn(api, "createUser").mockResolvedValue({
       username: "ayse",
-      secret: "",
+      password: "",
       credential_error: "a sign-in value could not be issued",
     });
 

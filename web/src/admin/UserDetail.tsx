@@ -151,7 +151,7 @@ export default function UserDetail({
               ? "Anything they held before no longer works, and their open panel sessions were dropped."
               : "This account had no credential before; it can sign in to the panel with this."}
           </p>
-          <pre className="issued-secret">{issued.secret}</pre>
+          <pre className="issued-secret">{issued.password}</pre>
           <p className="msg warn">
             This is the only time it is shown. postern stores a verifier, not
             the value — it cannot be looked up or printed again. They must

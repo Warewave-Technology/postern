@@ -118,15 +118,21 @@ export type UserDetail = {
  */
 export type CreateUserResult = {
   username?: string;
-  secret?: string;
+  password?: string;
   credential_error?: string;
 };
 
 /** IssuedCredential, panelden verilen giriş bilgisi. */
 export type IssuedCredential = {
   username: string;
-  /** ⚠️ TEK GÖSTERİM — hiçbir yerde saklanmıyor, yeniden üretilemez. */
-  secret: string;
+  /** ⚠️ TEK GÖSTERİM — hiçbir yerde saklanmıyor, yeniden üretilemez.
+   *
+   *  ⚠️ ADI SUNUCUNUN ANAHTARI: "password". Sunucu 0c9bce2'de "secret"ı
+   *  "password" yaptı, burası kalmıştı ve kutu boş çiziyordu; panel testi
+   *  sunucuyu kendi sahte cevabıyla taklit ettiği için görmedi. Go tarafı
+   *  artık bu tipin alanlarını okuyup cevapla karşılaştırıyor
+   *  (TestIssuedCredentialKeysAreWhatThePanelReads). */
+  password: string;
   /** Var olanın üstüne mi yazıldı ("parolamı unuttum" yolu). */
   replaced?: boolean;
   /** ⚠️ Hesap AÇILDI ama sır verilemedi. Bunu yutmak, giremeyen bir
