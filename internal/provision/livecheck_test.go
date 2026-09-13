@@ -2,6 +2,8 @@ package provision
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"strconv"
@@ -22,13 +24,46 @@ import (
 type sshRunner struct{ key, addr, port string }
 
 func (s sshRunner) Exec(ctx context.Context, command, stdin string) (string, error) {
-	cmd := exec.CommandContext(ctx, "ssh", "-q", "-i", s.key,
+	cmd := exec.CommandContext(ctx, "ssh", "-i", s.key,
 		"-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+		"-o", "BatchMode=yes",
 		"-p", s.port, "postern@"+s.addr, command)
 	if stdin != "" {
 		cmd.Stdin = strings.NewReader(stdin)
 	}
 	out, err := cmd.CombinedOutput()
+
+	/*
+	 * ⚠️ 255, SSH'IN KENDİ ARIZASI — ÖLÇÜLDÜ. Uzak komutun çıkış kodu
+	 * olduğu gibi dönüyor (`exit 3` → 3); 255 ise bağlantı, kimlik ya
+	 * da host anahtarı sorunu demek. Ayırmazsak rapor "group.add
+	 * failed" der ve operatörü hedefin günlüklerine yollar — oysa
+	 * orada hiçbir şey yoktur, çünkü bağlantı hiç kurulmadı.
+	 *
+	 * Kabul edilen belirsizlik: uzak komut da 255 ile çıkabilir. O
+	 * hâlde hedefe ulaşılamadığını söylemek, hedefi suçlamaktan daha
+	 * az yanlış — ve çıktı yine raporda duruyor.
+	 */
+	var ee *exec.ExitError
+	if errors.As(err, &ee) && ee.ExitCode() == 255 {
+		msg := strings.TrimSpace(string(out))
+
+		/*
+		 * ⚠️ "Permission denied" BURADA NEREDEYSE HER ZAMAN AYNI ŞEY:
+		 * sertifika sunulmadı. postern'in yönetim hesabında
+		 * authorized_keys YOK — hedef yalnızca CA'nın imzaladığı ve
+		 * doğru principal'ı taşıyan bir sertifikayı kabul ediyor.
+		 * Bunu yazmazsak okuyan kişi kendi anahtarını hedefe eklemeye
+		 * kalkıyor, yani ürünün kaldırdığı şeyi geri koyuyor.
+		 */
+		if strings.Contains(msg, "Permission denied") {
+			msg += "\n\nthe management account has no authorized_keys by design: " +
+				"sign a key with postern's CA for principal " +
+				"\"postern-manage\" and point POSTERN_LIVE_KEY at it"
+		}
+
+		return string(out), fmt.Errorf("%w: %s", ErrUnreachable, msg)
+	}
 
 	return string(out), err
 }

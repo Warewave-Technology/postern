@@ -171,3 +171,61 @@ func TestReportWithUnattemptedStepsIsNotOK(t *testing.T) {
 		t.Errorf("özet denenmeyeni söylemiyor: %q", rep.Summary())
 	}
 }
+
+/*
+ * ⚠️ "MAKİNEYE ULAŞAMADIM" İLE "KOMUT DÜŞTÜ" AYRI RAPORLANIYOR — VE BU
+ * AYRIM BİR CANLI KOŞUDA KARIŞTIĞI İÇİN VAR.
+ *
+ * Gerçek bir hedefte rapor "group.add failed" dedi; gerçek ise
+ * bağlantının hiç kurulamamasıydı (ssh 255). Operatör o cümleyle
+ * hedefin günlüklerine bakmaya gider ve orada hiçbir şey bulamaz,
+ * çünkü hedef bu komutu hiç görmedi. İkisi bambaşka eylemler
+ * gerektiriyor: biri "hedef reddetti, bak", öbürü "makine kapalı,
+ * tekrar dene".
+ */
+func TestUnreachableTargetIsNotReportedAsAFailedCommand(t *testing.T) {
+	r := &fakeRunner{failOn: "groupadd", failErr: ErrUnreachable}
+
+	rep := Apply(context.Background(), r, steps("sudo -n groupadd dba", "sudo -n useradd ayse"))
+
+	if rep.Failed() != 0 {
+		t.Errorf("ULAŞILAMAYAN MAKİNE 'komut düştü' diye sayıldı: %s", rep.Summary())
+	}
+	if rep.Unreachable() != 1 {
+		t.Errorf("ulaşılamama sayılmadı: %s", rep.Summary())
+	}
+	if rep.OK() {
+		t.Error("ulaşılamayan koşu başarılı sayıldı")
+	}
+	if !strings.Contains(rep.Summary(), "unreachable") {
+		t.Errorf("özet sebebi söylemiyor: %q", rep.Summary())
+	}
+	// Durdurma kuralı aynı: ulaşılamayan makinede sonraki adım denenmez.
+	if rep.Skipped() != 1 {
+		t.Errorf("ulaşılamama sonrası adım denendi: %s", rep.Summary())
+	}
+}
+
+/*
+ * ⚠️ SON ADIMDA ULAŞILAMAMA DA BAŞARISIZ — VE BU TEST BİR MUTASYONUN
+ * HAYATTA KALMASIYLA EKLENDİ.
+ *
+ * Önceki test ortada bir adımda kopuyordu, dolayısıyla geriye atlanan
+ * adımlar kalıyordu ve OK() onlar yüzünden zaten false dönüyordu:
+ * "ulaşılamama başarısızlıktır" iddiası hiç ölçülmemişti. Burada
+ * kopma SON adımda, yani atlanan hiçbir şey yok; OK() yalnızca
+ * ulaşılamamaya bakarak false demek zorunda.
+ */
+func TestUnreachableOnTheLastStepIsStillAFailure(t *testing.T) {
+	r := &fakeRunner{failOn: "useradd", failErr: ErrUnreachable}
+
+	rep := Apply(context.Background(), r, steps("sudo -n groupadd dba", "sudo -n useradd ayse"))
+
+	if rep.Skipped() != 0 {
+		t.Fatalf("kurgu tutmadı: atlanan adım var (%s)", rep.Summary())
+	}
+	if rep.OK() {
+		t.Fatal("SON ADIMDA ULAŞILAMAYAN KOŞU BAŞARILI SAYILDI: " +
+			"makine yapılandırılmadı ama rapor tamam diyor")
+	}
+}

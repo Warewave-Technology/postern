@@ -4,9 +4,22 @@ package provision
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 )
+
+/*
+ * ErrUnreachable, makineye HİÇ ULAŞILAMADIĞINI söyler.
+ *
+ * ⚠️ "KOMUT DÜŞTÜ" İLE "MAKİNEYE ULAŞAMADIM" AYRI ŞEYLER — VE KARIŞTIKLARI
+ * HÂLİ ÖLÇTÜK. Yayılım raporu "group.add failed" diyordu; gerçek ise
+ * bağlantının hiç kurulamamasıydı. İkisi operatöre bambaşka şeyler
+ * söylüyor: ilki "hedef reddetti, bak", ikincisi "makine kapalı, tekrar
+ * dene". Hedefi, taşıma katmanının hatasıyla suçlamak bu projenin
+ * reddettiği türden bir rapor.
+ */
+var ErrUnreachable = errors.New("target could not be reached")
 
 /*
  * Runner, hedefte tek bir komut çalıştırabilen şey.
@@ -27,6 +40,8 @@ type Outcome string
 const (
 	OutcomeDone Outcome = "done"
 	OutcomeFail Outcome = "failed"
+	// OutcomeUnreachable, makineye ulaşılamadı: hedefin suçu değil.
+	OutcomeUnreachable Outcome = "unreachable"
 	// OutcomeSkipped, önceki bir adım düştüğü için HİÇ DENENMEDİ.
 	OutcomeSkipped Outcome = "not attempted"
 )
@@ -63,12 +78,15 @@ func (r Report) count(o Outcome) int {
 	return n
 }
 
-func (r Report) Done() int    { return r.count(OutcomeDone) }
-func (r Report) Failed() int  { return r.count(OutcomeFail) }
-func (r Report) Skipped() int { return r.count(OutcomeSkipped) }
+func (r Report) Done() int        { return r.count(OutcomeDone) }
+func (r Report) Failed() int      { return r.count(OutcomeFail) }
+func (r Report) Skipped() int     { return r.count(OutcomeSkipped) }
+func (r Report) Unreachable() int { return r.count(OutcomeUnreachable) }
 
 // OK, koşunun tamamının uygulandığı.
-func (r Report) OK() bool { return r.Failed() == 0 && r.Skipped() == 0 }
+func (r Report) OK() bool {
+	return r.Failed() == 0 && r.Skipped() == 0 && r.Unreachable() == 0
+}
 
 // Summary, panelde ve denetim satırında görünecek cümle.
 func (r Report) Summary() string {
@@ -79,6 +97,16 @@ func (r Report) Summary() string {
 		return fmt.Sprintf("%d applied", r.Done())
 	}
 
+	/*
+	 * ⚠️ ULAŞILAMAYAN MAKİNE AYRI YAZILIYOR. "1 failed" demek,
+	 * operatörü hedefin günlüklerine bakmaya yollar; oysa orada
+	 * hiçbir şey yok, çünkü bağlantı hiç kurulmadı.
+	 */
+	if r.Unreachable() > 0 {
+		return fmt.Sprintf("%d applied, target unreachable, %d not attempted",
+			r.Done(), r.Skipped())
+	}
+
 	return fmt.Sprintf("%d applied, %d failed, %d not attempted",
 		r.Done(), r.Failed(), r.Skipped())
 }
@@ -86,7 +114,7 @@ func (r Report) Summary() string {
 // FirstError, koşuyu durduran hata.
 func (r Report) FirstError() error {
 	for _, res := range r.Results {
-		if res.Outcome == OutcomeFail {
+		if res.Outcome == OutcomeFail || res.Outcome == OutcomeUnreachable {
 			return res.Err
 		}
 	}
@@ -135,8 +163,12 @@ func Apply(ctx context.Context, r Runner, steps []Step) Report {
 
 		out, err := r.Exec(ctx, s.Command, s.Content)
 		if err != nil {
+			outcome := OutcomeFail
+			if errors.Is(err, ErrUnreachable) {
+				outcome = OutcomeUnreachable
+			}
 			rep.Results = append(rep.Results, Result{
-				Step: s, Outcome: OutcomeFail, Output: out,
+				Step: s, Outcome: outcome, Output: out,
 				Err: fmt.Errorf("%s: %w", s.Kind, err),
 			})
 			stopped = true
