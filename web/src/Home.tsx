@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Me, MyTarget, api } from "./api";
-import { ErrorLine, ListState, useList } from "./admin/common";
+import { ErrorLine, ListState, Timestamp, useList } from "./admin/common";
 import { HostIcon, SearchIcon } from "./icons";
 import ShellMenu from "./ShellMenu";
 import { targetURL } from "./TargetPage";
@@ -191,6 +191,16 @@ export default function Home({ me }: { me: Me }) {
                   </div>
 
                   <footer className="tcard-foot">
+                    {/*
+                      ⚠️ SÜRELİ HAK KARTTA YAZIYOR: "temporary until …".
+                      Hak bitince kutu kaybolacak; bunu önceden söylemeyen
+                      bir kart, kaybolduğu gün bir arıza gibi okunur.
+                    */}
+                    {t.temporary && (
+                      <span className="badge badge-warn" title={`granted by ${t.temporary.granted_by}`}>
+                        temporary until <Timestamp value={t.temporary.until} />
+                      </span>
+                    )}
                     {/*
                       Gözlemler: bağlanmadan önce sorulmaya değer sorular.
                       "Hiç bağlanılmadı" ile "dün bağlanıldı" arasındaki

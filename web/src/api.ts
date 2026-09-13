@@ -228,6 +228,12 @@ export type MyTarget = {
   labels: Record<string, string>;
   server_version?: string;
   last_seen_at?: string;
+  /*
+   * temporary: hedef envanterde bir SÜRELİ HAK yüzünden duruyor. Kişi
+   * bunu görmeli — hak biter, kutu kaybolur; bilmeyen arıza arar. Rolle
+   * de erişilen hedefte alan yok: erişim kalıcı.
+   */
+  temporary?: { until: string; granted_by: string; groups: string[] };
 };
 
 /*

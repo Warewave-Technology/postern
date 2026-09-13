@@ -544,8 +544,15 @@ system groups are root without a sudo rule; the server refuses those
 regardless of what the panel sent. A grant is opened on each host in
 turn, and each host answers on its own line. postern signs
 in with its own certificate, creates the account in the `postern-jit`
-group, and writes the rule through the same stage → `visudo` → install
-steps as everything else. The tab lists every grant on every host.
+group — with the principals file sshd expects for it, unlocked for
+certificate sign-in without a password, and with a shell the host has —
+and writes the rule through the same stage → `visudo` → install steps as
+everything else. The tab lists every grant on every host.
+
+The person sees the host on their home screen for as long as the grant
+lasts, marked *temporary until …*; the grant alone lets them through the
+bastion to that host, no role required, and the host leaves their list
+when it ends.
 
 When the grant ends, or when an administrator ends it early, the same
 function runs in reverse: the person's open sessions on that host are

@@ -1661,3 +1661,20 @@ describe("Geçici erişim sekmesi", () => {
     expect(screen.queryByRole("button", { name: "Temporary access" })).not.toBeInTheDocument();
   });
 });
+
+describe("Süreli erişim kartı", () => {
+  // Hak bitince kutu kaybolacak; bunu önceden söylemeyen kart, kaybolduğu
+  // gün bir arıza gibi okunur.
+  it("hakla gelen hedef kartta 'temporary until' taşır, rolle gelen taşımaz", async () => {
+    vi.spyOn(api, "me").mockResolvedValue(me);
+    vi.spyOn(api, "myTargets").mockResolvedValue([
+      { name: "web01", labels: {} },
+      { name: "db01", labels: {}, temporary: { until: "2026-09-13T21:00:00Z", granted_by: "ops", groups: ["dba"] } },
+    ]);
+
+    render(<App />);
+    await screen.findByText("db01");
+    expect(screen.getByText(/temporary until/)).toBeInTheDocument();
+    expect(screen.getAllByText(/temporary until/)).toHaveLength(1);
+  });
+});

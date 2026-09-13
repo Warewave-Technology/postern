@@ -86,6 +86,28 @@ export default function TargetPage({ me, name }: { me: Me; name: string }) {
           <p className="page-sub">
             Every session through this host is recorded.
           </p>
+          {/*
+            ⚠️ SÜRELİ ERİŞİM SAYFADA DA YAZIYOR, yalnızca kartta değil:
+            bu sayfa paylaşılabilir bir bağlantı ve kişi buraya karttan
+            gelmemiş olabilir. Vade, veren ve gruplar — kişinin sorusu
+            "ne zamana kadar ve neyle".
+          */}
+          {t.temporary && (
+            <p className="msg msg-warn" role="status">
+              You have <b>temporary access</b> to this host until{" "}
+              <Timestamp value={t.temporary.until} />, granted by{" "}
+              <code>{t.temporary.granted_by}</code>
+              {t.temporary.groups.length > 0 && (
+                <>
+                  {" "}
+                  in the group{t.temporary.groups.length > 1 ? "s" : ""}{" "}
+                  <code>{t.temporary.groups.join(", ")}</code>
+                </>
+              )}
+              . When it ends, the account on this host is removed and the host
+              leaves your list.
+            </p>
+          )}
         </div>
         <ShellMenu
           target={t.name}

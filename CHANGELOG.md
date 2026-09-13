@@ -201,6 +201,17 @@ audit rows into a shape it does not understand.
   line, so a hundred hosts do not mean a hundred clicks and one host
   that cannot be reached does not hide the ninety-nine that were.
 
+  The person who received the grant sees the host on their own home
+  screen for as long as it lasts, marked *temporary until …*, and the
+  host's page says who granted it and in which groups; the grant is also
+  what lets them through the bastion — no role is needed for that host,
+  and when the grant ends the host leaves their list. On the host itself
+  the account is created with its principals file (from the pattern sshd
+  reports, never a shared file), unlocked for certificate sign-in without
+  ever having a password, and with a shell the host actually has; the
+  integration test now signs in as the temporary account with a
+  certificate and proves the door closes again after revocation.
+
   Migration 041 adds the grant table. The setting is the same
   `manage.enabled`; there is no second switch, because a bastion that can
   open temporary accounts but not close them would make "temporary" a lie.

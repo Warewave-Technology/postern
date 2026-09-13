@@ -304,7 +304,7 @@ const labelsBig = {
 const myTargets = [
   { name: "web-01", labels: { env: "prod", team: "web" }, server_version: "SSH-2.0-OpenSSH_9.6", last_seen_at: T(9, 12) },
   { name: LONG_HOST, labels: labelsBig, server_version: "SSH-2.0-OpenSSH_8.0p1 Rocky Linux 8", last_seen_at: T(8, 3) },
-  { name: "db-primary", labels: { env: "prod", role: "database" }, server_version: "SSH-2.0-OpenSSH_9.3", last_seen_at: T(7) },
+  { name: "db-primary", labels: { env: "prod", role: "database" }, server_version: "SSH-2.0-OpenSSH_9.3", last_seen_at: T(7), temporary: { until: T(21), granted_by: "ops", groups: ["dba"] } },
   { name: "cache-03", labels: {}, server_version: undefined, last_seen_at: undefined },
   { name: "build-runner-linux-amd64-07", labels: { env: "ci", pool: "linux-amd64-large-memory-runners" }, server_version: "SSH-2.0-OpenSSH_9.6", last_seen_at: T(6, 45) },
   { name: "demo-a", labels: { env: "demo" }, server_version: "SSH-2.0-OpenSSH_9.9", last_seen_at: T(10, 1) },
@@ -461,7 +461,7 @@ const base: Fixtures = {
     unseen_mappings: ["CN=Ops Team,OU=Groups,DC=example,DC=com", "sre-oncall"],
   },
   myTargets,
-  myTarget: (name: string) => Promise.resolve({ ...(myTargets.find((t) => t.name === name) ?? myTargets[1]), sessions: sessions.slice(0, 6).map((s) => ({ id: s.id, started: s.started_at, ended: s.ended_at ?? undefined, os_user: s.os_user })), sessions_partial: true, sessions_scanned: 200 }),
+  myTarget: (name: string) => Promise.resolve({ ...(myTargets.find((t) => t.name === name) ?? myTargets[1]), temporary: { until: T(21), granted_by: "ops", groups: ["dba", "developer"] }, sessions: sessions.slice(0, 6).map((s) => ({ id: s.id, started: s.started_at, ended: s.ended_at ?? undefined, os_user: s.os_user })), sessions_partial: true, sessions_scanned: 200 }),
   users,
   userDetail: (name: string) => Promise.resolve(userDetail(name)),
   roles,

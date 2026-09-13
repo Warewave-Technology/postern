@@ -194,3 +194,32 @@ describe("oturum geçmişi okunamadığında", () => {
     ).toBeNull();
   });
 });
+
+/*
+ * ⚠️ SÜRELİ ERİŞİM SAYFADA YAZIYOR: vade, veren, gruplar. Bu sayfa
+ * paylaşılabilir bir bağlantı; karttaki rozet buraya gelmeyen kişiye
+ * ulaşmıyor. Rolle erişilen hedefte hiçbir şey çizilmiyor.
+ */
+describe("süreli erişim", () => {
+  it("vadesini, vereni ve grupları söylüyor; kalıcıda susuyor", async () => {
+    vi.spyOn(api, "myTarget").mockResolvedValue({
+      name: "db-01",
+      labels: {},
+      sessions: [],
+      temporary: { until: "2026-09-13T21:00:00Z", granted_by: "ops", groups: ["dba", "docker"] },
+    });
+    render(<TargetPage me={me} name="db-01" />);
+    const note = await screen.findByRole("status");
+    expect(note.textContent).toMatch(/temporary access/);
+    expect(note.textContent).toMatch(/granted by ops/);
+    expect(note.textContent).toMatch(/groups dba, docker/);
+    expect(note.textContent).toMatch(/leaves your list/);
+  });
+
+  it("rolle erişilen hedefte süreli notu yok", async () => {
+    vi.spyOn(api, "myTarget").mockResolvedValue({ name: "web-01", labels: {}, sessions: [] });
+    render(<TargetPage me={me} name="web-01" />);
+    await screen.findByText("web-01");
+    expect(screen.queryByText(/temporary access/)).toBeNull();
+  });
+});

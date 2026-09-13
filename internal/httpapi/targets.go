@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net"
 	"net/http"
@@ -56,6 +57,53 @@ type targetCard struct {
 	Labels        map[string]string `json:"labels"`
 	ServerVersion string            `json:"server_version,omitempty"`
 	LastSeenAt    string            `json:"last_seen_at,omitempty"`
+	/*
+	 * Temporary, hedef kişinin envanterinde bir SÜRELİ HAK yüzünden
+	 * duruyorsa doludur. ⚠️ Kişi bunu bilmek zorunda: hak biter, kutu
+	 * kaybolur ve "hedefim gitti" diye arıza aranır. Rolle de erişilen
+	 * hedefte alan boş — erişim kalıcı, hak bir şey eklemiyor.
+	 */
+	Temporary *temporaryCard `json:"temporary,omitempty"`
+}
+
+// temporaryCard, süreli hakkın kişiye görünen kısmı.
+type temporaryCard struct {
+	Until     string   `json:"until"`
+	GrantedBy string   `json:"granted_by"`
+	Groups    []string `json:"groups"`
+}
+
+/*
+ * temporaryTargets, kişinin ŞU AN yetki veren hakları, hedef adına göre.
+ *
+ * Yetki tanımı politikadakiyle aynı (model.TemporaryAccess.Live): hedefte
+ * uygulanmış ve vadesi dolmamış. Aynı hedefe birden çok hak varsa en geç
+ * biteni gösteriliyor — kişi için doğru olan "ne zamana kadar" o.
+ */
+func (s *Server) temporaryTargets(ctx context.Context, username string, now time.Time) (map[string]store.JITGrant, error) {
+	grants, err := s.store.ActiveJITGrantsForUser(ctx, username)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]store.JITGrant{}
+	for _, g := range grants {
+		live := model.TemporaryAccess{Target: g.Target, OSUser: g.OSUser, ExpiresAt: g.ExpiresAt, Applied: !g.AppliedAt.IsZero()}
+		if !live.Live(now) {
+			continue
+		}
+		if cur, ok := out[g.Target]; !ok || g.ExpiresAt.After(cur.ExpiresAt) {
+			out[g.Target] = g
+		}
+	}
+	return out, nil
+}
+
+func cardOf(g store.JITGrant) *temporaryCard {
+	groups := g.Groups
+	if groups == nil {
+		groups = []string{}
+	}
+	return &temporaryCard{Until: g.ExpiresAt.UTC().Format(time.RFC3339), GrantedBy: g.GrantedBy, Groups: groups}
 }
 
 func (s *Server) handleMyTargets(w http.ResponseWriter, r *http.Request) {
@@ -79,6 +127,16 @@ func (s *Server) handleMyTargets(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	/*
+	 * Süreli haklar da envantere giriyor. Okunamazsa liste rollerle
+	 * çiziliyor ve log'a düşüyor: rolü olanın kutuları bir defter
+	 * arızasında kaybolmamalı.
+	 */
+	temporary, terr := s.temporaryTargets(r.Context(), u.Name, time.Now())
+	if terr != nil {
+		s.logger.Warn("temporary access unavailable for the inventory", "user", u.Name, "error", terr)
+		temporary = map[string]store.JITGrant{}
+	}
 	targets, err := s.store.Targets(r.Context())
 	if err != nil {
 		s.storeErr(w, "targets.mine", err)
@@ -96,12 +154,17 @@ func (s *Server) handleMyTargets(w http.ResponseWriter, r *http.Request) {
 		facts = map[string]model.TargetFacts{}
 	}
 
-	out := make([]targetCard, 0, len(allowed))
+	out := make([]targetCard, 0, len(allowed)+len(temporary))
 	for _, t := range targets {
-		if _, ok := allowed[t.Name]; !ok {
+		_, byRole := allowed[t.Name]
+		grant, byGrant := temporary[t.Name]
+		if !byRole && !byGrant {
 			continue
 		}
 		card := targetCard{Name: t.Name, Labels: t.Labels}
+		if !byRole {
+			card.Temporary = cardOf(grant)
+		}
 		if card.Labels == nil {
 			// nil map JSON'da null oluyor ve istemcide Object.entries
 			// patlıyor.
@@ -469,6 +532,18 @@ func (s *Server) handleMyTargetDetail(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// Süreli hak da açıyor — listede olan sayfada da olmalı.
+	var temporary *temporaryCard
+	if temp, terr := s.temporaryTargets(r.Context(), u.Name, time.Now()); terr != nil {
+		s.logger.Warn("temporary access unavailable for the target page", "user", u.Name, "error", terr)
+	} else if !allowed {
+		for tname, g := range temp {
+			if strings.EqualFold(tname, name) {
+				allowed = true
+				temporary = cardOf(g)
+			}
+		}
+	}
 	/*
 	 * ⚠️ 404, 403 DEĞİL — ve var olmayan hedefle aynı cevap.
 	 *
@@ -556,5 +631,7 @@ func (s *Server) handleMyTargetDetail(w http.ResponseWriter, r *http.Request) {
 		// bağlanmadın" demek değil.
 		"sessions_partial": sessionsPartial,
 		"sessions_scanned": sessionScanLimit,
+		// temporary: erişim bir süreli haktan geliyorsa, vadesiyle.
+		"temporary": temporary,
 	})
 }
