@@ -194,6 +194,12 @@ audit rows into a shape it does not understand.
   not fully applied, or *revocation failing* with the reason — and a button
   to end one early.
 
+  Deleting a user who still has an open temporary account is refused, with
+  the count, until those accounts are gone: a record without an owner would
+  leave "who is on this machine" unanswerable in the panel. Deleting with
+  `revoke_grants=true` removes the accounts first, and stops — without
+  deleting the user — if any of them cannot be removed.
+
 - **postern refuses to manage a machine it does not understand.** A capability
   probe reports which tools a target actually has and names what is missing
   rather than guessing. On Alpine it finds busybox's `adduser` but no

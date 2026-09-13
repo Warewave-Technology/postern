@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/Warewave-Technology/postern/internal/auth"
+	"github.com/Warewave-Technology/postern/internal/jit"
 	"github.com/Warewave-Technology/postern/internal/model"
 	"github.com/Warewave-Technology/postern/internal/sshalg"
 	"github.com/Warewave-Technology/postern/internal/store"
@@ -460,6 +462,21 @@ func (s *Server) adminPatchUser(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) adminDeleteUser(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
+
+	/*
+	 * ⚠️ HEDEFLERDE AÇIK HESABI OLAN KİŞİ SİLİNMİYOR — hesaplar önce
+	 * makinelerden gitmeli. Kayıt silinip hesaplar kalsaydı, süpürücü
+	 * onları vadesinde yine toplardı (kayıt kişiye değil ada bağlı) ama
+	 * panelde o hakların sahibi artık görünmezdi ve "bu makinede kim var"
+	 * sorusu cevapsız kalırdı. revoke_grants=true ile yönetici geri almayı
+	 * BİLEREK istiyor; biri başarısız olursa kişi silinmiyor, çünkü yarım
+	 * iş — makinede hesap var, postern'de sahibi yok — tam olarak
+	 * kaçınılan şey.
+	 */
+	if !s.revokeGrantsBeforeDelete(w, r, name) {
+		return
+	}
+
 	if err := s.store.DeleteUser(r.Context(), name); err != nil {
 		if errors.Is(err, store.ErrConflict) {
 			// Denetim kaydı olan varlık silinmez: sebebini açıkça söyle,
@@ -1072,4 +1089,46 @@ func (s *Server) adminListLog(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// revokeGrantsBeforeDelete, kişinin hedeflerdeki geçici hesaplarını siler
+// ya da silinemiyorsa isteği durdurur. false dönerse cevap yazılmıştır.
+func (s *Server) revokeGrantsBeforeDelete(w http.ResponseWriter, r *http.Request, name string) bool {
+	active, err := s.store.ActiveJITGrantsForUser(r.Context(), name)
+	if err != nil {
+		s.storeErr(w, "user.delete", err)
+		return false
+	}
+	if len(active) == 0 {
+		return true
+	}
+
+	if r.URL.Query().Get("revoke_grants") != "true" {
+		writeErr(w, http.StatusConflict, fmt.Sprintf(
+			"%s still has %d temporary account(s) open on targets; end them first, or "+
+				"delete with revoke_grants=true to remove those accounts now", name, len(active)))
+		return false
+	}
+	if s.jit == nil {
+		writeErr(w, http.StatusConflict,
+			"this bastion cannot remove the accounts: management is switched off (manage.enabled)")
+		return false
+	}
+
+	actor := sessionUser(r)
+	for _, g := range active {
+		out, rerr := s.jit.Revoke(r.Context(), g.ID, actor, "web")
+		if rerr != nil && !errors.Is(rerr, jit.ErrRevoked) {
+			s.logger.Warn("user delete stopped: a temporary account could not be removed",
+				"user", name, "grant", g.ID, "target", g.Target, "error", rerr)
+			writeJSON(w, http.StatusBadGateway, map[string]any{
+				"error": fmt.Sprintf("%s was not deleted: the account on %s could not be removed: %v",
+					name, g.Target, rerr),
+				"grant": g.ID, "steps": stepsOf(out.Report),
+			})
+			return false
+		}
+	}
+
+	return true
 }

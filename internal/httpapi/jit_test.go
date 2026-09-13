@@ -11,8 +11,10 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -282,5 +284,82 @@ func TestGrantEndpointsAreBehindTheAdminAndSameOriginGates(t *testing.T) {
 		if code := call(ep.method, ep.path, "same-origin"); code != http.StatusNotFound {
 			t.Errorf("%s %s yönetici + aynı köken %d verdi, 404 bekleniyordu", ep.method, ep.path, code)
 		}
+	}
+}
+
+/*
+ * ⚠️ HEDEFTE AÇIK HESABI OLAN KİŞİ SİLİNMİYOR. Kayıt gidip hesap kalsaydı
+ * "bu makinede kim var" sorusu panelde cevapsız kalırdı. Yönetici
+ * revoke_grants=true ile geri almayı bilerek istiyor; hedef ulaşılamazsa
+ * kişi YİNE silinmiyor — makinede hesap var, postern'de sahibi yok, tam
+ * olarak kaçınılan şey.
+ */
+func TestAUserWithOpenTemporaryAccountsIsNotDeleted(t *testing.T) {
+	s, db, _, _, hostKey := jitServer(t)
+	ctx := t.Context()
+
+	/*
+	 * ⚠️ ULAŞILAMAYAN HEDEF, "HESABI OLMAYAN HEDEF" DEĞİL. İlk hâli sahte
+	 * hedefi kullanıyordu; orada hesap yok, geri alma haklı olarak
+	 * "hesap zaten gitmiş" diye BAŞARIYOR ve kişi siliniyordu — test
+	 * ölçmek istediğini ölçmüyordu. Kapalı bir port, geri almanın
+	 * gerçekten bitmediği tek deterministik hâl.
+	 */
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, p, _ := net.SplitHostPort(l.Addr().String())
+	closedPort, _ := strconv.Atoi(p)
+	l.Close()
+	if _, err := db.CreateTarget(ctx, model.Target{
+		Name: "kapali", Host: "127.0.0.1", Port: closedPort, HostKey: hostKey,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now()
+	id, err := db.CreateJITGrant(ctx, store.JITGrant{
+		Username: "ayse", Target: "kapali", OSUser: "ayse", GrantedBy: "ops",
+		GrantedAt: now, ExpiresAt: now.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.MarkJITGrantApplied(ctx, id, true, "4 applied", now); err != nil {
+		t.Fatal(err)
+	}
+
+	del := func(query string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodDelete, "/api/admin/users/ayse"+query, nil)
+		r.SetPathValue("name", "ayse")
+		w := httptest.NewRecorder()
+		s.adminDeleteUser(w, asAdmin(r))
+		return w
+	}
+
+	if w := del(""); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "revoke_grants=true") {
+		t.Errorf("açık hakkı olan kişi: %d %s", w.Code, w.Body.String())
+	}
+	if _, err := db.User(ctx, "ayse"); err != nil {
+		t.Fatalf("kişi silindi: %v", err)
+	}
+
+	// Geri alma isteniyor ama hedefe ulaşılamıyor: kişi yine silinmiyor ve
+	// sebep cevapta.
+	w := del("?revoke_grants=true")
+	if w.Code != http.StatusBadGateway || !strings.Contains(w.Body.String(), "was not deleted") {
+		t.Errorf("geri alma düşünce kişi silindi ya da sebep yok: %d %s", w.Code, w.Body.String())
+	}
+	if _, err := db.User(ctx, "ayse"); err != nil {
+		t.Fatalf("başarısız geri almadan sonra kişi silindi: %v", err)
+	}
+
+	// Hak kapanınca silme geçiyor.
+	if err := db.MarkJITGrantRevoked(ctx, id, "gone", now); err != nil {
+		t.Fatal(err)
+	}
+	if w := del(""); w.Code != http.StatusOK {
+		t.Errorf("hakları kapanmış kişi silinemedi: %d %s", w.Code, w.Body.String())
 	}
 }
