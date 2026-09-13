@@ -479,6 +479,38 @@ so it is always clear which answers cost a command and which did not.
 
 `postern serve` logs a warning at every startup while this is on.
 
+### Discovering machines from a hypervisor
+
+Under **Settings → Discovery** an administrator adds a *source*: a
+Proxmox cluster or a vCenter, with a read-only API token or account,
+the tag key that names the role (`role_ops` on Proxmox, whose tags
+cannot contain `=` or `:`; a tag category on vSphere), an optional name
+pattern, the SSH port, and a schedule. postern reads the source on that
+schedule, or when you press **Run now**, reads the host key of every
+running machine it reports, and lists the machines with what stands in
+the way of registering each one. The credentials are sealed with the
+bastion's secret key and never shown again.
+
+Nothing becomes a target by itself. A discovered machine is a row until
+an administrator ticks it and walks through three steps — the roles to
+grant (existing ones, and optionally the one the tag names, created if
+it is missing), labels, and a summary showing each machine's host key
+fingerprint — and only the last step writes. The target is created with
+exactly the key shown, granted to those roles, labelled, and each step
+is written to the admin log. This is the difference from
+`postern discover --apply`, which writes directly because the operator
+running it has just read the preview: a schedule has no reader, and
+someone who can create a VM with the right tag on the hypervisor must
+not be able to create a host that a role's members can sign in to.
+
+A run never changes a registered target's host key — a machine
+answering with a different key is a finding on its row, counted on the
+run, and the target is left alone — and never deletes a machine the
+platform stopped reporting; the row is marked missing and the target
+keeps its history. A source that suddenly reports nothing at all fails
+the run instead of marking everything missing, because a token whose
+permissions were narrowed answers with an empty list, not an error.
+
 ### Letting postern manage a target
 
 The next step crosses that line on purpose, and it takes two separate

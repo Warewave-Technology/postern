@@ -156,6 +156,50 @@ audit rows into a shape it does not understand.
   identity provider or a directory, and again by policy and by the ordinary
   connection.
 
+- **Discovery from the panel: hypervisors as sources, machines as a
+  queue, registration as a decision.** `postern discover` stays, but it
+  is a command an operator runs by hand and it writes targets and role
+  grants directly, after that operator has read the preview. A schedule
+  has no reader, so the panel's version works differently. Under
+  **Settings → Discovery** an administrator saves a *source* — a Proxmox
+  cluster or a vCenter, with its address, a read-only API token or
+  account (sealed with the bastion's secret key and never returned by
+  the API), the tag key that names the role, an optional name pattern
+  and node, the SSH port, and a schedule between five minutes and a week
+  or "only when asked". postern runs each source on its schedule, or on
+  **Run now**, and every run leaves a row: what it saw, how many
+  machines were new, missing, unreachable, or answering with a different
+  host key than the target they are linked to.
+
+  What a run finds lands in a list of *machines*, keyed by the
+  platform's own identity (`qemu/101`, `vsphere/vm-42`) rather than by
+  name, so a VM renamed or migrated to another node stays one row. Each
+  row carries the host key postern read from the machine and the role
+  its tag names. Nothing becomes a target on its own: automation may
+  grow the inventory, never the set of machines people can reach, and a
+  hypervisor account that can create a VM with the right tag must not be
+  a way to create a host that a role's members can sign in to. An
+  administrator ticks machines and registers them through three steps —
+  the roles to grant (existing ones, and optionally the one the tag
+  names, created if missing), labels, and a summary that shows each
+  machine's host key fingerprint — and only the last step writes: the
+  target is created with exactly the key shown, granted to those roles,
+  labelled, and every step goes to the admin log with the
+  administrator's name.
+
+  Three things a run never does: it never changes a registered target's
+  host key (a machine answering with a different key is reported as a
+  finding on its row and counted on the run, and the target is left
+  untouched), it never deletes a machine the platform stopped reporting
+  (the row is marked missing and any target keeps its session history),
+  and it never treats an empty answer from the platform as "everything
+  is gone" (an API token whose permissions were narrowed returns an
+  empty list, not an error; such a run fails and marks nothing).
+  Machines can be ignored, which also stops postern from scanning them.
+  A source's credentials need the bastion's `secret_key_file`; without
+  it the screen says so and no source can be saved. Migration 045 adds
+  the three tables.
+
 - **Temporary access: postern opens an account on a target for a fixed time
   and removes it when the time is up.** On a host with the management
   account, an administrator can grant one person an account on that host

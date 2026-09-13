@@ -3,14 +3,12 @@ package discover
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 )
@@ -43,6 +41,10 @@ type ProxmoxConfig struct {
 	// CAFile, hipervizörün sertifikasını doğrulayacak kök. Boşsa
 	// sistemin kök deposu.
 	CAFile string
+
+	// CAPEM, aynı kök PEM metni olarak: panelde kaydedilen kaynak dosya
+	// yolu değil metin taşıyor. CAFile doluysa o geçerli.
+	CAPEM string
 
 	/*
 	 * Insecure, TLS doğrulamasını KAPATIR.
@@ -94,16 +96,12 @@ func NewProxmox(cfg ProxmoxConfig) (*Proxmox, error) {
 	}
 
 	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
+	pool, perr := rootPool("proxmox", cfg.CAFile, cfg.CAPEM)
+	if perr != nil {
+		return nil, perr
+	}
 	switch {
-	case cfg.CAFile != "":
-		pem, rerr := os.ReadFile(cfg.CAFile)
-		if rerr != nil {
-			return nil, fmt.Errorf("discover: proxmox ca file: %w", rerr)
-		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(pem) {
-			return nil, fmt.Errorf("discover: proxmox ca file %s: no certificate found", cfg.CAFile)
-		}
+	case pool != nil:
 		tlsCfg.RootCAs = pool
 	case cfg.Insecure:
 		// #nosec G402 -- bilinçli ve komut satırında açıkça istenmiş;
@@ -193,6 +191,7 @@ func (p *Proxmox) Machines(ctx context.Context) ([]Machine, error) {
 			Tags:    splitTags(r.Tags),
 			Running: r.Status == "running",
 			Ref:     fmt.Sprintf("%s/%d@%s", r.Type, r.VMID, r.Node),
+			Key:     fmt.Sprintf("%s/%d", r.Type, r.VMID),
 		}
 		if m.Running {
 			m.Host = p.address(ctx, r.Node, r.Type, r.VMID)

@@ -12,6 +12,7 @@ import { ErrorLine } from "./admin/common";
 import Modal from "./admin/Modal";
 import Users from "./admin/Users";
 import Targets from "./admin/Targets";
+import Discovery from "./admin/Discovery";
 import Roles from "./admin/Roles";
 import { AdminLog, Sessions } from "./admin/Audit";
 import FileHistory from "./admin/FileHistory";
@@ -58,6 +59,7 @@ type Section =
   | "mappings"
   | "pending"
   | "targets"
+  | "discovery"
   | "signin"
   | "oidc"
   | "ldap"
@@ -85,7 +87,10 @@ const NAV: { title?: string; items: [Section, string, ReactNode][] }[] = [
   },
   {
     title: "Infrastructure",
-    items: [["targets", "Targets", <TargetIcon key="i" />]],
+    items: [
+      ["targets", "Targets", <TargetIcon key="i" />],
+      ["discovery", "Discovery", <TargetIcon key="i" />],
+    ],
   },
   {
     /*
@@ -1003,6 +1008,7 @@ export default function App() {
                   {section === "mappings" && <Mappings />}
                   {section === "pending" && <Pending />}
                   {section === "targets" && <Targets />}
+                  {section === "discovery" && <Discovery />}
                   {section === "signin" && <AuthSource />}
                   {section === "oidc" && <OIDCSettingsScreen />}
                   {section === "ldap" && <Settings meName={me.name} />}

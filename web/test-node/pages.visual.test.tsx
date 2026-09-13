@@ -832,6 +832,48 @@ describe("sayfa düzeyinde görsel çıktı", () => {
     page("jit-empty");
   });
 
+  it("keşif", async () => {
+    const run = {
+      id: 7, source_id: "s1", trigger: "timer", actor: "system", started_at: T(11), finished_at: T(11),
+      outcome: "ok", seen: 5, new_machines: 1, missing: 1, key_changed: 1, unreachable: 1,
+    };
+    const src = {
+      id: "s1", name: "lab cluster", kind: "proxmox", url: "https://pve.example:8006", username: "postern@pve!d",
+      secret_set: true, ca_pem: "", insecure: false, node: "", tag_key: "role", name_pattern: "web-*, db-*", port: 22,
+      interval_seconds: 3600, enabled: true, created_by: "ops", created_at: T(10), updated_at: T(10), last_run: run, running: false,
+    };
+    const m = (ref: string, name: string, over: Record<string, unknown> = {}) => ({
+      source_id: "s1", source: "lab cluster", ref, name, host: "10.0.0.5", tags: ["role_web", "env_prod"], running: true,
+      role: "web", fingerprint: "SHA256:8eQzq1pRZo9hZ3ZC6uYb3f0mI2c9c7Ck4v3n2a1b0cd", ignored: false,
+      first_seen: T(10), last_seen: T(11), ...over,
+    });
+    const discovery = {
+      sources: [src, { ...src, id: "s2", name: "vcenter", kind: "vsphere", url: "https://vcenter.example", insecure: true, last_run: undefined, running: true, interval_seconds: 0 }],
+      machines: [
+        m("qemu/101", "web-01"), m("qemu/102", "db-01", { target: "db-01", role: "dba" }),
+        m("lxc/200", "old-01", { missing_since: T(11) }),
+        m("qemu/104", "bad-01", { fingerprint: undefined, problem: "no host key from 10.0.0.9:22 (dial tcp 10.0.0.9:22: i/o timeout)" }),
+        m("qemu/105", "ign-01", { ignored: true }),
+        m("qemu/106", "moved-01", { target: "moved-01", problem: "its host key SHA256:x differs from SHA256:y pinned on target moved-01; the target was left untouched" }),
+      ],
+      secrets_available: true, min_interval_seconds: 300,
+    };
+    mockAll({ ...base, discovery });
+    await openSettings("Discovery");
+    page("settings-discovery");
+    fireEvent.click(screen.getByRole("checkbox", { name: /select web-01/i }));
+    click(/register 1 selected/i);
+    await settle();
+    document.querySelector("dialog")?.setAttribute("open", "");
+    page("settings-discovery-register");
+    cleanup();
+    vi.restoreAllMocks();
+
+    mockAll({ ...base, discovery: { sources: [], machines: [], secrets_available: false, min_interval_seconds: 300 } });
+    await openSettings("Discovery");
+    page("settings-discovery-empty");
+  });
+
   it("kabuk sayfası", async () => {
     // Terminal xterm'e (canvas) dayanıyor ve jsdom'da çizilemiyor; kabuk
     // çubuğu ve dosya düğmesi yine görünmeli.

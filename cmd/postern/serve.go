@@ -22,6 +22,7 @@ import (
 	"github.com/Warewave-Technology/postern/internal/archive"
 	"github.com/Warewave-Technology/postern/internal/auth"
 	"github.com/Warewave-Technology/postern/internal/config"
+	"github.com/Warewave-Technology/postern/internal/discover"
 	"github.com/Warewave-Technology/postern/internal/events"
 	"github.com/Warewave-Technology/postern/internal/httpapi"
 	"github.com/Warewave-Technology/postern/internal/jit"
@@ -629,6 +630,15 @@ func newServeCmd() *cobra.Command {
 
 				webAPI := httpapi.New(oidcHolder, logins, db, logger)
 				webAPI.SetPublicKeyLogin(cfg.Auth.PublicKeyLoginEnabled())
+				/*
+				 * Panelden keşif: kaynaklar veritabanında, sırları
+				 * mühürlü; döngü zamanı gelen kaynağı koşturuyor. Ayrı bir
+				 * anahtarı yok — kaynak kaydedilmemişse döngünün yapacağı
+				 * bir şey yok, kaydedilmişse operatör onu istemiş demek.
+				 */
+				discovery := discover.NewService(db, logger)
+				webAPI.UseDiscovery(discovery)
+				go discovery.Loop(ctx)
 				/*
 				 * ⚠️ İKİ KOŞUL BİRDEN. Panel tarayıcısı, SFTP kanalı
 				 * kapalıyken açılamaz: kapalı bir kanalın üzerine

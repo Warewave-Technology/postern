@@ -1,0 +1,801 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  DiscoveredMachine,
+  DiscoveryOverview,
+  DiscoverySource,
+  DiscoverySourceInput,
+  MachineRef,
+  Registered,
+  Role,
+  api,
+  toMessage,
+} from "../api";
+import { ActionButton, ErrorLine, ListState, Timestamp, useList } from "./common";
+import DataTable, { Column } from "./DataTable";
+import Modal from "./Modal";
+import MultiSelect from "./MultiSelect";
+
+/*
+ * Discovery — panelden keşif: kaynaklar, koşuları ve buldukları makineler.
+ *
+ * ⚠️ KOŞU HEDEF YAZMIYOR. CLI'daki `postern discover --apply` yazıyor,
+ * çünkü orada önizlemeyi bir insan okuyup onaylıyor; zamanlayıcının okuru
+ * yok. Bulunan makine burada bir satır; hedef olması "Register" ile ve
+ * yöneticinin rolleri, etiketleri ve özet ekranında parmak izini görüp
+ * onaylamasıyla oluyor. Sanallaştırma platformunda VM açabilen biri
+ * böylece postern'de kimsenin erişebileceği bir makine yaratamıyor.
+ *
+ * ⚠️ DURUM SATIRDAN TÜRETİLİYOR (machineState): sunucu "durum" diye tek
+ * bir alan vermiyor; yok sayılmış, kayıp, kayıtlı-ama-anahtarı-değişmiş,
+ * engelli ve yeni birbirinden ayrı ve ilk ikisi seçilebilir ama
+ * kaydedilemez. Anahtarı değişen makine KIRMIZI: hedefe dokunulmadı ve
+ * "makine yenilendi" mi "makine değişti" mi kararını insan verecek.
+ */
+
+const SCHEDULES: [number, string][] = [
+  [0, "Only when asked"],
+  [300, "Every 5 minutes"],
+  [900, "Every 15 minutes"],
+  [3600, "Every hour"],
+  [21600, "Every 6 hours"],
+  [86400, "Every day"],
+];
+
+export type MachineState = {
+  text: "new" | "registered" | "key changed" | "blocked" | "missing" | "ignored";
+  cls: string;
+  registrable: boolean;
+};
+
+export function machineState(m: DiscoveredMachine): MachineState {
+  if (m.ignored) return { text: "ignored", cls: "badge badge-mono", registrable: false };
+  if (m.missing_since) return { text: "missing", cls: "badge badge-danger", registrable: false };
+  if (m.target) {
+    if (m.problem) return { text: "key changed", cls: "badge badge-danger", registrable: false };
+    return { text: "registered", cls: "badge badge-ok", registrable: false };
+  }
+  if (m.problem || !m.fingerprint) return { text: "blocked", cls: "badge badge-warn", registrable: false };
+  return { text: "new", cls: "badge badge-info", registrable: true };
+}
+
+/** "k=v" satırlarını etikete çevirir; bozuk satırı hata olarak döner. */
+export function parseLabels(text: string): { labels: Record<string, string>; error: string } {
+  const labels: Record<string, string> = {};
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    const eq = line.indexOf("=");
+    if (eq <= 0) return { labels, error: `"${line}" is not key=value` };
+    labels[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+  }
+  return { labels, error: "" };
+}
+
+const keyOf = (m: MachineRef) => `${m.source_id}/${m.ref}`;
+
+export default function Discovery() {
+  const [overview, setOverview] = useState<DiscoveryOverview | null>(null);
+  const [listError, setListError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const [editing, setEditing] = useState<DiscoverySource | null | "new">(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [registering, setRegistering] = useState(false);
+  const [round, setRound] = useState(0);
+
+  const load = useCallback(
+    () =>
+      api
+        .discovery()
+        .then((v) => {
+          setOverview(v);
+          setListError("");
+        })
+        .catch((e: unknown) => setListError(toMessage(e)))
+        .finally(() => setLoading(false)),
+    [],
+  );
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // Koşu arka planda: biri sürerken liste birkaç saniyede bir tazeleniyor
+  // ki "Run now"a basan yönetici sonucu görmek için sayfayı yenilemesin.
+  const anyRunning = overview?.sources.some((s) => s.running) ?? false;
+  useEffect(() => {
+    if (!anyRunning) return;
+    const t = setInterval(() => void load(), 3000);
+    return () => clearInterval(t);
+  }, [anyRunning, load]);
+
+  const machines = overview?.machines ?? [];
+  const byKey = useMemo(() => new Map(machines.map((m) => [keyOf(m), m])), [machines]);
+  const chosen = selected.map((k) => byKey.get(k)).filter((m): m is DiscoveredMachine => !!m);
+  const registrable = chosen.filter((m) => machineState(m).registrable);
+
+  const setIgnored = async (ignored: boolean) => {
+    setError("");
+    const refs = chosen
+      .filter((m) => m.ignored !== ignored)
+      .map((m) => ({ source_id: m.source_id, ref: m.ref }));
+    try {
+      await api.ignoreDiscovered(refs, ignored);
+      setSelected([]);
+      await load();
+    } catch (e: unknown) {
+      setError(toMessage(e));
+    }
+  };
+
+  const runNow = (s: DiscoverySource) => {
+    setError("");
+    return api
+      .runDiscoverySource(s.id)
+      .then(() => load())
+      .catch((e: unknown) => setError(toMessage(e)));
+  };
+
+  const remove = (s: DiscoverySource) => {
+    setError("");
+    return api
+      .deleteDiscoverySource(s.id)
+      .then(() => load())
+      .catch((e: unknown) => setError(toMessage(e)));
+  };
+
+  const columns: Column<DiscoveredMachine>[] = [
+    {
+      key: "name",
+      header: "Machine",
+      className: "wrap",
+      value: (m) => `${m.name} ${m.ref}`,
+      render: (m) => (
+        <>
+          {m.name}
+          <br />
+          <code className="small">{m.ref}</code>
+          {m.problem && <div className="small muted">{m.problem}</div>}
+        </>
+      ),
+    },
+    { key: "source", header: "Source", className: "wrap", value: (m) => m.source },
+    {
+      key: "host",
+      header: "Address",
+      className: "wrap",
+      value: (m) => m.host || m.name,
+      render: (m) => (
+        <>
+          {m.host || <span className="muted">{m.name} (no address reported)</span>}
+          {m.fingerprint && (
+            <>
+              <br />
+              {/* Tam parmak izi özet adımında; burada kısaltılmış, tamamı başlıkta. */}
+              <code className="small" title={m.fingerprint}>
+                {m.fingerprint.length > 20 ? `${m.fingerprint.slice(0, 20)}…` : m.fingerprint}
+              </code>
+            </>
+          )}
+        </>
+      ),
+    },
+    {
+      key: "role",
+      header: "Tag role",
+      className: "wrap",
+      value: (m) => m.role ?? "",
+      render: (m) =>
+        m.role ? (
+          m.role
+        ) : (
+          <span className="muted">{m.tags.length ? `untagged (${m.tags.join(", ")})` : "untagged"}</span>
+        ),
+    },
+    {
+      key: "state",
+      header: "State",
+      className: "grant-state",
+      value: (m) => machineState(m).text,
+      render: (m) => {
+        const st = machineState(m);
+        return (
+          <>
+            <span className={st.cls}>{st.text}</span>
+            {m.target && (
+              <>
+                {" "}
+                <span className="small">as {m.target}</span>
+              </>
+            )}
+            {m.missing_since && (
+              <div className="small muted">
+                not reported since <Timestamp value={m.missing_since} />
+              </div>
+            )}
+          </>
+        );
+      },
+    },
+    {
+      key: "seen",
+      header: "Last seen",
+      value: (m) => m.last_seen,
+      render: (m) => <Timestamp value={m.last_seen} />,
+    },
+  ];
+
+  const sources = overview?.sources ?? [];
+
+  return (
+    <section>
+      <div className="page-bar">
+        <div className="page-head">
+          <h2>Discovery</h2>
+          <p className="page-sub">
+            Sources are hypervisors postern reads on a schedule. What they report lands
+            here as machines, with the host key postern read from each; a machine becomes a
+            target only when you register it. Discovery never grants anyone access on its
+            own.
+          </p>
+        </div>
+        <ActionButton
+          variant="primary"
+          onClick={() => setEditing("new")}
+          disabled={overview !== null && !overview.secrets_available}
+        >
+          Add source
+        </ActionButton>
+      </div>
+
+      {overview && !overview.secrets_available && (
+        <p className="msg msg-warn">
+          The bastion has no secret key, so a source's credentials cannot be stored. Set{" "}
+          <code>secret_key_file</code> in the configuration and restart postern.
+        </p>
+      )}
+      <ErrorLine msg={error} />
+
+      <h3>Sources</h3>
+      <ListState
+        loading={loading}
+        denied={false}
+        failed={listError !== ""}
+        empty={!loading && !listError && sources.length === 0}
+        emptyText="No source yet. Add a Proxmox cluster or a vCenter and postern will list its machines here."
+      />
+      <ErrorLine msg={listError} />
+      {sources.length > 0 && (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Kind</th>
+                <th>Address</th>
+                <th>Schedule</th>
+                <th>Last run</th>
+                <th className="actions">
+                  <span className="sr-only">Actions</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {sources.map((s) => (
+                <tr key={s.id}>
+                  <td className="wrap">
+                    {s.name}
+                    {!s.enabled && (
+                      <>
+                        {" "}
+                        <span className="badge badge-mono">disabled</span>
+                      </>
+                    )}
+                    {s.insecure && (
+                      <>
+                        {" "}
+                        <span className="badge badge-danger" title="TLS verification is off">
+                          unverified TLS
+                        </span>
+                      </>
+                    )}
+                  </td>
+                  <td>{s.kind}</td>
+                  <td className="wrap">
+                    <code className="small">{s.url}</code>
+                    <div className="small muted">
+                      tag key {s.tag_key}
+                      {s.name_pattern ? `, names ${s.name_pattern}` : ""}
+                    </div>
+                  </td>
+                  <td>{SCHEDULES.find(([v]) => v === s.interval_seconds)?.[1] ?? `every ${s.interval_seconds}s`}</td>
+                  <td className="wrap">
+                    <LastRun s={s} />
+                  </td>
+                  <td className="actions">
+                    <ActionButton
+                      onClick={() => runNow(s)}
+                      disabled={s.running}
+                      label={`run ${s.name} now`}
+                    >
+                      Run now
+                    </ActionButton>{" "}
+                    <ActionButton onClick={() => setEditing(s)} label={`edit ${s.name}`}>
+                      Edit
+                    </ActionButton>{" "}
+                    <ActionButton
+                      variant="danger"
+                      onClick={() => remove(s)}
+                      confirm={`Remove source ${s.name}? Its list of discovered machines goes with it. Targets already registered stay.`}
+                      label={`remove ${s.name}`}
+                    >
+                      Remove
+                    </ActionButton>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <h3>Machines</h3>
+      {machines.length === 0 ? (
+        !loading &&
+        !listError && (
+          <p className="muted">
+            {sources.length === 0
+              ? "Machines appear here after a source has run."
+              : "No machine yet. Run a source, or wait for its schedule."}
+          </p>
+        )
+      ) : (
+        <>
+          <div className="page-actions">
+            <ActionButton
+              variant="primary"
+              onClick={() => {
+                setRound((r) => r + 1);
+                setRegistering(true);
+              }}
+              disabled={registrable.length === 0}
+            >
+              Register {registrable.length > 0 ? `${registrable.length} selected` : "selected"}…
+            </ActionButton>
+            <ActionButton
+              onClick={() => setIgnored(true)}
+              disabled={!chosen.some((m) => !m.ignored)}
+            >
+              Ignore selected
+            </ActionButton>
+            <ActionButton
+              onClick={() => setIgnored(false)}
+              disabled={!chosen.some((m) => m.ignored)}
+            >
+              Stop ignoring
+            </ActionButton>
+            {chosen.length > registrable.length && chosen.length > 0 && (
+              <span className="small muted">
+                {chosen.length - registrable.length} of the selected cannot be registered
+                (already registered, missing, ignored or blocked).
+              </span>
+            )}
+          </div>
+          <DataTable
+            rows={machines}
+            columns={columns}
+            rowKey={keyOf}
+            selection={{ selected, onChange: setSelected, label: (m) => `select ${m.name}` }}
+            initialSort={{ key: "name", dir: "asc" }}
+            searchLabel="Search machines"
+            searchPlaceholder="Search by name, address, source, tag or state…"
+            extraSearch={(m) => `${m.tags.join(" ")} ${m.problem ?? ""} ${m.target ?? ""}`}
+            noun="machine"
+          />
+        </>
+      )}
+
+      <Modal
+        open={editing !== null}
+        title={editing === "new" ? "Add a discovery source" : `Edit ${editing?.name ?? ""}`}
+        onClose={() => setEditing(null)}
+        wide
+      >
+        {editing !== null && (
+          <SourceForm
+            source={editing === "new" ? null : editing}
+            minInterval={overview?.min_interval_seconds ?? 300}
+            onSaved={async () => {
+              setEditing(null);
+              await load();
+            }}
+          />
+        )}
+      </Modal>
+
+      <Modal
+        open={registering}
+        title={`Register ${registrable.length} machine(s)`}
+        description="Each becomes a target with the host key discovery read, joins the roles you pick, and carries the labels you add. Nothing is written until the last step."
+        onClose={() => setRegistering(false)}
+        wide
+      >
+        {registering && (
+          <RegisterWizard
+            key={round}
+            machines={registrable}
+            onDone={async () => {
+              setSelected([]);
+              await load();
+            }}
+            onClose={() => setRegistering(false)}
+          />
+        )}
+      </Modal>
+    </section>
+  );
+}
+
+function LastRun({ s }: { s: DiscoverySource }) {
+  if (s.running) return <span className="badge badge-info">running</span>;
+  const r = s.last_run;
+  if (!r) return <span className="muted">never</span>;
+  return (
+    <>
+      <span className={r.outcome === "ok" ? "badge badge-ok" : r.outcome === "failed" ? "badge badge-danger" : "badge badge-info"}>
+        {r.outcome}
+      </span>{" "}
+      <Timestamp value={r.started_at} />
+      <div className="small muted">
+        {r.outcome === "failed"
+          ? r.reason
+          : `${r.seen} seen, ${r.new_machines} new, ${r.missing} missing, ${r.key_changed} key changed, ${r.unreachable} unreachable`}
+      </div>
+    </>
+  );
+}
+
+/*
+ * SourceForm — kaynak ekleme/düzenleme.
+ *
+ * ⚠️ SIR ALANI DÜZENLEMEDE BOŞ GELİYOR ve boş gönderilirse kayıtlı sır
+ * KALIYOR: panel sırrı hiç okumuyor, dolayısıyla "değiştirmedim"i
+ * söylemenin tek yolu boş bırakmak. Tür düzenlemede değişmiyor —
+ * makine kimlikleri türe özgü ("qemu/101" bir vSphere makinesi olamaz).
+ */
+function SourceForm({
+  source,
+  minInterval,
+  onSaved,
+}: {
+  source: DiscoverySource | null;
+  minInterval: number;
+  onSaved: () => Promise<void>;
+}) {
+  const [kind, setKind] = useState<"proxmox" | "vsphere">(source?.kind ?? "proxmox");
+  const [name, setName] = useState(source?.name ?? "");
+  const [url, setUrl] = useState(source?.url ?? "");
+  const [username, setUsername] = useState(source?.username ?? "");
+  const [secret, setSecret] = useState("");
+  const [tagKey, setTagKey] = useState(source?.tag_key ?? "role");
+  const [namePattern, setNamePattern] = useState(source?.name_pattern ?? "");
+  const [port, setPort] = useState(String(source?.port ?? 22));
+  const [node, setNode] = useState(source?.node ?? "");
+  const [interval, setIntervalSeconds] = useState(source?.interval_seconds ?? 3600);
+  const [caPem, setCaPem] = useState(source?.ca_pem ?? "");
+  const [insecure, setInsecure] = useState(source?.insecure ?? false);
+  const [enabled, setEnabled] = useState(source?.enabled ?? true);
+  const [error, setError] = useState("");
+
+  const proxmox = kind === "proxmox";
+  const save = async () => {
+    setError("");
+    const input: DiscoverySourceInput = {
+      name: name.trim(),
+      kind,
+      url: url.trim(),
+      username: username.trim(),
+      secret,
+      ca_pem: caPem.trim(),
+      insecure,
+      node: proxmox ? node.trim() : "",
+      tag_key: tagKey.trim(),
+      name_pattern: namePattern.trim(),
+      port: Number(port) || 22,
+      interval_seconds: interval,
+      enabled,
+    };
+    try {
+      if (source) await api.updateDiscoverySource(source.id, input);
+      else await api.createDiscoverySource(input);
+      await onSaved();
+    } catch (e: unknown) {
+      setError(toMessage(e));
+    }
+  };
+
+  return (
+    <>
+      <div className="field-row">
+        <label>
+          Kind
+          <select
+            value={kind}
+            disabled={source !== null}
+            onChange={(e) => setKind(e.target.value as "proxmox" | "vsphere")}
+          >
+            <option value="proxmox">Proxmox VE</option>
+            <option value="vsphere">vSphere (vCenter)</option>
+          </select>
+        </label>
+        <label>
+          Name
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="lab cluster" />
+        </label>
+      </div>
+      <div className="field-row">
+        <label>
+          Address
+          <input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder={proxmox ? "https://pve.example:8006" : "https://vcenter.example"}
+          />
+        </label>
+        <label>
+          {proxmox ? "API token id" : "vCenter user"}
+          <input
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder={proxmox ? "postern@pve!discovery" : "postern@vsphere.local (read-only)"}
+          />
+        </label>
+        <label>
+          {proxmox ? "API token secret" : "Password"}
+          <input
+            type="password"
+            autoComplete="off"
+            value={secret}
+            onChange={(e) => setSecret(e.target.value)}
+            placeholder={source?.secret_set ? "unchanged unless you type a new one" : ""}
+          />
+        </label>
+      </div>
+      <div className="field-row">
+        <label>
+          Tag key
+          <input value={tagKey} onChange={(e) => setTagKey(e.target.value)} />
+        </label>
+        <label>
+          Name pattern
+          <input
+            value={namePattern}
+            onChange={(e) => setNamePattern(e.target.value)}
+            placeholder="web-*, db-* (empty: every machine)"
+          />
+        </label>
+        <label>
+          SSH port
+          <input value={port} inputMode="numeric" onChange={(e) => setPort(e.target.value)} />
+        </label>
+        {proxmox && (
+          <label>
+            Node
+            <input value={node} onChange={(e) => setNode(e.target.value)} placeholder="all nodes" />
+          </label>
+        )}
+        <label>
+          Schedule
+          <select value={interval} onChange={(e) => setIntervalSeconds(Number(e.target.value))}>
+            {SCHEDULES.filter(([v]) => v === 0 || v >= minInterval).map(([v, label]) => (
+              <option key={v} value={v}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <p className="muted small">
+        {proxmox
+          ? `Proxmox tags cannot contain = or :, so write the role as ${tagKey || "role"}_<role>, e.g. ${tagKey || "role"}_ops. The token needs VM.Audit only.`
+          : `The tag key names a tag CATEGORY in vCenter; the tag in it is the role. The account should be read-only.`}
+      </p>
+      <label>
+        CA certificate (PEM)
+        <textarea
+          rows={4}
+          value={caPem}
+          onChange={(e) => setCaPem(e.target.value)}
+          placeholder="-----BEGIN CERTIFICATE----- … leave empty to trust the system roots"
+        />
+      </label>
+      <label className="check">
+        <input type="checkbox" checked={insecure} onChange={(e) => setInsecure(e.target.checked)} />
+        Skip TLS verification. Anyone between postern and the hypervisor can then decide which
+        machines appear here and with which tags. Paste the CA certificate instead.
+      </label>
+      <label className="check">
+        <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+        Enabled (a disabled source keeps its machines but is not run on schedule)
+      </label>
+      <ErrorLine msg={error} />
+      <div className="page-actions">
+        <ActionButton variant="primary" onClick={save}>
+          {source ? "Save changes" : "Save source"}
+        </ActionButton>
+      </div>
+    </>
+  );
+}
+
+/*
+ * RegisterWizard — üç adım: roller, etiketler, özet → kayıt.
+ *
+ * ⚠️ ÖZET EKRANI PARMAK İZİNİ GÖSTERİYOR ve kayıt o anahtarı sabitliyor
+ * (sunucu yeniden taramıyor). Yönetici neyi onayladıysa o yazılıyor.
+ */
+function RegisterWizard({
+  machines,
+  onDone,
+  onClose,
+}: {
+  machines: DiscoveredMachine[];
+  onDone: () => Promise<void>;
+  onClose: () => void;
+}) {
+  const roles = useList<Role>(api.roles);
+  const [step, setStep] = useState(0);
+  const [chosenRoles, setChosenRoles] = useState<string[]>([]);
+  const [tagRoles, setTagRoles] = useState(true);
+  const [labelText, setLabelText] = useState("");
+  const [results, setResults] = useState<Registered[] | null>(null);
+  const [error, setError] = useState("");
+
+  const parsed = parseLabels(labelText);
+  const tagRoleNames = Array.from(new Set(machines.map((m) => m.role).filter((r): r is string => !!r)));
+  const missingRoles = tagRoleNames.filter((r) => !roles.items.some((x) => x.name === r));
+
+  const register = async () => {
+    setError("");
+    try {
+      const r = await api.registerDiscovered({
+        machines: machines.map((m) => ({ source_id: m.source_id, ref: m.ref })),
+        roles: chosenRoles,
+        tag_roles: tagRoles,
+        labels: parsed.labels,
+      });
+      setResults(r.results);
+    } catch (e: unknown) {
+      setError(toMessage(e));
+    }
+    await onDone();
+  };
+
+  if (results) {
+    return (
+      <>
+        <ul className="host-outcomes">
+          {results.map((r) => (
+            <li key={`${r.source_id}/${r.ref}`}>
+              <h4>{r.name || r.ref}</h4>
+              {r.error ? (
+                <ErrorLine msg={r.error} />
+              ) : (
+                <p className="small">
+                  registered as <code>{r.target}</code>
+                  {r.roles?.length ? `, granted to ${r.roles.join(", ")}` : ", granted to no role"}
+                  {r.created_roles?.length ? ` (created ${r.created_roles.join(", ")})` : ""}
+                </p>
+              )}
+            </li>
+          ))}
+        </ul>
+        <ErrorLine msg={error} />
+        <div className="page-actions">
+          <ActionButton onClick={onClose}>Done</ActionButton>
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <p className="muted small">Step {step + 1} of 3</p>
+      {step === 0 && (
+        <>
+          <div className="field-row">
+            <MultiSelect
+              label="Roles"
+              placeholder="Search roles…"
+              options={roles.items.map((r) => ({ value: r.name, label: r.name }))}
+              value={chosenRoles}
+              onChange={setChosenRoles}
+              note="Every registered machine is granted to these roles. Access comes from the people assigned to a role, which this does not change."
+            />
+            <ErrorLine msg={roles.error} />
+          </div>
+          <label className="check">
+            <input type="checkbox" checked={tagRoles} onChange={(e) => setTagRoles(e.target.checked)} />
+            Also grant each machine to the role its tag names
+            {tagRoleNames.length
+              ? ` (${tagRoleNames.join(", ")}${missingRoles.length ? `; ${missingRoles.join(", ")} would be created` : ""})`
+              : " (none of the selected machines carries a role tag)"}
+          </label>
+        </>
+      )}
+      {step === 1 && (
+        <>
+          <label>
+            Labels, one key=value per line
+            <textarea
+              rows={4}
+              value={labelText}
+              onChange={(e) => setLabelText(e.target.value)}
+              placeholder={"env=prod\nteam=platform"}
+            />
+          </label>
+          <ErrorLine msg={parsed.error} />
+        </>
+      )}
+      {step === 2 && (
+        <>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Machine</th>
+                  <th>Address</th>
+                  <th>Host key</th>
+                  <th>Roles</th>
+                </tr>
+              </thead>
+              <tbody>
+                {machines.map((m) => (
+                  <tr key={keyOf(m)}>
+                    <td className="wrap">{m.name}</td>
+                    <td className="wrap">{m.host || m.name}</td>
+                    <td className="wrap">
+                      <code className="small">{m.fingerprint}</code>
+                    </td>
+                    <td className="wrap">
+                      {[...chosenRoles, ...(tagRoles && m.role ? [m.role] : [])].join(", ") || (
+                        <span className="muted">none</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="muted small">
+            Labels:{" "}
+            {Object.keys(parsed.labels).length
+              ? Object.entries(parsed.labels)
+                  .map(([k, v]) => `${k}=${v}`)
+                  .join(", ")
+              : "none"}
+            . The host keys above are pinned as shown; postern does not re-read them now.
+          </p>
+        </>
+      )}
+      <ErrorLine msg={error} />
+      <div className="page-actions">
+        {step > 0 && <ActionButton onClick={() => setStep(step - 1)}>Back</ActionButton>}
+        {step < 2 && (
+          <ActionButton
+            variant="primary"
+            onClick={() => setStep(step + 1)}
+            disabled={step === 1 && parsed.error !== ""}
+          >
+            Next
+          </ActionButton>
+        )}
+        {step === 2 && (
+          <ActionButton variant="primary" onClick={register}>
+            Register {machines.length} machine(s)
+          </ActionButton>
+        )}
+      </div>
+    </>
+  );
+}

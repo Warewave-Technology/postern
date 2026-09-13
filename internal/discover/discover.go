@@ -14,7 +14,9 @@ package discover
 
 import (
 	"context"
+	"crypto/x509"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 )
@@ -45,6 +47,19 @@ type Machine struct {
 
 	// Ref, platformdaki kimliği (teşhis için: "qemu/101").
 	Ref string
+
+	/*
+	 * Key, makinenin platformdaki KARARLI kimliği ("qemu/101",
+	 * "vsphere/vm-42"). Paneldeki keşif satırı bununla anahtarlanıyor.
+	 *
+	 * ⚠️ Ref DEĞİL. Proxmox'ta Ref düğümü de taşıyor ("qemu/101@pve2") ve
+	 * kümede canlı taşınan bir VM'in düğümü değişiyor: Ref'le
+	 * anahtarlasaydık her taşımada makine "yeni" görünür, eskisi "kayıp"
+	 * düşerdi. VMID küme içinde tekil; ad da değil, kimlik o — adla
+	 * anahtarlamak, VM'i yeniden adlandıranın yeni bir hedef yaratıp
+	 * eskisini öksüz bırakması demek.
+	 */
+	Key string
 }
 
 // Source, makineleri sayabilen bir platform.
@@ -213,4 +228,39 @@ func SortOutcomes(out []Outcome) {
 		}
 		return a.Machine.Name < b.Machine.Name
 	})
+}
+
+/*
+ * rootPool, kaynağın kök sertifikalarını dosyadan (CLI) ya da PEM
+ * metninden (panelde kaydedilen kaynak) okur. İkisi de boşsa nil:
+ * sistemin kök deposu.
+ *
+ * ⚠️ PANEL DOSYA YOLU TAŞIMIYOR, METİN TAŞIYOR. Bastion'ın diskindeki
+ * bir yolu panelden yazdırmak, yöneticiye sunucunun dosya sisteminde
+ * "şu dosyayı sertifika diye oku" dedirtmek olurdu.
+ */
+func rootPool(kind, file, pemText string) (*x509.CertPool, error) {
+	var pemBytes []byte
+	switch {
+	case file != "":
+		// #nosec G304 -- yol yalnızca CLI bayrağından (--ca-file) geliyor;
+		// panel dosya yolu değil PEM metni gönderiyor (CAPEM).
+		b, err := os.ReadFile(file)
+		if err != nil {
+			return nil, fmt.Errorf("discover: %s ca file: %w", kind, err)
+		}
+		pemBytes = b
+	case strings.TrimSpace(pemText) != "":
+		pemBytes = []byte(pemText)
+	default:
+		return nil, nil
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(pemBytes) {
+		if file != "" {
+			return nil, fmt.Errorf("discover: %s ca file %s: no certificate found", kind, file)
+		}
+		return nil, fmt.Errorf("discover: %s ca certificate: no certificate found", kind)
+	}
+	return pool, nil
 }

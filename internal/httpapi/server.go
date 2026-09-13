@@ -15,6 +15,7 @@ import (
 	"github.com/Warewave-Technology/postern/internal/auth"
 	"github.com/Warewave-Technology/postern/internal/ca"
 	"github.com/Warewave-Technology/postern/internal/config"
+	"github.com/Warewave-Technology/postern/internal/discover"
 	"github.com/Warewave-Technology/postern/internal/events"
 	"github.com/Warewave-Technology/postern/internal/groupsync"
 	"github.com/Warewave-Technology/postern/internal/jit"
@@ -212,6 +213,9 @@ type Server struct {
 	// jit, geçici erişim hizmeti; nil ise uçlar kurulmuyor (manage.enabled
 	// kapalı). Yönetim bağlantısıyla aynı kapı, aynı gerekçe.
 	jit *jit.Service
+
+	// discovery, panelden keşif; nil ise uçlar kurulmuyor.
+	discovery *discover.Service
 
 	/*
 	 * archiveClient, arşivdeki zincir başını okumak için. nil ise arşiv

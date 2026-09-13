@@ -401,6 +401,106 @@ export type GrantStep = {
   error?: string;
 };
 
+/*
+ * Keşif: panelden kaydedilen kaynaklar, koşuları ve bulduğu makineler.
+ *
+ * ⚠️ Sır hiçbir cevapta yok; secret_set yalnızca "kayıtlı mı" diyor.
+ * Kaynak güncellenirken secret boş bırakılırsa kayıtlı olan kalıyor.
+ */
+export type DiscoveryRun = {
+  id: number;
+  source_id: string;
+  trigger: "timer" | "web";
+  actor: string;
+  started_at: string;
+  finished_at?: string;
+  outcome: "running" | "ok" | "failed";
+  reason?: string;
+  seen: number;
+  new_machines: number;
+  missing: number;
+  key_changed: number;
+  unreachable: number;
+};
+export type DiscoverySource = {
+  id: string;
+  name: string;
+  kind: "proxmox" | "vsphere";
+  url: string;
+  username: string;
+  secret_set: boolean;
+  ca_pem: string;
+  insecure: boolean;
+  node: string;
+  tag_key: string;
+  name_pattern: string;
+  port: number;
+  interval_seconds: number;
+  enabled: boolean;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  last_run_at?: string;
+  last_run?: DiscoveryRun;
+  running: boolean;
+};
+export type DiscoverySourceInput = {
+  name: string;
+  kind: "proxmox" | "vsphere";
+  url: string;
+  username: string;
+  /** Boş: güncellemede kayıtlı sır kalır. */
+  secret: string;
+  ca_pem: string;
+  insecure: boolean;
+  node: string;
+  tag_key: string;
+  name_pattern: string;
+  port: number;
+  interval_seconds: number;
+  enabled: boolean;
+};
+export type DiscoveredMachine = {
+  source_id: string;
+  source: string;
+  ref: string;
+  name: string;
+  host: string;
+  tags: string[];
+  running: boolean;
+  role?: string;
+  fingerprint?: string;
+  problem?: string;
+  /** Bağlı olduğu hedefin adı; yoksa henüz kaydedilmemiş. */
+  target?: string;
+  ignored: boolean;
+  first_seen: string;
+  last_seen: string;
+  missing_since?: string;
+};
+export type MachineRef = { source_id: string; ref: string };
+export type DiscoveryOverview = {
+  sources: DiscoverySource[];
+  machines: DiscoveredMachine[];
+  secrets_available: boolean;
+  min_interval_seconds: number;
+};
+export type RegisterRequest = {
+  machines: MachineRef[];
+  roles: string[];
+  tag_roles: boolean;
+  labels: Record<string, string>;
+};
+export type Registered = {
+  source_id: string;
+  ref: string;
+  name: string;
+  target?: string;
+  roles?: string[];
+  created_roles?: string[];
+  error?: string;
+};
+
 export type GrantRequest = {
   username: string;
   groups: string[];
@@ -1137,6 +1237,23 @@ export const api = {
     req<GrantResult>("POST", `/api/admin/grants/${encodeURIComponent(id)}/revoke`),
   /** Bütün hedeflerin hakları, en yeni önce — sekmenin listesi. */
   allGrants: () => req<{ grants: Grant[]; now: string }>("GET", "/api/admin/grants"),
+
+  discovery: () => req<DiscoveryOverview>("GET", "/api/admin/discovery"),
+  createDiscoverySource: (s: DiscoverySourceInput) =>
+    req<{ id: string }>("POST", "/api/admin/discovery/sources", s),
+  updateDiscoverySource: (id: string, s: DiscoverySourceInput) =>
+    req<{ ok: true }>("PUT", `/api/admin/discovery/sources/${encodeURIComponent(id)}`, s),
+  deleteDiscoverySource: (id: string) =>
+    req<{ ok: true }>("DELETE", `/api/admin/discovery/sources/${encodeURIComponent(id)}`),
+  /** Koşu arka planda başlıyor; 202 "başladı" demek. */
+  runDiscoverySource: (id: string) =>
+    req<{ started: boolean }>("POST", `/api/admin/discovery/sources/${encodeURIComponent(id)}/run`),
+  discoveryRuns: (id: string) =>
+    req<{ runs: DiscoveryRun[] }>("GET", `/api/admin/discovery/sources/${encodeURIComponent(id)}/runs`),
+  registerDiscovered: (r: RegisterRequest) =>
+    req<{ results: Registered[] }>("POST", "/api/admin/discovery/register", r),
+  ignoreDiscovered: (machines: MachineRef[], ignored: boolean) =>
+    req<{ changed: number }>("POST", "/api/admin/discovery/ignore", { machines, ignored }),
   /** POST: hedefe yönetim sertifikasıyla bağlanıp defter satırı yazıyor;
    *  GET olsaydı bir <img> ile tetiklenebilirdi (manage/check ile aynı). */
   targetGroups: (name: string) =>

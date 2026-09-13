@@ -4,13 +4,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -58,6 +56,9 @@ type VSphereConfig struct {
 	Password string
 
 	CAFile string
+
+	// CAPEM, aynı kök PEM metni olarak (bkz. ProxmoxConfig.CAPEM).
+	CAPEM string
 	// Insecure, TLS doğrulamasını kapatır. Gerekçesi ProxmoxConfig'te.
 	Insecure bool
 
@@ -93,16 +94,12 @@ func NewVSphere(cfg VSphereConfig) (*VSphere, error) {
 	}
 
 	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
+	pool, perr := rootPool("vsphere", cfg.CAFile, cfg.CAPEM)
+	if perr != nil {
+		return nil, perr
+	}
 	switch {
-	case cfg.CAFile != "":
-		pem, rerr := os.ReadFile(cfg.CAFile)
-		if rerr != nil {
-			return nil, fmt.Errorf("discover: vsphere ca file: %w", rerr)
-		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(pem) {
-			return nil, fmt.Errorf("discover: vsphere ca file %s: no certificate found", cfg.CAFile)
-		}
+	case pool != nil:
 		tlsCfg.RootCAs = pool
 	case cfg.Insecure:
 		// #nosec G402 -- bilinçli ve komut satırında açıkça istenmiş
@@ -274,6 +271,7 @@ func (v *VSphere) Machines(ctx context.Context) ([]Machine, error) {
 			Tags:    tags[m.VM],
 			Running: m.PowerState == "POWERED_ON",
 			Ref:     "vsphere/" + m.VM,
+			Key:     "vsphere/" + m.VM,
 		}
 		if mm.Running {
 			mm.Host = v.address(ctx, m.VM)

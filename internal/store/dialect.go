@@ -260,6 +260,9 @@ var ciColumns = map[string]bool{
 	"targets.name":                  true,
 	"group_mappings.external_group": true,
 	"unmapped_groups.name":          true,
+	// 045: keşif kaynağının adı ekranda tekil bir etiket; "Lab" ile "lab"
+	// iki kaynak olsaydı hangisinin koştuğu okunmazdı.
+	"discovery_sources.name": true,
 }
 
 // ciEq, harf duyarsız eşitlik koşulu üretir.

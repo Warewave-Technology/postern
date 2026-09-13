@@ -44,6 +44,7 @@ func (s *Server) registerTargetRoutes(mux *http.ServeMux) {
 
 	s.registerManageRoutes(mux)
 	s.registerJITRoutes(mux)
+	s.registerDiscoveryRoutes(mux)
 }
 
 // targetCard, ana ekrandaki kutunun ihtiyacı.
