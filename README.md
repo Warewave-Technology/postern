@@ -535,11 +535,14 @@ measured, not assumed.
 With management on, administrators get a **Temporary access** tab. One
 dialog picks a postern user, one or more hosts, the groups the account
 should join, optionally a sudo rule for that account alone, and a duration
-between five minutes and thirty days. Groups can be typed or read from the
-selected hosts with one button; postern lists them with their numbers and
-refuses every group below GID 1000 — `docker`, `wheel`, `shadow` and the
-other system groups are root without a sudo rule. A grant is opened on
-each host in turn, and each host answers on its own line. postern signs
+between five minutes and thirty days. Groups are chosen from a list:
+postern's roles are always offered (a role's name becomes a group on the
+host, created if missing), and one button reads the groups of the
+selected hosts — only those present on every selected host, and never a
+group below GID 1000, because `docker`, `wheel`, `shadow` and the other
+system groups are root without a sudo rule; the server refuses those
+regardless of what the panel sent. A grant is opened on each host in
+turn, and each host answers on its own line. postern signs
 in with its own certificate, creates the account in the `postern-jit`
 group, and writes the rule through the same stage → `visudo` → install
 steps as everything else. The tab lists every grant on every host.

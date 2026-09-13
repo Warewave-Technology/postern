@@ -4,6 +4,7 @@ import {
   GrantRequest,
   GrantResult,
   GrantStep,
+  Role,
   Target,
   TargetGroups,
   User,
@@ -26,11 +27,17 @@ import Modal from "./Modal";
  * yazılıyor — üç makinenin ikisinde açılıp birinde açılamayan bir hak,
  * tek bir "başarısız" değil.
  *
- * ⚠️ GRUPLAR HEDEFTEN OKUNUP SEÇİLEBİLİYOR ve 1000'in altındakiler
- * seçilemiyor: docker, wheel, shadow gibi sistem grupları sudo kuralı
- * yazmadan root'a giden yollar. Bayrağı ve sınırı sunucu veriyor
- * (protected, min_gid); asıl ret plan aşamasında — burası yalnızca reddi
- * "Grant"e basmadan önce göstermek için.
+ * ⚠️ HEDEFLER VE GRUPLAR <select multiple>, ONAY KUTUSU LİSTESİ DEĞİL.
+ * İlk hâl onay kutularıydı; yüz hedefli bir envanterde okunmuyordu
+ * (kullanıcı söyledi). Seçim kutusu tarayıcının kendi kaydırma ve
+ * klavye davranışını getiriyor; hedef listesinin üstünde bir süzgeç var.
+ *
+ * ⚠️ GRUP ADAYLARI İKİ ÖBEK: postern'in ROLLERİ (her zaman — rol adı
+ * hedefte aynı adlı grup, yoksa postern açıyor) ve seçili hedeflerin
+ * ORTAK grupları (yüklenince). Birden çok hedefte yalnızca hepsinde
+ * olan gruplar listeleniyor ve bu yazıyor; sistem grupları (gid < 1000:
+ * docker, wheel, shadow…) hiç listelenmiyor — üyelikleri sudo kuralı
+ * yazmadan root'a giden yol. Asıl ret sunucuda, plan aşamasında.
  *
  * ⚠️ LİSTE KAYDIN KENDİSİ. Sunucu "durum" diye tek bir alan vermiyor;
  * revoked_at, revoke_error, applied_at ve expires_at'tan burada
@@ -277,9 +284,6 @@ function Outcome({
   );
 }
 
-/* Bir hedefteki grubun seçicideki hâli: hangi seçili hedeflerde var. */
-type Catalogued = { name: string; gid: number; protected: boolean; hosts: string[] };
-
 /* Bir hedefte hak açmanın sonucu — sihirbaz hedef başına bir tane yazıyor. */
 type HostOutcome = {
   target: string;
@@ -288,21 +292,47 @@ type HostOutcome = {
   error?: string;
 };
 
-function splitGroups(text: string): string[] {
-  return text
-    .split(/[,\s]+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+/*
+ * commonGroups, yüklenen envanterlerin KESİŞİMİ — sistem grupları
+ * düşülmüş hâlde. Birden çok hedefte yalnızca hepsinde olan gruplar
+ * aday: bir hedefte olmayan grubu seçtirmek, o hedefte postern'in yeni
+ * bir grup açması demek ve bunun gizlice olmaması gerekiyor. hidden,
+ * listelenmeyen sistem gruplarının ayrık sayısı — nota yazılıyor.
+ */
+export function commonGroups(inventories: TargetGroups[]): {
+  names: string[];
+  hidden: number;
+  hosts: string[];
+} {
+  if (inventories.length === 0) return { names: [], hidden: 0, hosts: [] };
+  const hidden = new Set<string>();
+  let names: string[] | null = null;
+  for (const inv of inventories) {
+    const offered = new Set<string>();
+    for (const g of inv.groups) {
+      if (g.protected) hidden.add(g.name);
+      else offered.add(g.name);
+    }
+    names = names === null ? Array.from(offered) : names.filter((n) => offered.has(n));
+  }
+  return {
+    names: (names ?? []).sort((a, b) => a.localeCompare(b)),
+    hidden: hidden.size,
+    hosts: inventories.map((i) => i.target),
+  };
 }
+
+const selected = (el: HTMLSelectElement) => Array.from(el.selectedOptions, (o) => o.value);
 
 function NewGrant({ onChanged, onClose }: { onChanged: () => Promise<unknown>; onClose: () => void }) {
   const users = useList<User>(api.users);
   const targets = useList<Target>(api.targets);
+  const roles = useList<Role>(api.roles);
 
   const [username, setUsername] = useState("");
+  const [hostFilter, setHostFilter] = useState("");
   const [hosts, setHosts] = useState<string[]>([]);
-  const [groupText, setGroupText] = useState("");
-  const [picked, setPicked] = useState<string[]>([]);
+  const [groups, setGroups] = useState<string[]>([]);
   const [inventory, setInventory] = useState<Record<string, TargetGroups | { error: string }>>({});
   const [duration, setDuration] = useState<string>("4h");
   const [commands, setCommands] = useState("");
@@ -310,21 +340,16 @@ function NewGrant({ onChanged, onClose }: { onChanged: () => Promise<unknown>; o
   const [outcomes, setOutcomes] = useState<HostOutcome[]>([]);
   const [done, setDone] = useState(false);
 
-  // Yazılan ve seçilen gruplar tek küme: aynı ad iki kez gitmesin.
-  const groups = useMemo(
-    () => Array.from(new Set([...splitGroups(groupText), ...picked])),
-    [groupText, picked],
+  /*
+   * Süzgeç yalnızca GÖRÜNENİ daraltıyor, seçimi değil: süzgeci değiştirmek
+   * az önce seçilmiş bir hedefi düşürmemeli. Seçili olanlar kutunun
+   * altında ayrıca yazılıyor, çünkü süzülmüş listede görünmeyebilirler.
+   */
+  const q = hostFilter.trim().toLowerCase();
+  const visibleTargets = targets.items.filter(
+    (t) => !q || t.name.toLowerCase().includes(q) || t.host.toLowerCase().includes(q),
   );
 
-  const toggle = (list: string[], set: (v: string[]) => void, name: string) =>
-    set(list.includes(name) ? list.filter((h) => h !== name) : [...list, name]);
-
-  /*
-   * Envanter hedef hedef okunuyor ve BİRLEŞTİRİLİYOR: bir grup üç seçili
-   * hedefin ikisinde varsa satırında "only on …" yazıyor. Seçilmesi yine
-   * serbest — olmayan hedefte postern grubu açar — ama operatör bunu
-   * bilerek seçmeli. Bir hedefte korunan grup her hedefte korunan sayılır.
-   */
   const loadGroups = async () => {
     const next: Record<string, TargetGroups | { error: string }> = {};
     for (const h of hosts) {
@@ -337,23 +362,18 @@ function NewGrant({ onChanged, onClose }: { onChanged: () => Promise<unknown>; o
     setInventory(next);
   };
 
-  const catalogue = useMemo<Catalogued[]>(() => {
-    const m = new Map<string, Catalogued>();
-    for (const [host, v] of Object.entries(inventory)) {
-      if ("error" in v) continue;
-      for (const g of v.groups) {
-        const cur = m.get(g.name) ?? { name: g.name, gid: g.gid, protected: false, hosts: [] };
-        cur.hosts.push(host);
-        cur.protected = cur.protected || g.protected;
-        m.set(g.name, cur);
-      }
-    }
-    return Array.from(m.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [inventory]);
-  const minGID = Object.values(inventory).find((v): v is TargetGroups => !("error" in v))?.min_gid;
+  const loaded = useMemo(
+    () => Object.values(inventory).filter((v): v is TargetGroups => !("error" in v)),
+    [inventory],
+  );
+  const common = useMemo(() => commonGroups(loaded), [loaded]);
+  const minGID = loaded[0]?.min_gid;
   const inventoryErrors = Object.entries(inventory).filter(
     (e): e is [string, { error: string }] => "error" in e[1],
   );
+  const roleNames = roles.items.map((r) => r.name).sort((a, b) => a.localeCompare(b));
+  // Rol adıyla çakışan hedef grubu bir kez listelenir — rol öbeğinde.
+  const hostOnly = common.names.filter((n) => !roleNames.includes(n));
 
   const request = (): GrantRequest => {
     const g: GrantRequest = { username, groups, duration };
@@ -435,86 +455,91 @@ function NewGrant({ onChanged, onClose }: { onChanged: () => Promise<unknown>; o
             </label>
           </div>
 
-          {/*
-            ⚠️ BAŞLIK <label> DEĞİL <span>: onay kutuları kendi label'larını
-            taşıyor ve label içinde label geçersiz — dış label ilk kutuya
-            bağlanır, "Hosts" yazısına tıklamak ilk hedefi işaretlerdi.
-          */}
-          <div className="field-row">
-            <div className="pick-field">
-              <span className="wfield-label">Hosts</span>
-              <ErrorLine msg={targets.error} />
-              {targets.items.length === 0 && !targets.loading ? (
-                <span className="muted small">No target is registered yet.</span>
-              ) : (
-                <div className="pick-list" role="group" aria-label="Hosts">
-                  {targets.items.map((t) => (
-                    <label key={t.name} className="check">
-                      <input
-                        type="checkbox"
-                        checked={hosts.includes(t.name)}
-                        onChange={() => toggle(hosts, setHosts, t.name)}
-                      />
-                      <code>{t.name}</code>
-                      <span className="muted small">
-                        {t.host}:{t.port}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
           <div className="field-row">
             <label>
-              Groups (typed, comma-separated)
+              Filter hosts
               <input
-                value={groupText}
-                onChange={(e) => setGroupText(e.target.value)}
-                placeholder="dba, developer"
+                type="search"
+                value={hostFilter}
+                onChange={(e) => setHostFilter(e.target.value)}
+                placeholder="name or address"
               />
             </label>
+            <label>
+              Hosts
+              <ErrorLine msg={targets.error} />
+              <select
+                multiple
+                size={8}
+                value={hosts}
+                onChange={(e) => setHosts(selected(e.target))}
+              >
+                {visibleTargets.map((t) => (
+                  <option key={t.name} value={t.name}>
+                    {t.name} — {t.host}:{t.port}
+                  </option>
+                ))}
+              </select>
+              <span className="muted small">
+                {hosts.length === 0
+                  ? "Nothing selected yet. Hold Ctrl or ⌘ to select several."
+                  : `Selected: ${hosts.join(", ")}`}
+              </span>
+            </label>
+            {/* Düğme hedeflerin hemen altında: akış hedef seç → yükle → grup seç. */}
             <ActionButton onClick={loadGroups} disabled={hosts.length === 0}>
               Load groups from the selected hosts
             </ActionButton>
           </div>
+
+          <div className="field-row">
+            <label>
+              Groups
+              <select
+                multiple
+                size={8}
+                value={groups}
+                onChange={(e) => setGroups(selected(e.target))}
+              >
+                <optgroup label="Roles on postern">
+                  {roleNames.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </optgroup>
+                {common.hosts.length > 0 && (
+                  <optgroup
+                    label={
+                      common.hosts.length === 1
+                        ? `On ${common.hosts[0]}`
+                        : `Common to ${common.hosts.join(", ")}`
+                    }
+                  >
+                    {hostOnly.map((g) => (
+                      <option key={g} value={g}>
+                        {g}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+              <span className="muted small">
+                {common.hosts.length === 0
+                  ? "A role's name becomes a group on the host; postern creates it if it is missing."
+                  : common.hosts.length === 1
+                    ? `${common.names.length} group(s) on ${common.hosts[0]}${
+                        common.hidden ? `; ${common.hidden} system group(s) below gid ${minGID} are not offered` : ""
+                      }.`
+                    : `Only the ${common.names.length} group(s) present on all ${common.hosts.length} selected hosts are offered${
+                        common.hidden ? `; ${common.hidden} system group(s) below gid ${minGID} are not` : ""
+                      }.`}
+              </span>
+            </label>
+          </div>
           {inventoryErrors.map(([host, v]) => (
             <ErrorLine key={host} msg={`${host}: ${v.error}`} />
           ))}
-          {catalogue.length > 0 && (
-            <div className="field-row">
-              <div className="pick-field">
-                <span className="wfield-label">Groups on the selected hosts</span>
-                {minGID !== undefined && (
-                  <span className="muted small">
-                    Groups numbered below {minGID} are system groups and cannot be
-                    granted temporarily.
-                  </span>
-                )}
-                <div className="pick-list" role="group" aria-label="Groups on the selected hosts">
-                  {catalogue.map((g) => (
-                    <label key={g.name} className={"check" + (g.protected ? " off" : "")}>
-                      <input
-                        type="checkbox"
-                        disabled={g.protected}
-                        checked={picked.includes(g.name)}
-                        onChange={() => toggle(picked, setPicked, g.name)}
-                      />
-                      <code>{g.name}</code>
-                      <span className="muted small">
-                        gid {g.gid}
-                        {g.protected ? " · protected" : ""}
-                        {!g.protected && g.hosts.length < hosts.length
-                          ? ` · only on ${g.hosts.join(", ")}`
-                          : ""}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
           <p className="muted small">
             Will join: {groups.length ? groups.join(", ") : "no group besides postern-jit"}.
           </p>

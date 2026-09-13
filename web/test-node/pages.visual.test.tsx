@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
@@ -768,13 +768,14 @@ describe("sayfa düzeyinde görsel çıktı", () => {
     click(/new temporary access/i);
     await settle();
     fireEvent.change(screen.getByLabelText(/^Person/), { target: { value: "ayse.yilmaz-demirtas" } });
-    const hosts = screen.getByRole("group", { name: "Hosts" });
-    fireEvent.click(within(hosts).getByLabelText(/web-01/));
-    fireEvent.click(within(hosts).getByLabelText(/prod-eu-west/));
+    const pick = (box: HTMLElement, values: string[]) => {
+      for (const o of Array.from((box as HTMLSelectElement).options)) o.selected = values.includes(o.value);
+      fireEvent.change(box);
+    };
+    pick(screen.getByRole("listbox", { name: /^Hosts/ }), ["web-01", LONG_HOST]);
     click(/load groups from the selected hosts/i);
     await settle();
-    const groups = screen.getByRole("group", { name: /groups on the selected hosts/i });
-    fireEvent.click(within(groups).getByLabelText(/^dba/));
+    pick(screen.getByRole("listbox", { name: /^Groups/ }), ["dba", "sre"]);
     fireEvent.change(screen.getByLabelText(/Commands the account may run/), {
       target: { value: "/usr/bin/systemctl restart nginx" },
     });

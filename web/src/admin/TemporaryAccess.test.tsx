@@ -1,6 +1,7 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
-import TemporaryAccess, { grantState } from "./TemporaryAccess";
+import TemporaryAccess, { commonGroups, grantState } from "./TemporaryAccess";
 import { api, type Grant, type TargetGroups } from "../api";
 
 const now = "2026-09-13T12:00:00Z";
@@ -40,6 +41,11 @@ beforeEach(() => {
   vi.spyOn(api, "targets").mockResolvedValue([
     { name: "web-01", host: "10.0.1.11", port: 22, fingerprint: "SHA256:a", labels: {} },
     { name: "db-01", host: "10.0.2.5", port: 22, fingerprint: "SHA256:b", labels: {} },
+    { name: "cache-03", host: "10.0.3.3", port: 22, fingerprint: "SHA256:c", labels: {} },
+  ]);
+  vi.spyOn(api, "roles").mockResolvedValue([
+    { name: "sre", targets: [] },
+    { name: "developer", targets: [] },
   ]);
   vi.spyOn(window, "confirm").mockReturnValue(true);
 });
@@ -60,6 +66,22 @@ it("kaydın alanlarından doğru durumu türetiyor", () => {
   expect(grantState(grant({ revoked_at: "2026-09-13T12:30:00Z", revoke_error: "old" }), now)).toEqual({
     text: "revoked",
     cls: "",
+  });
+});
+
+/*
+ * ⚠️ ORTAK GRUPLAR KESİŞİM, SİSTEM GRUPLARI HİÇ YOK. "web" yalnızca
+ * web-01'de: iki hedef seçiliyken aday değil — bir hedefte olmayan grubu
+ * seçtirmek, o hedefte gizlice yeni bir grup açmak demek. docker (gid 998)
+ * hiçbir listede yok, yalnızca sayısı var.
+ */
+it("ortak grupları kesişimle, sistem gruplarını sayıyla buluyor", () => {
+  expect(commonGroups([])).toEqual({ names: [], hidden: 0, hosts: [] });
+  expect(commonGroups([inventory("web-01")])).toEqual({ names: ["dba", "web"], hidden: 1, hosts: ["web-01"] });
+  expect(commonGroups([inventory("web-01"), inventory("db-01")])).toEqual({
+    names: ["dba"],
+    hidden: 1,
+    hosts: ["web-01", "db-01"],
   });
 });
 
@@ -86,13 +108,13 @@ it("bütün hedeflerin haklarını listeler, geri alınmışa düğme çizmez", 
 });
 
 /*
- * ⚠️ HEDEF BAŞINA BİR İSTEK, GRUPLAR TEK KÜME, KORUNAN GRUP SEÇİLEMEZ.
- * Yazılan "developer" ile envanterden seçilen "dba" aynı listeye giriyor;
- * docker (gid 998) kutusu kapalı — sunucu zaten reddederdi ama operatör
- * bunu "Grant"e basmadan görmeli. Bir hedefte olmayan grup "only on"
- * diye işaretli: seçilirse postern orada açacak, bilerek seçilsin.
+ * ⚠️ HEDEFLER VE GRUPLAR SEÇİM KUTUSU, HEDEF BAŞINA BİR İSTEK. Roller her
+ * zaman aday (rol adı hedefte grup olur); hedeften yüklenen gruplar
+ * yalnızca ortak olanlar ve sistem grupları listede yok. Süzgeç görüneni
+ * daraltıyor, seçimi düşürmüyor.
  */
 it("sihirbaz kişi, hedefler ve gruplarla hedef başına bir istek atıyor", async () => {
+  const user = userEvent.setup();
   vi.spyOn(api, "allGrants").mockResolvedValue({ grants: [], now });
   vi.spyOn(api, "targetGroups").mockImplementation((name) => Promise.resolve(inventory(name)));
   const create = vi
@@ -108,19 +130,20 @@ it("sihirbaz kişi, hedefler ve gruplarla hedef başına bir istek atıyor", asy
   const grantButton = screen.getByRole("button", { name: /^grant temporary access$/i }) as HTMLButtonElement;
   expect(grantButton.disabled).toBe(true); // hedef seçilmeden gitmez
 
-  const hosts = await screen.findByRole("group", { name: "Hosts" });
-  fireEvent.click(within(hosts).getByLabelText(/web-01/));
-  fireEvent.click(within(hosts).getByLabelText(/db-01/));
-  fireEvent.click(screen.getByRole("button", { name: /load groups from the selected hosts/i }));
+  const hostBox = (await screen.findByRole("listbox", { name: /^Hosts/ })) as HTMLSelectElement;
+  await user.selectOptions(hostBox, ["web-01", "db-01"]);
+  expect(screen.getByText(/Selected: web-01, db-01/)).toBeTruthy();
+  fireEvent.change(screen.getByLabelText(/Filter hosts/), { target: { value: "cache" } });
+  expect(screen.queryByRole("option", { name: /web-01 —/ })).toBeNull();
+  expect(screen.getByText(/Selected: web-01, db-01/)).toBeTruthy(); // süzgeç seçimi düşürmedi
 
-  const groups = await screen.findByRole("group", { name: /groups on the selected hosts/i });
-  const docker = within(groups).getByLabelText(/docker/) as HTMLInputElement;
-  expect(docker.disabled).toBe(true);
-  expect(within(groups).getByText(/protected/)).toBeTruthy();
-  expect(within(groups).getByText(/only on web-01/)).toBeTruthy();
-  expect(screen.getByText(/below 1000 are system groups/)).toBeTruthy();
-  fireEvent.click(within(groups).getByLabelText(/^dba/));
-  fireEvent.change(screen.getByLabelText(/Groups \(typed/), { target: { value: "developer" } });
+  fireEvent.click(screen.getByRole("button", { name: /load groups from the selected hosts/i }));
+  const groupBox = (await screen.findByRole("listbox", { name: /^Groups/ })) as HTMLSelectElement;
+  await screen.findByText(/Only the 1 group\(s\) present on all 2 selected hosts are offered; 1 system group\(s\) below gid 1000 are not/);
+  expect(screen.queryByRole("option", { name: "docker" })).toBeNull();
+  expect(screen.queryByRole("option", { name: "web" })).toBeNull();
+  expect(screen.getByRole("group", { name: "Common to web-01, db-01" })).toBeTruthy();
+  await user.selectOptions(groupBox, ["developer", "dba"]);
   expect(screen.getByText(/Will join: developer, dba\./)).toBeTruthy();
 
   fireEvent.click(grantButton);
@@ -137,6 +160,7 @@ it("sihirbaz kişi, hedefler ve gruplarla hedef başına bir istek atıyor", asy
  * vadesinde toplayacak. Liste de tazeleniyor.
  */
 it("bir hedef düşünce diğerleri açılır, sonuçlar hedef başına yazılır", async () => {
+  const user = userEvent.setup();
   const list = vi.spyOn(api, "allGrants").mockResolvedValue({ grants: [], now });
   vi.spyOn(api, "createGrant").mockImplementation((name) =>
     name === "web-01"
@@ -148,9 +172,7 @@ it("bir hedef düşünce diğerleri açılır, sonuçlar hedef başına yazılı
   fireEvent.click(screen.getByRole("button", { name: /new temporary access/i }));
   await waitFor(() => expect(screen.getByRole("option", { name: /ayse/ })).toBeTruthy());
   fireEvent.change(screen.getByLabelText(/^Person/), { target: { value: "ayse" } });
-  const hosts = await screen.findByRole("group", { name: "Hosts" });
-  fireEvent.click(within(hosts).getByLabelText(/web-01/));
-  fireEvent.click(within(hosts).getByLabelText(/db-01/));
+  await user.selectOptions(await screen.findByRole("listbox", { name: /^Hosts/ }), ["web-01", "db-01"]);
   fireEvent.click(screen.getByRole("button", { name: /^grant temporary access$/i }));
 
   await screen.findByText(/no route to host/);

@@ -1026,6 +1026,45 @@ select {
   background-position: right 0.65rem center;
   cursor: pointer;
 }
+/*
+ * Çoklu seçim kutusu (geçici erişim sihirbazındaki hedefler ve gruplar):
+ * ok yok, tek satır yüksekliği yok, seçenekler dolgulu. ⚠️ İlk hâl onay
+ * kutusu listesiydi; yüz hedefli bir envanterde okunmuyordu (kullanıcı
+ * söyledi). Tarayıcının kendi kaydırması ve klavyesi bundan iyi.
+ */
+select[multiple] {
+  height: auto;
+  padding: 0.3rem;
+  background-image: none;
+  cursor: default;
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+select[multiple] option {
+  padding: 0.3rem 0.5rem;
+  border-radius: var(--radius-sm);
+}
+select[multiple] optgroup {
+  font-family: var(--font);
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+  padding-top: 0.3rem;
+}
+/* ⚠️ Öbek başlığının stili İÇİNDEKİ seçeneklere miras kalıyor: "dba"
+   "DBA" diye çiziliyordu (ekrana bakılarak görüldü). Seçenekler öbeksiz
+   hâllerine geri alınıyor. */
+select[multiple] optgroup > option {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--ink);
+}
 select:hover:not(:disabled) {
   border-color: var(--line-strong);
   background-color: var(--hover);
@@ -1080,50 +1119,6 @@ label.check {
   align-items: flex-start;
   gap: 0.5rem;
   max-width: 60ch;
-}
-/*
- * Seçici listesi (sihirbazdaki hedefler ve gruplar): kaydırılabilir bir
- * kutu içinde satır satır onay kutuları. Global `label` sütun yönlü; .check
- * satıra çeviriyor. .off: seçilemeyen (korunan) satır soluk ama okunur —
- * gizlenseydi operatör "docker neden listede yok" diye arardı.
- */
-/* Seçicinin başlığı label değil (label içinde label olmaz); görünüşü
-   satırdaki etiketlerle aynı, genişliği satırın tamamı. */
-.field-row > .pick-field {
-  flex: 1 1 100%;
-  /* min-width: 0 ŞART — flex çocuğu içeriğinin en-content genişliğinin
-     altına inmez; 55 karakterlik bir hostname 390px'te kutuyu modalın
-     dışına taşırıyordu (ölçüldü: +84px, sayfa yatay kayıyordu). */
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-.pick-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  max-height: 13rem;
-  overflow: auto;
-  margin-top: 0.35rem;
-  padding: 0.5rem 0.65rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface);
-}
-.pick-list label.check {
-  align-items: center;
-  flex-wrap: wrap;
-  max-width: none;
-  min-width: 0;
-  font-size: 13px;
-  overflow-wrap: anywhere;
-}
-.pick-list label.off {
-  color: var(--faint);
-}
-.pick-list label.off code {
-  color: inherit;
 }
 .host-outcomes {
   list-style: none;
