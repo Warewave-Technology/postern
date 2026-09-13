@@ -26,6 +26,18 @@
         "site"
       ],
       "port": 5200
+    },
+    {
+      "name": "postern-visual",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "5201",
+        "--directory",
+        "web/.visual/pages"
+      ],
+      "port": 5201
     }
   ]
 }
