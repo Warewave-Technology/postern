@@ -821,6 +821,18 @@ audit rows into a shape it does not understand.
 
 ### Fixed
 
+- **A session cut short keeps its last bytes in the recording.** When a
+  session was ended by postern rather than by the two sides hanging up
+  — an administrator closing it, a temporary grant expiring, the
+  bastion shutting down — the broker closed the channels and returned
+  while its data pipes could still be mid-write: the last chunk read
+  from the target had reached the client but not yet the recording,
+  and the recording was closed underneath it. The window is a few
+  microseconds; the CI runner hit it. The broker now waits for writes
+  already in flight before it returns, and refuses writes that arrive
+  after that, so what the client saw is on the tape or was never
+  delivered — never delivered and unrecorded.
+
 - **The sign-in value issued from the panel is shown again.** Since the
   server started calling it `password` (1.1.0's "call the credential a
   password"), the panel kept reading the old `secret` field, so

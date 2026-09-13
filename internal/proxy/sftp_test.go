@@ -298,6 +298,70 @@ func TestInterruptedSFTPTransferIsWrittenOnChannelClose(t *testing.T) {
 	}
 }
 
+/*
+ * ⚠️ İSTEMCİYE YAZILMIŞ AMA KAYDA YAZILMAMIŞ BİR PARÇA VARKEN Run DÖNMEZ.
+ *
+ * ÖLÇÜLEN ARIZA (CI, yukarıdaki test): çıktı istemciye ulaşınca test
+ * iptal ediyor; boru o anda dst.Write ile rec.Write arasında. Run
+ * kanalları kapatıp dönüyor, test (üretimde lifecycle) kaydı kapatıyor,
+ * geç kalan rec.Write kapalı kayda düşüyor — istemcinin gördüğü satır
+ * kayıtta yok. Burada istemci yazması kancayla tam o aralıkta
+ * tutuluyor: Run tutulan yazma bitmeden dönmemeli ve bitince parça
+ * kayıtta olmalı.
+ */
+func TestRunWaitsForAnInFlightWriteBeforeReturning(t *testing.T) {
+	down, _, _ := newFakeChannel()
+	up, feedUp, _ := newFakeChannel()
+	downR := make(chan *ssh.Request)
+	upR := make(chan *ssh.Request)
+
+	castSink := &memCloser{}
+	rec, err := record.NewWriter(castSink, 80, 24, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// İstemci yazması dst.Write'ın İÇİNDE tutuluyor — kayda yazılmadan.
+	hold := make(chan struct{})
+	down.mu.Lock()
+	down.onWrite = func(p []byte) {
+		if strings.Contains(string(p), "son parca") {
+			<-hold
+		}
+	}
+	down.mu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	b := New(down, downR, up, upR, rec, false, RequestPolicy{AllowSFTP: true}, testLogger()).
+		WithSFTP(&memSink{})
+	done := make(chan error, 1)
+	go func() { done <- b.Run(ctx) }()
+
+	mustWrite(t, feedUp, "son parca\n")
+	waitForContent(t, down.dataW, "son parca")
+
+	cancel()
+	select {
+	case <-done:
+		t.Fatal("Run, istemciye yazılmış ama kayda yazılmamış bir parça uçuştayken döndü")
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	close(hold)
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("yazma bitti, Run dönmedi")
+	}
+	if err := rec.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(castSink.String(), "son parca") {
+		t.Fatal("istemciye giden son parça kayda girmedi")
+	}
+}
+
 // SFTP kapalıyken veri yolu ESKİSİ GİBİ çalışmalı: kayıt tee'si yerinde.
 func TestNonSFTPSessionStillTeesToTheRecording(t *testing.T) {
 	down, _, _ := newFakeChannel()

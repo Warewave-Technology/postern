@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"sync"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 
@@ -67,6 +68,29 @@ type Broker struct {
 
 	// idle nil olabilir: boşta kalma sınırı kapalıysa sarmalayıcı yok.
 	idle *idleGuard
+
+	/*
+	 * drain, uçuştaki yazmalarla kapanış arasındaki kapı.
+	 *
+	 * ⚠️ ÖLÇÜLEN ARIZA: Run iptal yolunda kanalları kapatıp hemen
+	 * dönüyordu; borular hâlâ yazıyor olabiliyordu — hedeften okunan son
+	 * parça İSTEMCİYE yazılmış, KAYDA henüz yazılmamışken. Çağıran Run
+	 * döner dönmez kaydı kapatıyor (lifecycle: rec.Close), geç kalan
+	 * yazma kapalı kayda düşüyor ve kayboluyordu. CI'da
+	 * TestNonSFTPSessionStillTeesToTheRecording tam bu aralıkta düştü:
+	 * istemci çıktıyı aldı, kayıt almadı. Denetim aracında istemcinin
+	 * gördüğü ama kaydın görmediği bir parça, sıfır parçadan kötü.
+	 *
+	 * Her yazma okuma kilidini tutuyor; Run kanalları kapattıktan sonra
+	 * yazma kilidini alıyor — yani uçuştaki yazmaların bitmesini
+	 * bekliyor — ve kapıyı kapatıyor: sonra gelen yazma kapalı kayda
+	 * değil io.ErrClosedPipe'a gidiyor. Boruları beklemiyoruz: gerçek
+	 * ssh.Channel'da Close okuyanı uyandırmıyor (karşı tarafın close'u
+	 * gerekiyor), yani goroutine'in bitmesi bize bağlı değil; yazmanın
+	 * bitmesi bağlı.
+	 */
+	drain   sync.RWMutex
+	drained bool
 
 	/*
 	 * castMu/seal, SFTP olaylarının oturum KAYDINA yazılmasının durumu:
@@ -504,7 +528,7 @@ func (b *Broker) WithDenyLog(fn func(reqType, reason string)) *Broker {
 // outputSink returns where target→user bytes should be written: the user's
 // channel alone, or that channel tee'd into the recording.
 func (b *Broker) outputSink() io.Writer {
-	return b.idle.wrap(b.tap(b.down, b.recStream(true), fromTarget))
+	return b.guard(b.idle.wrap(b.tap(b.down, b.recStream(true), fromTarget)))
 }
 
 // inputSink is the same for user→target bytes, gated by recordInput.
@@ -513,7 +537,7 @@ func (b *Broker) inputSink() io.Writer {
 	if b.rec != nil && b.recordInput {
 		rec = b.rec.InputStream()
 	}
-	return b.idle.wrap(b.tap(b.up, rec, fromClient))
+	return b.guard(b.idle.wrap(b.tap(b.up, rec, fromClient)))
 }
 
 /*
@@ -531,10 +555,10 @@ func (b *Broker) inputSink() io.Writer {
  */
 func (b *Broker) stderrSink() io.Writer {
 	if b.rec == nil {
-		return b.idle.wrap(b.down.Stderr())
+		return b.guard(b.idle.wrap(b.down.Stderr()))
 	}
 
-	return b.idle.wrap(io.MultiWriter(b.down.Stderr(), b.castErr))
+	return b.guard(b.idle.wrap(io.MultiWriter(b.down.Stderr(), b.castErr)))
 }
 
 // recStream, kayıt akışını döner (kapalıysa nil).
@@ -547,6 +571,30 @@ func (b *Broker) recStream(output bool) io.Writer {
 	}
 	return b.rec.InputStream()
 }
+
+// guard, yazmayı kapanış kapısından geçirir (bkz. Broker.drain).
+func (b *Broker) guard(w io.Writer) io.Writer { return &drainedWriter{b: b, w: w} }
+
+type drainedWriter struct {
+	b *Broker
+	w io.Writer
+}
+
+func (d *drainedWriter) Write(p []byte) (int, error) {
+	d.b.drain.RLock()
+	defer d.b.drain.RUnlock()
+	if d.b.drained {
+		// Run döndü, kayıt kapanmak üzere: geç kalan parça kapalı kayda
+		// değil, boruyu iyi huylu bitiren hataya gidiyor.
+		return 0, io.ErrClosedPipe
+	}
+	return d.w.Write(p)
+}
+
+// drainTimeout, kapanışta uçuştaki bir yazmaya tanınan süre. Kanallar
+// kapalıyken yazma hızla biter; bitmezse oturum kapanışı sonsuza kadar
+// asılı kalmasın diye yine dönüyoruz — ama bunu söyleyerek.
+const drainTimeout = 5 * time.Second
 
 // tap, veri yoluna kopya alıcıyı takar.
 //
@@ -841,6 +889,22 @@ func (b *Broker) Run(ctx context.Context) error {
 	}
 
 	b.down.Close()
+
+	// Uçuştaki yazmalar bitmeden dönme (bkz. Broker.drain): dönüşün
+	// hemen ardından kayıt kapanıyor.
+	locked := make(chan struct{})
+	go func() {
+		b.drain.Lock()
+		b.drained = true
+		b.drain.Unlock()
+		close(locked)
+	}()
+	select {
+	case <-locked:
+	case <-time.After(drainTimeout):
+		b.logger.Warn("a write was still in flight when the session closed; " +
+			"the recording may be missing its last bytes")
+	}
 
 	/*
 	 * ⚠️ DENETİM ÇÖKTÜĞÜ İÇİN KAPATTIYSAK BUNU SÖYLÜYORUZ.
