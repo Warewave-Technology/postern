@@ -505,12 +505,33 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 		}
 	}
 
-	d := policy.Authorize(u, target, "")
+	/*
+	 * ⚠️ SÜRELİ HAKLAR DA BİR YETKİ KAYNAĞI. Geçici hesap hedefte açılıyor
+	 * ama kişi hedefe bastion'dan geçerek giriyor; politika yalnızca rolleri
+	 * tanısaydı, rolü olmayan kişi için hak hedefte bir hesap açar ve
+	 * bastion'da kapalı bir kapı bırakırdı — hak verilmiş ama kullanılamaz.
+	 * Okuma hatası reddetmiyor: rolü olan kişi rolüyle girer; olmayan
+	 * zaten reddedilecek ve sebep log'da.
+	 */
+	var temp []model.TemporaryAccess
+	if grants, gerr := deps.Store.ActiveJITGrantsForUser(ctx, u.Name); gerr != nil {
+		log.Warn("temporary access could not be read; deciding on roles alone", "error", gerr)
+	} else {
+		for _, g := range grants {
+			temp = append(temp, model.TemporaryAccess{
+				Target: g.Target, OSUser: g.OSUser, ExpiresAt: g.ExpiresAt, Applied: !g.AppliedAt.IsZero(),
+			})
+		}
+	}
+	d := policy.AuthorizeWithTemporary(u, target, "", temp, time.Now())
 	if !d.Allowed {
 		// Reason politikanın kendi cümlesi; denetimde "neden reddedildi"
 		// sorusunun cevabı bu. İstemciye gitmez, yalnızca log'a.
 		log.Warn("access denied by policy", "reason", d.Reason)
 		return nil, fmt.Errorf("proxy.Open: %w", ErrAccessDenied)
+	}
+	if d.Temporary {
+		log.Info("access granted by temporary access, not by a role")
 	}
 
 	// Buradan sonrası kaynak açıyor. Yedi ayrı hata dalına yedi ayrı

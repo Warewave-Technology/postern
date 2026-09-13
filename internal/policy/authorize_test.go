@@ -3,6 +3,7 @@ package policy
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Warewave-Technology/postern/internal/model"
 )
@@ -238,6 +239,52 @@ func TestOSUserNameAcceptsDottedIdPNames(t *testing.T) {
 			if d.Allowed != tc.allow {
 				t.Fatalf("Allowed = %v, beklenen %v (%s); reason: %s",
 					d.Allowed, tc.allow, tc.why, d.Reason)
+			}
+		})
+	}
+}
+
+/*
+ * ⚠️ SÜRELİ HAK ROLÜ OLMAYANA KAPI AÇIYOR — ama yalnızca uygulanmış,
+ * vadesi dolmamış ve kişinin bugünkü hesabına verilmişse; ve root/yönetim
+ * hesabı/istek enjeksiyonu kontrolleri burada da duruyor. Rolü olan için
+ * hak fazladan bir şey söylemiyor (Temporary=false).
+ */
+func TestTemporaryAccessOpensTheTargetForTheGrantOnly(t *testing.T) {
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	live := model.TemporaryAccess{Target: "db01", OSUser: "mehmet", ExpiresAt: now.Add(time.Hour), Applied: true}
+
+	cases := []struct {
+		name      string
+		user      model.User
+		target    string
+		requested string
+		temp      []model.TemporaryAccess
+		allowed   bool
+		temporary bool
+	}{
+		{"rolsüz + canlı hak → izin, geçici", rolelessUser(), "db01", "", []model.TemporaryAccess{live}, true, true},
+		{"rolsüz + canlı hak, kendi hesabı istendi → izin", rolelessUser(), "db01", "mehmet", []model.TemporaryAccess{live}, true, true},
+		{"rolsüz + canlı hak, başka hesap istendi → red", rolelessUser(), "db01", "root", []model.TemporaryAccess{live}, false, false},
+		{"rolsüz, hak başka hedefe → red", rolelessUser(), "web01", "", []model.TemporaryAccess{live}, false, false},
+		{"vadesi dolmuş hak → red", rolelessUser(), "db01", "", []model.TemporaryAccess{{Target: "db01", OSUser: "mehmet", ExpiresAt: now.Add(-time.Second), Applied: true}}, false, false},
+		{"tam vade anı → red (kapalı aralık değil)", rolelessUser(), "db01", "", []model.TemporaryAccess{{Target: "db01", OSUser: "mehmet", ExpiresAt: now, Applied: true}}, false, false},
+		{"uygulanmamış hak → red", rolelessUser(), "db01", "", []model.TemporaryAccess{{Target: "db01", OSUser: "mehmet", ExpiresAt: now.Add(time.Hour)}}, false, false},
+		{"hesap adı değişmiş → red", model.User{Name: "mehmet", OSUser: "mehmet2"}, "db01", "", []model.TemporaryAccess{live}, false, false},
+		{"hak root hesabına → red", model.User{Name: "r", OSUser: "root"}, "db01", "", []model.TemporaryAccess{{Target: "db01", OSUser: "root", ExpiresAt: now.Add(time.Hour), Applied: true}}, false, false},
+		{"hak yönetim hesabına → red", model.User{Name: "p", OSUser: model.ManagementAccount}, "db01", "", []model.TemporaryAccess{{Target: "db01", OSUser: model.ManagementAccount, ExpiresAt: now.Add(time.Hour), Applied: true}}, false, false},
+		{"rolü olan + hak → izin, geçici DEĞİL", opsUser(), "web01", "", []model.TemporaryAccess{{Target: "web01", OSUser: "yigit", ExpiresAt: now.Add(time.Hour), Applied: true}}, true, false},
+		{"hak yok → rol kararı (red)", rolelessUser(), "db01", "", nil, false, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			d := AuthorizeWithTemporary(c.user, target(c.target), c.requested, c.temp, now)
+			if d.Allowed != c.allowed || d.Temporary != c.temporary {
+				t.Fatalf("allowed=%v temporary=%v (reason %q); beklenen allowed=%v temporary=%v",
+					d.Allowed, d.Temporary, d.Reason, c.allowed, c.temporary)
+			}
+			if d.Allowed && d.OSUser != c.user.OSUser {
+				t.Errorf("os user = %q, beklenen %q", d.OSUser, c.user.OSUser)
 			}
 		})
 	}

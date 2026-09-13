@@ -4,6 +4,7 @@ package policy
 
 import (
 	"slices"
+	"time"
 
 	"github.com/Warewave-Technology/postern/internal/model"
 )
@@ -29,6 +30,55 @@ type Decision struct {
 	OSUser string
 
 	Reason string
+
+	// Temporary, iznin bir rolden değil süreli bir haktan geldiği —
+	// denetim satırı ve oturum kaydı bunu söylemeli.
+	Temporary bool
+}
+
+/*
+ * AuthorizeWithTemporary, Authorize'ın süreli hakları da tanıyan hâli.
+ *
+ * ⚠️ ROL ÖNCE. Rolü olan kişi için hak fazladan bir şey söylemiyor; rolü
+ * OLMAYAN kişi için hak, hedefe giden TEK yol. Hak ancak hedefte
+ * uygulanmış (hesap açılmış), vadesi dolmamış ve kişinin bugünkü
+ * os_user'ıyla aynı hesaba verilmişse sayılıyor: sertifikanın principal'ı
+ * os_user, hedefteki principals dosyası da hakkın hesabına yazılıyor —
+ * ikisi ayrışırsa hedef zaten reddeder, ama burada durmak reddi bastion'da
+ * ve gerekçeli tutuyor.
+ *
+ * ⚠️ AYNI KONTROLLER: root, yönetim hesabı ve ad biçimi burada da
+ * reddediliyor. Süreli hak bir kestirme değil.
+ */
+func AuthorizeWithTemporary(u model.User, t model.Target, requested string,
+	temp []model.TemporaryAccess, now time.Time) Decision {
+	d := Authorize(u, t, requested)
+	if d.Allowed {
+		return d
+	}
+	for _, a := range temp {
+		if a.Target != t.Name || !a.Live(now) {
+			continue
+		}
+		if a.OSUser != u.OSUser {
+			return Decision{Allowed: false,
+				Reason: "policy.Authorize: temporary access was granted to a different account name"}
+		}
+		if !validateOSUserName(u.OSUser) {
+			return Decision{Allowed: false, Reason: "policy.Authorize: OSUser name violation"}
+		}
+		if u.OSUser == "root" {
+			return Decision{Allowed: false, Reason: "policy.Authorize: root access violation"}
+		}
+		if model.IsManagementName(u.OSUser) {
+			return Decision{Allowed: false, Reason: "policy.Authorize: management account violation"}
+		}
+		if requested != "" && requested != u.OSUser {
+			return Decision{Allowed: false, Reason: "policy.Authorize: identitiy injection access violation"}
+		}
+		return Decision{Allowed: true, OSUser: u.OSUser, Temporary: true}
+	}
+	return d
 }
 
 // Authorize decides whether u may open a session on t, and as which OS user.
