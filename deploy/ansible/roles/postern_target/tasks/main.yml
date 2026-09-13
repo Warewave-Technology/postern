@@ -83,9 +83,17 @@
 # denied (publickey)" alıyor. deploy/README.md'nin rolün ENGELLEDİĞİNİ
 # söylediği arızanın kendisi: "başarılı bir koşum gibi görünür ve
 # öyle değildir".
+#
+# ⚠️ ANAHTARIN VARLIĞINA DEĞİL DEĞERİNE BAKILIYOR — İLK HÂLİ ÖLÜ KODDU.
+# Bu yoklama `grep '^trustedusercakeys'` idi. sshd -T yönerge hiç yokken
+# de satırı basıyor ("trustedusercakeys none"), grep 0 dönüyor ve
+# aşağıdaki Include onarımı YAZILDIĞI DURUMDA BİLE hiç koşmuyordu.
+# Ölçüldü, OpenSSH 9.7p1: yönerge yokken grep rc=0, değer eşleşmesi rc=1.
 - name: Find out whether sshd actually reads the drop-in
   ansible.builtin.shell: >-
-    set -o pipefail && sshd -T 2>/dev/null | grep -qi '^trustedusercakeys'
+    set -o pipefail && sshd -T 2>/dev/null |
+    awk -v want='{{ postern_ca_path }}'
+    'tolower($1) == "trustedusercakeys" && $2 == want { found = 1 } END { exit !found }'
   args:
     executable: /bin/bash
   register: postern_dropin_effective
@@ -120,6 +128,29 @@
   changed_when: false
   failed_when: postern_ca_path not in postern_ca_effective.stdout
 
+# ⚠️ PRINCIPAL DOSYASI DA sshd'YE SORULUYOR — VE ONSUZ YÖNETİM HESABI
+# BİR KİŞİYE AÇILIYOR. ÖLÇÜLDÜ.
+#
+# Yukarıdaki kontrol yalnızca CA'nın okunduğunu kanıtlıyordu. Oysa hesap
+# ile principal'ı ayıran şey AuthorizedPrincipalsFile: etkin değilse sshd
+# giriş adını sertifikanın principal listesinde arıyor. Entegrasyon
+# fikstüründe bu satır kaldırıldığında, principal'ı "postern" olan bir
+# sertifika parolasız root tutan yönetim hesabını AÇTI
+# (test/integration/manage_test.go). OpenSSH çoğu anahtar için İLK değeri
+# alıyor; ana dosyada ya da daha önce sıralanan bir drop-in'de başka bir
+# AuthorizedPrincipalsFile varsa bizimki sessizce yok sayılır. Yazmak
+# yetmiyor, sshd'nin gerçekten bu değeri kullandığını görmek gerekiyor.
+- name: Confirm sshd is really using the postern principals files
+  ansible.builtin.shell: >-
+    set -o pipefail && sshd -T 2>/dev/null |
+    awk -v want='{{ postern_principals_dir }}/%u'
+    'tolower($1) == "authorizedprincipalsfile" && $2 == want { found = 1 } END { exit !found }'
+  args:
+    executable: /bin/bash
+  changed_when: false
+  register: postern_principals_effective
+  failed_when: postern_principals_effective.rc != 0
+
 # ───────────────────────────────────────────────────────────────────
 # Yönetim hesabı (postern_manage_host)
 #
@@ -136,6 +167,26 @@
 # dokunulmuyor; daraltmanın tamamı postern tarafında, sudoers
 # şablonlarının doğrulanmasıyla yapılıyor.
 # ───────────────────────────────────────────────────────────────────
+
+# ⚠️ ADLAR DEĞİŞTİRİLEMEZ — İKİLİ ONLARI SABİT OLARAK TANIYOR.
+#
+# postern bu iki adı derleme zamanında biliyor (internal/model/manage.go):
+# yönetim bağlantısını onlarla kuruyor ve aynı adları hiçbir kişiye os_user
+# olarak vermiyor. Burada farklı bir değer seçmek iki şeyi birden bozardı:
+# postern hedefe bağlanamazdı, ve yeni ad bir kişiye verilebilir kalırdı —
+# yani parolasız root tutan hesap sıradan bir hesap gibi atanabilirdi.
+- name: Refuse management names the postern binary does not recognise
+  ansible.builtin.assert:
+    that:
+      - postern_manage_user == 'postern'
+      - postern_manage_principal == 'postern-manage'
+    fail_msg: >-
+      postern_manage_user must be "postern" and postern_manage_principal must be
+      "postern-manage". The postern binary uses these names to reach the
+      management account and refuses them for people; any other value leaves
+      postern unable to connect and the new name assignable to a person.
+    quiet: true
+  when: postern_manage_host
 
 # ⚠️ İKİ KAYNAK ÇAKIŞMASIN. Yönetim hesabının principal dosyasını bu rol
 # ayrıca yazıyor; aynı hesap postern_principals içinde de sayılmışsa
