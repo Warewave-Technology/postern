@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { PendingUser, api, toMessage } from "../api";
-import { ActionButton, ErrorLine, OkLine } from "./common";
+import { ActionButton, ErrorLine, OkLine, Timestamp } from "./common";
 
 /**
  * Onay kuyruğu.
@@ -83,9 +83,13 @@ export default function Pending() {
             <code>{p.subject}</code>
           </dd>
           <dt>first seen</dt>
-          <dd>{new Date(p.first_seen).toLocaleString()}</dd>
+          <dd>
+            <Timestamp value={p.first_seen} />
+          </dd>
           <dt>last tried</dt>
-          <dd>{new Date(p.last_seen).toLocaleString()}</dd>
+          <dd>
+            <Timestamp value={p.last_seen} />
+          </dd>
           {p.state === "rejected" && (
             <>
               <dt>declined</dt>

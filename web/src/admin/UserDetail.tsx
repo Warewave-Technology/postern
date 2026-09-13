@@ -6,7 +6,7 @@ import {
   api,
   toMessage,
 } from "../api";
-import { ActionButton, ErrorLine, OkLine, useList } from "./common";
+import { ActionButton, ErrorLine, OkLine, Timestamp, useList } from "./common";
 import { BackIcon } from "../icons";
 
 /**
@@ -308,9 +308,7 @@ export default function UserDetail({
                   </dd>
                   <dt>Last confirmed</dt>
                   <dd>
-                    {u.last_confirmed
-                      ? new Date(u.last_confirmed).toLocaleString()
-                      : "never"}
+                    {u.last_confirmed ? <Timestamp value={u.last_confirmed} /> : "never"}
                   </dd>
                 </dl>
                 <div className="field-row" style={{ marginTop: "0.9rem" }}>
@@ -434,9 +432,7 @@ export default function UserDetail({
                       <dd>active</dd>
                       <dt>Last used</dt>
                       <dd>
-                        {u.totp.last_used_at
-                          ? new Date(u.totp.last_used_at).toLocaleString()
-                          : "never"}
+                        {u.totp.last_used_at ? <Timestamp value={u.totp.last_used_at} /> : "never"}
                       </dd>
                     </dl>
                     {/*
@@ -485,14 +481,16 @@ export default function UserDetail({
                       </dd>
                       <dt>Issued</dt>
                       <dd>
-                        {new Date(u.credential.created_at).toLocaleDateString()}{" "}
-                        by <code>{u.credential.created_by}</code>
+                        <Timestamp value={u.credential.created_at} /> by{" "}
+                        <code>{u.credential.created_by}</code>
                       </dd>
                       <dt>Last used</dt>
                       <dd>
-                        {u.credential.last_used_at
-                          ? new Date(u.credential.last_used_at).toLocaleString()
-                          : "never"}
+                        {u.credential.last_used_at ? (
+                          <Timestamp value={u.credential.last_used_at} />
+                        ) : (
+                          "never"
+                        )}
                       </dd>
                     </dl>
                   ) : (
@@ -686,7 +684,7 @@ export default function UserDetail({
                             <code className="fp">{k.fingerprint}</code>
                             <span className="muted small">
                               {k.comment ? ` ${k.comment} · ` : " "}
-                              added {new Date(k.added_at).toLocaleDateString()}
+                              added <Timestamp value={k.added_at} />
                             </span>
                           </div>
                           <ActionButton
@@ -761,10 +759,12 @@ export default function UserDetail({
                             <code>{se.target}</code>
                           </span>
                         </td>
-                        <td>{new Date(se.started).toLocaleString()}</td>
+                        <td>
+                          <Timestamp value={se.started} />
+                        </td>
                         <td>
                           {se.ended ? (
-                            new Date(se.ended).toLocaleString()
+                            <Timestamp value={se.ended} />
                           ) : (
                             <span className="badge badge-accent">open</span>
                           )}

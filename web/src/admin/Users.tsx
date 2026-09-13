@@ -6,6 +6,7 @@ import {
   ListState,
   OkLine,
   WarnLine,
+  stamp,
   useList,
 } from "./common";
 import DataTable, { Column } from "./DataTable";
@@ -178,9 +179,7 @@ export default function Users({
       value: (u) => u.state ?? "active",
       render: (u) => {
         const st = u.state ?? "active";
-        const seen = u.last_confirmed
-          ? new Date(u.last_confirmed).toLocaleDateString()
-          : "never";
+        const seen = u.last_confirmed ? stamp(u.last_confirmed) : "never";
         if (st === "active") {
           return <span className="muted">active</span>;
         }

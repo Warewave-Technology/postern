@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { api, Mapping, Role, UnmappedGroup, toMessage } from "../api";
-import { ActionButton, ErrorLine, ListState, OkLine, useList } from "./common";
+import { ActionButton, ErrorLine, ListState, OkLine, Timestamp, useList } from "./common";
 import DataTable, { Column } from "./DataTable";
 import Modal from "./Modal";
 
@@ -131,7 +131,14 @@ export default function Mappings() {
       className: "num",
       value: (g) => g.seen_count,
     },
-    { key: "last", header: "Last seen", value: (g) => g.last_seen },
+    {
+      key: "last",
+      header: "Last seen",
+      value: (g) => g.last_seen,
+      // Ham ISO değil, panelin damgası: aynı an Sessions'ta "Sep 13,
+      // 09:58:00", burada "2026-09-13T09:58:00Z" yazıyordu.
+      render: (g) => <Timestamp value={g.last_seen} />,
+    },
     {
       key: "actions",
       header: "Actions",

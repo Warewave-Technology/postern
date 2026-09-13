@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { TargetDetail as Detail, api, toMessage } from "../api";
-import { ActionButton, ErrorLine, OkLine } from "./common";
+import { ActionButton, ErrorLine, OkLine, Timestamp } from "./common";
 import { BackIcon } from "../icons";
 import ManageAccess from "./ManageAccess";
 import TemporaryAccess from "./TemporaryAccess";
@@ -14,24 +14,11 @@ import TemporaryAccess from "./TemporaryAccess";
  * yatay kaydırmanın ardına düşüyordu.
  */
 
-const stampFmt = new Intl.DateTimeFormat(undefined, {
-  day: "2-digit",
-  month: "short",
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-  hour12: false,
-});
-
+/* Stamp, isteğe bağlı damga: yoksa "—". Biçim common'daki Timestamp'ın;
+   burada ikinci bir biçimleyici duruyordu ve iki kopya ayrışabilirdi. */
 function Stamp({ value }: { value?: string }) {
   if (!value) return <span className="muted">—</span>;
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return <>{value}</>;
-  return (
-    <time dateTime={value} title={value}>
-      {stampFmt.format(d)}
-    </time>
-  );
+  return <Timestamp value={value} />;
 }
 
 export default function TargetDetail({

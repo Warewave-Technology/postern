@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, TOTPStatus, toMessage } from "./api";
 import QRCode from "./QRCode";
-import { ActionButton, ErrorLine } from "./admin/common";
+import { ActionButton, ErrorLine, Timestamp } from "./admin/common";
 import Modal from "./admin/Modal";
 import { toast } from "./toast";
 
@@ -134,12 +134,20 @@ export default function Authenticator({
             */}
             <p className="state">
               Active
-              {status.confirmed_at
-                ? ` since ${new Date(status.confirmed_at).toLocaleDateString()}`
-                : ""}
-              {status.last_used_at
-                ? ` — last used ${new Date(status.last_used_at).toLocaleString()}`
-                : " — not used yet"}
+              {status.confirmed_at && (
+                <>
+                  {" since "}
+                  <Timestamp value={status.confirmed_at} />
+                </>
+              )}
+              {status.last_used_at ? (
+                <>
+                  {" — last used "}
+                  <Timestamp value={status.last_used_at} />
+                </>
+              ) : (
+                " — not used yet"
+              )}
               .
             </p>
             <div className="card-actions">

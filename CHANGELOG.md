@@ -734,9 +734,12 @@ audit rows into a shape it does not understand.
   hostnames, addresses) may break inside them. The role table's target
   picker no longer grows to the width of its longest option, cell padding
   is a little tighter, and the overview's six counters fit one row. The
-  target page and the security-key list use the same compact timestamp
-  as the rest of the panel instead of the browser's locale string, their
-  tables sit in the same scroll wrapper as every other table (on a phone
+  panel now writes every timestamp one way — `Sep 13, 12:12:00`, with the
+  exact value in the tooltip — where the user list, user page, pending
+  list, authenticator card, key lists, sync runs, group mappings, the
+  target page and the security-key list each had their own (the browser's
+  locale string, the raw ISO value, or its first ten characters); those
+  two tables sit in the same scroll wrapper as every other table (on a phone
   they used to scroll the page itself), the authenticator-enrolment screen
   uses the ordinary page heading, and four CSS classes that had been
   written but never defined (`btn-ghost`, `btn-sm`, `data`, `pathrules`)

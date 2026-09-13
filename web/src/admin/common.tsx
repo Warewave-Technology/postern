@@ -257,9 +257,22 @@ export function Timestamp({ value }: { value: string }) {
   if (Number.isNaN(d.getTime())) return <>{value}</>;
   return (
     <time dateTime={value} title={value}>
-      {stampFmt.format(d)}
+      {stamp(value)}
     </time>
   );
+}
+
+/*
+ * stamp, Timestamp'ın DÜZ METİN hâli: title ve aria-label gibi JSX
+ * alamayan yerler için. ⚠️ Panelde dört ayrı saat biçimi vardı —
+ * Timestamp ("Sep 13, 12:12:00"), toLocaleString ("9/13/2026, 12:12:00
+ * PM"), ham ISO ("2026-09-13T09:58:00Z") ve ISO'nun ilk on karakteri —
+ * ve aynı kayıt iki ekranda iki türlü yazılıyordu (ekrana bakılarak
+ * görüldü). Tek biçim, tek yer.
+ */
+export function stamp(value: string): string {
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? value : stampFmt.format(d);
 }
 
 /**

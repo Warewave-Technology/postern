@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { MyKeys as MyKeysData, api, toMessage } from "./api";
-import { ActionButton, ErrorLine } from "./admin/common";
+import { ActionButton, ErrorLine, Timestamp } from "./admin/common";
 import Modal from "./admin/Modal";
 import { toast } from "./toast";
 
@@ -137,7 +137,7 @@ export default function MyKeys({ canAdd = true }: { canAdd?: boolean }) {
                   <code className="fp">{k.fingerprint}</code>
                   <span className="muted small">
                     {k.comment ? ` ${k.comment} · ` : " "}
-                    added {k.added_at.slice(0, 10)}
+                    added <Timestamp value={k.added_at} />
                   </span>
                 </div>
                 {/*

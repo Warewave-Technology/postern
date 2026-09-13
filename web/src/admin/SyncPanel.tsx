@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { SyncRun, SyncSettings, api, toMessage } from "../api";
-import { ActionButton, ErrorLine, OkLine } from "./common";
+import { ActionButton, ErrorLine, OkLine, Timestamp } from "./common";
 
 /**
  * SyncPanel — dizin senkronizasyonu.
@@ -219,7 +219,7 @@ export default function SyncPanel({ ldapReady }: { ldapReady: boolean }) {
                   >
                     {r.outcome}
                   </span>
-                  <code>{r.started_at}</code>
+                  <Timestamp value={r.started_at} />
                   <span className="muted">
                     {r.considered} considered · {r.revoked} revoked ·{" "}
                     {r.unknown} unknown{r.dry_run ? " · dry run" : ""}

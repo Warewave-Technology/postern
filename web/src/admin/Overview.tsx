@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SESSION_LIST_LIMIT, Session, Storage, api, toMessage } from "../api";
-import { ActionButton, ErrorLine, OkLine } from "./common";
+import { ActionButton, ErrorLine, OkLine, Timestamp } from "./common";
 
 /**
  * Overview — bastion'da ŞU AN ne olduğu.
@@ -469,9 +469,9 @@ export default function Overview() {
                   </span>
                   <span className="small muted">
                     as {s.os_user} from {s.src_ip} · started{" "}
-                    <time dateTime={s.started_at}>
-                      {stampFmt.format(new Date(s.started_at))}
-                    </time>
+                    {/* Tarihli damga: açık bir oturum dünden kalmış
+                        olabilir ve yalnız saat onu bugünkü gösterir. */}
+                    <Timestamp value={s.started_at} />
                   </span>
                 </span>
                 <span className="row-actions">
