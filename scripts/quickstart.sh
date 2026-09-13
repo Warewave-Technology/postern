@@ -35,7 +35,8 @@ usage() {
 postern quickstart
 
   ./scripts/quickstart.sh          bring everything up and print a sign-in link
-  ./scripts/quickstart.sh --down   stop and remove everything it created
+  ./scripts/quickstart.sh --refresh rebuild the binary, migrate, restart
+  ./scripts/quickstart.sh --down    stop and remove everything it created
 
 USAGE
 }
@@ -43,6 +44,27 @@ USAGE
 case "${1:-}" in
 -h | --help)
 	usage
+	exit 0
+	;;
+--refresh)
+	# ⚠️ NEDEN AYRI BİR YOL VAR: panel Go ikilisine gömülü (go:embed).
+	# `make web` tek başına çalışan konteyneri DEĞİŞTİRMİYOR ve bu tuzağa
+	# bir kez düşüldü: panelde yeni ekran görünmüyordu, çünkü konteyner
+	# eski ikiliyi taşıyordu. Göç de burada: yeni ikili, şemayı geride
+	# bulursa başlamayı REDDEDİYOR — doğru davranış, ama tazeleme
+	# betiği onu koşmazsa ortada ölü bir demo bırakır.
+	if [ ! -d "$STATE" ]; then
+		red "nothing to refresh — run './scripts/quickstart.sh' first"
+		exit 1
+	fi
+	say "rebuilding the bastion image"
+	run docker compose build --quiet postern
+	say "migrating the schema"
+	run docker compose run --rm --entrypoint postern postern \
+		db migrate --config /etc/postern/postern.yaml
+	say "restarting"
+	run docker compose up -d postern
+	say "up to date"
 	exit 0
 	;;
 --down)
