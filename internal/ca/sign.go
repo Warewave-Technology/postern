@@ -24,6 +24,20 @@ type CertRequest struct {
 	ValidFor time.Duration
 
 	Extensions map[string]string
+
+	/*
+	 * WithoutPTY, sertifikanın varsayılan permit-pty iznini kaldırır.
+	 *
+	 * ⚠️ SIFIR DEĞER BUGÜNKÜ DAVRANIŞ. İnsanlar kabuk açıyor ve PTY'siz
+	 * bir oturum çalışmıyor; alanı tersine ("Interactive") kurmak, onu
+	 * doldurmayı unutan her çağıranın kullanıcı oturumunu sessizce
+	 * bozardı. Kaldırmak isteyen açıkça söylüyor.
+	 *
+	 * Kullanan tek yer yönetim bağlantısı (upstream.DialManagement):
+	 * komut çalıştırıyor, kabuk açmıyor, ve filodaki her makinede root
+	 * tutan bir kimliğe gerekmeyen hiçbir izin verilmemeli.
+	 */
+	WithoutPTY bool
 }
 
 func (c *CA) Sign(req CertRequest) (*ssh.Certificate, error) {
@@ -33,6 +47,33 @@ func (c *CA) Sign(req CertRequest) (*ssh.Certificate, error) {
 
 	if req.KeyID == "" {
 		return nil, fmt.Errorf("ca.Sign: req.KeyID is empty")
+	}
+
+	/*
+	 * ⚠️ KONTROL KARAKTERİ REDDEDİLİYOR — HEDEFİN GÜNLÜĞÜNDE SAHTE SATIR
+	 * ÜRETİLDİ, ÖLÇÜLDÜ.
+	 *
+	 * KeyID ve principal'lar hedefin sshd'si tarafından auth.log'a olduğu
+	 * gibi yazılıyor. KeyID kullanıcı adından geliyor ve panel de store da
+	 * kullanıcı adında satır sonunu reddetmiyor. KeyID'si
+	 * "evil\nAccepted publickey for root from 6.6.6.6" olan bir sertifika,
+	 * test hedefinin günlüğüne ayrı, gerçek görünümlü bir
+	 * "Accepted publickey for root" satırı yazdırdı. O günlüğü okuyan
+	 * kişi — çoğu zaman postern'in denetim kaydına erişimi olmayan
+	 * makinenin sahibi — root girişi olmuş sanardı.
+	 *
+	 * Burada, bütün sertifikaların geçtiği tek noktada reddediliyor:
+	 * her çağıranın ayrı ayrı temizlemeyi hatırlaması gerekmesin.
+	 * Temizlemek yerine REDDETMEK, çünkü sessizce değiştirilmiş bir KeyID
+	 * denetimde kişiyle eşleşmez.
+	 */
+	if bad := controlChar(req.KeyID); bad >= 0 {
+		return nil, fmt.Errorf("ca.Sign: req.KeyID has a control character at byte %d", bad)
+	}
+	for _, p := range req.Principals {
+		if bad := controlChar(p); bad >= 0 {
+			return nil, fmt.Errorf("ca.Sign: principal %q has a control character at byte %d", p, bad)
+		}
 	}
 
 	if req.PublicKey == nil {
@@ -67,6 +108,11 @@ func (c *CA) Sign(req CertRequest) (*ssh.Certificate, error) {
 	if len(req.Extensions) > 0 {
 		maps.Copy(sshPermissionExtensions, req.Extensions)
 	}
+	// ⚠️ EN SONDA: Extensions içinde permit-pty açıkça verilmiş olsa bile
+	// WithoutPTY kazanıyor. İkisi çelişiyorsa dar olan taraf doğru olan.
+	if req.WithoutPTY {
+		delete(sshPermissionExtensions, "permit-pty")
+	}
 
 	cert := ssh.Certificate{
 		Key:      req.PublicKey,
@@ -87,6 +133,17 @@ func (c *CA) Sign(req CertRequest) (*ssh.Certificate, error) {
 	}
 
 	return &cert, nil
+}
+
+// controlChar, ilk kontrol baytının konumunu döner; yoksa -1.
+func controlChar(s string) int {
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; c < 0x20 || c == 0x7f {
+			return i
+		}
+	}
+
+	return -1
 }
 
 func generateRandomSerial64() (uint64, error) {

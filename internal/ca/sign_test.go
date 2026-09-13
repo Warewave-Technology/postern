@@ -270,6 +270,73 @@ func TestSignExtensions(t *testing.T) {
 			t.Error("istenmeyen extension da açılmış")
 		}
 	})
+
+	/*
+	 * ⚠️ PTY KALDIRILABİLMELİ — VE BU ALT TEST, YANLIŞ BİR YORUMUN
+	 * YAKALANMASIYLA EKLENDİ. Yönetim sertifikasını üreten kodda
+	 * "Extensions: nil, yani PTY yok" yazıyordu; oysa bu fonksiyon
+	 * permit-pty'yi koşulsuz ekliyordu ve çağıranın onu kaldırmasının
+	 * hiçbir yolu yoktu. Hedefte root tutan bir kimlik, iddia edilenden
+	 * geniş bir izinle basılıyordu.
+	 */
+	t.Run("pty acikca kaldiriliyor", func(t *testing.T) {
+		req := validRequest(t)
+		req.WithoutPTY = true
+		// Çelişkili istek: dar olan taraf kazanmalı.
+		req.Extensions = map[string]string{"permit-pty": ""}
+
+		cert, err := c.Sign(req)
+		if err != nil {
+			t.Fatalf("Sign: %v", err)
+		}
+		if _, ok := cert.Extensions["permit-pty"]; ok {
+			t.Error("WithoutPTY verildiği hâlde permit-pty sertifikada")
+		}
+	})
+}
+
+/*
+ * ⚠️ KONTROL KARAKTERİ TAŞIYAN SERTİFİKA BASILMIYOR.
+ *
+ * KeyID ve principal'lar hedefin auth.log'una olduğu gibi yazılıyor.
+ * "evil\nAccepted publickey for root from 6.6.6.6" KeyID'li bir sertifika,
+ * test hedefinin günlüğüne ayrı ve gerçek görünümlü bir root girişi satırı
+ * yazdırdı. Kullanıcı adında satır sonunu panel de store da reddetmiyor;
+ * bütün sertifikaların geçtiği tek nokta burası.
+ */
+func TestSignRefusesControlCharacters(t *testing.T) {
+	c := testCA(t)
+
+	for _, tc := range []struct {
+		name string
+		edit func(*CertRequest)
+	}{
+		{"keyid satir sonu", func(r *CertRequest) {
+			r.KeyID = "evil\nAccepted publickey for root from 6.6.6.6"
+		}},
+		{"keyid satir basi", func(r *CertRequest) { r.KeyID = "yigit\rroot" }},
+		{"keyid nul", func(r *CertRequest) { r.KeyID = "yigit\x00" }},
+		{"keyid del", func(r *CertRequest) { r.KeyID = "yigit\x7f" }},
+		{"principal satir sonu", func(r *CertRequest) {
+			r.Principals = []string{"yigit", "deploy\nroot"}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := validRequest(t)
+			tc.edit(&req)
+			if _, err := c.Sign(req); err == nil {
+				t.Fatal("kontrol karakteri taşıyan sertifika basıldı")
+			}
+		})
+	}
+
+	// Karşı örnek: yönetim bağlantısının KeyID biçimi (iki nokta, boşluk)
+	// kontrol karakteri değil ve geçmeli.
+	req := validRequest(t)
+	req.KeyID = "postern-manage: admin: check management access"
+	if _, err := c.Sign(req); err != nil {
+		t.Fatalf("sıradan noktalama reddedildi: %v", err)
+	}
 }
 
 // Serial audit'te "hangi sertifika" sorusunun cevabı; tekrar etmemeli.
