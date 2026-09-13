@@ -106,7 +106,7 @@ func TestWebLoginEndToEnd(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("girişli /api/me = %d", status)
 	}
-	if me.Name != "yigit" || me.OSUser != "postern" {
+	if me.Name != "yigit" || me.OSUser != "deploy" {
 		t.Errorf("me = %+v — DB'deki kullanıcıyla eşleşmiyor", me)
 	}
 	if me.Admin {

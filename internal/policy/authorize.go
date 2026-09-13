@@ -43,6 +43,20 @@ func Authorize(u model.User, t model.Target, requested string) Decision {
 				return Decision{Allowed: false, Reason: "policy.Authorize: root access violation"}
 			}
 
+			/*
+			 * ⚠️ YÖNETİM HESABI root GİBİ: HİÇBİR KİŞİYE AÇILMIYOR.
+			 *
+			 * reservedOSUsers'tan farkı bilinçli. Orada operatör bir adı
+			 * BİLEREK verebiliyor ("postgres" meşru bir DBA erişimi); bu
+			 * iki ad ise hedefte parolasız root tutan hesabın kendisi.
+			 * Yazma yolları zaten reddediyor; burada da duruyor çünkü bu,
+			 * elle düzenlenmiş ya da eski bir sürümün yazdığı satıra karşı
+			 * son savunma (validateOSUserName'in gerekçesiyle aynı).
+			 */
+			if model.IsManagementName(u.OSUser) {
+				return Decision{Allowed: false, Reason: "policy.Authorize: management account violation"}
+			}
+
 			if requested != "" {
 				if u.OSUser == requested {
 					return Decision{Allowed: true, OSUser: u.OSUser}

@@ -82,9 +82,9 @@ func TestSessionAuditTrail(t *testing.T) {
 	if got.Target != "web01" {
 		t.Errorf("Target = %q, beklenen %q", got.Target, "web01")
 	}
-	// os_user, policy'nin verdiği karar (testServer config'inde "postern").
-	if got.OSUser != "postern" {
-		t.Errorf("OSUser = %q, beklenen %q — users.os_user yerine policy kararı yazılmalı", got.OSUser, "postern")
+	// os_user, policy'nin verdiği karar (testServer config'inde "deploy").
+	if got.OSUser != "deploy" {
+		t.Errorf("OSUser = %q, beklenen %q — users.os_user yerine policy kararı yazılmalı", got.OSUser, "deploy")
 	}
 	if got.SrcIP == "" || strings.Contains(got.SrcIP, ":") {
 		t.Errorf("SrcIP = %q — port ayrılmamış ya da boş", got.SrcIP)

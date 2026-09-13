@@ -42,10 +42,14 @@ const maxProbeOutput = 8 << 10
  * ⚠️ BU FONKSİYON YALNIZCA target_probe.enabled İLE ÇAĞRILIR. Kapalıyken
  * postern hedefte kullanıcının oturumu dışında hiçbir şey çalıştırmaz.
  *
- * ⚠️ KOMUTLAR KULLANICININ BAĞLANTISINDA ÇALIŞIR. Ayrı bir kimlik ya da
- * ayrı bir principal kullanmıyoruz: o, hedef tarafında postern için
- * ayrıca yetki açmak demekti — yani bastion'a kullanıcılardan bağımsız,
- * kalıcı bir erişim vermek. Bedeli şu: komutlar hedefin günlüklerinde
+ * ⚠️ KOMUTLAR KULLANICININ BAĞLANTISINDA ÇALIŞIR. Bu yorum önceden
+ * "postern'in kullanıcılardan bağımsız bir erişimi yok" diyordu; yönetim
+ * hesabıyla (manage.go) artık var — ama yalnızca rolü
+ * postern_manage_host ile koşmuş hedeflerde, ve bilinçli olarak burada
+ * KULLANILMIYOR. Tanımayı ona taşımak iki şeyi bozardı: yönetim hesabı
+ * olmayan hedeflerde tanıma tamamen kapanırdı, ve `uname` okumak için
+ * parolasız root tutan bir kimlik kullanmak gereğinden geniş bir yetkiyle
+ * salt okuma yapmak olurdu. Bedeli şu: komutlar hedefin günlüklerinde
  * bağlanan kullanıcının adına görünür. Kabul edilebilir olmasının tek
  * sebebi özelliğin varsayılan kapalı ve her koşusunun denetime yazılıyor
  * olması.

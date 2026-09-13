@@ -229,6 +229,35 @@ func commandsOf(steps []Step) string {
 }
 
 /*
+ * ⚠️ YÖNETİM HESABI HİÇBİR PLANA GİRMİYOR — ne hesap, ne grup, ne üyelik.
+ *
+ * Rol "postern" hesabını ve aynı adlı grubu açıyor; o hesap hedefte
+ * parolasız root tutuyor. Onu değiştiren bir plan, postern'in kendi
+ * yönetim yetkisini bir insanla paylaşmasına (gruba üye eklemek) ya da
+ * kendini makineden kilitlemesine yol açardı.
+ */
+func TestTheManagementAccountIsNeverPlanned(t *testing.T) {
+	for _, name := range []string{"postern", "postern-manage"} {
+		if _, err := Plan(able(), Desired{Groups: []Group{{Name: name}}}, empty()); err == nil {
+			t.Errorf("%q grubu plana girdi", name)
+		}
+		if _, err := Plan(able(), Desired{Users: []User{{Name: name}}}, empty()); err == nil {
+			t.Errorf("%q hesabı plana girdi", name)
+		}
+		if _, err := Plan(able(), Desired{Users: []User{{Name: "ayse", Groups: []string{name}}}}, empty()); err == nil {
+			t.Errorf("bir kişi %q grubuna eklenebiliyor", name)
+		}
+		for _, mode := range []RevokeMode{ModeLock, ModeDelete} {
+			if _, err := RevokePlan(able(), Revoke{
+				User: name, Mode: mode, UID: 998, InJITGroup: true,
+			}); err == nil {
+				t.Errorf("%q için %v sökme planı üretildi — postern kendini kilitlerdi", name, mode)
+			}
+		}
+	}
+}
+
+/*
  * ⚠️ KAÇIŞ VEREN KURAL PLANA GİREMİYOR. Doğrulayıcı panelde de koşuyor,
  * ama plana giden tek yol panel değil; yazma anına en yakın kontrol,
  * unutulamayan kontroldür.

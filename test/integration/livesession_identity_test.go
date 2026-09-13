@@ -139,7 +139,7 @@ func TestReleasedUsernameDoesNotHandTheConnectionToTheNewHolder(t *testing.T) {
 	}
 
 	// Adı yeni bir insan alıyor — ve hedeflere erişimi var.
-	if _, err := db.CreateUser(ctx, "yigit", "yeni@warewave.io", "postern"); err != nil {
+	if _, err := db.CreateUser(ctx, "yigit", "yeni@warewave.io", "deploy"); err != nil {
 		t.Fatalf("yeni kullanıcı: %v", err)
 	}
 	if err := db.SyncRoles(ctx, "yigit", []string{"ops"}); err != nil {

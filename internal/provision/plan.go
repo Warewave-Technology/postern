@@ -91,11 +91,13 @@ type Step struct {
 	Why string
 }
 
-// sudoPath, bir grup için postern'in yazdığı dosyanın yolu.
-func sudoPath(group string) string { return "/etc/sudoers.d/postern-" + group }
+// SudoPath, bir grup için postern'in yazdığı dosyanın yolu. Dışa açık:
+// hedefin durumunu okuyan taraf (Observed.PosternSudoers) aynı yolu
+// kullanmazsa plan dosyayı hiç "var" görmez ve her koşuda yeniden yazar.
+func SudoPath(group string) string { return "/etc/sudoers.d/postern-" + group }
 
 // stagePath, doğrulanmadan önce yazıldığı geçici yol.
-func stagePath(group string) string { return sudoPath(group) + ".staged" }
+func stagePath(group string) string { return SudoPath(group) + ".staged" }
 
 /*
  * Plan, gözlenen durumdan istenen duruma giden adımları üretir.
@@ -188,7 +190,7 @@ func Plan(caps upstream.ManageCapabilities, d Desired, o Observed) ([]Step, erro
 			return nil, fmt.Errorf("provision.Plan: group %q: %w", g.Name, err)
 		}
 
-		if o.PosternSudoers[sudoPath(g.Name)] == content {
+		if o.PosternSudoers[SudoPath(g.Name)] == content {
 			continue
 		}
 
@@ -225,7 +227,7 @@ func Plan(caps upstream.ManageCapabilities, d Desired, o Observed) ([]Step, erro
 			Step{
 				Kind: StepSudoInstall,
 				Command: "sudo -n install -o root -g root -m 0440 " +
-					stagePath(g.Name) + " " + sudoPath(g.Name) +
+					stagePath(g.Name) + " " + SudoPath(g.Name) +
 					" && sudo -n rm -f " + stagePath(g.Name),
 				Why: "install the checked rule",
 			},
@@ -250,6 +252,17 @@ func checkName(name string) string {
 	}
 	if !model.ValidOSUserName(name) {
 		return "is not a valid account or group name"
+	}
+	/*
+	 * ⚠️ YÖNETİM HESABI VE GRUBU PLANA GİRMİYOR. Rol "postern" hesabını
+	 * ve aynı adlı grubu sistem hesabı olarak açıyor. Bir plan onu
+	 * değiştirebilseydi — üyeliğe bir insan eklemek, ya da sökme
+	 * planında hesabı kilitlemek — postern ya kendi yönetim hesabını
+	 * başkasıyla paylaşır ya da kendini makineden kilitlerdi; ikinci
+	 * durumda makineyi onaracak bir yol da kalmazdı.
+	 */
+	if model.IsManagementName(name) {
+		return "is postern's own management account; postern never plans changes to it"
 	}
 
 	return ""

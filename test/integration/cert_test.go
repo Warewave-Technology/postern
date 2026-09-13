@@ -172,20 +172,30 @@ func TestDialWithCert(t *testing.T) {
 
 	conn, err := upstream.DialWithCert(ctx, tgt.target(), upstream.Identity{
 		PosternUser: "yigit@warewave.io",
-		OSUser:      "postern",
+		OSUser:      "deploy",
 	}, authority)
 	if err != nil {
 		t.Fatalf("DialWithCert: %v", err)
 	}
 	defer conn.Close()
 
-	if got := runOnTarget(t, conn, "id -un"); got != "postern" {
-		t.Errorf("hedefteki kullanıcı = %q, beklenen %q", got, "postern")
+	if got := runOnTarget(t, conn, "id -un"); got != "deploy" {
+		t.Errorf("hedefteki kullanıcı = %q, beklenen %q", got, "deploy")
 	}
 
 	// ⚠️ Driver 1'in özü: hedefte hiçbir statik anahtar YOK. Erişimi veren
 	// tek şey, bu oturum için kesilmiş kısa ömürlü sertifika.
-	if got := runOnTarget(t, conn, "test -f /home/postern/.ssh/authorized_keys && echo VAR || echo YOK"); got != "YOK" {
+	/*
+	 * ⚠️ $HOME, SABİT YOL DEĞİL — VE ÖNCE EVİN VARLIĞI. Yol elle
+	 * yazılıyken fikstürdeki hesap adı değişti ve kontrol olmayan bir
+	 * dizine bakmaya başladı: `test -f` yine "YOK" diyordu, yani test
+	 * statik anahtar olsa da geçecekti. Ev yoksa soru hiç sorulmamış
+	 * demektir ve test bunu söylemeli.
+	 */
+	if got := runOnTarget(t, conn, `test -d "$HOME" || echo EVSIZ`); got == "EVSIZ" {
+		t.Fatal("hesabın evi yok: authorized_keys kontrolü bir şey ölçmüyor")
+	}
+	if got := runOnTarget(t, conn, `test -f "$HOME/.ssh/authorized_keys" && echo VAR || echo YOK`); got != "YOK" {
 		t.Errorf("hedefte authorized_keys bulundu (%q) — sertifika modelinin amacı statik anahtarı ORTADAN KALDIRMAK", got)
 	}
 }
@@ -203,7 +213,7 @@ func TestDialWithCertUntrustedCA(t *testing.T) {
 
 	_, err := upstream.DialWithCert(ctx, tgt.target(), upstream.Identity{
 		PosternUser: "saldirgan@example.com",
-		OSUser:      "postern",
+		OSUser:      "deploy",
 	}, rogue)
 	if err == nil {
 		t.Fatal("güvenilmeyen CA'nın sertifikası kabul edildi")
@@ -250,7 +260,7 @@ func TestDialClassifiesHostKeyMismatch(t *testing.T) {
 	defer cancel()
 
 	_, err := upstream.DialWithCert(ctx, target, upstream.Identity{
-		PosternUser: "yigit", OSUser: "postern",
+		PosternUser: "yigit", OSUser: "deploy",
 	}, authority)
 	if err == nil {
 		t.Fatal("yanlış host anahtarıyla bağlantı kuruldu")
@@ -307,7 +317,7 @@ func TestDialClassifiesUnreachable(t *testing.T) {
 	defer cancel()
 
 	_, err = upstream.DialWithCert(ctx, target, upstream.Identity{
-		PosternUser: "yigit", OSUser: "postern",
+		PosternUser: "yigit", OSUser: "deploy",
 	}, authority)
 	if err == nil {
 		t.Fatal("kapalı porta bağlanıldı")
@@ -318,7 +328,7 @@ func TestDialClassifiesUnreachable(t *testing.T) {
 }
 
 // Principal politikası hedefte de uygulanıyor: AuthorizedPrincipalsFile
-// yalnızca "postern" hesabı için tanımlı. Başka bir hesap istenirse hedef
+// yalnızca "deploy" hesabı için tanımlı. Başka bir hesap istenirse hedef
 // reddeder — bastion'daki karar (S2.4) tek savunma hattı değil.
 func TestDialWithCertUnknownPrincipal(t *testing.T) {
 	authority := testAuthority(t)
@@ -327,9 +337,17 @@ func TestDialWithCertUnknownPrincipal(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	/*
+	 * ⚠️ "noprincipals", "nobody" DEĞİL — VE FARK TESTİN NE ÖLÇTÜĞÜ.
+	 * nobody hedefte KİLİTLİ ("!"): sshd onu sertifikaya hiç bakmadan
+	 * "account is locked" diye reddediyordu. Test bu yüzden
+	 * AuthorizedPrincipalsFile kaldırılsa da geçerdi. noprincipals
+	 * kilitsiz ("*") ve bir principal dosyası yok: reddin TEK sebebi
+	 * principal politikası.
+	 */
 	if _, err := upstream.DialWithCert(ctx, tgt.target(), upstream.Identity{
 		PosternUser: "yigit@warewave.io",
-		OSUser:      "nobody", // /etc/ssh/auth_principals/nobody yok
+		OSUser:      "noprincipals",
 	}, authority); err == nil {
 		t.Fatal("principal tanımlı olmayan hesaba giriş kabul edildi")
 	}
@@ -350,7 +368,7 @@ func TestDialWithCertStillPinsHostKey(t *testing.T) {
 
 	if _, err := upstream.DialWithCert(ctx, cfg, upstream.Identity{
 		PosternUser: "yigit@warewave.io",
-		OSUser:      "postern",
+		OSUser:      "deploy",
 	}, authority); err == nil {
 		t.Fatal("yanlış host key kabul edildi — MITM savunması sertifika modelinde de gerekli")
 	}

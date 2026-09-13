@@ -23,10 +23,14 @@ type Target struct {
 // TargetFacts, hedefe BAĞLANIRKEN öğrenilenler.
 //
 // ⚠️ Yapılandırma değil GÖZLEM: Target operatörün yazdığını, bu yapı
-// makinenin söylediğini tutuyor. Ve içeriği yalnızca el sıkışmadan
-// geliyor — hedefte komut çalıştırıp uname/os-release okumak daha
-// fazlasını verirdi ama postern kullanıcının oturumu dışında hedefte
-// iş çalıştırmaz.
+// makinenin söylediğini tutuyor. İçeriği el sıkışmadan ve (açıksa)
+// kullanıcının kendi bağlantısındaki tanımadan geliyor.
+//
+// ⚠️ Bu yorum önceden "postern kullanıcının oturumu dışında hedefte iş
+// çalıştırmaz" diyordu. Yönetim hesabıyla bu artık yalnızca rolü
+// postern_manage_host ile koşmuş hedefler için doğru değil — ve o
+// koşuların sonucu BURAYA yazılmıyor: bu yapı hâlâ yalnızca bağlanırken
+// öğrenilenleri tutuyor.
 type TargetFacts struct {
 	// ServerVersion, sunucunun kendi afişi: "SSH-2.0-OpenSSH_9.6p1 Debian-3".
 	ServerVersion string

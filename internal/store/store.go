@@ -170,6 +170,19 @@ func newID() (string, error) {
  * kararının tam tersi olurdu.
  */
 func refuseBadOSUser(op, osUser string) error {
+	/*
+	 * ⚠️ YÖNETİM ADLARI ŞEKİLDEN ÖNCE — ÇÜNKÜ ŞEKİLLERİ GEÇERLİ.
+	 * "postern" ve "postern-manage" desene uyuyor; yalnızca desene bakan
+	 * bir kontrol onları sessizce kabul ediyordu. reservedOSUsers'tan
+	 * farklı olarak bu ret OPERATÖRÜN yazdığı ada da uygulanıyor: orada
+	 * "postgres" bilerek verilebilir, bu ikisi ise hedefte parolasız root
+	 * tutan hesabın kendisi.
+	 */
+	if model.IsManagementName(osUser) {
+		return fmt.Errorf("%s: %q is postern's own management account on targets "+
+			"and is never given to a person; choose another os-user: %w",
+			op, osUser, ErrInvalid)
+	}
 	if model.ValidOSUserName(osUser) {
 		return nil
 	}
@@ -1333,7 +1346,13 @@ func (s *Store) ProvisionUser(ctx context.Context, req ProvisionRequest) (model.
 		// Derinlik katmanı, tek savunma değil: asıl kapı hedefin
 		// AuthorizedPrincipalsFile'ı ve postern onun yetkilendirmediği
 		// bir principal'ı kullandıramaz.
-		if reservedOSUsers[req.Username] {
+		/*
+		 * Yönetim adları da burada, ErrAccessDenied ile: bu otomatik yol
+		 * ve CreateUser onları ErrInvalid ile reddetse bile, giriş akışı
+		 * "geçersiz istek" değil "erişim yok" görmeli. preferred_username
+		 * birçok IdP'de kullanıcının kendi düzenleyebildiği bir alan.
+		 */
+		if reservedOSUsers[req.Username] || model.IsManagementName(req.Username) {
 			return model.User{}, fmt.Errorf(
 				"store.ProvisionUser[%s]: refusing to auto-provision a reserved system account name; "+
 					"create the account explicitly with a different os-user: %w",

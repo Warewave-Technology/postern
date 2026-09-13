@@ -356,7 +356,7 @@ func TestOOBLoginEndToEnd(t *testing.T) {
 	defer client.Close()
 
 	// Kimlik zinciri hedefe kadar: IdP'deki yigit → users.email → policy
-	// → sertifika principal'ı "postern".
+	// → sertifika principal'ı "deploy".
 	sess, err := client.NewSession()
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
@@ -366,8 +366,8 @@ func TestOOBLoginEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("exec: %v", err)
 	}
-	if got := string(out); got != "postern\n" {
-		t.Errorf("hedefteki hesap = %q, beklenen %q", got, "postern\n")
+	if got := string(out); got != "deploy\n" {
+		t.Errorf("hedefteki hesap = %q, beklenen %q", got, "deploy\n")
 	}
 
 	// Denetim kaydı OOB oturumu için de tutulmalı — giriş yöntemi

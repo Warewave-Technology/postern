@@ -92,6 +92,22 @@ type Identity struct {
 // DialWithCert connects to t using a freshly minted, short-lived certificate
 // instead of a static key.
 func DialWithCert(ctx context.Context, t model.Target, identity Identity, authority *ca.CA) (*Conn, error) {
+	/*
+	 * ⚠️ SIRADAN KAPI YÖNETİM HESABINA AÇILMIYOR — TELE EN YAKIN SAVUNMA.
+	 *
+	 * Buraya gelen os_user store'da ve policy'de zaten reddediliyor.
+	 * Burada ayrıca reddediliyor çünkü bu satır, bir değerin hem
+	 * sertifika principal'ı hem giriş adı olduğu TEK yer: elle
+	 * düzenlenmiş bir satır, eski bir sürümün yazdığı bir kayıt ya da
+	 * ileride eklenecek başka bir kapı yukarıdaki kontrollerin hepsini
+	 * atlasa bile, "postern" ya da "postern-manage" için sertifika
+	 * basılmıyor. Yönetim hesabının tek kapısı DialManagement.
+	 */
+	if model.IsManagementName(identity.OSUser) {
+		return nil, fmt.Errorf("upstream.DialWithCert: %q is postern's management "+
+			"account and is never opened for a person", identity.OSUser)
+	}
+
 	_, privKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("upstream.DialWithCert: %w", err)

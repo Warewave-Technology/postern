@@ -144,7 +144,7 @@ func newBastionOpts(t *testing.T, caKeyPath string, skipSeed bool, targets ...mo
 
 	// Kimlik verisi config'te YAŞAMAZ (S3 sözleşmesi): kullanıcı, rol ve
 	// hedefler doğrudan store'a yazılır — üretimde bu işi yetkili CLI yapar.
-	// OSUser "postern": hedef konteynerdeki hesap; sertifikanın principal'ı
+	// OSUser "deploy": hedef konteynerdeki hesap; sertifikanın principal'ı
 	// ve SSH kullanıcı adı bu olacak.
 	if skipSeed {
 		db = seedTargetsOnly(t, cfg.Database.DSN, targets)
@@ -246,7 +246,7 @@ func attachSecretBox(t *testing.T, db *store.Store) {
 	db.UseSecretBox(box)
 }
 
-// seedStore, "yigit" kullanıcısını (os_user: postern) verilen hedeflerin
+// seedStore, "yigit" kullanıcısını (os_user: deploy) verilen hedeflerin
 // hepsini kapsayan "ops" rolüyle tanıyan bir store kurar. FK sırası:
 // hedefler, rol, kullanıcı, bağlar.
 func seedStore(t *testing.T, dbDSN string, targets []model.Target, authorizedKey string) *store.Store {
@@ -277,7 +277,7 @@ func seedStore(t *testing.T, dbDSN string, targets []model.Target, authorizedKey
 
 	// E-posta OOB (S3.3) eşleşmesi için: OIDC kimliği users.email
 	// üzerinden bulunur. Realm'deki yigit ile aynı adres.
-	if _, err := db.CreateUser(ctx, "yigit", "yigit@warewave.io", "postern"); err != nil {
+	if _, err := db.CreateUser(ctx, "yigit", "yigit@warewave.io", "deploy"); err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
 	if err := db.AssignRole(ctx, "yigit", "ops", time.Time{}); err != nil {

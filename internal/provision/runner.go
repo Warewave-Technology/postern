@@ -1,0 +1,109 @@
+package provision
+
+/*
+ * Planı hedefte postern'in KENDİ yönetim hesabıyla koşturan Runner.
+ *
+ * ⚠️ BU DOSYA, CANLI TESTTEKİ `ssh` ÇAĞRISININ YERİNİ ALIYOR — VE ASIL
+ * SEBEP TEST DEĞİL. Test, bir insanın elinde duran sertifikayla
+ * bağlanıyordu; ürünün kendisi bunu hiç yapmıyordu. Yani ölçülen şey
+ * ürünün yolu değil, testin kendi kurduğu bir yoldu. Burada bağlantıyı
+ * postern kuruyor: sertifika bellekte üretiliyor, iki dakika yaşıyor ve
+ * kimsenin eline geçmiyor.
+ */
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"github.com/Warewave-Technology/postern/internal/ca"
+	"github.com/Warewave-Technology/postern/internal/model"
+	"github.com/Warewave-Technology/postern/internal/upstream"
+)
+
+/*
+ * SSHRunner, açık bir yönetim bağlantısı üzerinde adımları çalıştırır.
+ *
+ * ⚠️ BAĞLANTI ADIM BAŞINA DEĞİL, KOŞU BAŞINA. Her adım için yeniden
+ * bağlanmak, hedefin günlüğüne bir yayılım koşusu başına onlarca root
+ * girişi yazardı — makinenin sahibi için okunamaz bir iz.
+ */
+type SSHRunner struct {
+	conn *upstream.Conn
+}
+
+/*
+ * Connect, hedefe yönetim hesabıyla bağlanır ve bir Runner döner.
+ *
+ * actor ve reason hedefin kendi sshd günlüğüne düşen KeyID'ye giriyor
+ * (bkz. upstream.DialManagement).
+ *
+ * ⚠️ DÖNEN HATA İKİ ŞEYİ BİRDEN TAŞIYOR. ErrUnreachable: adımların hiçbiri
+ * hedefe varmadı, rapor "failed" dememeli. upstream'in sınıfı
+ * (ErrRefused, ErrHostKeyMismatch...): operatörün NE yapacağı. İkincisini
+ * düzleştirmek, "hedef bu CA'ya güvenmiyor" ile "makine kapalı"yı aynı
+ * cümleye indirirdi — birinde beklemek işe yarar, öbüründe asla.
+ */
+func Connect(ctx context.Context, t model.Target, authority *ca.CA, actor, reason string) (*SSHRunner, error) {
+	conn, err := upstream.DialManagement(ctx, t, authority, actor, reason)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrUnreachable, err)
+	}
+
+	return &SSHRunner{conn: conn}, nil
+}
+
+// Close, yönetim bağlantısını kapatır.
+func (r *SSHRunner) Close() error {
+	if r == nil || r.conn == nil {
+		return nil
+	}
+
+	return r.conn.Close()
+}
+
+// Conn, yeteneği ölçmek gibi plan dışı okumalar için bağlantının kendisi.
+func (r *SSHRunner) Conn() *upstream.Conn { return r.conn }
+
+/*
+ * Exec, tek bir adımı çalıştırır ve STDOUT'u döner.
+ *
+ * ⚠️ "KOMUT DÜŞTÜ" İLE "MAKİNEYE ULAŞAMADIM" AYRIMI BURADA TAHMİN DEĞİL.
+ * `ssh` ikilisiyle koşarken elimizde yalnızca çıkış kodu vardı ve 255'i
+ * sezgiyle yorumluyorduk — uzak komutun kendisi de 255 dönebilir.
+ * Protokol seviyesinde belirsizlik yok: CommandError, hedefin komutu
+ * çalıştırıp bir kod bildirdiği anlamına geliyor; öbür her şey
+ * cevapsızlık.
+ *
+ * Hata sebebi (stderr) CommandError'ın metninde duruyor ve Apply onu
+ * Result.Err olarak kaydediyor; stdout'a karıştırılmıyor, çünkü stdout
+ * VERİ olarak da okunuyor (bkz. upstream.Conn.Exec).
+ */
+func (r *SSHRunner) Exec(ctx context.Context, command, stdin string) (string, error) {
+	if r == nil || r.conn == nil {
+		return "", fmt.Errorf("%w: no management connection", ErrUnreachable)
+	}
+
+	return answer(r.conn.Exec(ctx, command, stdin))
+}
+
+/*
+ * answer, upstream'in cevabını Apply'ın iki sınıfına çevirir.
+ *
+ * ⚠️ HEDEFİN CEVABI OLDUĞU GİBİ GEÇİYOR, CEVAPSIZLIK ErrUnreachable
+ * OLUYOR. Tersi — her hatayı ErrUnreachable saymak — sudoers doğrulaması
+ * düşen bir makineyi "ulaşılamadı, sonra dene" diye raporlardı; oysa
+ * tekrar denemek aynı reddi getirir ve bakılacak yer hedefin kendisi.
+ */
+func answer(stdout string, err error) (string, error) {
+	if err == nil {
+		return stdout, nil
+	}
+
+	var cmdErr *upstream.CommandError
+	if errors.As(err, &cmdErr) {
+		return stdout, err
+	}
+
+	return stdout, fmt.Errorf("%w: %w", ErrUnreachable, err)
+}

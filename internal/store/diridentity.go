@@ -115,7 +115,12 @@ func (s *Store) CreateFromDirectory(ctx context.Context, acc DirectoryAccount) (
 	if acc.Subject == "" {
 		return model.User{}, fmt.Errorf("store.CreateFromDirectory: empty subject")
 	}
-	if reservedOSUsers[acc.Username] {
+	/*
+	 * ⚠️ YÖNETİM ADLARI DA. Bu yol os_user'ı dizindeki adın AYNISI yapıyor
+	 * ve refuseBadOSUser'dan geçmiyor; uid'si "postern" olan bir dizin
+	 * kaydı, kimse karar vermeden yönetim hesabının adıyla açılırdı.
+	 */
+	if reservedOSUsers[acc.Username] || model.IsManagementName(acc.Username) {
 		return model.User{}, fmt.Errorf(
 			"store.CreateFromDirectory[%s]: refusing to auto-provision a reserved "+
 				"system account name: %w", acc.Username, ErrAccessDenied)

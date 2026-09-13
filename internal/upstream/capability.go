@@ -19,6 +19,7 @@ package upstream
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path"
 	"strings"
@@ -225,31 +226,54 @@ func familyOf(osRelease string) string {
  * ⚠️ HATA "YÖNETİLEBİLİR DEĞİL" DEMEK DEĞİL. Bağlantı koptuğunda
  * bilmediğimiz şeyi bilmiyoruz; onu "yönetilemez" diye kaydetmek,
  * ölçmediğimiz bir sonucu ölçülmüş gibi göstermek olurdu.
+ *
+ * ⚠️ BU KURAL YAZILIYDI AMA UYGULANMIYORDU. İlk hâli her hatayı yutup
+ * boş çıktıyı ayrıştırıyordu: kopan bir bağlantı "sudo yok, useradd yok,
+ * visudo yok" diye, hatasız dönüyordu. Sıfırdan farklı çıkış bir cevap
+ * (CommandError), cevapsızlık ise hata.
  */
 func (c *Conn) Capabilities(ctx context.Context) (ManageCapabilities, error) {
 	if c == nil || c.client == nil {
 		return ManageCapabilities{}, fmt.Errorf("upstream.Capabilities: no connection")
 	}
 
-	out := make([]string, 0, len(CapabilityCommands)+1)
+	out := make([]string, 0, len(CapabilityCommands))
 	for _, cmd := range CapabilityCommands {
-		o, err := c.run(ctx, cmd)
+		o, err := answered(c.Exec(ctx, cmd, ""))
 		if err != nil {
-			/*
-			 * ⚠️ ÇIKIŞ KODU YOK SAYILIYOR, ÇIKTI ALINIYOR. `command -v`
-			 * bulunamayan her ad için sıfırdan farklı dönüyor ve
-			 * `sudo -n -l` yetkisizken hata veriyor — ikisi de bizim
-			 * için bir CEVAP, arıza değil.
-			 */
-			out = append(out, o)
-			continue
+			return ManageCapabilities{}, fmt.Errorf("upstream.Capabilities: %w", err)
 		}
 		out = append(out, o)
 	}
 
-	osRelease, _ := c.run(ctx, "cat /etc/os-release")
+	/*
+	 * ⚠️ os-release'in YOKLUĞU BİR CEVAP. BSD'lerde ve bazı konteyner
+	 * tabanlarında dosya yok; aile boş kalıyor ve karar bundan
+	 * etkilenmiyor (Manageable aileye bakmıyor). Ama bağlantının burada
+	 * kopması hâlâ bir hata.
+	 */
+	osRelease, err := answered(c.Exec(ctx, "cat /etc/os-release", ""))
+	if err != nil {
+		return ManageCapabilities{}, fmt.Errorf("upstream.Capabilities: %w", err)
+	}
 
 	return ParseCapabilities(out[0], out[1], osRelease), nil
+}
+
+/*
+ * answered, sıfırdan farklı çıkışı CEVAP sayar ve çıktıyı korur;
+ * yalnızca cevapsızlığı hata olarak geçirir.
+ *
+ * `command -v` bulamadığı ad için, `sudo -n -l` yetkisiz hesap için
+ * sıfırdan farklı dönüyor — ikisi de ölçümün kendisi.
+ */
+func answered(out string, err error) (string, error) {
+	var cmdErr *CommandError
+	if err == nil || errors.As(err, &cmdErr) {
+		return out, nil
+	}
+
+	return "", err
 }
 
 // model paketine bağımlılığı koru: TargetProbe ile aynı yerde yaşıyor.

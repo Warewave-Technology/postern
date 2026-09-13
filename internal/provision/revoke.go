@@ -110,9 +110,17 @@ func RevokePlan(caps upstream.ManageCapabilities, r Revoke) ([]Step, error) {
 	}
 
 	/*
-	 * ⚠️ SİSTEM HESAPLARINA DOKUNULMUYOR. UID 0 root; 1000'in altı
-	 * dağıtımların kendi hesapları. Bir yapılandırma hatası oraya
-	 * işaret ederse, sökme planı makineyi bitirirdi.
+	 * ⚠️ ROOT'A DOKUNULMUYOR — VE KONTROLÜN KAPSAMI BU KADAR. Bu yorum
+	 * önceden "1000'in altı dağıtımların kendi hesapları" diyordu ve kod
+	 * yalnızca 0'ı reddediyordu: iddia koddan genişti. Sayısal bir taban
+	 * güvenilir değil (UID_MIN eski RHEL'de 500, bazı kurulumlarda başka;
+	 * doğrusu hedefin login.defs'ini okumak).
+	 *
+	 * Silmeyi aşağıdaki JIT grubu şartı koruyor. KİLİTLEMEDE böyle bir
+	 * şart yok: orada yönetim hesabını durduran tek şey checkName'in onu
+	 * adıyla reddetmesi. Rol o hesabı sistem hesabı olarak açıyor, yani bu
+	 * UID kontrolü onu tek başına durdurmazdı ve postern kendini makineden
+	 * kilitlerdi.
 	 */
 	if r.UID <= 0 {
 		return nil, fmt.Errorf("provision.RevokePlan: %q has uid %d; postern does not touch system accounts",

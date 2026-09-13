@@ -54,7 +54,7 @@ func TestOOBLoginSurvivesShortHandshakeTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("exec: %v", err)
 	}
-	if got := strings.TrimSpace(string(out)); got != "postern" {
+	if got := strings.TrimSpace(string(out)); got != "deploy" {
 		t.Errorf("hedefteki hesap = %q", got)
 	}
 

@@ -44,11 +44,10 @@ func refValidOSUserName(s string) bool {
 // İkinci kısım asıl sebep. Zinciri okuyunca ortaya çıkıyor:
 // policy.Decision.OSUser → proxy/lifecycle.go'da upstream.Identity.OSUser →
 // upstream/dial.go'da ca.CertRequest.Principals ve ssh.ClientConfig.User.
-// ca.Sign yalnızca "principal listesi boş mu" diye bakıyor, İÇERİĞİNE
-// bakmıyor. Yani bir sertifika principal'ına (ve oradan hedefin auth.log'una)
-// satır sonu girmesini engelleyen TEK şey, üç paket öteki bu regex.
-// Bu bağ kodda hiçbir yerde yazılı değil; burada çalıştırılabilir hale
-// geliyor ki regex gevşetildiğinde sessizce kırılmasın.
+// Bu yorum ilk yazıldığında ca.Sign principal'ın İÇERİĞİNE hiç bakmıyordu
+// ve satır sonunu durduran tek şey buradaki regex'ti. Artık ca.Sign kontrol
+// karakterlerini de reddediyor — ama bu test yine duruyor: iki savunmadan
+// biri gevşetildiğinde öbürünün sessizce tek savunma olduğu fark edilmeli.
 func FuzzAuthorizeContract(f *testing.F) {
 	seeds := []struct {
 		osUser, requested, targetName, roleTarget string
@@ -58,6 +57,11 @@ func FuzzAuthorizeContract(f *testing.F) {
 		{"yigit", "ayse", "web01", "web01"},
 		{"root", "", "web01", "web01"},
 		{"root", "root", "web01", "web01"},
+		// Yönetim hesabı: hedefte parolasız root tutan hesap ve onu açan
+		// principal. İkisi de bir kişiye hiçbir yoldan açılmamalı.
+		{"postern", "", "web01", "web01"},
+		{"postern-manage", "", "web01", "web01"},
+		{"postern", "postern", "web01", "web01"},
 		{"yigit", "", "db01", "web01"},
 		{"", "", "", ""},
 		{"yigit.basalma", "yigit.basalma", "web01", "web01"},
@@ -95,9 +99,16 @@ func FuzzAuthorizeContract(f *testing.F) {
 		// --- karar fonksiyonunun tamamı, elle modellenmiş ---
 		//
 		// Tek rol, tek hedef: eşleşme roleTarget == targetName demek.
+		/*
+		 * ⚠️ YÖNETİM ADLARI MODELE ELLE YAZILIYOR, model.IsManagementName
+		 * ÇAĞRILMIYOR. Referans model uygulamadan bağımsız olmalı:
+		 * sabiti değiştiren biri hem uygulamayı hem modeli aynı anda
+		 * gevşetirse bu test onu yakalayamazdı.
+		 */
 		wantAllowed := roleTarget == targetName &&
 			refValidOSUserName(osUser) &&
 			osUser != "root" &&
+			osUser != "postern" && osUser != "postern-manage" &&
 			(requested == "" || requested == osUser)
 
 		if d.Allowed != wantAllowed {
@@ -127,6 +138,9 @@ func FuzzAuthorizeContract(f *testing.F) {
 		}
 		if d.OSUser == "root" {
 			t.Fatalf("root principal'ına izin verildi")
+		}
+		if d.OSUser == "postern" || d.OSUser == "postern-manage" {
+			t.Fatalf("yönetim hesabına bir kişi için izin verildi: %q", d.OSUser)
 		}
 		if roleTarget != targetName {
 			t.Fatalf("rolün kapsamadığı hedefe izin: rol %q, hedef %q", roleTarget, targetName)

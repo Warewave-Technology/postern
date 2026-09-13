@@ -29,7 +29,7 @@ func TestOpenSession(t *testing.T) {
 
 	conn, err := upstream.DialWithCert(ctx, tgt.target(), upstream.Identity{
 		PosternUser: "yigit@warewave.io",
-		OSUser:      "postern",
+		OSUser:      "deploy",
 	}, authority)
 	if err != nil {
 		t.Fatalf("DialWithCert: %v", err)

@@ -79,7 +79,7 @@ func TestDialRespectsContext(t *testing.T) {
 	start := time.Now()
 	_, err := upstream.DialWithCert(ctx, cfg, upstream.Identity{
 		PosternUser: "yigit@warewave.io",
-		OSUser:      "postern",
+		OSUser:      "deploy",
 	}, authority)
 	elapsed := time.Since(start)
 

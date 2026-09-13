@@ -163,6 +163,21 @@ func (s *Store) ApprovePending(ctx context.Context, id, osUser, by string) (Pend
 	if osUser == "" {
 		osUser = p.Username
 	}
+	/*
+	 * ⚠️ YÖNETİCİNİN YAZDIĞI os_user HİÇ DOĞRULANMIYORDU. CreateUser ve
+	 * SetUserOSUser şekli ve yönetim adlarını reddediyor; bu yol aynı
+	 * sütuna ham SQL ile yazıyor ve ikisini de atlıyordu. Onay ekranına
+	 * "postern" yazmak, yönetim hesabının adıyla bir kişi açardı.
+	 *
+	 * Yukarıdaki reservedOSUsers kontrolü BİLEREK p.Username'e bakıyor:
+	 * otomatik ad reddediliyor, yöneticinin açıkça seçtiği ad (ör. bir
+	 * DBA için "postgres") kabul ediliyor — store.go'daki ayrımın aynısı.
+	 * Bu satır o ayrımı değiştirmiyor; eksik olan şekil ve yönetim adı
+	 * kontrolünü ekliyor.
+	 */
+	if err := refuseBadOSUser("store.ApprovePending", osUser); err != nil {
+		return PendingUser{}, err
+	}
 
 	userID, err := newID()
 	if err != nil {
