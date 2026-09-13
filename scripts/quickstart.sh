@@ -63,15 +63,27 @@ case "${1:-}" in
 	# "host key mismatch" ile düşürürdü. Anahtarlar artık .state'te
 	# duruyor — bu blok, o değişiklikten ÖNCE kurulmuş bir demonun
 	# çalışan konteynerlerinden onları bir kereliğine kurtarıyor.
+	#
+	# ⚠️ DURMUŞ KONTEYNER DE SAYILIYOR — ÖLÇÜLMEDEN YAZILAN İLK HÂL SAYMIYORDU.
+	# Kontrol `docker compose exec ... true` idi: konteyner durmuşsa (yeniden
+	# başlatma, `compose stop`; compose.yaml'da restart politikası yok) exec
+	# sessizce düşüyor, blok atlanıyor, `up -d` durmuş konteyneri yeni imajla
+	# siliyor ve anahtarların tek kopyası onunla gidiyordu. Sonuç: "up to
+	# date" yazan bir betik ve her oturumda host key mismatch. `docker cp`
+	# durmuş konteynerden de okuyor; konteyner varsa anahtarlar oradan
+	# alınıyor, alınamıyorsa yeniden kurmak REDDEDİLİYOR.
 	for m in demo-a demo-b; do
 		if ! ls "$STATE/hostkeys/$m"/ssh_host_*_key >/dev/null 2>&1; then
-			if docker compose exec -T "$m" true >/dev/null 2>&1; then
+			cid="$(docker compose ps -a -q "$m" 2>/dev/null | head -n 1)"
+			if [ -n "$cid" ]; then
 				say "keeping $m's host keys"
 				mkdir -p "$STATE/hostkeys/$m"
-				docker compose exec -T "$m" sh -c 'cd /etc/ssh && tar -cf - ssh_host_*' |
-					tar -C "$STATE/hostkeys/$m" -xf -
+				tmp="$(mktemp -d)"
+				docker cp "$cid:/etc/ssh/." "$tmp" >/dev/null 2>&1 || true
+				cp "$tmp"/ssh_host_* "$STATE/hostkeys/$m/" 2>/dev/null || true
+				rm -rf "$tmp"
 				ls "$STATE/hostkeys/$m"/ssh_host_ed25519_key >/dev/null 2>&1 || {
-					red "could not copy $m's host keys; refusing to rebuild it with new ones"
+					red "could not copy $m's host keys out of container $cid; refusing to rebuild it with new ones"
 					exit 1
 				}
 			fi
