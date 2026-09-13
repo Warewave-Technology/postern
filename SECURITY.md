@@ -24,7 +24,7 @@ Helpful things to include, roughly in order of how much they help:
 - what an attacker gains, concretely: whose session, whose target, which audit
   row
 - the smallest reproduction you have, ideally commands and their output
-- whether it needs a non-default setting (`session.sftp`, `target_probe`,
+- whether it needs a non-default setting (`session.sftp`, `target_probe`, `manage.enabled`,
   `http.terminal_enabled`, `trusted_proxies`), and which
 
 You do not need a working exploit. A precise description of the reachable path

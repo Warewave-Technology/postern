@@ -313,6 +313,39 @@ export type TargetDetail = {
    */
   recent_partial?: boolean;
   recent_scanned?: number;
+
+  /*
+   * manage_enabled: bastion manage.enabled ile açılmış mı.
+   *
+   * ⚠️ Kapalıyken denetim ucu HİÇ kurulmuyor; düğmeyi yine de çizmek
+   * operatörü bir 404'e bastırırdı. Kart bu bayrağa bakarak ya düğmeyi
+   * ya da nasıl açılacağını söylüyor.
+   */
+  manage_enabled?: boolean;
+};
+
+/*
+ * ManageCheck, "postern bu hedefi kendi yönetim hesabıyla açabiliyor mu"
+ * denetiminin cevabı.
+ *
+ * ⚠️ stage ÜÇ AYRI CEVAP. "connect": bağlanılamadı (CA'ya güvenmiyor,
+ * hesap yok, ağ); "measure": bağlanıldı ama makine ölçülemedi; "done":
+ * ölçüldü ve manageable cevabı verdi. Hepsini "yönetilemez" diye çizmek
+ * operatörü yanlış yere baktırırdı.
+ */
+export type ManageCheck = {
+  target: string;
+  stage: "connect" | "measure" | "done";
+  manageable: boolean;
+  reason?: string;
+  detail?: string;
+  /** Bu bastion'ın CA'sı: reddin en sık sebebi hedefin başka bir CA'ya
+   *  güvenmesi, ve karşılaştırılacak satır bu. */
+  ca_fingerprint: string;
+  family?: string;
+  missing: string[];
+  tools?: Record<string, string>;
+  checked_at: string;
 };
 
 export type Mapping = { group: string; role: string; created_by: string };
@@ -999,6 +1032,11 @@ export const api = {
     req<ScannedKey>("POST", "/api/admin/targets/scan", { host, port }),
   targetDetail: (name: string) =>
     req<TargetDetail>("GET", `/api/admin/targets/${encodeURIComponent(name)}`),
+  checkManagement: (name: string) =>
+    req<ManageCheck>(
+      "POST",
+      `/api/admin/targets/${encodeURIComponent(name)}/manage/check`,
+    ),
   createTarget: (t: {
     name: string;
     host: string;

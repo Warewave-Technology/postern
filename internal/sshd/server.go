@@ -129,6 +129,15 @@ func (s *Server) UseRoleRefresher(fn func(context.Context, string) error) {
  */
 func (s *Server) LiveSessions() *proxy.Live { return s.live }
 
+/*
+ * Authority, bastion'ın CA'sı — panelin yönetim bağlantısı için.
+ *
+ * ⚠️ PANELE AYRI VERİLİYOR, ProxyDeps üzerinden DEĞİL: aynı gerekçe
+ * LiveSessions'ta yazılı. proxyDeps yalnızca terminal açıkken doluyor;
+ * yönetim yeteneğini oraya bağlamak onu terminal ayarına bağlamak olurdu.
+ */
+func (s *Server) Authority() *ca.CA { return s.authority }
+
 func (s *Server) ProxyDeps() proxy.Deps {
 	return proxy.Deps{
 		Store:        s.db,

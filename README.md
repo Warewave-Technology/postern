@@ -479,6 +479,57 @@ so it is always clear which answers cost a command and which did not.
 
 `postern serve` logs a warning at every startup while this is on.
 
+### Letting postern manage a target
+
+The next step crosses that line on purpose, and it takes two separate
+decisions to do it.
+
+On the target, the `postern_target` Ansible role with
+`postern_manage_host: true` creates a `postern` account with passwordless
+sudo. It holds no key: the only way in is a certificate from postern's own
+CA carrying the principal `postern-manage`, and the role asks sshd itself
+that both the CA and the principals file are in effect. The broad sudo
+grant is written once; every narrowing happens in postern, so changing what
+postern does never needs another run across the fleet.
+
+On the bastion:
+
+```yaml
+# ⚠️ DEFAULT OFF. With this on, a panel administrator can sign in as the
+# management account — root — on every target that has one.
+manage:
+  enabled: true
+```
+
+The target page then has a **Management** card. *Check management access*
+signs a two-minute certificate in memory, signs in as `postern`, and reads
+which account and sudo tools the host has. It changes nothing. What it
+records, and where:
+
+- **In postern's admin log, before connecting.** If that row cannot be
+  written, postern does not connect.
+- **In the target's own sshd log**, as the certificate's key ID:
+  `ID postern-manage: <administrator>: check management access`. The owner
+  of the machine may not be able to read postern's log; this line tells
+  them who pressed the button.
+
+A refusal says why, because the fixes differ: a target that does not trust
+this bastion's CA (the card shows the CA fingerprint to compare with the
+target's `/etc/ssh/postern_ca.pub`), a host key that changed, a host that
+cannot be reached, or a host that answers but lacks `useradd`, `usermod`
+or `visudo` — which postern will not half-configure.
+
+**There is no command that hands a person this certificate**, and there
+will not be one. `ca.Sign` has no ceiling on lifetime and the project has
+no revocation list, so a management certificate outside postern is root on
+the fleet until it expires, with no record of what it was used for. The
+names `postern` and `postern-manage` are refused as a person's OS user on
+every path — creating or approving an account, sign-in from an identity
+provider or a directory, policy, and the ordinary connection itself —
+because on a target where the principals file is not in effect, a
+certificate with the principal `postern` opens that account. That was
+measured, not assumed.
+
 ### Sending recordings off the bastion
 
 Until now the audit trail lived only on the machine being audited:

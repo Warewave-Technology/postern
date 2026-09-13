@@ -40,6 +40,8 @@ func (s *Server) registerTargetRoutes(mux *http.ServeMux) {
 
 	mux.Handle("GET /api/admin/targets/{name}",
 		noStore(s.requireSession(s.requireAdmin(s.sameOrigin(http.HandlerFunc(s.adminTargetDetail))))))
+
+	s.registerManageRoutes(mux)
 }
 
 // targetCard, ana ekrandaki kutunun ihtiyacı.
@@ -258,6 +260,10 @@ func (s *Server) adminTargetDetail(w http.ResponseWriter, r *http.Request) {
 		// bir sayı söyleyebilsin diye gidiyor — "son 200 kayıt içinde"
 		// ile "hiç" arasındaki fark operatörün kararını değiştiriyor.
 		RecentScanned int `json:"recent_scanned,omitempty"`
+		// manage_enabled: bastion manage.enabled ile açılmış mı. Panel
+		// yönetim kartını buna bakarak çiziyor; kapalıyken uç HİÇ
+		// kurulmuyor, dolayısıyla düğmeyi çizmek 404'e basmak olurdu.
+		ManageEnabled bool `json:"manage_enabled"`
 	}{
 		Name:          t.Name,
 		Host:          t.Host,
@@ -270,6 +276,7 @@ func (s *Server) adminTargetDetail(w http.ResponseWriter, r *http.Request) {
 		RecentErr:     recentErr,
 		RecentPartial: recentPartial,
 		RecentScanned: sessionScanLimit,
+		ManageEnabled: s.manageAuthority != nil,
 	})
 }
 

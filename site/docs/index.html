@@ -1070,6 +1070,13 @@ target_probe:
   refresh: 24h
   timeout: 5s
 
+manage:
+  # Default false. When true, panel administrators can sign in as the
+  # management account (passwordless sudo) on targets whose Ansible role
+  # ran with postern_manage_host: true. Every connection is written to
+  # the admin log first, and postern logs a warning at every startup.
+  enabled: false
+
 shutdown:
   # How long open sessions get to finish when postern is asked to stop.
   # When it expires they are closed with a reason, so the recording is

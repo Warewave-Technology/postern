@@ -698,6 +698,20 @@ func newServeCmd() *cobra.Command {
 				webAPI.UseLiveSessions(s.LiveSessions())
 
 				/*
+				 * ⚠️ YÖNETİM YALNIZCA AÇIKÇA İSTENDİĞİNDE — uç bile
+				 * kurulmuyor. Açıkken panelin yönetici oturumu, rolü
+				 * postern_manage_host ile koşmuş her makinede parolasız
+				 * root; bu bir yapılandırma satırının yan etkisi olmamalı.
+				 */
+				if cfg.Manage.Enabled {
+					webAPI.UseManagement(s.Authority())
+					// ⚠️ UYARI, BİLGİ DEĞİL — target_probe ile aynı: hedefte
+					// iş yapan her açık ayar her başlangıçta hatırlatılıyor.
+					logger.Warn("management is enabled: panel administrators can " +
+						"sign in as postern's management account on targets that have one")
+				}
+
+				/*
 				 * ⚠️ ARŞİV HEDEFİ PANELE SALT OKUNUR VERİLİYOR.
 				 * Panel kimliği yönetebiliyor ama hedefi
 				 * değiştiremiyor; alanları doğru çizebilmesi için

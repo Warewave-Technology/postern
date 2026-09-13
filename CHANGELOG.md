@@ -30,6 +30,35 @@ audit rows into a shape it does not understand.
 
 ## Unreleased
 
+### Security
+
+- **A postern username could forge lines in a target's sshd log.** A
+  certificate's key ID is written verbatim into the target's log, and postern
+  set it from the username without checking for control characters. A key ID
+  of `evil\nAccepted publickey for root from 6.6.6.6` wrote a separate,
+  genuine-looking root login line into a test target's log. The person who
+  reads that log — usually the machine's owner — often cannot see postern's
+  audit trail.
+
+  postern's own code reached this in 1.1.0. Usernames are not checked for
+  control characters anywhere, and an identity provider's
+  `preferred_username`, which many providers let people edit, is copied as is
+  into the pending queue; approving that account created a name every
+  certificate carried into the log. Accounts created by an administrator could
+  carry one too. Signing now refuses any key ID or principal with a control
+  character, at the one point every certificate passes through. No advisory ID
+  has been assigned.
+
+  **Needs action if such an account exists:** it can no longer open sessions,
+  by design — the alternative was to keep forging log lines. Find them with
+
+  ```sql
+  SELECT username FROM users WHERE username ~ '[[:cntrl:]]';
+  ```
+
+  and recreate them under a clean name. Refusing such names when they are
+  written, rather than when they are used, is tracked separately.
+
 ### Needs action if you installed the binary by hand
 
 - **The systemd unit now runs `/usr/bin/postern`, not `/usr/local/bin/postern`.**
@@ -92,8 +121,38 @@ audit rows into a shape it does not understand.
   `sudo -n -l -U postern` and fails unless sudo itself reports the grant,
   because `sudoers.d` is only read when the main file includes it.
 
+  The role also asks sshd whether the principals file is in effect, and fails
+  if it is not. That check exists because of a measurement: with
+  `AuthorizedPrincipalsFile` absent, sshd looks for the login name among a
+  certificate's principals, and a certificate with the principal `postern`
+  opened the management account. The Include repair for older OpenSSH, which
+  had never actually run because its probe matched `trustedusercakeys none`,
+  now does.
+
+- **The panel can check whether postern can manage a target** — behind a new
+  setting, `manage.enabled`, off by default. With it on, the target page has a
+  **Management** card: postern signs a two-minute certificate in memory, signs
+  in as `postern`, and reports which account and sudo tools the host has. It
+  changes nothing. The attempt is written to the admin log *before* connecting,
+  and postern does not connect if that write fails; the certificate's key ID
+  names the administrator, so the target's own sshd log says who pressed the
+  button. A refusal says which of four things went wrong — the target does not
+  trust this CA (the card shows the fingerprint to compare), the host key
+  changed, the host cannot be reached, or tools are missing — because each has
+  a different fix. `postern serve` logs a warning at every startup while this
+  is on.
+
+  **No command gives a person a management certificate.** One was considered
+  and rejected: signing has no lifetime ceiling and there is no revocation
+  list, so such a certificate would be root on the fleet until it expired,
+  with nothing recording what it was used for. The names `postern` and
+  `postern-manage` are refused as a person's OS user when an account is
+  created, modified, approved from the pending queue, or provisioned from an
+  identity provider or a directory, and again by policy and by the ordinary
+  connection.
+
 - **postern refuses to manage a machine it does not understand.** A capability
-  probe records which tools a target actually has and names what is missing
+  probe reports which tools a target actually has and names what is missing
   rather than guessing. On Alpine it finds busybox's `adduser` but no
   `usermod`, no `visudo` and no sudo, and reports the target as not
   manageable — a half-configured machine is worse than an untouched one,
@@ -101,6 +160,13 @@ audit rows into a shape it does not understand.
 
   `command -v` takes one name: dash prints only the first of several, busybox
   prints nothing. Both were measured; the probe uses a loop.
+
+  A loop exits with the status of its last command, so on a host without
+  `visudo` the whole check exits non-zero. That is treated as an answer: the
+  tools found before the missing one are kept and named. A host that stops
+  answering is reported as *not checked*, never as *not manageable* — the
+  first version returned the second with no error, which is a verdict nobody
+  measured.
 
 - **Sudo rules are checked for what they mean, not just for whether they
   parse.** `visudo` says a file will not break sudo. It does not say the rule

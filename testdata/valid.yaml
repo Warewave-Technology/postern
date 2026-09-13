@@ -51,6 +51,13 @@ recording:
 #   refresh: 24h
 #   timeout: 5s
 
+# Yönetim — VARSAYILAN KAPALI. Açıldığında panelin yöneticileri, rolü
+# postern_manage_host ile koşmuş hedeflerde postern'in yönetim hesabına
+# (parolasız sudo) iki dakikalık bir sertifikayla girebilir. Her bağlantı
+# önce admin_log'a yazılır; yazılamazsa bağlanılmaz.
+# manage:
+#   enabled: true
+
 # S3.3 — tarayıcı destekli giriş (OOB). İkisi birlikte ya tam ya hiç:
 # bu bloklar silinirse bastion yalnızca public key kabul eder.
 http:

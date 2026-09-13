@@ -1,9 +1,10 @@
-import { render } from "@testing-library/react";
+import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import SecurityKeys from "../src/SecurityKeys";
-import { api } from "../src/api";
+import ManageAccess from "../src/admin/ManageAccess";
+import { api, type ManageCheck } from "../src/api";
 
 /*
  * GÖRSEL KONTROL — birim testlerinin ölçmediği şey.
@@ -20,7 +21,7 @@ import { api } from "../src/api";
  *
  * ⚠️ BU BİR TEST DEĞİL, BİR ARAÇ. Hiçbir şey iddia etmiyor —
  * yalnızca bakılabilir bir çıktı bırakıyor. Sınıfın var olup
- * olmadığını denetleyen kontrol ayrı (classes.test.tsx).
+ * olmadığını denetleyen kontrol ayrı (classnames.test.ts).
  */
 describe("görsel kontrol çıktısı", () => {
   it("kartı gerçek stille birlikte diske yazıyor", async () => {
@@ -50,12 +51,90 @@ describe("görsel kontrol çıktısı", () => {
     fs.mkdirSync(out, { recursive: true });
     fs.writeFileSync(
       path.join(out, "security-keys.html"),
-      `<style>${css}</style>
+      `<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>${css}</style>
 <body class="app" style="padding:2rem;max-width:64rem">
 ${container.innerHTML}
 </body>`,
     );
 
     expect(container.innerHTML).toContain("card-head");
+  });
+});
+
+/*
+ * Yönetim kartı dört hâliyle: kapalı, sonuçsuz, yönetilebilir ve
+ * reddedilmiş. Reddedilmiş hâl uzun bir sunucu cümlesi ve ham hata
+ * metni taşıyor — sarmayan bir kart tam orada taşar.
+ */
+describe("yönetim kartı görsel çıktısı", () => {
+  const css = () => fs.readFileSync(path.resolve(process.cwd(), "src/styles.css"), "utf8");
+  const base: ManageCheck = {
+    target: "demo-a",
+    stage: "done",
+    manageable: true,
+    ca_fingerprint: "SHA256:I3mJ5osOLjwSlMDq4UpW+nBcTtBCjux2CiFcN0Mudns",
+    family: "alpine",
+    missing: [],
+    tools: {
+      add_user: "/usr/sbin/useradd", add_group: "/usr/sbin/groupadd",
+      mod_user: "/usr/sbin/usermod", del_user: "/usr/sbin/userdel",
+      del_group: "/usr/sbin/groupdel", visudo: "/usr/sbin/visudo",
+    },
+    checked_at: "2026-09-13T10:41:00Z",
+  };
+
+  it("dört hâli yan yana diske yazıyor", async () => {
+    const pieces: string[] = [];
+
+    const off = render(<ManageAccess name="demo-a" enabled={false} />);
+    pieces.push(off.container.innerHTML);
+    off.unmount();
+
+    const idle = render(<ManageAccess name="demo-a" enabled />);
+    pieces.push(idle.container.innerHTML);
+    idle.unmount();
+
+    vi.spyOn(api, "checkManagement").mockResolvedValueOnce(base);
+    const ok = render(<ManageAccess name="demo-a" enabled />);
+    fireEvent.click(ok.getByRole("button"));
+    await ok.findByText(/can manage this host/);
+    pieces.push(ok.container.innerHTML);
+    ok.unmount();
+
+    vi.spyOn(api, "checkManagement").mockResolvedValueOnce({
+      ...base,
+      stage: "connect",
+      manageable: false,
+      family: undefined,
+      tools: undefined,
+      reason:
+        "the target refused postern's management certificate. Either it does not trust this bastion's CA (compare the fingerprint below with the target's /etc/ssh/postern_ca.pub), or it has no management account — run the postern_target role with postern_manage_host: true",
+      detail:
+        "upstream.DialManagement: target demo-a: upstream: target refused our certificate: ssh: handshake failed: ssh: unable to authenticate, attempted methods [none publickey], no supported methods remain",
+    });
+    const bad = render(<ManageAccess name="demo-a" enabled />);
+    fireEvent.click(bad.getByRole("button"));
+    await bad.findByText(/refused postern/);
+    pieces.push(bad.container.innerHTML);
+    bad.unmount();
+
+    const out = path.resolve(process.cwd(), ".visual");
+    fs.mkdirSync(out, { recursive: true });
+    fs.writeFileSync(
+      path.join(out, "manage-access.html"),
+      `<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>${css()}</style>
+<body class="app" style="padding:2rem;max-width:72rem;display:grid;gap:1.1rem">
+${pieces
+  .map(
+    (p) =>
+      `<div class="detail-grid"><div class="detail-main">${p}</div><div class="detail-side"></div></div>`,
+  )
+  .join("\n")}
+</body>`,
+    );
+
+    expect(pieces).toHaveLength(4);
   });
 });

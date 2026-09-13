@@ -38,16 +38,22 @@ type SSHRunner struct {
  * actor ve reason hedefin kendi sshd günlüğüne düşen KeyID'ye giriyor
  * (bkz. upstream.DialManagement).
  *
- * ⚠️ DÖNEN HATA İKİ ŞEYİ BİRDEN TAŞIYOR. ErrUnreachable: adımların hiçbiri
- * hedefe varmadı, rapor "failed" dememeli. upstream'in sınıfı
- * (ErrRefused, ErrHostKeyMismatch...): operatörün NE yapacağı. İkincisini
- * düzleştirmek, "hedef bu CA'ya güvenmiyor" ile "makine kapalı"yı aynı
- * cümleye indirirdi — birinde beklemek işe yarar, öbüründe asla.
+ * ⚠️ HATA upstream'İN SINIFIYLA, ErrUnreachable'A SARILMADAN DÖNÜYOR —
+ * VE İLK HÂLİ SARIYORDU. Sarmak, reddedilen bir sertifikayı ve değişmiş
+ * bir host anahtarını da "ulaşılamadı" kovasına atıyordu: panelde "hedef
+ * sertifikayı reddetti" cümlesinin hemen altında ham metin "target could
+ * not be reached:" diye başlıyor, iki satır birbirini çürütüyordu. Daha
+ * önemlisi yanlış iş söylüyordu: ulaşılamayan makinede beklemek işe
+ * yarar, CA'ya güvenmeyen makinede asla. upstream/hostkey.go bu
+ * düzleştirmeyi ölçüp ayrı sınıflar koymuştu. Bağlantı kurulamadıysa
+ * ortada bir Apply raporu yok; çağıran upstream.ErrRefused,
+ * ErrHostKeyMismatch, ErrHandshake ve ErrUnreachable'a bakarak karar
+ * veriyor.
  */
 func Connect(ctx context.Context, t model.Target, authority *ca.CA, actor, reason string) (*SSHRunner, error) {
 	conn, err := upstream.DialManagement(ctx, t, authority, actor, reason)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrUnreachable, err)
+		return nil, err
 	}
 
 	return &SSHRunner{conn: conn}, nil

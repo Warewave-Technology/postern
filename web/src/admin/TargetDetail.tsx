@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { TargetDetail as Detail, api, toMessage } from "../api";
 import { ActionButton, ErrorLine, OkLine } from "./common";
 import { BackIcon } from "../icons";
+import ManageAccess from "./ManageAccess";
 
 /**
  * TargetDetail — bir hedefin kendi sayfası.
@@ -241,6 +242,15 @@ export default function TargetDetail({
                 )}
               </div>
             </div>
+
+            {/*
+              AYRI KART ve Identified'ın ALTINDA: ikisi de hedefte komut
+              çalıştırıyor ama farklı kimliklerle. Identified bağlanan
+              kişinin bağlantısında, bu kart postern'in kendi yönetim
+              hesabıyla. Aynı kutuya konsalardı "bu satır için hedefe kim
+              olarak girdik" sorusu cevapsız kalırdı.
+            */}
+            <ManageAccess name={name} enabled={!!t.manage_enabled} />
           </div>
 
           <div className="detail-side">

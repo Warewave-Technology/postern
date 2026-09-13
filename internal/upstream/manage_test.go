@@ -105,6 +105,11 @@ func managedTargetWith(t *testing.T, authority *ca.CA, run script, openChannels 
 				return nil, errors.New("certificates only")
 			}
 			srv.saw(conn.User(), cert)
+			// ⚠️ CA güveni ayrıca: CheckCert onu sormuyor (httpapi/manage_test.go'da
+			// ölçülüp yazıldı). Sormayan sahte hedef her CA'yı kabul ederdi.
+			if !checker.IsUserAuthority(cert.SignatureKey) {
+				return nil, errors.New("certificate signed by an authority this host does not trust")
+			}
 			for _, p := range principalsFile[conn.User()] {
 				if err := checker.CheckCert(p, cert); err == nil {
 					return &ssh.Permissions{}, nil
@@ -495,4 +500,26 @@ func TestExecDoesNotHangWhenTheTargetNeverOpensAChannel(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("kanal açmayan hedef Exec'i süresiz tuttu")
 	}
+}
+
+/*
+ * Sahte hedef, güvenmediği CA'nın yönetim sertifikasını reddetmeli. Bu test
+ * üretim kodunu değil TEST HEDEFİNİN KENDİSİNİ tutuyor: CA'yı sormayan bir
+ * sahte hedef, bu dosyadaki her "bağlandı" sonucunu anlamsız kılardı —
+ * httpapi'deki eşinde tam olarak böyle olmuştu.
+ */
+func TestTheFakeTargetOnlyTrustsItsOwnCA(t *testing.T) {
+	trusted := testAuthority(t)
+	tgt, _ := managedTarget(t, trusted, noop)
+
+	if conn, err := DialManagement(context.Background(), tgt, testAuthority(t), "ayse", "test"); err == nil {
+		conn.Close()
+		t.Fatal("sahte hedef başka bir CA'nın sertifikasını kabul etti")
+	}
+
+	conn, err := DialManagement(context.Background(), tgt, trusted, "ayse", "test")
+	if err != nil {
+		t.Fatalf("güvenilen CA reddedildi — yukarıdaki ret yanlış sebepten olabilir: %v", err)
+	}
+	conn.Close()
 }

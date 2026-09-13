@@ -84,3 +84,33 @@ describe("tarama penceresi dolduğunda", () => {
     expect(screen.queryByText(/among the last/i)).toBeNull();
   });
 });
+
+/*
+ * ⚠️ YÖNETİM KARTI SAYFAYA BAĞLI VE BAYRAĞI DOĞRU TAŞIYOR.
+ *
+ * Kartın kendi testleri kartı tek başına çiziyor; sayfaya hiç eklenmemiş ya
+ * da bayrak ters geçirilmiş bir kart o testlerin hepsini yeşil bırakırdı —
+ * mutasyonla ölçüldü. Sunucu bayrağı açık olmayan bir bastion'da düğme,
+ * kurulmamış bir uca basardı.
+ */
+describe("yönetim kartı", () => {
+  // ⚠️ "switched off on this bastion" YETMİYOR: Identified kartı da aynı
+  // cümleyi kuruyor ve ilk hâli o kartı bulup yanlış sebepten düşüyordu.
+  it("açık bastion'da denetim düğmesini gösteriyor", async () => {
+    vi.spyOn(api, "targetDetail").mockResolvedValue(detail({ manage_enabled: true }));
+    render(<TargetDetail name="web-01" onBack={() => {}} />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /check management access to web-01/i })).toBeTruthy(),
+    );
+    expect(screen.queryByText(/Management is switched off/i)).toBeNull();
+  });
+
+  it("kapalı bastion'da düğme yerine nasıl açılacağını söylüyor", async () => {
+    vi.spyOn(api, "targetDetail").mockResolvedValue(detail({ manage_enabled: false }));
+    render(<TargetDetail name="web-01" onBack={() => {}} />);
+
+    await waitFor(() => expect(screen.getByText(/Management is switched off/i)).toBeTruthy());
+    expect(screen.queryByRole("button", { name: /check management access/i })).toBeNull();
+  });
+});

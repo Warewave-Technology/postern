@@ -32,6 +32,10 @@ type Config struct {
 	// VARSAYILAN KAPALI — bkz. TargetProbeConfig.
 	TargetProbe TargetProbeConfig `yaml:"target_probe"`
 
+	// Manage, postern'in hedefleri KENDİ yönetim hesabıyla açması.
+	// VARSAYILAN KAPALI — bkz. ManageConfig.
+	Manage ManageConfig `yaml:"manage"`
+
 	// SecretKeyFile, veritabanındaki şifreli ayarları açan ana anahtar
 	// (`postern secret init` üretir). Boş bırakılabilir: o zaman şifreli
 	// ayar okunamaz/yazılamaz ama bastion'ın geri kalanı çalışır.
@@ -240,6 +244,22 @@ type TargetProbeConfig struct {
 }
 
 // RefreshOrDefault, yazılmamış Refresh için varsayılan.
+/*
+ * ManageConfig, panelin hedefte yönetim hesabıyla iş yapabilmesi.
+ *
+ * ⚠️ VARSAYILAN KAPALI, VE İKİ AYRI RIZA GEREKİYOR. Hedef tarafında rol
+ * postern_manage_host ile yönetim hesabını açıyor; bu anahtar ise
+ * bastion tarafında panelin o hesabı KULLANMASINA izin veriyor. Açık bir
+ * panelde yönetici oturumu, rolü koşmuş her makinede parolasız root
+ * demek. Rolü deneme için bir makinede açan bir operatörün, panelin bu
+ * gücü kendiliğinden kazanmasını beklememesi gerekiyor — target_probe ve
+ * http.terminal_enabled ile aynı kural: hedefte komut çalıştıran her şey
+ * açıkça açılıyor.
+ */
+type ManageConfig struct {
+	Enabled bool `yaml:"enabled"`
+}
+
 func (c TargetProbeConfig) RefreshOrDefault() time.Duration {
 	if c.Refresh <= 0 {
 		return 24 * time.Hour

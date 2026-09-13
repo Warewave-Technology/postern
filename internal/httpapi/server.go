@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Warewave-Technology/postern/internal/auth"
+	"github.com/Warewave-Technology/postern/internal/ca"
 	"github.com/Warewave-Technology/postern/internal/config"
 	"github.com/Warewave-Technology/postern/internal/events"
 	"github.com/Warewave-Technology/postern/internal/groupsync"
@@ -193,6 +194,20 @@ type Server struct {
 	verifySlots chan struct{}
 
 	/*
+	 * manageAuthority, yönetim bağlantısı için CA. nil ise manage.enabled
+	 * kapalı ve yönetim uçları "kapalı" diyor (bkz. manage.go).
+	 */
+	manageAuthority *ca.CA
+
+	/*
+	 * manageSlots, eşzamanlı yönetim bağlantısı tavanı. Her biri hedefte
+	 * parolasız root tutan bir oturum; panelden bir tıklamayla onlarcasını
+	 * açabilmek, hem hedefin günlüğünü hem bastion'ın soketlerini
+	 * gereksiz yere doldururdu.
+	 */
+	manageSlots chan struct{}
+
+	/*
 	 * archiveClient, arşivdeki zincir başını okumak için. nil ise arşiv
 	 * yapılandırılmamış ve doğrulama "bakılmadı" diyor.
 	 */
@@ -304,6 +319,21 @@ func (s *Server) UseArchive(dest config.ArchiveConfig, hostSecret string) {
 // UseLiveSessions, akan oturum defterini bildirir; kesme uçları buradan
 // çalışıyor. Dinlemeye başlamadan ÖNCE çağrılmalı: alan kilitsiz.
 func (s *Server) UseLiveSessions(l *proxy.Live) { s.live = l }
+
+/*
+ * UseManagement, panelin yönetim bağlantısı kurabilmesini açar; yalnızca
+ * manage.enabled ile çağrılmalı. Dinlemeye başlamadan ÖNCE: alan kilitsiz.
+ *
+ * ⚠️ SINIRLAYICI BURADA KURULUYOR, New'DE DEĞİL — ÖLÇÜLDÜ. İlk hâli yuvayı
+ * New'de açıyordu; New'i atlayan bir kurulumda (testlerin hepsi böyle)
+ * kanal nil kaldı, nil kanala gönderim select'te hiç seçilmedi ve her
+ * denetim "başka bir denetim sürüyor" diye 429 döndü. Özelliği açan çağrı
+ * onun sınırını da getiriyor: biri olmadan öbürü olamaz.
+ */
+func (s *Server) UseManagement(authority *ca.CA) {
+	s.manageAuthority = authority
+	s.manageSlots = make(chan struct{}, manageSlots)
+}
 
 /*
  * SetTrustedProxies, X-Forwarded-For'una güvenilecek kaynakları bildirir.
