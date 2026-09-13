@@ -94,12 +94,15 @@ func (r *SSHRunner) Exec(ctx context.Context, command, stdin string) (string, er
 }
 
 /*
- * answer, upstream'in cevabını Apply'ın iki sınıfına çevirir.
+ * answer, upstream'in cevabını Apply'ın sınıflarına çevirir.
  *
- * ⚠️ HEDEFİN CEVABI OLDUĞU GİBİ GEÇİYOR, CEVAPSIZLIK ErrUnreachable
- * OLUYOR. Tersi — her hatayı ErrUnreachable saymak — sudoers doğrulaması
- * düşen bir makineyi "ulaşılamadı, sonra dene" diye raporlardı; oysa
- * tekrar denemek aynı reddi getirir ve bakılacak yer hedefin kendisi.
+ * ⚠️ HEDEFİN CEVABI OLDUĞU GİBİ GEÇİYOR, CEVAPSIZLIK ErrUnconfirmed
+ * OLUYOR — ErrUnreachable DEĞİL, ve ilk hâli öyleydi. Cevapsız kalan
+ * bir adım makinede koşmuş olabilir (bağlam komutun ortasında dolunca
+ * OpenSSH çocuğu öldürmüyor); "ulaşılamadı" demek "hiçbir şey olmadı"
+ * demek ve bu yanlış olabilir. Her hatayı "başarısız" saymak da yanlış:
+ * sudoers doğrulaması düşen bir makine bir cevap, bakılacak yer hedefin
+ * kendisi. Üç sınıf, üç ayrı cümle.
  */
 func answer(stdout string, err error) (string, error) {
 	if err == nil {
@@ -107,8 +110,11 @@ func answer(stdout string, err error) (string, error) {
 	}
 
 	var cmdErr *upstream.CommandError
-	if errors.As(err, &cmdErr) {
+	switch {
+	case errors.As(err, &cmdErr):
 		return stdout, err
+	case errors.Is(err, upstream.ErrNoAnswer):
+		return stdout, fmt.Errorf("%w: %w", ErrUnconfirmed, err)
 	}
 
 	return stdout, fmt.Errorf("%w: %w", ErrUnreachable, err)

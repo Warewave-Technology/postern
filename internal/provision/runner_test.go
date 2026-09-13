@@ -154,14 +154,15 @@ func runnerFor(t *testing.T, mode answerMode) *SSHRunner {
 }
 
 /*
- * ⚠️ HEDEFİN REDDİ "BAŞARISIZ", CEVAPSIZLIK "ULAŞILAMADI" OLARAK
+ * ⚠️ HEDEFİN REDDİ "BAŞARISIZ", CEVAPSIZLIK "DOĞRULANMADI" OLARAK
  * RAPORLANMALI — Apply'ın gerçek bir bağlantıdan gelen hatayı doğru
  * kovaya koyabildiği tek yer SSHRunner.Exec'teki çeviri.
  *
- * İki yönde de yanlış gidilebiliyor ve ikisi de operatörü yanlış yere
- * yollar: sudoers doğrulaması düşen bir makineyi "ulaşılamadı" demek
- * tekrar denetir (aynı ret gelir), cevapsız kalan bir makineyi "başarısız"
- * demek hedefin günlüklerine baktırır (orada hiçbir şey yoktur).
+ * Üç yönde de yanlış gidilebiliyor: sudoers doğrulaması düşen bir
+ * makineyi "ulaşılamadı" demek tekrar denetir (aynı ret gelir); cevapsız
+ * kalan bir adımı "başarısız" demek hedefin günlüklerine baktırır; onu
+ * "ulaşılamadı" demek ise root'ta bitmiş olabilecek bir komutu "hiçbir
+ * şey olmadı" diye anlatır.
  */
 func TestRunnerSortsAnswersFromSilence(t *testing.T) {
 	step := []Step{{Kind: StepSudoCheck, Command: "sudo -n visudo -cf /etc/sudoers.d/postern-dba.staged"}}
@@ -176,8 +177,11 @@ func TestRunnerSortsAnswersFromSilence(t *testing.T) {
 	}
 
 	rep = Apply(context.Background(), runnerFor(t, answerSilence), step)
-	if rep.Unreachable() != 1 || rep.Failed() != 0 {
+	if rep.Unconfirmed() != 1 || rep.Failed() != 0 || rep.Unreachable() != 0 {
 		t.Errorf("cevapsızlık yanlış sınıflandı: %s", rep.Summary())
+	}
+	if rep.OK() {
+		t.Error("doğrulanmamış adımla koşu başarılı sayıldı")
 	}
 	// upstream'in sınıfı zincirde kalmalı: panel sebebi oradan okuyor.
 	if !errors.Is(rep.FirstError(), upstream.ErrNoAnswer) {

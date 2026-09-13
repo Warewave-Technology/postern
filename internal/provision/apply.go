@@ -22,6 +22,21 @@ import (
 var ErrUnreachable = errors.New("target could not be reached")
 
 /*
+ * ErrUnconfirmed, hedefin adımın ÇALIŞIP ÇALIŞMADIĞINI bildirmediğini
+ * söyler: kanal açılamadı, exec isteği reddedildi, kanal çıkış kodu
+ * gelmeden kapandı, ya da bağlam komut koşarken doldu.
+ *
+ * ⚠️ NE "BAŞARISIZ" NE "ULAŞILAMADI" — VE ÜÇÜNCÜ SINIF OLMADAN İKİSİ DE
+ * YALAN SÖYLÜYORDU. Bağlam sudoers kurulumunun ortasında dolarsa
+ * postern kanalı kapatıyor ama OpenSSH pty'siz çocuğa sinyal
+ * göndermiyor: `install` root olarak BİTİYOR. Bunu "ulaşılamadı, hiçbir
+ * şey olmadı" diye raporlamak, kurulmuş bir sudo kuralını yok saymak;
+ * "başarısız" diye raporlamak operatörü hedefin günlüklerine yollamak
+ * olurdu. Doğru cümle "bilmiyoruz" ve rapor tam olarak onu söylüyor.
+ */
+var ErrUnconfirmed = errors.New("the target did not confirm whether the step ran")
+
+/*
  * Runner, hedefte tek bir komut çalıştırabilen şey.
  *
  * ⚠️ ARAYÜZ, SSH'A BAĞLI DEĞİL. Uygulamanın kararları — nerede durulacak,
@@ -42,6 +57,9 @@ const (
 	OutcomeFail Outcome = "failed"
 	// OutcomeUnreachable, makineye ulaşılamadı: hedefin suçu değil.
 	OutcomeUnreachable Outcome = "unreachable"
+	// OutcomeUnconfirmed, adım gitti ama hedef koşup koşmadığını
+	// bildirmedi — makinede olmuş da olabilir (bkz. ErrUnconfirmed).
+	OutcomeUnconfirmed Outcome = "not confirmed"
 	// OutcomeSkipped, önceki bir adım düştüğü için HİÇ DENENMEDİ.
 	OutcomeSkipped Outcome = "not attempted"
 )
@@ -82,10 +100,12 @@ func (r Report) Done() int        { return r.count(OutcomeDone) }
 func (r Report) Failed() int      { return r.count(OutcomeFail) }
 func (r Report) Skipped() int     { return r.count(OutcomeSkipped) }
 func (r Report) Unreachable() int { return r.count(OutcomeUnreachable) }
+func (r Report) Unconfirmed() int { return r.count(OutcomeUnconfirmed) }
 
-// OK, koşunun tamamının uygulandığı.
+// OK, koşunun tamamının uygulandığı — ve UYGULANDIĞININ BİLİNDİĞİ.
 func (r Report) OK() bool {
-	return r.Failed() == 0 && r.Skipped() == 0 && r.Unreachable() == 0
+	return r.Failed() == 0 && r.Skipped() == 0 && r.Unreachable() == 0 &&
+		r.Unconfirmed() == 0
 }
 
 // Summary, panelde ve denetim satırında görünecek cümle.
@@ -106,6 +126,12 @@ func (r Report) Summary() string {
 		return fmt.Sprintf("%d applied, target unreachable, %d not attempted",
 			r.Done(), r.Skipped())
 	}
+	// ⚠️ "not confirmed" ayrı bir cümle: makinede olmuş olabilir ve
+	// operatörün ilk işi bakmak, tekrar denemek değil.
+	if r.Unconfirmed() > 0 {
+		return fmt.Sprintf("%d applied, %d not confirmed by the target, %d not attempted",
+			r.Done(), r.Unconfirmed(), r.Skipped())
+	}
 
 	return fmt.Sprintf("%d applied, %d failed, %d not attempted",
 		r.Done(), r.Failed(), r.Skipped())
@@ -114,7 +140,8 @@ func (r Report) Summary() string {
 // FirstError, koşuyu durduran hata.
 func (r Report) FirstError() error {
 	for _, res := range r.Results {
-		if res.Outcome == OutcomeFail || res.Outcome == OutcomeUnreachable {
+		switch res.Outcome {
+		case OutcomeFail, OutcomeUnreachable, OutcomeUnconfirmed:
 			return res.Err
 		}
 	}
@@ -164,8 +191,11 @@ func Apply(ctx context.Context, r Runner, steps []Step) Report {
 		out, err := r.Exec(ctx, s.Command, s.Content)
 		if err != nil {
 			outcome := OutcomeFail
-			if errors.Is(err, ErrUnreachable) {
+			switch {
+			case errors.Is(err, ErrUnreachable):
 				outcome = OutcomeUnreachable
+			case errors.Is(err, ErrUnconfirmed):
+				outcome = OutcomeUnconfirmed
 			}
 			rep.Results = append(rep.Results, Result{
 				Step: s, Outcome: outcome, Output: out,

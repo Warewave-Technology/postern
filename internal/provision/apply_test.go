@@ -229,3 +229,60 @@ func TestUnreachableOnTheLastStepIsStillAFailure(t *testing.T) {
 			"makine yapılandırılmadı ama rapor tamam diyor")
 	}
 }
+
+/*
+ * ⚠️ HEDEFİN DOĞRULAMADIĞI ADIM NE "BAŞARISIZ" NE "ULAŞILAMADI".
+ *
+ * Bağlam, sudoers kurulumu koşarken dolarsa postern kanalı kapatıyor ama
+ * OpenSSH pty'siz çocuğa sinyal göndermiyor: komut root olarak bitiyor.
+ * Rapor bunu "ulaşılamadı" diye anlatırsa kurulmuş bir kural yok
+ * sayılır; "başarısız" derse operatör günlüklere gider. Üçüncü cümle
+ * gerekiyor, koşu başarılı sayılmamalı ve sonraki adım denenmemeli.
+ */
+func TestAStepTheTargetDidNotConfirmIsNeitherDoneNorFailed(t *testing.T) {
+	r := &fakeRunner{failOn: "install", failErr: ErrUnconfirmed}
+
+	rep := Apply(context.Background(), r,
+		steps("sudo -n visudo -cf x", "sudo -n install x y", "sudo -n rm -f x"))
+
+	if rep.Unconfirmed() != 1 {
+		t.Errorf("doğrulanmayan adım sayılmadı: %s", rep.Summary())
+	}
+	if rep.Failed() != 0 || rep.Unreachable() != 0 {
+		t.Errorf("doğrulanmayan adım başka bir sınıfa düştü: %s", rep.Summary())
+	}
+	if rep.OK() {
+		t.Error("doğrulanmamış koşu başarılı sayıldı")
+	}
+	if rep.Skipped() != 1 {
+		t.Errorf("doğrulanmayan adımdan sonra devam edildi: %s", rep.Summary())
+	}
+	if !strings.Contains(rep.Summary(), "not confirmed") {
+		t.Errorf("özet belirsizliği söylemiyor: %q", rep.Summary())
+	}
+	if !errors.Is(rep.FirstError(), ErrUnconfirmed) {
+		t.Errorf("koşuyu durduran hata kayboldu: %v", rep.FirstError())
+	}
+}
+
+/*
+ * ⚠️ SON ADIMDA DOĞRULANMAMA DA BAŞARISIZ — VE BU TEST BİR MUTASYONUN
+ * HAYATTA KALMASIYLA EKLENDİ, ulaşılamama için eklenen eşi gibi.
+ * Yukarıdaki test ortada kopuyor; atlanan adım OK()'i zaten false
+ * yapıyordu ve "doğrulanmamış adım koşuyu düşürür" iddiası hiç
+ * ölçülmemişti. Burada kopma SON adımda: atlanan yok, OK() yalnızca
+ * doğrulanmamaya bakarak false demek zorunda.
+ */
+func TestUnconfirmedOnTheLastStepIsStillNotOK(t *testing.T) {
+	r := &fakeRunner{failOn: "rm -f", failErr: ErrUnconfirmed}
+
+	rep := Apply(context.Background(), r, steps("sudo -n install x y", "sudo -n rm -f x"))
+
+	if rep.Skipped() != 0 {
+		t.Fatalf("kurgu tutmadı: atlanan adım var (%s)", rep.Summary())
+	}
+	if rep.OK() {
+		t.Fatal("SON ADIMI DOĞRULANMAMIŞ KOŞU BAŞARILI SAYILDI: " +
+			"makinede ne olduğu bilinmiyor ama rapor tamam diyor")
+	}
+}
