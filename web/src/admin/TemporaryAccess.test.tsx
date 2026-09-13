@@ -130,20 +130,26 @@ it("sihirbaz kişi, hedefler ve gruplarla hedef başına bir istek atıyor", asy
   const grantButton = screen.getByRole("button", { name: /^grant temporary access$/i }) as HTMLButtonElement;
   expect(grantButton.disabled).toBe(true); // hedef seçilmeden gitmez
 
-  const hostBox = (await screen.findByRole("listbox", { name: /^Hosts/ })) as HTMLSelectElement;
-  await user.selectOptions(hostBox, ["web-01", "db-01"]);
-  expect(screen.getByText(/Selected: web-01, db-01/)).toBeTruthy();
-  fireEvent.change(screen.getByLabelText(/Filter hosts/), { target: { value: "cache" } });
-  expect(screen.queryByRole("option", { name: /web-01 —/ })).toBeNull();
-  expect(screen.getByText(/Selected: web-01, db-01/)).toBeTruthy(); // süzgeç seçimi düşürmedi
+  const hostBox = await screen.findByRole("combobox", { name: "Hosts" });
+  fireEvent.focus(hostBox);
+  await user.click(screen.getByRole("option", { name: /web-01/ }));
+  await user.click(screen.getByRole("option", { name: /db-01/ }));
+  expect(screen.getByRole("button", { name: "remove web-01" })).toBeTruthy();
+  expect(screen.getByText(/2 host\(s\) selected/)).toBeTruthy();
+  fireEvent.change(hostBox, { target: { value: "cache" } });
+  expect(screen.queryByRole("option", { name: /web-01/ })).toBeNull();
+  expect(screen.getByRole("button", { name: "remove web-01" })).toBeTruthy(); // süzgeç seçimi düşürmedi
+  fireEvent.mouseDown(document.body); // listeyi kapat
 
   fireEvent.click(screen.getByRole("button", { name: /load groups from the selected hosts/i }));
-  const groupBox = (await screen.findByRole("listbox", { name: /^Groups/ })) as HTMLSelectElement;
   await screen.findByText(/Only the 1 group\(s\) present on all 2 selected hosts are offered; 1 system group\(s\) below gid 1000 are not/);
+  const groupBox = screen.getByRole("combobox", { name: "Groups" });
+  fireEvent.focus(groupBox);
   expect(screen.queryByRole("option", { name: "docker" })).toBeNull();
   expect(screen.queryByRole("option", { name: "web" })).toBeNull();
   expect(screen.getByRole("group", { name: "Common to web-01, db-01" })).toBeTruthy();
-  await user.selectOptions(groupBox, ["developer", "dba"]);
+  await user.click(screen.getByRole("option", { name: "developer" }));
+  await user.click(screen.getByRole("option", { name: "dba" }));
   expect(screen.getByText(/Will join: developer, dba\./)).toBeTruthy();
 
   fireEvent.click(grantButton);
@@ -172,7 +178,9 @@ it("bir hedef düşünce diğerleri açılır, sonuçlar hedef başına yazılı
   fireEvent.click(screen.getByRole("button", { name: /new temporary access/i }));
   await waitFor(() => expect(screen.getByRole("option", { name: /ayse/ })).toBeTruthy());
   fireEvent.change(screen.getByLabelText(/^Person/), { target: { value: "ayse" } });
-  await user.selectOptions(await screen.findByRole("listbox", { name: /^Hosts/ }), ["web-01", "db-01"]);
+  fireEvent.focus(await screen.findByRole("combobox", { name: "Hosts" }));
+  await user.click(screen.getByRole("option", { name: /web-01/ }));
+  await user.click(screen.getByRole("option", { name: /db-01/ }));
   fireEvent.click(screen.getByRole("button", { name: /^grant temporary access$/i }));
 
   await screen.findByText(/no route to host/);

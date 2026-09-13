@@ -14,6 +14,7 @@ import {
 import { ActionButton, ErrorLine, ListState, Timestamp, useList } from "./common";
 import DataTable, { Column } from "./DataTable";
 import Modal from "./Modal";
+import MultiSelect from "./MultiSelect";
 
 /**
  * TemporaryAccess — geçici erişim sekmesi: bütün hedeflerdeki haklar ve
@@ -322,15 +323,12 @@ export function commonGroups(inventories: TargetGroups[]): {
   };
 }
 
-const selected = (el: HTMLSelectElement) => Array.from(el.selectedOptions, (o) => o.value);
-
 function NewGrant({ onChanged, onClose }: { onChanged: () => Promise<unknown>; onClose: () => void }) {
   const users = useList<User>(api.users);
   const targets = useList<Target>(api.targets);
   const roles = useList<Role>(api.roles);
 
   const [username, setUsername] = useState("");
-  const [hostFilter, setHostFilter] = useState("");
   const [hosts, setHosts] = useState<string[]>([]);
   const [groups, setGroups] = useState<string[]>([]);
   const [inventory, setInventory] = useState<Record<string, TargetGroups | { error: string }>>({});
@@ -339,16 +337,6 @@ function NewGrant({ onChanged, onClose }: { onChanged: () => Promise<unknown>; o
   const [acknowledged, setAcknowledged] = useState(false);
   const [outcomes, setOutcomes] = useState<HostOutcome[]>([]);
   const [done, setDone] = useState(false);
-
-  /*
-   * Süzgeç yalnızca GÖRÜNENİ daraltıyor, seçimi değil: süzgeci değiştirmek
-   * az önce seçilmiş bir hedefi düşürmemeli. Seçili olanlar kutunun
-   * altında ayrıca yazılıyor, çünkü süzülmüş listede görünmeyebilirler.
-   */
-  const q = hostFilter.trim().toLowerCase();
-  const visibleTargets = targets.items.filter(
-    (t) => !q || t.name.toLowerCase().includes(q) || t.host.toLowerCase().includes(q),
-  );
 
   const loadGroups = async () => {
     const next: Record<string, TargetGroups | { error: string }> = {};
@@ -455,87 +443,69 @@ function NewGrant({ onChanged, onClose }: { onChanged: () => Promise<unknown>; o
             </label>
           </div>
 
+          {/*
+            ⚠️ HEDEFLER VE GRUPLAR MultiSelect: arama, etiket olarak
+            seçilenler, tümünü seç. Yüz hedefli envanterde onay kutusu
+            listesi de yerleşik <select multiple> da okunmuyordu
+            (kullanıcı söyledi). Yükleme düğmesi hedeflerin hemen altında:
+            akış hedef seç → yükle → grup seç.
+          */}
           <div className="field-row">
-            <label>
-              Filter hosts
-              <input
-                type="search"
-                value={hostFilter}
-                onChange={(e) => setHostFilter(e.target.value)}
-                placeholder="name or address"
-              />
-            </label>
-            <label>
-              Hosts
-              <ErrorLine msg={targets.error} />
-              <select
-                multiple
-                size={8}
-                value={hosts}
-                onChange={(e) => setHosts(selected(e.target))}
-              >
-                {visibleTargets.map((t) => (
-                  <option key={t.name} value={t.name}>
-                    {t.name} — {t.host}:{t.port}
-                  </option>
-                ))}
-              </select>
-              <span className="muted small">
-                {hosts.length === 0
-                  ? "Nothing selected yet. Hold Ctrl or ⌘ to select several."
-                  : `Selected: ${hosts.join(", ")}`}
-              </span>
-            </label>
-            {/* Düğme hedeflerin hemen altında: akış hedef seç → yükle → grup seç. */}
+            <MultiSelect
+              label="Hosts"
+              placeholder="Search hosts by name or address…"
+              options={targets.items.map((t) => ({
+                value: t.name,
+                label: t.name,
+                hint: `${t.host}:${t.port}`,
+              }))}
+              value={hosts}
+              onChange={setHosts}
+              note={
+                hosts.length === 0
+                  ? "Pick one or more hosts; the account is opened on each."
+                  : `${hosts.length} host(s) selected.`
+              }
+            />
+            <ErrorLine msg={targets.error} />
             <ActionButton onClick={loadGroups} disabled={hosts.length === 0}>
               Load groups from the selected hosts
             </ActionButton>
           </div>
 
           <div className="field-row">
-            <label>
-              Groups
-              <select
-                multiple
-                size={8}
-                value={groups}
-                onChange={(e) => setGroups(selected(e.target))}
-              >
-                <optgroup label="Roles on postern">
-                  {roleNames.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </optgroup>
-                {common.hosts.length > 0 && (
-                  <optgroup
-                    label={
-                      common.hosts.length === 1
-                        ? `On ${common.hosts[0]}`
-                        : `Common to ${common.hosts.join(", ")}`
-                    }
-                  >
-                    {hostOnly.map((g) => (
-                      <option key={g} value={g}>
-                        {g}
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-              </select>
-              <span className="muted small">
-                {common.hosts.length === 0
+            <MultiSelect
+              label="Groups"
+              placeholder="Search groups…"
+              options={[
+                ...roleNames.map((r) => ({ value: r, label: r, group: "Roles on postern" })),
+                ...hostOnly.map((g) => ({
+                  value: g,
+                  label: g,
+                  group:
+                    common.hosts.length === 1
+                      ? `On ${common.hosts[0]}`
+                      : `Common to ${common.hosts.join(", ")}`,
+                })),
+              ]}
+              value={groups}
+              onChange={setGroups}
+              note={
+                common.hosts.length === 0
                   ? "A role's name becomes a group on the host; postern creates it if it is missing."
                   : common.hosts.length === 1
                     ? `${common.names.length} group(s) on ${common.hosts[0]}${
-                        common.hidden ? `; ${common.hidden} system group(s) below gid ${minGID} are not offered` : ""
+                        common.hidden
+                          ? `; ${common.hidden} system group(s) below gid ${minGID} are not offered`
+                          : ""
                       }.`
                     : `Only the ${common.names.length} group(s) present on all ${common.hosts.length} selected hosts are offered${
-                        common.hidden ? `; ${common.hidden} system group(s) below gid ${minGID} are not` : ""
-                      }.`}
-              </span>
-            </label>
+                        common.hidden
+                          ? `; ${common.hidden} system group(s) below gid ${minGID} are not`
+                          : ""
+                      }.`
+              }
+            />
           </div>
           {inventoryErrors.map(([host, v]) => (
             <ErrorLine key={host} msg={`${host}: ${v.error}`} />

@@ -185,7 +185,10 @@ audit rows into a shape it does not understand.
   or more hosts, the groups and the duration; a grant is opened on each
   host in turn and each host answers on its own line, so two hosts that
   worked are not hidden behind a third that did not. Hosts and groups are
-  multi-select lists, with a filter above the hosts. Groups come from two
+  searchable multi-select boxes — type to filter, the chosen entries sit
+  in the box as tags, one click selects everything that matches — built
+  in the panel's own code rather than pulled from a UI framework, because
+  the panel ships none. Groups come from two
   places: postern's roles are always offered (a role's name becomes a
   group on the host, created if missing), and one button reads the groups
   of the selected hosts over the management connection — only the groups

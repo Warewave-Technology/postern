@@ -768,14 +768,16 @@ describe("sayfa düzeyinde görsel çıktı", () => {
     click(/new temporary access/i);
     await settle();
     fireEvent.change(screen.getByLabelText(/^Person/), { target: { value: "ayse.yilmaz-demirtas" } });
-    const pick = (box: HTMLElement, values: string[]) => {
-      for (const o of Array.from((box as HTMLSelectElement).options)) o.selected = values.includes(o.value);
-      fireEvent.change(box);
-    };
-    pick(screen.getByRole("listbox", { name: /^Hosts/ }), ["web-01", LONG_HOST]);
+    fireEvent.focus(screen.getByRole("combobox", { name: "Hosts" }));
+    fireEvent.click(screen.getByRole("option", { name: /^web-01/ }));
+    fireEvent.click(screen.getByRole("option", { name: new RegExp("^" + LONG_HOST) }));
+    fireEvent.mouseDown(document.body);
     click(/load groups from the selected hosts/i);
     await settle();
-    pick(screen.getByRole("listbox", { name: /^Groups/ }), ["dba", "sre"]);
+    // Grup listesi AÇIK kalıyor: görüntüde liste de görünsün.
+    fireEvent.focus(screen.getByRole("combobox", { name: "Groups" }));
+    fireEvent.click(screen.getByRole("option", { name: "dba" }));
+    fireEvent.click(screen.getByRole("option", { name: "sre" }));
     fireEvent.change(screen.getByLabelText(/Commands the account may run/), {
       target: { value: "/usr/bin/systemctl restart nginx" },
     });
