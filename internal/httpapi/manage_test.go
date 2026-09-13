@@ -571,3 +571,137 @@ func TestManagementCheckNamesACancelledRequest(t *testing.T) {
 		t.Errorf("iptal, sertifika reddi gibi anlatılıyor: %q", res.Reason)
 	}
 }
+
+// listGroups, envanter ucunu yönetici "ops" olarak çağırır.
+func listGroups(t *testing.T, s *Server, name string) (*httptest.ResponseRecorder, manageGroupsResult) {
+	t.Helper()
+
+	r := httptest.NewRequest(http.MethodPost, "/api/admin/targets/"+name+"/manage/groups", nil)
+	r.SetPathValue("name", name)
+	r = r.WithContext(context.WithValue(r.Context(), ctxUser, "ops"))
+	w := httptest.NewRecorder()
+	s.adminManageGroups(w, r)
+
+	var res manageGroupsResult
+	if w.Code == http.StatusOK {
+		if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+			t.Fatalf("cevap okunamadı: %v — %s", err, w.Body.String())
+		}
+	}
+
+	return w, res
+}
+
+/*
+ * ⚠️ ENVANTER NUMARA VE KORUMA BAYRAĞIYLA GELİYOR. Panel seçiciyi bununla
+ * çiziyor; bayrak olmadan docker ile dba aynı görünür ve sunucunun plan
+ * aşamasındaki reddi ancak "Grant"e basınca öğrenilirdi. Sınır cevapta:
+ * panel sayıyı kendi başına bilmemeli.
+ */
+func TestGroupInventoryMarksProtectedGroups(t *testing.T) {
+	s, db := dbServer(t)
+	authority := manageCA(t)
+	s.UseManagement(authority)
+
+	answers := debianAnswers()
+	answers["getent group"] = "root:x:0:\ndocker:x:998:veli\ndba:x:1001:ayse,veli\n"
+	host, port, hostKey, _ := managedHost(t, authority, answers)
+	if _, err := db.CreateTarget(t.Context(), model.Target{
+		Name: "web01", Host: host, Port: port, HostKey: hostKey,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	w, res := listGroups(t, s, "web01")
+	if w.Code != http.StatusOK {
+		t.Fatalf("durum = %d: %s", w.Code, w.Body.String())
+	}
+	if res.MinGID != 1000 || res.Target != "web01" || res.CheckedAt.IsZero() {
+		t.Errorf("başlık alanları: %+v", res)
+	}
+	want := map[string]bool{"root": true, "docker": true, "dba": false}
+	if len(res.Groups) != len(want) {
+		t.Fatalf("%d grup bekleniyordu: %+v", len(want), res.Groups)
+	}
+	for _, g := range res.Groups {
+		if g.Protected != want[g.Name] {
+			t.Errorf("%s (gid %d): protected=%v", g.Name, g.GID, g.Protected)
+		}
+		if g.Name == "dba" && len(g.Members) != 2 {
+			t.Errorf("dba üyeleri: %v", g.Members)
+		}
+		if g.Members == nil {
+			t.Errorf("%s: üye listesi null — panel .length okuyamaz", g.Name)
+		}
+	}
+
+	if w, _ := listGroups(t, s, "yok"); w.Code != http.StatusNotFound {
+		t.Errorf("bilinmeyen hedef: %d", w.Code)
+	}
+}
+
+// Yönetim denetimiyle aynı kural: defter yazılamıyorsa bağlanılmıyor.
+func TestGroupInventoryIsNotReadWithoutAnAuditRow(t *testing.T) {
+	s, db, dsn := dbServerDSN(t)
+	authority := manageCA(t)
+	s.UseManagement(authority)
+
+	host, port, hostKey, conns := managedHost(t, authority, debianAnswers())
+	if _, err := db.CreateTarget(t.Context(), model.Target{
+		Name: "web01", Host: host, Port: port, HostKey: hostKey,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	dropTable(t, dsn, "admin_log")
+
+	w, _ := listGroups(t, s, "web01")
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("durum = %d, 503 bekleniyordu: %s", w.Code, w.Body.String())
+	}
+	if n := conns.Load(); n != 0 {
+		t.Errorf("defter yazılamadığı hâlde hedefe %d bağlantı açıldı", n)
+	}
+}
+
+// Kapılar rotada: yönetici olmayan 403, çapraz köken 403, geçen 404 alır.
+func TestGroupInventoryIsBehindTheAdminAndSameOriginGates(t *testing.T) {
+	db := migratedStore(t)
+	s := New(auth.NewOIDCHolder(), auth.NewLogins(auth.NewOIDCHolder()), db,
+		slog.New(slog.NewTextHandler(io.Discard, nil)))
+	s.UseManagement(manageCA(t))
+
+	ctx := t.Context()
+	if _, err := db.CreateUser(ctx, "veli", "veli@warewave.io", "veli"); err != nil {
+		t.Fatal(err)
+	}
+	token, err := s.createWebSession(ctx, "veli")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	post := func(site string) int {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodPost, "/api/admin/targets/yok/manage/groups", nil)
+		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+		if site != "" {
+			r.Header.Set("Sec-Fetch-Site", site)
+		}
+		w := httptest.NewRecorder()
+		s.Handler().ServeHTTP(w, r)
+		return w.Code
+	}
+
+	if code := post("same-origin"); code != http.StatusForbidden {
+		t.Errorf("yönetici olmayan oturum %d aldı, 403 bekleniyordu", code)
+	}
+	if err := db.SetUserAdmin(ctx, "veli", true); err != nil {
+		t.Fatal(err)
+	}
+	if code := post("cross-site"); code != http.StatusForbidden {
+		t.Errorf("çapraz kökenli istek %d aldı, 403 bekleniyordu", code)
+	}
+	if code := post("same-origin"); code != http.StatusNotFound {
+		t.Errorf("yönetici + aynı köken %d aldı, handler'ın 404'ü bekleniyordu", code)
+	}
+}

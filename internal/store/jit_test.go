@@ -232,3 +232,37 @@ func TestTheBastionItselfCanWriteToTheAdminLog(t *testing.T) {
 		t.Errorf("satır yok ya da via yanlış: %+v", logs)
 	}
 }
+
+// Sekme bütün hedefleri tek listede, en yeni önce istiyor.
+func TestAllGrantsComeNewestFirstAcrossTargets(t *testing.T) {
+	t.Parallel()
+	s := newTestStore(t)
+	ctx := t.Context()
+
+	older := aGrant(time.Hour)
+	older.GrantedAt = older.GrantedAt.Add(-time.Hour)
+	first, err := s.CreateJITGrant(ctx, older)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newer := aGrant(time.Hour)
+	newer.Target = "db01"
+	second, err := s.CreateJITGrant(ctx, newer)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	all, err := s.JITGrants(ctx, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 2 || all[0].ID != second || all[1].ID != first {
+		t.Fatalf("liste = %+v; en yeni (%s) önce, sonra %s bekleniyordu", all, second, first)
+	}
+	if all[0].Target != "db01" || all[1].Target != "web01" {
+		t.Errorf("hedefler karıştı: %s, %s", all[0].Target, all[1].Target)
+	}
+	if one, err := s.JITGrants(ctx, 1); err != nil || len(one) != 1 || one[0].ID != second {
+		t.Errorf("limit 1: %+v (%v)", one, err)
+	}
+}

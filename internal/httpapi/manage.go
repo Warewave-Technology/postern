@@ -26,6 +26,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/Warewave-Technology/postern/internal/model"
 	"github.com/Warewave-Technology/postern/internal/provision"
 	"github.com/Warewave-Technology/postern/internal/store"
 	"github.com/Warewave-Technology/postern/internal/upstream"
@@ -58,6 +59,127 @@ func (s *Server) registerManageRoutes(mux *http.ServeMux) {
 	// tetiklenebilirdi.
 	mux.Handle("POST /api/admin/targets/{name}/manage/check",
 		noStore(s.requireSession(s.requireAdmin(s.sameOrigin(http.HandlerFunc(s.adminManageCheck))))))
+	// Grup envanteri de bir yönetim bağlantısı: aynı kapılar, aynı yöntem.
+	mux.Handle("POST /api/admin/targets/{name}/manage/groups",
+		noStore(s.requireSession(s.requireAdmin(s.sameOrigin(http.HandlerFunc(s.adminManageGroups))))))
+}
+
+/*
+ * manageStart, root'luk bir yönetim bağlantısı açan her ucun ortak
+ * başlangıcı: hedef, yuva, denetim satırı — bu sırayla. ok=false ise cevap
+ * yazıldı. Dönen release yuvayı bırakır; çağıran defer eder.
+ *
+ * ⚠️ TEK YERDE, çünkü "defter yazılamıyorsa bağlanma" bir güvenlik kuralı
+ * ve iki uçta iki kopyası ayrışabilirdi. Satır bağlanmadan ÖNCE yazılıyor
+ * ve hedef reddederse düzeltilmiyor; bu yüzden details "opening",
+ * "opened" DEĞİL — deftere olmuş gibi yazmak, reddedilen bir denemeyi
+ * başarılı bir root girişi gibi okutmak olurdu.
+ */
+func (s *Server) manageStart(w http.ResponseWriter, r *http.Request, action, details string) (model.Target, string, func(), bool) {
+	name := r.PathValue("name")
+
+	t, err := s.store.Target(r.Context(), name)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeErr(w, http.StatusNotFound, "not found")
+			return model.Target{}, "", nil, false
+		}
+		s.storeErr(w, action, err)
+		return model.Target{}, "", nil, false
+	}
+
+	// Yuva dolu ise BEKLEMİYORUZ: bekleyen istekler de bağlantı ve
+	// goroutine tutuyor, ve tavanın amacı tam olarak o.
+	select {
+	case s.manageSlots <- struct{}{}:
+	default:
+		writeErr(w, http.StatusTooManyRequests,
+			"another management check is already running; try again in a moment")
+		return model.Target{}, "", nil, false
+	}
+	release := func() { <-s.manageSlots }
+
+	actor := sessionUser(r)
+
+	// ⚠️ Denetim satırı ÖNCE — bkz. dosya başı. Yazamıyorsak bağlanmıyoruz.
+	auditCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)
+	defer cancel()
+	if aerr := s.store.LogAdmin(auditCtx, store.AdminLogEntry{
+		Actor: actor, Via: "web", Action: action, Entity: t.Name, Details: details,
+	}); aerr != nil {
+		release()
+		s.logger.Error("admin audit write failed; refusing to open a management connection",
+			"target", t.Name, "error", aerr)
+		writeErr(w, http.StatusServiceUnavailable,
+			"could not record who is opening this management connection, so it was not opened; "+
+				"try again shortly")
+		return model.Target{}, "", nil, false
+	}
+
+	return t, actor, release, true
+}
+
+// manageGroupsResult, hedefin grup envanteri — panelin grup seçicisi için.
+type manageGroupsResult struct {
+	Target string        `json:"target"`
+	Groups []targetGroup `json:"groups"`
+	/*
+	 * MinGID, geçici hesabın alınabileceği en küçük numara; altındakiler
+	 * protected. Panel sınırı yazıyor ve o grupları seçtirmiyor; asıl
+	 * koruma plan aşamasında (provision.Plan), buradaki bayrak yalnızca
+	 * reddi "Grant"e basmadan önce göstermek için.
+	 */
+	MinGID    int       `json:"min_gid"`
+	CheckedAt time.Time `json:"checked_at"`
+}
+
+type targetGroup struct {
+	Name      string   `json:"name"`
+	GID       int      `json:"gid"`
+	Members   []string `json:"members"`
+	Protected bool     `json:"protected"`
+}
+
+// adminManageGroups: POST /api/admin/targets/{name}/manage/groups
+func (s *Server) adminManageGroups(w http.ResponseWriter, r *http.Request) {
+	t, actor, release, ok := s.manageStart(w, r, "target.groups",
+		"reading the group list over a management connection (two-minute certificate, read-only)")
+	if !ok {
+		return
+	}
+	defer release()
+
+	ctx, stop := context.WithTimeout(r.Context(), manageCheckTimeout)
+	defer stop()
+
+	runner, err := provision.Connect(ctx, t, s.manageAuthority, actor, "list groups")
+	if err != nil {
+		s.logger.Warn("group inventory could not connect", "target", t.Name, "error", err)
+		writeJSON(w, http.StatusBadGateway, map[string]any{
+			"error": connectReason(ctx, err), "detail": err.Error(),
+		})
+		return
+	}
+	defer func() { _ = runner.Close() }()
+
+	groups, err := provision.Groups(ctx, runner)
+	if err != nil {
+		s.logger.Warn("group inventory could not be read", "target", t.Name, "error", err)
+		writeErr(w, http.StatusBadGateway,
+			"postern signed in with its management account, but could not read the group list: "+err.Error())
+		return
+	}
+
+	res := manageGroupsResult{
+		Target: t.Name, Groups: make([]targetGroup, 0, len(groups)),
+		MinGID: provision.MinJITGID, CheckedAt: time.Now().UTC(),
+	}
+	for _, g := range groups {
+		res.Groups = append(res.Groups, targetGroup{
+			Name: g.Name, GID: g.GID, Members: g.Members, Protected: g.Protected(),
+		})
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 // manageCheckResult, denetimin panele giden cevabı.
@@ -98,48 +220,12 @@ type manageCheckResult struct {
 
 // adminManageCheck: POST /api/admin/targets/{name}/manage/check
 func (s *Server) adminManageCheck(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-
-	t, err := s.store.Target(r.Context(), name)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			writeErr(w, http.StatusNotFound, "not found")
-			return
-		}
-		s.storeErr(w, "target.manage_check", err)
+	t, actor, release, ok := s.manageStart(w, r, "target.manage_check",
+		"opening a management connection (two-minute certificate, read-only checks)")
+	if !ok {
 		return
 	}
-
-	// Yuva dolu ise BEKLEMİYORUZ: bekleyen istekler de bağlantı ve
-	// goroutine tutuyor, ve tavanın amacı tam olarak o.
-	select {
-	case s.manageSlots <- struct{}{}:
-		defer func() { <-s.manageSlots }()
-	default:
-		writeErr(w, http.StatusTooManyRequests,
-			"another management check is already running; try again in a moment")
-		return
-	}
-
-	actor := sessionUser(r)
-
-	// ⚠️ Denetim satırı ÖNCE — bkz. dosya başı. Yazamıyorsak bağlanmıyoruz.
-	auditCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)
-	defer cancel()
-	if aerr := s.store.LogAdmin(auditCtx, store.AdminLogEntry{
-		Actor: actor, Via: "web", Action: "target.manage_check", Entity: t.Name,
-		// ⚠️ "opening", "opened" DEĞİL: satır bağlanmadan önce yazılıyor ve
-		// hedef reddederse düzeltilmiyor. Deftere olmuş gibi yazmak, reddedilen
-		// bir denemeyi başarılı bir root girişi gibi okutmak olurdu.
-		Details: "opening a management connection (two-minute certificate, read-only checks)",
-	}); aerr != nil {
-		s.logger.Error("admin audit write failed; refusing to open a management connection",
-			"target", t.Name, "error", aerr)
-		writeErr(w, http.StatusServiceUnavailable,
-			"could not record who is opening this management connection, so it was not opened; "+
-				"try again shortly")
-		return
-	}
+	defer release()
 
 	res := manageCheckResult{
 		Target:        t.Name,

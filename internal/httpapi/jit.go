@@ -32,6 +32,7 @@ func (s *Server) registerJITRoutes(mux *http.ServeMux) {
 	admin := func(h http.HandlerFunc) http.Handler {
 		return noStore(s.requireSession(s.requireAdmin(s.sameOrigin(h))))
 	}
+	mux.Handle("GET /api/admin/grants", admin(s.adminListAllGrants))
 	mux.Handle("GET /api/admin/targets/{name}/grants", admin(s.adminListGrants))
 	mux.Handle("POST /api/admin/targets/{name}/grants", admin(s.adminCreateGrant))
 	mux.Handle("POST /api/admin/grants/{id}/revoke", admin(s.adminRevokeGrant))
@@ -61,6 +62,18 @@ func stepsOf(rep provision.Report) []grantStep {
 	}
 
 	return out
+}
+
+// adminListAllGrants: GET /api/admin/grants — bütün hedefler, en yeni önce.
+// Sekmenin sorusu "kimin nerede açık hesabı var"; hedef başına liste bu
+// soruyu N tıklamaya bölerdi.
+func (s *Server) adminListAllGrants(w http.ResponseWriter, r *http.Request) {
+	grants, err := s.store.JITGrants(r.Context(), 200)
+	if err != nil {
+		s.storeErr(w, "grants.list", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"grants": grants, "now": time.Now().UTC()})
 }
 
 // adminListGrants: GET /api/admin/targets/{name}/grants

@@ -499,6 +499,12 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		// olmayan bir özelliğin bozuk olduğunu sanır.
 		"terminal_enabled": s.proxyDeps != nil,
 		/*
+		 * Geçici erişim sekmesi yalnızca hizmet bağlıyken (manage.enabled)
+		 * çiziliyor: uçları olmayan bir sekme 404'lük bir kapı olurdu.
+		 * Asıl koruma uçta (requireAdmin) ve uçların hiç kurulmamasında.
+		 */
+		"jit_enabled": s.jit != nil,
+		/*
 		 * Dosya tarayıcısı: terminalden AYRI bir bayrak.
 		 *
 		 * ⚠️ İKİSİ AYNI ŞEY DEĞİL ve panelin bunu bilmesi gerekiyor.

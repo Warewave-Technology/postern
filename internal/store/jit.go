@@ -219,6 +219,24 @@ func (s *Store) JITGrantsForTarget(ctx context.Context, target string, limit int
 	return scanJITGrants("store.JITGrantsForTarget", rows)
 }
 
+// JITGrants, bütün hedeflerdeki hakları yeniden eskiye döner — panelin
+// geçici erişim sekmesi "kimin nerede açık hesabı var" sorusunu tek
+// ekranda cevaplıyor.
+func (s *Store) JITGrants(ctx context.Context, limit int) ([]JITGrant, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+jitColumns+` FROM jit_grants
+		ORDER BY granted_at DESC, id LIMIT $1;`, limit)
+	if err != nil {
+		return nil, translateErr("store.JITGrants", err)
+	}
+	defer rows.Close()
+
+	return scanJITGrants("store.JITGrants", rows)
+}
+
 // ActiveJITGrantsForUser, kişinin hâlâ açık hakları — silme öncesi bakılan
 // liste.
 func (s *Store) ActiveJITGrantsForUser(ctx context.Context, username string) ([]JITGrant, error) {

@@ -396,3 +396,84 @@ func TestAGrantIsNotAttemptedWithoutAnAuditRow(t *testing.T) {
 		t.Errorf("defter yazılamadığı hâlde hak kaydedildi: %d", len(grants))
 	}
 }
+
+/*
+ * ⚠️ SEKME BÜTÜN HEDEFLERİ LİSTELİYOR, EN YENİ ÖNCE. Hedef başına liste
+ * kalıyor; sekmenin sorusu "kimin nerede açık hesabı var" ve o soru tek
+ * ekranda cevaplanmalı.
+ */
+func TestAllGrantsListSpansTargetsNewestFirst(t *testing.T) {
+	s, db, host, port, hostKey := jitServer(t)
+	ctx := t.Context()
+	if _, err := db.CreateTarget(ctx, model.Target{
+		Name: "db01", Host: host, Port: port, HostKey: hostKey,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now()
+	old, err := db.CreateJITGrant(ctx, store.JITGrant{
+		Username: "ayse", Target: "web01", OSUser: "ayse", GrantedBy: "ops",
+		GrantedAt: now.Add(-time.Hour), ExpiresAt: now.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := db.CreateJITGrant(ctx, store.JITGrant{
+		Username: "ayse", Target: "db01", OSUser: "ayse", GrantedBy: "ops",
+		GrantedAt: now, ExpiresAt: now.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	r := httptest.NewRequest(http.MethodGet, "/api/admin/grants", nil)
+	w := httptest.NewRecorder()
+	s.adminListAllGrants(w, asAdmin(r))
+	var list struct {
+		Grants []store.JITGrant `json:"grants"`
+		Now    time.Time        `json:"now"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
+		t.Fatalf("cevap okunamadı: %v — %s", err, w.Body.String())
+	}
+	if len(list.Grants) != 2 || list.Grants[0].ID != fresh || list.Grants[1].ID != old {
+		t.Errorf("liste = %s; %s sonra %s bekleniyordu", w.Body.String(), fresh, old)
+	}
+	if list.Now.IsZero() {
+		t.Error("now yok: panel vadeyi sunucunun saatine göre okur")
+	}
+}
+
+/*
+ * ⚠️ SEKME YALNIZCA HİZMET BAĞLIYKEN ÇİZİLİYOR ve panel bunu /api/me'den
+ * öğreniyor. Bayrak olmadan sekme her kurulumda görünür ve uçları olmayan
+ * bir bastion'da her tıklama 404 olurdu.
+ */
+func TestMeSaysWhetherTemporaryAccessIsOn(t *testing.T) {
+	s, db := dbServer(t)
+	if _, err := db.CreateUser(t.Context(), "ops", "", "ops"); err != nil {
+		t.Fatal(err)
+	}
+	me := func() map[string]any {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+		w := httptest.NewRecorder()
+		s.handleMe(w, asAdmin(r))
+		out := map[string]any{}
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+			t.Fatalf("cevap okunamadı: %v — %s", err, w.Body.String())
+		}
+		return out
+	}
+
+	if on, _ := me()["jit_enabled"].(bool); on {
+		t.Error("hizmet bağlı değilken jit_enabled true")
+	}
+	authority := manageCA(t)
+	s.UseManagement(authority)
+	s.UseJIT(jit.New(db, authority, nil, slog.New(slog.NewTextHandler(io.Discard, nil))))
+	if on, _ := me()["jit_enabled"].(bool); !on {
+		t.Error("hizmet bağlıyken jit_enabled false")
+	}
+}
