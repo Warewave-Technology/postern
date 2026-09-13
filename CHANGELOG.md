@@ -180,6 +180,18 @@ audit rows into a shape it does not understand.
   `useradd -e` is written as a backstop for the day postern is not there:
   the host itself disables the account the day after the grant ends.
 
+  In the panel this is its own **Temporary access** tab, shown to
+  administrators when management is on. One dialog picks the person, one
+  or more hosts, the groups and the duration; a grant is opened on each
+  host in turn and each host answers on its own line, so two hosts that
+  worked are not hidden behind a third that did not. Groups can be typed,
+  or read from the selected hosts with one button — postern signs in with
+  its management account, lists them with their numbers, and greys out
+  every group below GID 1000: `docker`, `wheel`, `shadow` and the rest are
+  system groups, and membership in one is root without a sudo rule. The
+  server refuses those regardless of what the panel sent. The list below
+  the button covers every host, newest first.
+
   Migration 041 adds the grant table. The setting is the same
   `manage.enabled`; there is no second switch, because a bastion that can
   open temporary accounts but not close them would make "temporary" a lie.
