@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   api,
   LogEntry,
@@ -218,6 +218,28 @@ export function Sessions({ theme }: { theme: Resolved }) {
   );
 
   /*
+   * ⚠️ AÇILAN OTURUM GÖRÜNÜR ALANA KAYDIRILIYOR. Künye ve oynatıcı listenin
+   * ÜSTÜNE çiziliyor; listenin dibindeki bir satırda "Watch"a basan kişi
+   * ekranında hiçbir şey değişmediğini görüyordu. Kaydırma bir iyileştirme:
+   * olmayan ortamda (jsdom) render'ı düşürmemeli.
+   */
+  const headRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!opened) return;
+    headRef.current?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+  }, [opened]);
+
+  const closeSession = () => {
+    setPlaying(null);
+    setWhy("");
+    setFiles([]);
+    setFilesFailed(false);
+    setJournal(undefined);
+    setChainOf(null);
+    setOpened(null);
+  };
+
+  /*
    * ⚠️ OYNATMADAN ÖNCE KAYDIN DURUMU SORULUYOR.
    *
    * Düğme koşulsuz oynatıcıyı açıyordu ve kaydı olmayan bir oturumda
@@ -430,52 +452,81 @@ export function Sessions({ theme }: { theme: Resolved }) {
           sonra bağlanan herkesi gizliyor ve "kimse bağlı değil" diyormuş
           gibi okunuyordu.
         */}
-        <ActionButton onClick={refresh} label="refresh the session list">
-          Refresh
-        </ActionButton>
+        <div className="page-actions">
+          {/*
+            ⚠️ KAPATMA BURADA, oynatıcının içinde değil: kapanan şey
+            yalnızca kayıt değil — künye, zincir durumu ve dosya olayları
+            da; ve kullanıcı düğmeyi Refresh'in yanında aradı.
+          */}
+          {opened && (
+            <button
+              type="button"
+              className="btn-quiet"
+              onClick={closeSession}
+              aria-label={`close session ${opened.id}`}
+            >
+              Close session
+            </button>
+          )}
+          <ActionButton onClick={refresh} label="refresh the session list">
+            Refresh
+          </ActionButton>
+        </div>
       </div>
       <ErrorLine msg={error} />
 
       {why && <WarnLine msg={why} />}
 
       {/*
-        ⚠️ SÜTUNDAN ÇIKAN ALANLAR BURADA. Satırdan kaldırılan bir alanın
-        hiçbir yerde görünmemesi, "sadeleştirme" adı altında bilgi
-        kaybetmek olurdu; açılan oturumun başlığı onları geri veriyor.
+        ⚠️ KÜNYE: açılan oturumun kim/nereden/ne zaman'ı, kaydın ÜSTÜNDE.
+        Sütundan kaldırılan alanlar (OS user, kaynak adres) burada geri
+        geliyor; listede duran alanlar da (kişi, hedef, başlangıç) burada,
+        çünkü liste aşağıda ve kayıt açıkken görünmüyor.
+
+        ⚠️ card-body İÇİNDE. dl doğrudan kartın çocuğuydu ve kartın
+        overflow:hidden'ı ilk sütunun ilk harfini kesiyordu (kullanıcı
+        ekran görüntüsüyle gösterdi): kartın kendi dolgusu yok.
       */}
       {opened && (
-        <div className="card detail-head">
-          <dl>
-            <div>
-              <dt>OS user</dt>
-              <dd className="mono">{opened.os_user}</dd>
-            </div>
-            <div>
-              <dt>From</dt>
-              <dd className="mono">{opened.src_ip}</dd>
-            </div>
-            <div>
-              <dt>Session</dt>
-              <dd className="mono">{opened.id}</dd>
-            </div>
-          </dl>
+        <div className="card detail-head" ref={headRef} tabIndex={-1}>
+          <div className="card-body">
+            <dl>
+              <div>
+                <dt>Person</dt>
+                <dd>{opened.user}</dd>
+              </div>
+              <div>
+                <dt>Target</dt>
+                <dd className="mono">{opened.target}</dd>
+              </div>
+              <div>
+                <dt>OS user</dt>
+                <dd className="mono">{opened.os_user}</dd>
+              </div>
+              <div>
+                <dt>From</dt>
+                <dd className="mono">{opened.src_ip}</dd>
+              </div>
+              <div>
+                <dt>Started</dt>
+                <dd>
+                  <Timestamp value={opened.started_at} />
+                </dd>
+              </div>
+              <div>
+                <dt>Ended</dt>
+                <dd>{opened.ended_at ? <Timestamp value={opened.ended_at} /> : "still open"}</dd>
+              </div>
+              <div>
+                <dt>Session</dt>
+                <dd className="mono">{opened.id}</dd>
+              </div>
+            </dl>
+          </div>
         </div>
       )}
 
-      {playing && (
-        <CastPlayer
-          sessionId={playing}
-          theme={theme}
-          onClose={() => {
-            setPlaying(null);
-            setFiles([]);
-            setFilesFailed(false);
-            setJournal(undefined);
-            setChainOf(null);
-            setOpened(null);
-          }}
-        />
-      )}
+      {playing && <CastPlayer sessionId={playing} theme={theme} />}
 
       {/*
         ⚠️ Oynatıcıya BAĞLI DEĞİL. SFTP oturumunda terminal kaydı boş

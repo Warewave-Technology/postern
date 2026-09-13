@@ -539,6 +539,13 @@ section > .page-head:not(:first-child) {
 .page-bar .page-head {
   margin-bottom: 0;
 }
+/* Sayfa çubuğunun sağındaki düğme öbeği (Kapat + Yenile gibi). */
+.page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
 
 .narrow {
   max-width: 48rem;

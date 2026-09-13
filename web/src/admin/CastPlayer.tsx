@@ -37,11 +37,9 @@ const SPEEDS = [0.5, 1, 2, 4, 8];
 
 export default function CastPlayer({
   sessionId,
-  onClose,
   theme,
 }: {
   sessionId: string;
-  onClose: () => void;
   /** Çözülmüş tema: canlı izleyen ile kayıttan izleyen aynı renkleri
    *  görmeli, ve ikisi de panelin temasını izlemeli. */
   theme: Resolved;
@@ -210,19 +208,14 @@ export default function CastPlayer({
 
   return (
     <section className="panel" aria-label={`recording of session ${sessionId}`}>
+      {/* Kapatma düğmesi BURADA DEĞİL, sayfa çubuğunda (Refresh'in yanında):
+          kaydı, künyeyi ve dosya olaylarını birlikte kapatıyor ve
+          kullanıcı onu orada aradı. */}
       <header className="panel-header">
         <div className="panel-title">
           <h3>Recording</h3>
           <code className="muted">{sessionId}</code>
         </div>
-        <span className="spacer" />
-        <button
-          className="btn-quiet"
-          onClick={onClose}
-          aria-label={`close the recording of session ${sessionId}`}
-        >
-          Close
-        </button>
       </header>
 
       {loading && <p className="state">Loading recording…</p>}

@@ -765,7 +765,12 @@ audit rows into a shape it does not understand.
   uses the ordinary page heading, and four CSS classes that had been
   written but never defined (`btn-ghost`, `btn-sm`, `data`, `pathrules`)
   are either defined or gone — the class check that used to tolerate them
-  now tolerates nothing. A page-level visual harness
+  now tolerates nothing. An opened session's identity card sat directly
+  in the card and lost its first letters to the card's clipping; it now
+  has the card's padding and shows the person, target, start and end as
+  well, the page scrolls to it when a session is opened, and its Close
+  button moved out of the player into the page bar next to Refresh, where
+  it closes everything the open session showed. A page-level visual harness
   (`web/test-node/pages.visual.test.tsx`) renders every screen with long,
   crowded data so this can be measured again.
 

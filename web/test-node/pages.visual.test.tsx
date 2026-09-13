@@ -52,6 +52,36 @@ vi.mock("../src/Terminal", () => ({
   default: () => <div className="terminal-stub" style={{ flex: 1, minHeight: 480 }} />,
 }));
 
+// Kayıt oynatıcısı xterm kuruyor ve xterm jsdom'da matchMedia istiyor;
+// Terminal.test.tsx'teki taklidin aynısı.
+vi.mock("@xterm/xterm", () => ({
+  Terminal: class {
+    cols = 80;
+    rows = 24;
+    // Tema efekti term.options.theme'e yazıyor (Terminal.tsx:156).
+    options: Record<string, unknown> = {};
+    loadAddon() {}
+    open() {}
+    focus() {}
+    write() {}
+    writeln() {}
+    reset() {}
+    resize() {}
+    onData() {
+      return { dispose() {} };
+    }
+    dispose() {}
+  },
+}));
+vi.mock("@xterm/addon-fit", () => ({
+  FitAddon: class {
+    activate() {}
+    dispose() {}
+    fit() {}
+  },
+}));
+vi.mock("@xterm/xterm/css/xterm.css", () => ({}));
+
 const OUT = path.resolve(process.cwd(), ".visual/pages");
 const css = () => fs.readFileSync(path.resolve(process.cwd(), "src/styles.css"), "utf8");
 
@@ -505,6 +535,7 @@ const base: Fixtures = {
   pending,
   sessions,
   sessionDetail: (id: string) => Promise.resolve(sessionDetail(id)),
+  sessionRecording: '{"version":2,"width":80,"height":24}\n[0.5,"o","$ ls /srv/app\\r\\n"]\n[1.2,"o","releases  shared\\r\\n"]\n[39.0,"o","$ exit\\r\\n"]\n',
   verifyRecording: { local: "verified", detail: "143 links, head matches the sealed chain", chain: "sha256:9f2c1e0b7d4a6c8e1f3b5d7a9c2e4f6081a3c5e7f9b1d3a5c7e9f1b3d5a7c9e1", stored_links: 143, links: 143, off_box: { state: "unchecked", detail: "no archive is configured on this bastion" } },
   storage: { recordings: { files: 1482, bytes: 73400320000, skipped: 2 }, archive: { pending: 12, oldest_at: "2026-09-10T08:00:00Z", oldest_age_seconds: 3 * 86400 + 7200, failing: 2, lost: 1 } },
   archiveStatus: { configured: true, endpoint: "https://s3.eu-central-1.amazonaws.com", bucket: "postern-recordings-production-eu-central-1", prefix: "bastion-1/", destination_managed_in: "postern.yaml", credential_source: "panel", access_key_id: "AKIAIOSFODNN7EXAMPLE", can_set_from_panel: true },
@@ -728,6 +759,11 @@ describe("sayfa düzeyinde görsel çıktı", () => {
 
     mockAll(base);
     await openSettings("Sessions");
+    // Bir oturumu aç: künye + oynatıcı + dosya olayları listenin üstünde.
+    if (tryClick(/watch the recording of veli on db-primary/i)) {
+      await settle();
+      page("settings-sessions-open");
+    }
     if (tryClick(/verify/i)) {
       await settle();
       page("settings-sessions-verify");
