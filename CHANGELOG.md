@@ -53,6 +53,30 @@ audit rows into a shape it does not understand.
   last one removes the rule, which is what the server does with a rule that
   has no commands left.
 
+- **Powered-off machines are counted on the discovery screen, not listed.**
+  A machine that is off has no host key to read, so it cannot be
+  registered; in a cluster where most machines are off, those rows were
+  most of the table and each carried the same sentence about the host key.
+  The list now says how many are off and offers to show them; the sentence
+  is not repeated on every row; and a machine with no address shows a dash
+  rather than repeating its own name.
+
+- **The registration wizard no longer asks for a role the machine already
+  names.** The role its tag points at comes selected, as a chip that can be
+  removed. It also stops listing that role twice in the summary when it was
+  picked by hand as well — the server never granted it twice, the summary
+  said so. The summary now shows the machine's platform tags beside it, so
+  the tag the role came from is visible where the decision is made, and the
+  labels step says what it will attach rather than leaving that to the
+  final screen.
+
+- **A bell in the top bar counts machines waiting to be registered.**
+  Discovery runs on a schedule, so what it finds waits in a list nobody is
+  looking at. An administrator now sees the number wherever they are and
+  clicks it to land on the screen that does something about it. It counts
+  exactly what the list calls new, disappears at zero, and stays quiet if
+  the count cannot be read.
+
 - **The pills listing a user's roles are no longer lopsided.** They were
   padded for a remove button on their right — 0.5rem of room on the left,
   0.18rem on the right. That button moved to the role's own page when the

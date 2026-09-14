@@ -1311,6 +1311,8 @@ export const api = {
   allGrants: () => req<{ grants: Grant[]; now: string }>("GET", "/api/admin/grants"),
 
   discovery: () => req<DiscoveryOverview>("GET", "/api/admin/discovery"),
+  /** Kaydedilmeyi bekleyen makine sayısı — üst çubuktaki çan. */
+  discoveryNewCount: () => req<{ new: number }>("GET", "/api/admin/discovery/new"),
   /** Formdaki değerlerle kaynağa bağlanır; id verilirse ve sır boşsa kayıtlı sır. */
   testDiscoverySource: (s: DiscoverySourceInput & { id?: string }) =>
     req<DiscoveryProbe>("POST", "/api/admin/discovery/test", s),

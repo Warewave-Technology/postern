@@ -82,6 +82,7 @@ export default function Discovery() {
 
   const [editing, setEditing] = useState<DiscoverySource | null | "new">(null);
   const [selected, setSelected] = useState<string[]>([]);
+  const [showOffline, setShowOffline] = useState(false);
   const [registering, setRegistering] = useState(false);
   const [round, setRound] = useState(0);
 
@@ -156,7 +157,16 @@ export default function Discovery() {
           {m.name}
           <br />
           <code className="small">{m.ref}</code>
-          {m.problem && <div className="small muted">{m.problem}</div>}
+          {/*
+            ⚠️ "KAPALI OLDUĞU İÇİN ANAHTARI OKUNAMADI" SATIRA YAZILMIYOR.
+            Kapalı makineler zaten listelenmiyor (aşağıdaki süzgeç) ve o
+            cümleyi her satıra koymak, gerçekten bakılacak sorunları
+            gürültüye boğuyordu — yirmi dört satırın yirmi ikisi aynı
+            cümleyi tekrar ediyordu (kullanıcı ekrana bakıp söyledi).
+          */}
+          {m.problem && !m.problem.startsWith("not running") && (
+            <div className="small muted">{m.problem}</div>
+          )}
         </>
       ),
     },
@@ -168,7 +178,13 @@ export default function Discovery() {
       value: (m) => m.host || m.name,
       render: (m) => (
         <>
-          {m.host || <span className="muted">{m.name} (no address reported)</span>}
+          {/* Adres yoksa adı ikinci kez yazmıyoruz: aynı hücrede aynı
+              kelime, sütunu okunmaz yapıyordu. */}
+          {m.host || (
+            <span className="muted" title={`no address reported; postern would try ${m.name}`}>
+              —
+            </span>
+          )}
           {m.fingerprint && (
             <>
               <br />
@@ -227,6 +243,18 @@ export default function Discovery() {
   ];
 
   const sources = overview?.sources ?? [];
+
+  /*
+   * ⚠️ KAPALI MAKİNELER LİSTEDE DEĞİL, SAYIDA.
+   *
+   * Kapalı bir makinenin host anahtarı okunamıyor, yani kaydedilemiyor da;
+   * listede yapılabilecek hiçbir şeyi olmayan satırlar olarak duruyorlardı
+   * ve yirmi dört makinelik bir kümede yirmi ikisi oydu (kullanıcı ekrana
+   * bakıp söyledi). Saklamak sessizce silmek değil: kaç tane olduğu
+   * yazıyor ve tek tıkla listeye giriyorlar.
+   */
+  const offline = (overview?.machines ?? []).filter((m) => !m.running && !m.target);
+  const listed = showOffline ? machines : machines.filter((m) => m.running || !!m.target);
 
   return (
     <section>
@@ -382,8 +410,18 @@ export default function Discovery() {
               </span>
             )}
           </div>
+          {offline.length > 0 && (
+            <p className="muted small">
+              {offline.length} machine{offline.length === 1 ? " is" : "s are"} powered off, so
+              postern cannot read {offline.length === 1 ? "its" : "their"} host key and
+              {offline.length === 1 ? " it" : " they"} cannot be registered.{" "}
+              <button className="btn-quiet" onClick={() => setShowOffline((v) => !v)}>
+                {showOffline ? "Hide them" : "Show them anyway"}
+              </button>
+            </p>
+          )}
           <DataTable
-            rows={machines}
+            rows={listed}
             columns={columns}
             rowKey={keyOf}
             selection={{ selected, onChange: setSelected, label: (m) => `select ${m.name}` }}
@@ -729,8 +767,19 @@ function RegisterWizard({
 }) {
   const roles = useList<Role>(api.roles);
   const [step, setStep] = useState(0);
+  /*
+   * ⚠️ MAKİNENİN ETİKETİNDEKİ ROL SEÇİLİ GELİYOR. Platformda "role_web"
+   * yazan bir makineyi kaydederken aynı rolü bir kez daha elle seçtirmek,
+   * zaten verilmiş bir bilgiyi ikinci kez sormak demekti (kullanıcı
+   * söyledi). Seçili gelen rol bir çip olarak duruyor, yani kaldırılabilir:
+   * öneri, dayatma değil.
+   *
+   * Yalnızca postern'de VAR OLAN roller seçiliyor; henüz olmayan bir rol
+   * adı seçim kutusunda yok, onu aşağıdaki onay kutusu açıyor.
+   */
   const [chosenRoles, setChosenRoles] = useState<string[]>([]);
   const [tagRoles, setTagRoles] = useState(true);
+  const [preselected, setPreselected] = useState(false);
   const [labelText, setLabelText] = useState("");
   const [results, setResults] = useState<Registered[] | null>(null);
   const [error, setError] = useState("");
@@ -738,6 +787,15 @@ function RegisterWizard({
   const parsed = parseLabels(labelText);
   const tagRoleNames = Array.from(new Set(machines.map((m) => m.role).filter((r): r is string => !!r)));
   const missingRoles = tagRoleNames.filter((r) => !roles.items.some((x) => x.name === r));
+
+  // Roller yüklendiğinde bir KEZ: etiketin söylediği ve postern'de var
+  // olan roller seçili gelsin. Sonraki seçimler kullanıcının.
+  useEffect(() => {
+    if (preselected || roles.items.length === 0) return;
+    setPreselected(true);
+    const known = tagRoleNames.filter((r) => roles.items.some((x) => x.name === r));
+    if (known.length > 0) setChosenRoles(known);
+  }, [preselected, roles.items, tagRoleNames]);
 
   const register = async () => {
     setError("");
@@ -819,6 +877,18 @@ function RegisterWizard({
             />
           </label>
           <ErrorLine msg={parsed.error} />
+          {/* ⚠️ YAZILAN ETİKET HEMEN GÖRÜNÜYOR. Kutunun yer tutucusunu
+              yazılmış sanıp özette "etiket yok" görmek, aynı ekranda iki
+              kez yaşanabilecek bir yanılgıydı. */}
+          <p className="muted small">
+            {parsed.error
+              ? "Fix the line above to see what will be attached."
+              : Object.keys(parsed.labels).length === 0
+                ? "No labels yet — the box is empty."
+                : `Will attach: ${Object.entries(parsed.labels)
+                    .map(([k, v]) => `${k}=${v}`)
+                    .join(", ")}`}
+          </p>
         </>
       )}
       {step === 2 && (
@@ -829,6 +899,7 @@ function RegisterWizard({
                 <tr>
                   <th>Machine</th>
                   <th>Address</th>
+                  <th>Tags</th>
                   <th>Host key</th>
                   <th>Roles</th>
                 </tr>
@@ -838,11 +909,33 @@ function RegisterWizard({
                   <tr key={keyOf(m)}>
                     <td className="wrap">{m.name}</td>
                     <td className="wrap">{m.host || m.name}</td>
+                    {/* ⚠️ PLATFORMUN ETİKETLERİ ÖZETTE. Rolün nereden geldiği
+                        ("role_web" etiketi) yalnızca listede görünüyordu; onay
+                        ekranında görünmeyince kaydeden kişi neye dayanarak rol
+                        verildiğini göremiyordu. */}
+                    <td className="wrap">
+                      {m.tags.length ? (
+                        <span className="chips">
+                          {m.tags.map((t) => (
+                            <span key={t} className="chip">
+                              {t}
+                            </span>
+                          ))}
+                        </span>
+                      ) : (
+                        <span className="muted">none</span>
+                      )}
+                    </td>
                     <td className="wrap">
                       <code className="small">{m.fingerprint}</code>
                     </td>
                     <td className="wrap">
-                      {[...chosenRoles, ...(tagRoles && m.role ? [m.role] : [])].join(", ") || (
+                      {/* ⚠️ TEKİLLEŞTİRİLİYOR: seçilen rol ile etiketin söylediği
+                          rol aynı olduğunda özet "developer, developer" yazıyordu.
+                          Sunucu zaten tek kez veriyor; yanlış olan ekrandı. */}
+                      {Array.from(
+                        new Set([...chosenRoles, ...(tagRoles && m.role ? [m.role] : [])]),
+                      ).join(", ") || (
                         <span className="muted">none</span>
                       )}
                     </td>
@@ -852,13 +945,23 @@ function RegisterWizard({
             </table>
           </div>
           <p className="muted small">
-            Labels:{" "}
-            {Object.keys(parsed.labels).length
-              ? Object.entries(parsed.labels)
-                  .map(([k, v]) => `${k}=${v}`)
-                  .join(", ")
-              : "none"}
-            . The host keys above are pinned as shown; postern does not re-read them now.
+            {Object.keys(parsed.labels).length === 0 ? (
+              "No labels will be attached."
+            ) : (
+              <>
+                Labels attached to each machine:{" "}
+                <span className="chips">
+                  {Object.entries(parsed.labels).map(([k, v]) => (
+                    <span key={k} className="chip">
+                      {k}={v}
+                    </span>
+                  ))}
+                </span>
+              </>
+            )}
+          </p>
+          <p className="muted small">
+            The host keys above are pinned as shown; postern does not re-read them now.
           </p>
         </>
       )}

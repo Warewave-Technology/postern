@@ -325,3 +325,51 @@ func TestDiscoveryEndpointsAreBehindTheAdminAndSameOriginGates(t *testing.T) {
 		t.Errorf("boş kayıt isteği: %d, 400 bekleniyordu", code)
 	}
 }
+
+/*
+ * ⚠️ ROZETİN SAYDIĞI ŞEY, LİSTEDE "yeni" GÖRÜNENLE AYNI OLMAK ZORUNDA.
+ * Başka bir şey sayan bir rozet, tıklayanı listede o kadar satır
+ * bulamayınca bir daha bakmamaya iter: kayıtlı, yok sayılan, kaynakta
+ * kalmayan, sorunlu ve anahtarı okunamamış makineler sayılmıyor.
+ */
+func TestTheBadgeCountsOnlyMachinesThatCanBeRegistered(t *testing.T) {
+	s, db := discoveryServer(t, true)
+	ctx := t.Context()
+	w, out := callDiscovery(t, s, s.adminCreateDiscoverySource, http.MethodPost, sourceBody, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("kaynak: %d %s", w.Code, w.Body.String())
+	}
+	id, _ := out["id"].(string)
+
+	now := time.Now()
+	save := func(ref, name, key, problem string, ignored bool, missing bool) {
+		m := store.DiscoveredMachine{
+			SourceID: id, Ref: ref, Name: name, Running: true,
+			HostKey: key, Problem: problem, LastSeen: now,
+		}
+		if err := db.SaveDiscoveredMachine(ctx, m); err != nil {
+			t.Fatal(err)
+		}
+		if ignored {
+			if _, _, err := db.SetDiscoveredMachineIgnored(ctx, id, ref, true); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if missing {
+			if err := db.MarkDiscoveredMachineMissing(ctx, id, ref, now); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	save("qemu/1", "sayilir-1", "ssh-ed25519 AAAA", "", false, false)
+	save("qemu/2", "sayilir-2", "ssh-ed25519 BBBB", "", false, false)
+	save("qemu/3", "yoksayilan", "ssh-ed25519 CCCC", "", true, false)
+	save("qemu/4", "kayip", "ssh-ed25519 DDDD", "", false, true)
+	save("qemu/5", "anahtarsiz", "", "not running, so its host key cannot be read", false, false)
+	save("qemu/6", "sorunlu", "ssh-ed25519 EEEE", "a target named x already exists", false, false)
+
+	w, out = callDiscovery(t, s, s.adminDiscoveryNewCount, http.MethodGet, "", nil)
+	if w.Code != http.StatusOK || out["new"] != float64(2) {
+		t.Errorf("rozet sayısı: %d %s", w.Code, w.Body.String())
+	}
+}

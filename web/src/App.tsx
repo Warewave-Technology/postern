@@ -13,6 +13,7 @@ import Modal from "./admin/Modal";
 import Users from "./admin/Users";
 import Targets from "./admin/Targets";
 import Discovery from "./admin/Discovery";
+import NewMachines from "./NewMachines";
 import Roles from "./admin/Roles";
 import { AdminLog, Sessions } from "./admin/Audit";
 import FileHistory from "./admin/FileHistory";
@@ -785,6 +786,17 @@ export default function App() {
         <div className="topbar-inner">
           <Brand />
           <div className="account">
+            {/* ⚠️ YALNIZCA YÖNETİCİYE: kaydedilmemiş makineyi görecek ve
+                kaydedecek olan o; başkasına sayı göstermek, yapamayacağı
+                bir iş için uyarı olurdu. */}
+            {me.admin && (
+              <NewMachines
+                onOpen={() => {
+                  setTop("settings");
+                  setSection("discovery");
+                }}
+              />
+            )}
             <ThemeSwitch mode={mode} onChange={setMode} />
             <span className="who">{me.name}</span>
             {me.admin && <span className="badge badge-accent">admin</span>}

@@ -234,3 +234,71 @@ it("mühür anahtarı yokken kaynak eklenemiyor ve sebebi yazıyor", async () =>
   expect(await screen.findByText(/no secret key/)).toBeTruthy();
   expect((screen.getByRole("button", { name: /^add source$/i }) as HTMLButtonElement).disabled).toBe(true);
 });
+
+/*
+ * ⚠️ KAPALI MAKİNELER LİSTEDE DEĞİL, SAYIDA. Anahtarı okunamayan bir
+ * makine kaydedilemiyor; yapılabilecek hiçbir şeyi olmayan satırlar,
+ * yirmi dört makinelik bir kümede yirmi ikisi oldukları için asıl
+ * bakılacakları boğuyordu (kullanıcı ekrana bakıp söyledi). Saklamak
+ * sessizce silmek değil: sayı yazıyor ve tek tıkla geliyorlar.
+ */
+it("kapalı makineleri listelemiyor ama sayıyor", async () => {
+  vi.spyOn(api, "discovery").mockResolvedValue({
+    ...overview,
+    machines: [
+      machine(),
+      machine({ ref: "qemu/200", name: "kapali-01", running: false, fingerprint: "", problem: "not running, so its host key cannot be read" }),
+      machine({ ref: "qemu/201", name: "kapali-02", running: false, fingerprint: "", problem: "not running, so its host key cannot be read" }),
+    ],
+  });
+  render(<Discovery />);
+
+  expect(await screen.findByText("web-01")).toBeTruthy();
+  expect(screen.queryByText("kapali-01")).toBeNull();
+  expect(screen.getByText(/2 machines are powered off/i)).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("button", { name: /show them anyway/i }));
+  expect(await screen.findByText("kapali-01")).toBeTruthy();
+  // Satıra "kapalı olduğu için okunamadı" cümlesi yazılmıyor: sütun o
+  // cümleyi yirmi kez tekrar ediyordu.
+  expect(screen.queryByText(/so its host key cannot be read/)).toBeNull();
+});
+
+/*
+ * ⚠️ ETİKETİN SÖYLEDİĞİ ROL SEÇİLİ GELİYOR ve özet onu İKİ KEZ yazmıyor.
+ * Platformda "role_web" yazan bir makineyi kaydederken aynı rolü elle
+ * seçtirmek, verilmiş bir bilgiyi ikinci kez sormaktı; seçilen rol ile
+ * etiketin rolü aynı olunca da özet "web, web" diyordu.
+ */
+it("etiket rolünü seçili getiriyor ve özette tekrar etmiyor", async () => {
+  vi.spyOn(api, "discovery").mockResolvedValue(overview);
+  vi.spyOn(api, "roles").mockResolvedValue([
+    { name: "web", targets: [] },
+    { name: "dba", targets: [] },
+  ]);
+  render(<Discovery />);
+  await screen.findByText("web-01");
+
+  fireEvent.click(screen.getByRole("checkbox", { name: /select web-01/i }));
+  fireEvent.click(screen.getByRole("button", { name: /register 1 selected/i }));
+
+  // 1. adım: rol kutusunda etiketin rolü çip olarak duruyor.
+  expect(await screen.findByRole("button", { name: "remove web" })).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("button", { name: /^next$/i }));
+  await userEvent.type(await screen.findByLabelText(/labels, one key=value per line/i), "env=prod");
+  // Yazılan etiket adımın kendisinde görünüyor.
+  expect(screen.getByText(/will attach: env=prod/i)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: /^next$/i }));
+
+  // Arka plandaki liste de aynı adı taşıyor; özet tablosunun satırını
+  // modal içinden al.
+  const dialog = await screen.findByRole("dialog");
+  const row = Array.from(dialog.querySelectorAll("tbody tr")).find((r) =>
+    r.textContent?.includes("web-01"),
+  )! as HTMLTableRowElement;
+  expect(row.cells[4].textContent).toBe("web");
+  // Makinenin platform etiketleri de özette.
+  expect(row.cells[2].textContent).toContain("role_web");
+  expect(screen.getByText(/labels attached to each machine/i)).toBeTruthy();
+});
