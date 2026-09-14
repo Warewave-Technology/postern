@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  ApiError,
   Grant,
   GrantRequest,
   GrantResult,
@@ -416,6 +417,7 @@ function NewGrant({ onChanged, onClose }: { onChanged: () => Promise<unknown>; o
   const [duration, setDuration] = useState<string>("4h");
   const [commands, setCommands] = useState("");
   const [acknowledged, setAcknowledged] = useState(false);
+  const [canAcknowledge, setCanAcknowledge] = useState(false);
   const [cleanupGroups, setCleanupGroups] = useState(true);
   const [outcomes, setOutcomes] = useState<HostOutcome[]>([]);
   const [done, setDone] = useState(false);
@@ -489,6 +491,12 @@ function NewGrant({ onChanged, onClose }: { onChanged: () => Promise<unknown>; o
         out.push({ target: h, summary: r.summary, steps: r.steps });
       } catch (e: unknown) {
         out.push({ target: h, summary: "", steps: [], error: toMessage(e) });
+        // Sunucu "bu ret bilerek kabul edilebilir" diyorsa onay kutusu
+        // beliriyor; demiyorsa (joker, göreli yol, ALL) belirmiyor, çünkü
+        // onay onu geçirmiyor.
+        if (e instanceof ApiError && e.acknowledgeable) {
+          setCanAcknowledge(true);
+        }
       }
       setOutcomes([...out]);
     }
@@ -654,14 +662,22 @@ function NewGrant({ onChanged, onClose }: { onChanged: () => Promise<unknown>; o
               />
             </label>
           </div>
-          {commands.trim() !== "" && (
-            <label className="check">
+          {/*
+            ⚠️ ONAY KUTUSU RET GELENE KADAR YOK — rol ekranındaki gerekçenin
+            aynısı. Her komut zaten root olarak çalışıyor; hep duran bir
+            kutu, kabul edilen şeyin ne olduğunu anlamsızlaştırıyor. Kabul
+            edilen şey DAR YETKİDEN KAÇIŞ ve onu sunucu söylüyor.
+          */}
+          {canAcknowledge && (
+            <label className="check check-ack">
               <input
                 type="checkbox"
                 checked={acknowledged}
                 onChange={(e) => setAcknowledged(e.target.checked)}
               />
-              I have read the escape-risk warning if postern raises one, and accept it
+              I understand a command here can start another program, so what the
+              account really gets is that account in full — not just the command
+              written above. Grant it anyway.
             </label>
           )}
 

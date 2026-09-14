@@ -147,7 +147,12 @@ func (s *Server) adminCreateGrant(w http.ResponseWriter, r *http.Request) {
 		 * ve cümle operatörün önüne 400 ile gelmeli, 502 ile değil.
 		 */
 		if findings := sudoers.Validate(rule); sudoers.Refuses(findings, rule.Acknowledged) {
-			writeErr(w, http.StatusBadRequest, "sudo rule refused: "+sudoers.Describe(findings))
+			// Onay kutusunun görünüp görünmeyeceğini ekran buradan öğreniyor
+			// (bkz. adminSetRoleSudo'daki aynı ayrım).
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"error":           "sudo rule refused: " + sudoers.Describe(findings),
+				"acknowledgeable": !sudoers.Refuses(findings, true),
+			})
 			return
 		}
 		req.Sudo = &rule

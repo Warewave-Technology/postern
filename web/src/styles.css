@@ -3790,6 +3790,14 @@ a.tcard-name:focus-visible {
    bir formu KAPATIYOR: üstünde çizgi ve boşluk var. Onu kartın başında
    kullanmak, başlıkla düğme arasına hiçbir şeyi ayırmayan bir çizgi ve
    düğmeyi aşağı iten bir boşluk koyuyordu (ekrana bakılarak görüldü). */
+/* ⚠️ ONAY KUTUSU ÜSTTEKİ ALANA YAPIŞMIYOR. Reddin sebebiyle kutu
+   arasında nefes olmadan, kutu o cümlenin devamı gibi okunuyordu
+   (ekrana bakılarak görüldü) — oysa biri sunucunun cümlesi, öbürü
+   operatörün kararı. */
+.check-ack {
+  margin-top: 0.9rem;
+}
+
 .card-toolbar {
   display: flex;
   flex-wrap: wrap;

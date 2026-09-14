@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api, RoleSudoRule } from "../api";
+import { api, ApiError, RoleSudoRule } from "../api";
 import RoleSudo from "./RoleSudo";
 
 afterEach(() => vi.restoreAllMocks());
@@ -94,21 +94,52 @@ describe("RoleSudo", () => {
    * Operatör onay kutusunu işaretleyecekse neyi onayladığını okumak
    * zorunda; kapanan bir modal onu körlemesine onaylatır.
    */
-  it("kaçış riski reddini sebebiyle gösteriyor", async () => {
+  /*
+   * ⚠️ ONAY KUTUSU RET GELENE KADAR YOK VE HER RETTE DE GELMİYOR.
+   *
+   * Her komut zaten root olarak çalışıyor; hep duran bir kutu, kabul
+   * edilen şeyin ne olduğunu anlamsızlaştırıyordu (kullanıcı sordu).
+   * Kabul edilen şey dar yetkiden KAÇIŞ. Joker ya da göreli yol taşıyan
+   * bir ret onayla da geçmiyor, o yüzden orada kutu belirmemeli — karar
+   * sunucunun (acknowledgeable), ekranın ret metnini tahmin etmesi
+   * değil.
+   */
+  it("onay kutusunu yalnızca kabul edilebilir rette gösteriyor", async () => {
+    const ackLabel = /i understand this command can start another program/i;
+    const set = vi
+      .spyOn(api, "setRoleSudo")
+      .mockRejectedValueOnce(new ApiError(422, "/usr/bin/vim escapes to a shell", true))
+      .mockRejectedValueOnce(new ApiError(422, "/usr/bin/* is a wildcard", false));
+
+    render(<RoleSudo role="ops" onChanged={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: /write the rule/i }));
+    const box = await screen.findByLabelText(/commands, one per line/i);
+    expect(screen.queryByLabelText(ackLabel)).toBeNull();
+
+    await userEvent.type(box, "/usr/bin/vim");
+    fireEvent.click(screen.getByRole("button", { name: /save rule/i }));
+
+    expect(await screen.findByText(/escapes to a shell/i)).toBeTruthy();
+    expect(screen.getByLabelText(ackLabel)).not.toBeChecked();
+    // Kutu, yazılanı silmiyor: modal açık kalıyor ve metin duruyor.
+    expect(screen.getByLabelText(/commands, one per line/i)).toBeTruthy();
+    expect(set).toHaveBeenCalledTimes(1);
+  });
+
+  it("onayla geçmeyen rette kutu belirmiyor", async () => {
     vi.spyOn(api, "setRoleSudo").mockRejectedValue(
-      new Error("/usr/bin/vim opens an editor, so this grant is root"),
+      new ApiError(422, "/usr/bin/* is a wildcard: it matches commands nobody listed", false),
     );
     render(<RoleSudo role="ops" onChanged={vi.fn()} />);
 
     fireEvent.click(screen.getByRole("button", { name: /write the rule/i }));
-    await userEvent.type(await screen.findByLabelText(/commands, one per line/i), "/usr/bin/vim");
+    await userEvent.type(await screen.findByLabelText(/commands, one per line/i), "/usr/bin/*");
     fireEvent.click(screen.getByRole("button", { name: /save rule/i }));
 
-    expect(await screen.findByText(/opens an editor/i)).toBeTruthy();
+    expect(await screen.findByText(/is a wildcard/i)).toBeTruthy();
     expect(
-      screen.getByLabelText(/i accept that a command here may open a root shell/i),
-    ).not.toBeChecked();
-    expect(screen.getByLabelText(/commands, one per line/i)).toBeTruthy();
+      screen.queryByLabelText(/i understand this command can start another program/i),
+    ).toBeNull();
   });
 
   /*

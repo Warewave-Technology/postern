@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, RoleSudoCommand, RoleSudoRule, toMessage } from "../api";
+import { api, ApiError, RoleSudoCommand, RoleSudoRule, toMessage } from "../api";
 import { ActionButton, ErrorLine } from "./common";
 import DataTable, { Column } from "./DataTable";
 import Modal from "./Modal";
@@ -289,6 +289,22 @@ function RuleForm({
   const [runAs, setRunAs] = useState("root");
   const [acknowledged, setAcknowledged] = useState(false);
   const [error, setError] = useState("");
+  /*
+   * ⚠️ ONAY KUTUSU RET GELENE KADAR YOK.
+   *
+   * Her komut zaten root olarak çalışıyor (sudo'nun da varsayılanı), o
+   * yüzden her kaydetmede duran bir "root olabilir" kutusu, kabul edilen
+   * şeyi anlamsızlaştırıyordu: kullanıcı haklı olarak "bu kutunun anlamı
+   * ne" diye sordu. Kabul edilen şey root DEĞİL, DAR YETKİDEN KAÇIŞ: bir
+   * editör, bir sayfalayıcı ya da başka program çalıştıran bir komut,
+   * verilen tek komutu o hesabın tamamına çeviriyor.
+   *
+   * Kutu yalnızca sunucu böyle bir komut yüzünden reddettiğinde ve
+   * reddin SEBEBİNİN altında beliriyor; "onaylanabilir mi" kararını da
+   * sunucu söylüyor (ApiError.acknowledgeable), çünkü joker ya da göreli
+   * yol taşıyan bir ret onayla da geçmiyor.
+   */
+  const [canAcknowledge, setCanAcknowledge] = useState(false);
 
   /*
    * Tek komut kipinde hesap ayrı bir alan; toplu kipte satır başındaki
@@ -305,6 +321,9 @@ function RuleForm({
       await onSave(commands, acknowledged);
     } catch (e: unknown) {
       setError(toMessage(e));
+      if (e instanceof ApiError && e.acknowledgeable) {
+        setCanAcknowledge(true);
+      }
     }
   };
 
@@ -340,24 +359,20 @@ function RuleForm({
         )}
       </div>
 
-      {/*
-        ⚠️ ONAY KUTUSU ÖNCEDEN İŞARETLİ DEĞİL. Sunucu kaçış riski taşıyan
-        kuralı reddedip SEBEBİNİ söylüyor; kutu ancak o cümle ekrana
-        geldikten sonra işaretleniyor, yani onaylayan neyi onayladığını
-        okumuş oluyor.
-      */}
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={acknowledged}
-          onChange={(e) => setAcknowledged(e.target.checked)}
-        />
-        I accept that a command here may open a root shell (an editor, a pager,
-        anything that runs another program), and that this rule hands that to
-        everyone in the role
-      </label>
-
       <ErrorLine msg={error} />
+
+      {canAcknowledge && (
+        <label className="check check-ack">
+          <input
+            type="checkbox"
+            checked={acknowledged}
+            onChange={(e) => setAcknowledged(e.target.checked)}
+          />
+          I understand this command can start another program, so what the role
+          really gets is that account in full — not just the command written
+          here. Write it anyway.
+        </label>
+      )}
 
       <div className="form-actions">
         <ActionButton variant="primary" onClick={save} disabled={commands.length === 0}>

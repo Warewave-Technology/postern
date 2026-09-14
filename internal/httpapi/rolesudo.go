@@ -116,6 +116,24 @@ func (s *Server) adminSetRoleSudo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rule := in.rule()
+	/*
+	 * ⚠️ RET ONAYLANABİLİR Mİ, CEVAP SÖYLÜYOR. Kaçış riski (bir editör,
+	 * bir sayfalayıcı, başka program çalıştıran bir komut) operatörün
+	 * bilerek kabul edebileceği bir şey; joker, göreli yol ya da ALL
+	 * DEĞİL — onlar onayla da geçmiyor. Ekran onay kutusunu yalnızca
+	 * kabul edilebilir retlerde göstersin diye ayrım burada yapılıyor,
+	 * yoksa panel ret metnini tahmin etmek zorunda kalırdı.
+	 *
+	 * Kontrol store'da da duruyor (kapı orada); buradaki kopya cevabın
+	 * şeklini kurmak için.
+	 */
+	if findings := sudoers.Validate(rule); sudoers.Refuses(findings, rule.Acknowledged) {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+			"error":           sudoers.Describe(findings),
+			"acknowledgeable": !sudoers.Refuses(findings, true),
+		})
+		return
+	}
 	if err := s.store.SetRoleSudo(r.Context(), name, rule, sessionUser(r)); err != nil {
 		if errors.Is(err, store.ErrInvalid) {
 			writeErr(w, http.StatusUnprocessableEntity, err.Error())

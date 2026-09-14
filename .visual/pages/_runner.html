@@ -1,0 +1,33 @@
+<!doctype html><meta charset="utf-8"><title>visual runner</title>
+<body style="margin:0;font:13px system-ui">
+<p id="status">call <code>await sweep()</code> (optional: sweep([1280,820,390], "light"))</p>
+<script>
+async function sweep(widths, theme) {
+  widths = widths || [1280, 820, 390];
+  theme = theme || "light";
+  var index = await (await fetch("_index.json")).json();
+  var lines = [];
+  for (var n = 0; n < index.length; n++) {
+    for (var w = 0; w < widths.length; w++) {
+      var f = document.createElement("iframe");
+      f.style.cssText = "width:" + widths[w] + "px;height:900px;border:0;display:block";
+      f.src = index[n] + "." + theme + ".html";
+      document.body.appendChild(f);
+      await new Promise(function (r) { f.onload = r; });
+      var res = f.contentWindow.__check();
+      var items = res.items.filter(function (i) { return !(i.k === "overlap" && /search > input/.test(i.el)); });
+      if (res.pageScroll || items.length) {
+        lines.push(index[n] + "@" + widths[w] + (res.pageScroll ? " PAGE-SCROLL" : "") + " n=" + items.length + " :: " +
+          items.map(function (i) {
+            return i.k + " " + i.el + (i.over ? "(+" + i.over + ")" : "") + (i.right ? "(r=" + i.right + ")" : "") +
+              (i.with ? "(with " + i.with + " " + i.ox + "x" + i.oy + ")" : "") + ' "' + i.text.slice(0, 40) + '"';
+          }).join(" | "));
+      }
+      f.remove();
+    }
+  }
+  document.getElementById("status").textContent = lines.length + " findings";
+  return lines.join("\n");
+}
+</script>
+</body>

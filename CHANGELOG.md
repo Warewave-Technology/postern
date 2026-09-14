@@ -53,6 +53,20 @@ audit rows into a shape it does not understand.
   last one removes the rule, which is what the server does with a rule that
   has no commands left.
 
+- **The acknowledgement for a risky sudo command is only asked when there is
+  something to acknowledge.** The checkbox sat under every sudo form,
+  whether or not the rule held anything risky, and its text talked about
+  opening a root shell — which reads as a statement about running as root,
+  and every command runs as root by default. So the box appeared to ask
+  people to accept the obvious, and a box that always appears is a box
+  nobody reads. It now appears only after the server refuses a rule for a
+  command that can start another program, directly under the reason, and
+  says what is actually being accepted: the role gets that account in full,
+  not just the command written down. A refusal that acknowledging cannot
+  fix — a wildcard, a relative path, ALL — shows no box, and the server
+  says which kind of refusal it is rather than leaving the screen to guess
+  from the wording.
+
 - **Each sudo command names the account it runs as.** A rule carried one
   account for all of its commands, so "test nginx as root, reload postgres
   as postgres" needed two rules — and on a target a group has one sudoers

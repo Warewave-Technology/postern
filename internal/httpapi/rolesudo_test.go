@@ -85,6 +85,19 @@ func TestRoleSudoRefusalSaysWhichCommandAndWhy(t *testing.T) {
 		t.Errorf("reddedilen kural yazıldı: %d", w.Code)
 	}
 
+	// ⚠️ HER RET ONAYLANAMAZ. Kaçış riski operatörün bilerek kabul
+	// edebileceği bir şey; joker DEĞİL. Ekran onay kutusunu bu bayrağa
+	// bakarak gösteriyor, ret metnine bakarak değil.
+	if !strings.Contains(w.Body.String(), `"acknowledgeable":true`) {
+		t.Errorf("kaçış reddi onaylanabilir işaretlenmemiş: %s", w.Body.String())
+	}
+	wild := `{"commands":[{"path":"/usr/bin/*"}]}`
+	w = callRoleSudo(t, s, s.adminSetRoleSudo, http.MethodPut, "ops", wild)
+	if w.Code != http.StatusUnprocessableEntity ||
+		!strings.Contains(w.Body.String(), `"acknowledgeable":false`) {
+		t.Errorf("joker reddi onaylanabilir sayıldı: %d %s", w.Code, w.Body.String())
+	}
+
 	okBody := `{"commands":[{"path":"/usr/bin/vim"}],"acknowledged":true}`
 	if w := callRoleSudo(t, s, s.adminSetRoleSudo, http.MethodPut, "ops", okBody); w.Code != http.StatusOK {
 		t.Fatalf("onaylanan kural reddedildi: %d %s", w.Code, w.Body.String())

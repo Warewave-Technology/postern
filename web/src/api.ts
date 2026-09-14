@@ -1080,6 +1080,16 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    /**
+     * acknowledgeable, sunucunun "bu ret bilerek kabul edilebilir"
+     * demesi.
+     *
+     * ⚠️ EKRAN BUNU TAHMİN EDEMEZ. Kaçış riski taşıyan bir sudo kuralı
+     * onayla yazılabiliyor; joker, göreli yol ya da ALL taşıyan bir
+     * kural onayla da yazılamıyor. Ret metnine bakıp ayırmaya çalışmak,
+     * cümle değiştiği gün onay kutusunu yanlış yerde gösterirdi.
+     */
+    public acknowledgeable = false,
   ) {
     super(message);
   }
@@ -1144,12 +1154,15 @@ async function req<T>(
   if (!r.ok) {
     noteStatus(r.status);
     let msg = r.statusText;
+    let ack = false;
     try {
-      msg = (await r.json()).error ?? msg;
+      const body = await r.json();
+      msg = body.error ?? msg;
+      ack = body.acknowledgeable === true;
     } catch {
       /* gövde JSON değilse statusText kalır */
     }
-    throw new ApiError(r.status, msg);
+    throw new ApiError(r.status, msg, ack);
   }
   return r.status === 204 ? (undefined as T) : r.json();
 }
