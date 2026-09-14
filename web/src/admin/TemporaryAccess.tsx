@@ -449,7 +449,13 @@ function NewGrant({ onChanged, onClose }: { onChanged: () => Promise<unknown>; o
   const groupRules = groups
     .map((g) => roles.items.find((r) => r.name === g))
     .filter((r): r is Role => !!r?.sudo)
-    .map((r) => ({ name: r.name, commands: r.sudo?.commands ?? [] }));
+    .map((r) => ({
+      name: r.name,
+      // Hesap komut başına: "pg_ctl reload (as postgres)".
+      commands: (r.sudo?.commands ?? []).map((c) =>
+        c.run_as === "root" ? c.command : `${c.command} (as ${c.run_as})`,
+      ),
+    }));
 
   const request = (): GrantRequest => {
     const g: GrantRequest = { username, groups, duration, cleanup_groups: cleanupGroups };

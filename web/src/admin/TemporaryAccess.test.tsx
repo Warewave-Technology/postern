@@ -50,7 +50,7 @@ beforeEach(() => {
       targets: [],
       // Kurallı rol: sihirbaz üyelikten gelen sudo'yu göstermek zorunda.
       sudo: {
-        commands: ["/usr/sbin/nginx -t"],
+        commands: [{ command: "/usr/sbin/nginx -t", run_as: "root" }],
         acknowledged: false,
         updated_by: "yigit",
         updated_at: "2026-09-14T10:00:00Z",

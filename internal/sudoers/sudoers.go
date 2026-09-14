@@ -90,6 +90,32 @@ type Command struct {
 	// Args, izin verilen SABİT argümanlar. Boşsa komut argümansız
 	// çalıştırılabilir.
 	Args []string
+
+	/*
+	 * RunAs, BU komutun hangi hesapla çalışacağı. Boşsa kuralın RunAs'ı,
+	 * o da boşsa root.
+	 *
+	 * ⚠️ KOMUT BAŞINA, ÇÜNKÜ SUDOERS BÖYLE YAZILABİLİYOR. Kural başına
+	 * tek bir hesap, "nginx'i root olarak sına, pg_ctl'i postgres olarak
+	 * yeniden yükle" diyen bir role iki ayrı kural yazdırıyordu — ve
+	 * hedefte bir grubun tek sudoers dosyası olduğu için o iki kural tek
+	 * dosyada birleşmek zorunda. sudoers'ın kendi sözdizimi bunu zaten
+	 * taşıyor: "(root) NOPASSWD: /a, (postgres) NOPASSWD: /b".
+	 */
+	RunAs string
+}
+
+// RunAsOr, komutun etkin hesabı: kendi RunAs'ı, yoksa kuralınki, o da
+// yoksa root.
+func (c Command) RunAsOr(ruleRunAs string) string {
+	if c.RunAs != "" {
+		return c.RunAs
+	}
+	if ruleRunAs != "" {
+		return ruleRunAs
+	}
+
+	return "root"
 }
 
 // String, sudoers satırındaki hâli.
@@ -169,6 +195,20 @@ func Validate(r Rule) []Finding {
 func checkCommand(c Command) []Finding {
 	var out []Finding
 	name := c.String()
+
+	/*
+	 * ⚠️ KOMUTUN HESABI DA DENETLENİYOR. Bu alan sudoers dosyasına
+	 * parantezin içine giriyor; "postgres) NOPASSWD: ALL #" gibi bir
+	 * değer kuralın geri kalanını yorum satırına çevirir ve o dosyada ne
+	 * yazdığını kimse bir daha okumaz. Kuralın kendi RunAs'ı aynı
+	 * kontrolden Validate içinde geçiyor.
+	 */
+	if bad := badName(c.RunAs); bad != "" {
+		out = append(out, Finding{
+			Command: name,
+			Reason:  "runs as " + c.RunAs + ", which " + bad,
+		})
+	}
 
 	/*
 	 * ⚠️ "ALL" SUDOERS'TA ÖZEL BİR SÖZCÜK: her komut demek. Bir kural
@@ -302,22 +342,38 @@ func Render(user string, r Rule, header string) (string, error) {
 		return "", fmt.Errorf("sudoers.Render: %s", Describe(findings))
 	}
 
-	runAs := r.RunAs
-	if runAs == "" {
-		runAs = "root"
-	}
-
-	cmds := make([]string, 0, len(r.Commands))
-	for _, c := range r.Commands {
-		cmds = append(cmds, c.String())
-	}
-
+	/*
+	 * ⚠️ HESAP DEĞİŞTİKÇE YENİ BİR (hesap) ÖBEĞİ AÇILIYOR, SIRA
+	 * KORUNARAK. sudoers listenin ortasında hesap değiştirmeye izin
+	 * veriyor; komutları hesaba göre yeniden sıralasaydık operatörün
+	 * yazdığı sıra dosyada başka türlü görünürdü ve "ben bunu böyle
+	 * yazmamıştım" denen bir dosya, denetlenmesi gereken bir dosya
+	 * olarak işe yaramaz.
+	 *
+	 * NOPASSWD her öbekte yineleniyor: etiketin bir sonraki öbeğe
+	 * taşındığına GÜVENMEK, taşımayan bir sudo sürümünde kuralı sessizce
+	 * parola soran bir kurala çevirirdi.
+	 */
 	var b strings.Builder
 	b.WriteString("# postern — generated, do not edit.\n")
 	if header != "" {
 		b.WriteString("# " + header + "\n")
 	}
-	fmt.Fprintf(&b, "%s ALL=(%s) NOPASSWD: %s\n", user, runAs, strings.Join(cmds, ", "))
+	fmt.Fprintf(&b, "%s ALL=", user)
+
+	prev := ""
+	for i, c := range r.Commands {
+		as := c.RunAsOr(r.RunAs)
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		if as != prev {
+			fmt.Fprintf(&b, "(%s) NOPASSWD: ", as)
+			prev = as
+		}
+		b.WriteString(c.String())
+	}
+	b.WriteString("\n")
 
 	return b.String(), nil
 }

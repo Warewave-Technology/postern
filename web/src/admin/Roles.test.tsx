@@ -10,7 +10,10 @@ const roles: Role[] = [
     // okunmaz oluyor (bu ekranın var olma sebebi).
     targets: Array.from({ length: 100 }, (_, i) => `host-${String(i).padStart(3, "0")}`),
     sudo: {
-      commands: ["/usr/sbin/nginx -t", "/usr/bin/pg_ctl reload"],
+      commands: [
+        { command: "/usr/sbin/nginx -t", run_as: "root" },
+        { command: "/usr/bin/pg_ctl reload", run_as: "postgres" },
+      ],
       acknowledged: true,
       updated_by: "yigit",
       updated_at: "2026-09-14T10:00:00Z",

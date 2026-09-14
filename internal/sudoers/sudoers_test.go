@@ -188,3 +188,66 @@ func TestRenderRefusesAUserNameThatIsSyntax(t *testing.T) {
 		}
 	}
 }
+
+/*
+ * ⚠️ HESAP DEĞİŞTİKÇE YENİ ÖBEK, SIRA KORUNARAK. sudoers listenin
+ * ortasında hesap değiştirmeye izin veriyor; kural başına tek hesap,
+ * "nginx'i root olarak sına, pg_ctl'i postgres olarak yeniden yükle"
+ * diyen bir role iki ayrı kural yazdırırdı — ve hedefte bir grubun tek
+ * sudoers dosyası var.
+ *
+ * NOPASSWD her öbekte yineleniyor: etiketin bir sonraki öbeğe
+ * taşındığına güvenmek, taşımayan bir sudo sürümünde kuralı sessizce
+ * parola soran bir kurala çevirirdi.
+ */
+func TestRenderGroupsCommandsByTheAccountTheyRunAs(t *testing.T) {
+	out, err := Render("%dba", Rule{Commands: []Command{
+		{Path: "/usr/sbin/nginx", Args: []string{"-t"}},
+		{Path: "/usr/bin/pg_ctl", Args: []string{"reload"}, RunAs: "postgres"},
+		{Path: "/usr/bin/pg_dump", RunAs: "postgres"},
+		{Path: "/usr/sbin/nginx", Args: []string{"-s", "reload"}},
+	}}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "%dba ALL=(root) NOPASSWD: /usr/sbin/nginx -t, " +
+		"(postgres) NOPASSWD: /usr/bin/pg_ctl reload, /usr/bin/pg_dump, " +
+		"(root) NOPASSWD: /usr/sbin/nginx -s reload\n"
+	if !strings.HasSuffix(out, want) {
+		t.Errorf("satır:\n%s\nbeklenen sonek:\n%s", out, want)
+	}
+
+	// Kuralın kendi hesabı, hesabı olmayan komutların varsayılanı.
+	out, err = Render("%dba", Rule{RunAs: "postgres", Commands: []Command{
+		{Path: "/usr/bin/pg_ctl", Args: []string{"reload"}},
+		{Path: "/usr/sbin/nginx", Args: []string{"-t"}, RunAs: "root"},
+	}}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "(postgres) NOPASSWD: /usr/bin/pg_ctl reload, (root) NOPASSWD: /usr/sbin/nginx -t") {
+		t.Errorf("kuralın hesabı varsayılan değil:\n%s", out)
+	}
+}
+
+/*
+ * ⚠️ KOMUTUN HESABI DA SÖZDİZİMİ TAŞIYAMAZ. Değer parantezin içine
+ * giriyor; "postgres) NOPASSWD: ALL #" gibi bir ad kuralın geri kalanını
+ * yorum satırına çevirir ve dosyada ne yazdığını kimse bir daha okumaz.
+ */
+func TestRenderRefusesAnAccountThatCarriesSyntax(t *testing.T) {
+	for _, bad := range []string{"postgres) NOPASSWD: ALL #", "ALL", "pg ctl"} {
+		_, err := Render("%dba", Rule{Commands: []Command{
+			{Path: "/usr/bin/pg_ctl", RunAs: bad},
+		}}, "")
+		if err == nil {
+			t.Errorf("komut hesabı %q kabul edildi", bad)
+		}
+	}
+	// Kabul karşı örneği: sıradan bir hesap geçiyor.
+	if _, err := Render("%dba", Rule{Commands: []Command{
+		{Path: "/usr/bin/pg_ctl", RunAs: "postgres"},
+	}}, ""); err != nil {
+		t.Errorf("sıradan hesap reddedildi: %v", err)
+	}
+}

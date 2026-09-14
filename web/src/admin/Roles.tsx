@@ -87,7 +87,7 @@ export default function Roles() {
        */
       key: "sudo",
       header: "Sudo",
-      value: (r) => (r.sudo ? r.sudo.commands.join(" ") : ""),
+      value: (r) => (r.sudo ? r.sudo.commands.map((c) => `${c.command} ${c.run_as}`).join(" ") : ""),
       render: (r) =>
         r.sudo ? (
           <span className="chips">

@@ -3786,6 +3786,18 @@ a.tcard-name:focus-visible {
 .form-grid > .span-all {
   grid-column: 1 / -1;
 }
+/* ⚠️ KARTIN BAŞINDAKİ DÜĞME SATIRI, .form-actions DEĞİL. form-actions
+   bir formu KAPATIYOR: üstünde çizgi ve boşluk var. Onu kartın başında
+   kullanmak, başlıkla düğme arasına hiçbir şeyi ayırmayan bir çizgi ve
+   düğmeyi aşağı iten bir boşluk koyuyordu (ekrana bakılarak görüldü). */
+.card-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.9rem;
+}
+
 .form-actions {
   display: flex;
   flex-wrap: wrap;

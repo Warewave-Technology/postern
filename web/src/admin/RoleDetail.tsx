@@ -163,7 +163,7 @@ export default function RoleDetail({
           </p>
         </div>
         <div className="card-body">
-          <div className="form-actions">
+          <div className="card-toolbar">
             <ActionButton
               variant="primary"
               onClick={() => setGranting(true)}

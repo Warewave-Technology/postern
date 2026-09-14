@@ -53,6 +53,20 @@ audit rows into a shape it does not understand.
   last one removes the rule, which is what the server does with a rule that
   has no commands left.
 
+- **Each sudo command names the account it runs as.** A rule carried one
+  account for all of its commands, so "test nginx as root, reload postgres
+  as postgres" needed two rules — and on a target a group has one sudoers
+  file, so the two would have had to be merged back into it. sudoers already
+  writes this per command, and postern now does too: the file reads
+  `%dba ALL=(root) NOPASSWD: /usr/sbin/nginx -t, (postgres) NOPASSWD:
+  /usr/bin/pg_ctl reload`, with the commands in the order they were written
+  rather than regrouped. The account is a column in the panel's table, a
+  field beside the command when one is added, and a `(account)` prefix on
+  the line when the rule is edited in bulk. An account that carries sudoers
+  syntax is refused, because that value lands inside the parentheses and
+  could comment out the rest of the file. A rule written before this keeps
+  working: its commands inherit the rule's account.
+
 ## 1.2.0 — 2026-09-14
 
 ### Security

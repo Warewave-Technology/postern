@@ -28,24 +28,38 @@ func (s *Server) registerRoleSudoRoutes(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/admin/roles/{name}/sudo", admin(s.adminDeleteRoleSudo))
 }
 
-// sudoRuleView, kuralın panele giden hâli. Komutlar tek satırlık
-// dizeler: panel onları olduğu gibi yazım kutusuna koyuyor.
+/*
+ * sudoCommandView, tek bir komut ve HANGİ HESAPLA çalıştığı.
+ *
+ * ⚠️ HESAP KOMUT BAŞINA. sudoers bunu taşıyor ve kural başına tek hesap,
+ * "nginx'i root olarak sına, pg_ctl'i postgres olarak yeniden yükle"
+ * diyen bir role iki ayrı kural yazdırırdı — oysa hedefte bir grubun tek
+ * sudoers dosyası var. RunAs boş gitmiyor: ekran "root" yazabilsin diye
+ * etkin değer hesaplanmış hâlde geliyor.
+ */
+type sudoCommandView struct {
+	Command string `json:"command"`
+	RunAs   string `json:"run_as"`
+}
+
+// sudoRuleView, kuralın panele giden hâli.
 type sudoRuleView struct {
-	RunAs        string    `json:"run_as,omitempty"`
-	Commands     []string  `json:"commands"`
-	Acknowledged bool      `json:"acknowledged"`
-	UpdatedBy    string    `json:"updated_by"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	Commands     []sudoCommandView `json:"commands"`
+	Acknowledged bool              `json:"acknowledged"`
+	UpdatedBy    string            `json:"updated_by"`
+	UpdatedAt    time.Time         `json:"updated_at"`
 }
 
 func sudoView(rs store.RoleSudo) sudoRuleView {
 	out := sudoRuleView{
-		RunAs: rs.Rule.RunAs, Acknowledged: rs.Rule.Acknowledged,
-		UpdatedBy: rs.UpdatedBy, UpdatedAt: rs.UpdatedAt,
-		Commands: make([]string, 0, len(rs.Rule.Commands)),
+		Acknowledged: rs.Rule.Acknowledged,
+		UpdatedBy:    rs.UpdatedBy, UpdatedAt: rs.UpdatedAt,
+		Commands: make([]sudoCommandView, 0, len(rs.Rule.Commands)),
 	}
 	for _, c := range rs.Rule.Commands {
-		out.Commands = append(out.Commands, c.String())
+		out.Commands = append(out.Commands, sudoCommandView{
+			Command: c.String(), RunAs: c.RunAsOr(rs.Rule.RunAs),
+		})
 	}
 
 	return out
@@ -53,10 +67,14 @@ func sudoView(rs store.RoleSudo) sudoRuleView {
 
 // sudoRuleInput, panelin gönderdiği kural. Grant gövdesiyle aynı şekil.
 type sudoRuleInput struct {
+	// RunAs, hesabı yazılmamış komutların varsayılanı. Panel komut başına
+	// gönderiyor; bu alan eski çağıranlar ve JIT gövdesiyle aynı şekli
+	// korumak için duruyor.
 	RunAs    string `json:"run_as"`
 	Commands []struct {
-		Path string   `json:"path"`
-		Args []string `json:"args"`
+		Path  string   `json:"path"`
+		Args  []string `json:"args"`
+		RunAs string   `json:"run_as"`
 	} `json:"commands"`
 	Acknowledged bool `json:"acknowledged"`
 }
@@ -65,7 +83,9 @@ func (in sudoRuleInput) rule() sudoers.Rule {
 	r := sudoers.Rule{RunAs: strings.TrimSpace(in.RunAs), Acknowledged: in.Acknowledged}
 	for _, c := range in.Commands {
 		if p := strings.TrimSpace(c.Path); p != "" {
-			r.Commands = append(r.Commands, sudoers.Command{Path: p, Args: c.Args})
+			r.Commands = append(r.Commands, sudoers.Command{
+				Path: p, Args: c.Args, RunAs: strings.TrimSpace(c.RunAs),
+			})
 		}
 	}
 
@@ -138,14 +158,10 @@ func (s *Server) adminDeleteRoleSudo(w http.ResponseWriter, r *http.Request) {
 // describeRule, denetim satırı için kısa özet. Komutlar yazılıyor: "bir
 // kural verildi" cümlesi, neyin verildiğini söylemiyor.
 func describeRule(r sudoers.Rule) string {
-	runAs := r.RunAs
-	if runAs == "" {
-		runAs = "root"
-	}
 	cmds := make([]string, 0, len(r.Commands))
 	for _, c := range r.Commands {
-		cmds = append(cmds, c.String())
+		cmds = append(cmds, c.String()+" (as "+c.RunAsOr(r.RunAs)+")")
 	}
 
-	return "as " + runAs + ": " + strings.Join(cmds, ", ")
+	return strings.Join(cmds, ", ")
 }

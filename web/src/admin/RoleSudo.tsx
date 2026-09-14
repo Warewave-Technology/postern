@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, RoleSudoRule, toMessage } from "../api";
+import { api, RoleSudoCommand, RoleSudoRule, toMessage } from "../api";
 import { ActionButton, ErrorLine } from "./common";
 import DataTable, { Column } from "./DataTable";
 import Modal from "./Modal";
@@ -35,8 +35,7 @@ export default function RoleSudo({
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(false);
 
-  const commands = rule?.commands ?? [];
-  const runAs = rule?.run_as?.trim() || "root";
+  const commands: RoleSudoCommand[] = rule?.commands ?? [];
 
   const savedNote =
     "Saved. A host gets this rule the next time postern works on it; the ones it has not touched yet still carry what they had.";
@@ -46,7 +45,7 @@ export default function RoleSudo({
    * ve silmek de buradan geçiyor, böylece "listede gördüğün şey kuralın
    * kendisi" kuralı bozulmuyor.
    */
-  const write = async (next: string[], nextRunAs: string, ack: boolean) => {
+  const write = async (next: RoleSudoCommand[], ack: boolean) => {
     setError("");
     setNote("");
     // Komutsuz kural hiçbir şey vermiyor ve sunucu da reddediyor: son
@@ -58,10 +57,9 @@ export default function RoleSudo({
       return;
     }
     await api.setRoleSudo(role, {
-      run_as: nextRunAs.trim(),
-      commands: next.map((l) => {
-        const [path, ...args] = l.trim().split(/\s+/);
-        return { path, args };
+      commands: next.map((c) => {
+        const [path, ...args] = c.command.trim().split(/\s+/);
+        return { path, args, run_as: c.run_as };
       }),
       acknowledged: ack,
     });
@@ -69,11 +67,10 @@ export default function RoleSudo({
     await onChanged();
   };
 
-  const removeCommand = async (c: string) => {
+  const removeCommand = async (c: RoleSudoCommand) => {
     try {
       await write(
-        commands.filter((x) => x !== c),
-        runAs,
+        commands.filter((x) => !(x.command === c.command && x.run_as === c.run_as)),
         rule?.acknowledged ?? false,
       );
     } catch (e: unknown) {
@@ -93,13 +90,30 @@ export default function RoleSudo({
     }
   };
 
-  const columns: Column<{ command: string }>[] = [
+  const columns: Column<RoleSudoCommand>[] = [
     {
       key: "command",
       header: "Command",
       className: "wrap",
       value: (c) => c.command,
       render: (c) => <code>{c.command}</code>,
+    },
+    {
+      /*
+       * ⚠️ HESAP KENDİ SÜTUNUNDA. Komutun hangi hesapla çalıştığı yetkinin
+       * yarısı: "pg_ctl reload" postgres olarak dar bir yetki, root olarak
+       * makinenin tamamı. Komut metnine karıştırmak, sıralanabilir ve
+       * aranabilir olmasını da engellerdi.
+       */
+      key: "run_as",
+      header: "Runs as",
+      value: (c) => c.run_as,
+      render: (c) =>
+        c.run_as === "root" ? (
+          <span className="badge badge-warn">root</span>
+        ) : (
+          <code>{c.run_as}</code>
+        ),
     },
     {
       key: "actions",
@@ -109,11 +123,11 @@ export default function RoleSudo({
       render: (c) => (
         <ActionButton
           variant="danger"
-          onClick={() => removeCommand(c.command)}
+          onClick={() => removeCommand(c)}
           confirm={
             commands.length === 1
               ? `Remove "${c.command}"? It is the only command in the rule, so the rule itself goes and the role stops granting sudo.`
-              : `Remove "${c.command}" from the sudo rule of "${role}"? Everyone in the role loses it.`
+              : `Remove "${c.command}" (as ${c.run_as}) from the sudo rule of "${role}"? Everyone in the role loses it.`
           }
           label={`remove command ${c.command} from role ${role}`}
         >
@@ -127,9 +141,10 @@ export default function RoleSudo({
     <>
       <p className="muted small">
         Written on each host as <code>%{role}</code> in{" "}
-        <code>/etc/sudoers.d/postern-{role}</code>, run as <code>{runAs}</code>.
-        Everyone in this role draws it from the group; what a temporary grant
-        adds on top stays with that account and leaves with it.
+        <code>/etc/sudoers.d/postern-{role}</code>. Everyone in this role draws
+        it from the group; what a temporary grant adds on top stays with that
+        account and leaves with it. Each command names the account it runs as —
+        <code>root</code> unless you say otherwise.
       </p>
 
       <ErrorLine msg={error} />
@@ -146,9 +161,9 @@ export default function RoleSudo({
         </p>
       ) : (
         <DataTable
-          rows={commands.map((command) => ({ command }))}
+          rows={commands}
           columns={columns}
-          rowKey={(c) => c.command}
+          rowKey={(c) => `${c.run_as} ${c.command}`}
           initialSort={{ key: "command", dir: "asc" }}
           noun="command"
           searchLabel={`search the sudo commands of ${role}`}
@@ -189,16 +204,15 @@ export default function RoleSudo({
         onClose={() => setAdding(false)}
         narrow
         title={`Add a sudo command to "${role}"`}
-        description="One command, with the arguments it is allowed to take. The first word is the path."
+        description="One command, with the arguments it is allowed to take. The first word is the path; the account it runs as is a separate field."
       >
         {adding && (
           <RuleForm
             role={role}
             initial=""
-            runAs={runAs}
             single
-            onSave={async (text, nextRunAs, ack) => {
-              await write([...commands, ...splitLines(text)], nextRunAs, ack);
+            onSave={async (next, ack) => {
+              await write([...commands, ...next], ack);
               setAdding(false);
             }}
           />
@@ -209,15 +223,14 @@ export default function RoleSudo({
         open={editing}
         onClose={() => setEditing(false)}
         title={`Sudo commands of "${role}"`}
-        description="The whole rule, one command per line. What is here replaces what the role carries."
+        description="The whole rule, one command per line. Start a line with (account) to run that one as somebody other than root. What is here replaces what the role carries."
       >
         {editing && (
           <RuleForm
             role={role}
-            initial={commands.join("\n")}
-            runAs={runAs}
-            onSave={async (text, nextRunAs, ack) => {
-              await write(splitLines(text), nextRunAs, ack);
+            initial={commands.map(writeLine).join("\n")}
+            onSave={async (next, ack) => {
+              await write(next, ack);
               setEditing(false);
             }}
           />
@@ -227,11 +240,31 @@ export default function RoleSudo({
   );
 }
 
-function splitLines(text: string): string[] {
+/*
+ * parseLines, yazım kutusunu komutlara çevirir.
+ *
+ * ⚠️ SATIR BAŞINDAKİ (hesap) sudoers'ın kendi yazımı. Kutuya ayrı bir
+ * "hesap" alanı koymak, satır satır farklı hesap yazmayı imkânsız
+ * kılardı; bu önek dosyada göreceği biçimin aynısı, yani öğrenilen şey
+ * iki yerde de aynı.
+ */
+function parseLines(text: string): RoleSudoCommand[] {
   return text
     .split("\n")
     .map((l) => l.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .map((l) => {
+      const m = /^\(([^)]*)\)\s*(.+)$/.exec(l);
+      if (m) {
+        return { run_as: m[1].trim() || "root", command: m[2].trim() };
+      }
+      return { run_as: "root", command: l };
+    });
+}
+
+// writeLine, parseLines'ın tersi: kutuya konan satır.
+function writeLine(c: RoleSudoCommand): string {
+  return c.run_as === "root" ? c.command : `(${c.run_as}) ${c.command}`;
 }
 
 /**
@@ -244,27 +277,32 @@ function splitLines(text: string): string[] {
 function RuleForm({
   role,
   initial,
-  runAs: initialRunAs,
   single = false,
   onSave,
 }: {
   role: string;
   initial: string;
-  runAs: string;
   single?: boolean;
-  onSave: (text: string, runAs: string, acknowledged: boolean) => Promise<void>;
+  onSave: (commands: RoleSudoCommand[], acknowledged: boolean) => Promise<void>;
 }) {
   const [text, setText] = useState(initial);
-  const [runAs, setRunAs] = useState(initialRunAs);
+  const [runAs, setRunAs] = useState("root");
   const [acknowledged, setAcknowledged] = useState(false);
   const [error, setError] = useState("");
 
-  const lines = splitLines(text);
+  /*
+   * Tek komut kipinde hesap ayrı bir alan; toplu kipte satır başındaki
+   * (hesap) öneki taşıyor, çünkü orada her satırın hesabı farklı olabiliyor
+   * ve tek bir alan hepsini aynı hesaba zorlardı.
+   */
+  const commands = single
+    ? parseLines(text).map((c) => ({ ...c, run_as: runAs.trim() || "root" }))
+    : parseLines(text);
 
   const save = async () => {
     setError("");
     try {
-      await onSave(text, runAs, acknowledged);
+      await onSave(commands, acknowledged);
     } catch (e: unknown) {
       setError(toMessage(e));
     }
@@ -272,8 +310,8 @@ function RuleForm({
 
   return (
     <>
-      <div className="form-grid">
-        <label className="span-all">
+      <div className="form-grid cols-2">
+        <label className={single ? "" : "span-all"}>
           {single ? "Command" : "Commands, one per line"}
           {single ? (
             <input
@@ -286,20 +324,28 @@ function RuleForm({
               rows={6}
               value={text}
               onChange={(e) => setText(e.target.value)}
-              placeholder={"/usr/sbin/nginx -t\n/bin/systemctl reload nginx"}
+              placeholder={"/usr/sbin/nginx -t\n(postgres) /usr/bin/pg_ctl reload"}
             />
           )}
         </label>
-        <label>
-          Run as
-          <input
-            value={runAs}
-            onChange={(e) => setRunAs(e.target.value)}
-            placeholder="root"
-          />
-        </label>
+        {single && (
+          <label>
+            Runs as
+            <input
+              value={runAs}
+              onChange={(e) => setRunAs(e.target.value)}
+              placeholder="root"
+            />
+          </label>
+        )}
       </div>
 
+      {/*
+        ⚠️ ONAY KUTUSU ÖNCEDEN İŞARETLİ DEĞİL. Sunucu kaçış riski taşıyan
+        kuralı reddedip SEBEBİNİ söylüyor; kutu ancak o cümle ekrana
+        geldikten sonra işaretleniyor, yani onaylayan neyi onayladığını
+        okumuş oluyor.
+      */}
       <label className="check">
         <input
           type="checkbox"
@@ -314,13 +360,13 @@ function RuleForm({
       <ErrorLine msg={error} />
 
       <div className="form-actions">
-        <ActionButton variant="primary" onClick={save} disabled={lines.length === 0}>
+        <ActionButton variant="primary" onClick={save} disabled={commands.length === 0}>
           {single ? "Add command" : "Save rule"}
         </ActionButton>
         <span className="muted small">
-          {lines.length === 0
+          {commands.length === 0
             ? "Nothing to save yet."
-            : `${lines.length} command${lines.length === 1 ? "" : "s"} for ${role}.`}
+            : `${commands.length} command${commands.length === 1 ? "" : "s"} for ${role}.`}
         </span>
       </div>
     </>

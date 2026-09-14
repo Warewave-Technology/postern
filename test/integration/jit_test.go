@@ -79,8 +79,15 @@ func TestATemporaryAccountIsCreatedAndTakenAwayAgain(t *testing.T) {
 	if _, err := db.CreateRole(ctx, "yayilim"); err != nil {
 		t.Fatal(err)
 	}
+	/*
+	 * ⚠️ İKİ KOMUT, İKİ HESAP — ve asıl sınanan şey üretilen SÖZDİZİMİ.
+	 * Kural hedefe yazılmadan önce hedefin KENDİ visudo'su doğruluyor
+	 * (plan: sudo.stage → sudo.check → sudo.install), yani "(root) ... ,
+	 * (deploy) ..." biçimini uydurduysak bu test orada düşer.
+	 */
 	if err := db.SetRoleSudo(ctx, "yayilim", sudoers.Rule{Commands: []sudoers.Command{
 		{Path: "/usr/sbin/nginx", Args: []string{"-s", "reload"}},
+		{Path: "/usr/bin/id", RunAs: "deploy"},
 	}}, "ops"); err != nil {
 		t.Fatal(err)
 	}
@@ -121,10 +128,18 @@ func TestATemporaryAccountIsCreatedAndTakenAwayAgain(t *testing.T) {
 		!strings.Contains(list, "/usr/sbin/nginx -s reload") {
 		t.Errorf("sudo kuralları hedefte etkin değil: %q (%v)", list, err)
 	}
-	// Rolün kuralı GRUBUN dosyasında, hesabınkinden ayrı.
+	// Rolün kuralı GRUBUN dosyasında, hesabınkinden ayrı; ve her komut
+	// kendi hesabıyla.
 	if body, err := r.Exec(ctx, "sudo -n cat "+provision.SudoPath("yayilim"), ""); err != nil ||
-		!strings.Contains(body, "%yayilim") || !strings.Contains(body, "/usr/sbin/nginx -s reload") {
-		t.Errorf("rolün kuralı grubun dosyasında değil: %q (%v)", body, err)
+		!strings.Contains(body, "%yayilim") ||
+		!strings.Contains(body, "(root) NOPASSWD: /usr/sbin/nginx -s reload") ||
+		!strings.Contains(body, "(deploy) NOPASSWD: /usr/bin/id") {
+		t.Errorf("rolün kuralı komut başına hesapla yazılmamış: %q (%v)", body, err)
+	}
+	// Hedefin sudo'su da öyle okuyor: kural yalnızca dosyada değil, etkin.
+	if list, err := r.Exec(ctx, "sudo -n -l -U jitayse", ""); err != nil ||
+		!strings.Contains(list, "(deploy)") || !strings.Contains(list, "/usr/bin/id") {
+		t.Errorf("komut başına hesap hedefte etkin değil: %q (%v)", list, err)
 	}
 	// Yedek süre yazılmış olmalı: chage -l ya da shadow'un 8. alanı.
 	if shadow, err := r.Exec(ctx, "sudo -n getent shadow jitayse", ""); err != nil || strings.Split(strings.TrimSpace(shadow), ":")[7] == "" {

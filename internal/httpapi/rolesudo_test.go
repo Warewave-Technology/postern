@@ -44,8 +44,8 @@ func TestRoleSudoRuleIsWrittenReadAndAudited(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || w.Code != http.StatusOK {
 		t.Fatalf("okuma: %d %s (%v)", w.Code, w.Body.String(), err)
 	}
-	if len(got.Commands) != 1 || got.Commands[0] != "/usr/sbin/nginx -s reload" ||
-		got.UpdatedBy == "" || got.UpdatedAt.IsZero() {
+	if len(got.Commands) != 1 || got.Commands[0].Command != "/usr/sbin/nginx -s reload" ||
+		got.Commands[0].RunAs != "root" || got.UpdatedBy == "" || got.UpdatedAt.IsZero() {
 		t.Errorf("kural: %+v", got)
 	}
 
@@ -114,7 +114,9 @@ func TestRoleListCarriesTheSudoRule(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	body := `{"run_as":"postgres","commands":[{"path":"/usr/bin/pg_ctl","args":["reload"]}]}`
+	// ⚠️ HESAP KOMUT BAŞINA: iki komut, iki hesap, tek kural.
+	body := `{"commands":[{"path":"/usr/bin/pg_ctl","args":["reload"],"run_as":"postgres"},` +
+		`{"path":"/usr/sbin/nginx","args":["-t"]}]}`
 	if w := callRoleSudo(t, s, s.adminSetRoleSudo, http.MethodPut, "dba", body); w.Code != http.StatusOK {
 		t.Fatalf("yazma: %d %s", w.Code, w.Body.String())
 	}
@@ -133,8 +135,10 @@ func TestRoleListCarriesTheSudoRule(t *testing.T) {
 	for _, row := range rows {
 		seen[row.Name] = row.Sudo
 	}
-	if seen["dba"] == nil || seen["dba"].RunAs != "postgres" ||
-		len(seen["dba"].Commands) != 1 || seen["dba"].Commands[0] != "/usr/bin/pg_ctl reload" {
+	if seen["dba"] == nil || len(seen["dba"].Commands) != 2 ||
+		seen["dba"].Commands[0].Command != "/usr/bin/pg_ctl reload" ||
+		seen["dba"].Commands[0].RunAs != "postgres" ||
+		seen["dba"].Commands[1].RunAs != "root" {
 		t.Errorf("kurallı rol: %+v", seen["dba"])
 	}
 	if _, listed := seen["kuralsiz"]; !listed {

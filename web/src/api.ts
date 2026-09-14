@@ -185,9 +185,17 @@ export type User = {
  * ekran onları olduğu gibi yazım kutusuna koyuyor ve kaydederken aynı
  * biçimden ayrıştırıyor.
  */
+export type RoleSudoCommand = {
+  /** "/usr/bin/pg_ctl reload" — yol ve izin verilen argümanlar. */
+  command: string;
+  /** ⚠️ HESAP KOMUT BAŞINA: sudoers bunu taşıyor, kural başına tek hesap
+   *  aynı role iki ayrı kural yazdırırdı. Sunucu etkin değeri hesaplayıp
+   *  gönderiyor, yani burası hiç boş gelmiyor. */
+  run_as: string;
+};
+
 export type RoleSudoRule = {
-  run_as?: string;
-  commands: string[];
+  commands: RoleSudoCommand[];
   acknowledged: boolean;
   updated_by: string;
   updated_at: string;
@@ -1226,7 +1234,10 @@ export const api = {
   /** Rolün sudo kuralı; kaydetmek onu o rolün GRUBUNA yazıyor. */
   setRoleSudo: (
     role: string,
-    rule: { run_as?: string; commands: { path: string; args: string[] }[]; acknowledged: boolean },
+    rule: {
+      commands: { path: string; args: string[]; run_as?: string }[];
+      acknowledged: boolean;
+    },
   ) =>
     req<{ ok: true }>("PUT", `/api/admin/roles/${encodeURIComponent(role)}/sudo`, rule),
   /** Kuralı postern'den siler; hedeflerdeki dosya bir sonraki dokunuşa kadar kalıyor. */

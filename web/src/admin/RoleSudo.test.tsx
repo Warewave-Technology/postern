@@ -7,7 +7,12 @@ import RoleSudo from "./RoleSudo";
 afterEach(() => vi.restoreAllMocks());
 
 const rule: RoleSudoRule = {
-  commands: ["/usr/sbin/nginx -t", "/usr/bin/pg_ctl reload"],
+  commands: [
+    { command: "/usr/sbin/nginx -t", run_as: "root" },
+    // ⚠️ İKİNCİ KOMUT BAŞKA HESAPLA: sütunun ve kaydetmenin hesabı komut
+    // başına taşıdığı buradan ölçülüyor.
+    { command: "/usr/bin/pg_ctl reload", run_as: "postgres" },
+  ],
   acknowledged: false,
   updated_by: "yigit",
   updated_at: "2026-09-14T10:00:00Z",
@@ -47,12 +52,14 @@ describe("RoleSudo", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /add command/i }).at(-1)!);
 
     await waitFor(() => expect(set).toHaveBeenCalledTimes(1));
+    // ⚠️ HESAP KOMUT BAŞINA GİDİYOR: postgres olan komut postgres kalıyor,
+    // yenisi kutudaki hesabı alıyor. Kural başına tek hesap olsaydı,
+    // bir komut eklemek diğerinin hesabını sessizce değiştirirdi.
     expect(set.mock.calls[0][1]).toMatchObject({
-      run_as: "root",
       commands: [
-        { path: "/usr/sbin/nginx", args: ["-t"] },
-        { path: "/usr/bin/pg_ctl", args: ["reload"] },
-        { path: "/bin/systemctl", args: ["reload", "nginx"] },
+        { path: "/usr/sbin/nginx", args: ["-t"], run_as: "root" },
+        { path: "/usr/bin/pg_ctl", args: ["reload"], run_as: "postgres" },
+        { path: "/bin/systemctl", args: ["reload", "nginx"], run_as: "root" },
       ],
     });
     expect(onChanged).toHaveBeenCalled();
@@ -70,7 +77,7 @@ describe("RoleSudo", () => {
     render(
       <RoleSudo
         role="dba"
-        rule={{ ...rule, commands: ["/usr/sbin/nginx -t"] }}
+        rule={{ ...rule, commands: [{ command: "/usr/sbin/nginx -t", run_as: "root" }] }}
         onChanged={vi.fn().mockResolvedValue(undefined)}
       />,
     );
