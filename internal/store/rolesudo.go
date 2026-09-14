@@ -98,6 +98,7 @@ func (s *Store) RoleSudoRule(ctx context.Context, role string) (RoleSudo, error)
  */
 func (s *Store) RoleSudoRules(ctx context.Context) (map[string]RoleSudo, error) {
 	const op = "store.RoleSudoRules"
+	// #nosec G202 -- birleştirilen parça sabit (dialect.go); değer yok
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT r.name, t.rule, t.updated_by, t.updated_at
 		FROM role_sudo_rules t JOIN roles r ON r.id = t.role_id

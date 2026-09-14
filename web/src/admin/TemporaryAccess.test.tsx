@@ -45,7 +45,17 @@ beforeEach(() => {
   ]);
   vi.spyOn(api, "roles").mockResolvedValue([
     { name: "sre", targets: [] },
-    { name: "developer", targets: [] },
+    {
+      name: "developer",
+      targets: [],
+      // Kurallı rol: sihirbaz üyelikten gelen sudo'yu göstermek zorunda.
+      sudo: {
+        commands: ["/usr/sbin/nginx -t"],
+        acknowledged: false,
+        updated_by: "yigit",
+        updated_at: "2026-09-14T10:00:00Z",
+      },
+    },
   ]);
   vi.spyOn(window, "confirm").mockReturnValue(true);
 });
@@ -151,6 +161,15 @@ it("sihirbaz kişi, hedefler ve gruplarla hedef başına bir istek atıyor", asy
   await user.click(screen.getByRole("option", { name: "developer" }));
   await user.click(screen.getByRole("option", { name: "dba" }));
   expect(screen.getByText(/Will join: developer, dba\./)).toBeTruthy();
+
+  /*
+   * ⚠️ ROLÜN ZATEN VERDİĞİ SUDO EKRANDA. Seçilen rol kurallıysa hesap o
+   * komutları üyelikten alıyor; bunu göstermeyen bir kutu, operatöre
+   * verdiğinden fazlasını verdirir ya da aynı kuralı ikinci kez yazdırır.
+   */
+  expect(
+    screen.getByText(/already lets its members run/i).textContent,
+  ).toMatch(/developer — \/usr\/sbin\/nginx -t/);
 
   // Onay kutusu kaldırılınca istek de bunu söylüyor.
   const cleanup = screen.getByLabelText(/remove the groups postern created/i) as HTMLInputElement;

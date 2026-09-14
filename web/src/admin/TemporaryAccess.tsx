@@ -445,6 +445,12 @@ function NewGrant({ onChanged, onClose }: { onChanged: () => Promise<unknown>; o
   // Rol adıyla çakışan hedef grubu bir kez listelenir — rol öbeğinde.
   const hostOnly = common.names.filter((n) => !roleNames.includes(n));
 
+  // Seçilen grupların kurallı olanları: rolün sudo'su üyelikten geliyor.
+  const groupRules = groups
+    .map((g) => roles.items.find((r) => r.name === g))
+    .filter((r): r is Role => !!r?.sudo)
+    .map((r) => ({ name: r.name, commands: r.sudo?.commands ?? [] }));
+
   const request = (): GrantRequest => {
     const g: GrantRequest = { username, groups, duration, cleanup_groups: cleanupGroups };
     const lines = commands
@@ -610,6 +616,26 @@ function NewGrant({ onChanged, onClose }: { onChanged: () => Promise<unknown>; o
             When the access ends, remove the groups postern created for it if nothing
             else uses them (groups that already existed are never removed)
           </label>
+
+          {/*
+            ⚠️ ROLÜN ZATEN VERDİĞİ SUDO BURADA YAZIYOR. Seçilen gruplardan
+            biri kurallı bir rolse, hesap o komutları hak açılır açılmaz
+            alıyor — üyelikten. Bunu göstermeden bir kutu açmak,
+            operatörün verdiğini sandığından fazlasını vermesi ya da zaten
+            verilmiş olanı ikinci kez yazması demek.
+          */}
+          {groupRules.length > 0 && (
+            <p className="msg msg-warn" role="status">
+              {groupRules.length === 1
+                ? `The role ${groupRules[0].name} already lets its members run: `
+                : `These roles already let their members run: `}
+              {groupRules
+                .map((r) => `${r.name} — ${r.commands.join(", ")}`)
+                .join("; ")}
+              . That comes from the group and applies the moment the account joins
+              it; anything below is extra, for this account only.
+            </p>
+          )}
 
           <div className="field-row">
             <label>
