@@ -313,7 +313,17 @@ const myTargets = [
 
 const roles = [
   { name: "sre", targets: ["web-01", LONG_HOST, "db-primary", "cache-03", "build-runner-linux-amd64-07"] },
-  { name: "dba", targets: ["db-primary", LONG_HOST] },
+  {
+    name: "dba",
+    targets: ["db-primary", LONG_HOST],
+    // Kurallı rol: sütunun dolu hâli ve onaylanmış kaçış rozeti ölçülüyor.
+    sudo: {
+      commands: ["/usr/bin/pg_ctl reload", "/usr/bin/less /var/log/postgresql/postgresql.log"],
+      acknowledged: true,
+      updated_by: "yigit.basalma",
+      updated_at: T(9),
+    },
+  },
   { name: "readonly-auditors-emea", targets: [] },
   { name: "web", targets: ["web-01"] },
   { name: "ci", targets: ["build-runner-linux-amd64-07"] },
@@ -736,9 +746,30 @@ describe("sayfa düzeyinde görsel çıktı", () => {
 
     mockAll(base);
     await openSettings("Roles");
+    page("settings-roles");
     if (tryClick(/path/i)) {
       await settle();
       page("settings-roles-paths");
+    }
+    cleanup();
+    vi.restoreAllMocks();
+
+    // Sudo kuralı modalı: yazım kutusu, onay kutusu ve uyarı bir arada.
+    mockAll(base);
+    await openSettings("Roles");
+    if (tryClick(/edit the sudo rule of role dba/i)) {
+      await settle();
+      /*
+       * ⚠️ DOĞRU DİYALOĞU AÇ. Rol ekranında üç <dialog> var (yol
+       * kuralları, sudo, yeni rol); ilkini açmak yanlış modalın
+       * görüntüsünü "sudo modalı" diye kaydediyordu.
+       */
+      document.querySelectorAll("dialog").forEach((d) => {
+        if (d.textContent?.includes("Commands, one per line")) {
+          d.setAttribute("open", "");
+        }
+      });
+      page("settings-roles-sudo");
     }
     cleanup();
     vi.restoreAllMocks();

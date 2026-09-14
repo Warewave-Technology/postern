@@ -1432,6 +1432,16 @@ label.check input[type="checkbox"] {
   background: var(--sunken);
   font-size: 12px;
 }
+/* ⚠️ ONAYLANMIŞ KAÇIŞ RİSKİ GÖZE ÇARPMALI: rolün sudo kuralı bir
+   editör ya da sayfalayıcı içeriyorsa o rol pratikte root veriyor ve
+   bunu listede sessiz bir metin olarak göstermek, kararı görünmez
+   yapardı. */
+.chip.warn {
+  border-color: var(--warn-line);
+  color: var(--warn);
+  background: var(--warn-bg);
+  padding-right: 0.5rem;
+}
 .chip code {
   font-size: 12px;
   color: var(--ink);

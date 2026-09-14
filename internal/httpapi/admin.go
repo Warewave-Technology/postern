@@ -60,6 +60,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	 * okuyor ve DELETE bir gövde taşıyor — alışılmadık ama kaçırma
 	 * oyunundan güvenli.
 	 */
+	s.registerRoleSudoRoutes(mux)
 	mux.Handle("GET /api/admin/roles/{name}/paths", admin(s.adminListRolePaths))
 	mux.Handle("POST /api/admin/roles/{name}/paths", admin(s.adminSetRolePath))
 	mux.Handle("DELETE /api/admin/roles/{name}/paths", admin(s.adminDeleteRolePath))
@@ -601,13 +602,29 @@ func (s *Server) adminListRoles(w http.ResponseWriter, r *http.Request) {
 		s.storeErr(w, "roles.list", err)
 		return
 	}
+	/*
+	 * ⚠️ SUDO KURALI LİSTEYLE BİRLİKTE GİDİYOR. Rol başına ayrı istek,
+	 * yirmi rollü bir kurulumda yirmi istek demekti; ve ekranın cevabı
+	 * geciken sütunu boş çizmesi "kural yok" diye okunurdu.
+	 */
+	rules, err := s.store.RoleSudoRules(r.Context())
+	if err != nil {
+		s.storeErr(w, "roles.list", err)
+		return
+	}
 	type row struct {
-		Name    string   `json:"name"`
-		Targets []string `json:"targets"`
+		Name    string        `json:"name"`
+		Targets []string      `json:"targets"`
+		Sudo    *sudoRuleView `json:"sudo,omitempty"`
 	}
 	out := make([]row, 0, len(roles))
 	for _, ro := range roles {
-		out = append(out, row{Name: ro.Name, Targets: ro.Targets})
+		one := row{Name: ro.Name, Targets: ro.Targets}
+		if rs, okRule := rules[ro.Name]; okRule {
+			v := sudoView(rs)
+			one.Sudo = &v
+		}
+		out = append(out, one)
 	}
 	writeJSON(w, http.StatusOK, out)
 }

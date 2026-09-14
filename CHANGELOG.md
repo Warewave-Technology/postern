@@ -140,7 +140,15 @@ audit rows into a shape it does not understand.
   person's rights to all of them. A rule that `sudoers.Validate` reads as a
   way out to a root shell is refused at the point it is written rather than
   when it reaches a target, so a saved rule is one that can actually be
-  applied. Migration 046 adds the table.
+  applied; writing one anyway takes an explicit acceptance, which the audit
+  line records. Migration 046 adds the table.
+
+  Write it from the panel on the Roles screen, where the Sudo column shows
+  what each role hands out, or with `postern role sudo set --role dba
+  --command '/usr/bin/pg_ctl reload'`. Removing a rule removes it from
+  postern; machines that already have the file keep it until postern next
+  works on them, and both the panel and the command say so rather than
+  reporting that the rights are gone.
 
 - **The Ansible role that prepares a target is now covered by a test.** It
   had none: the role writes the CA, the principals files and the management

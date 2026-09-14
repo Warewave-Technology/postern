@@ -178,7 +178,22 @@ export type User = {
   /** Kaynağın bu kişiyi en son ne zaman doğruladığı. */
   last_confirmed?: string;
 };
-export type Role = { name: string; targets: string[] };
+/**
+ * RoleSudoRule, rolün sudo kuralı.
+ *
+ * ⚠️ KOMUTLAR TEK SATIRLIK DİZE olarak geliyor ("/usr/sbin/nginx -t"):
+ * ekran onları olduğu gibi yazım kutusuna koyuyor ve kaydederken aynı
+ * biçimden ayrıştırıyor.
+ */
+export type RoleSudoRule = {
+  run_as?: string;
+  commands: string[];
+  acknowledged: boolean;
+  updated_by: string;
+  updated_at: string;
+};
+
+export type Role = { name: string; targets: string[]; sudo?: RoleSudoRule };
 
 /**
  * PathRule, bir rolün SFTP yol kuralı.
@@ -1208,6 +1223,18 @@ export const api = {
       `/api/admin/roles/${encodeURIComponent(role)}/targets/${encodeURIComponent(target)}`,
     ),
 
+  /** Rolün sudo kuralı; kaydetmek onu o rolün GRUBUNA yazıyor. */
+  setRoleSudo: (
+    role: string,
+    rule: { run_as?: string; commands: { path: string; args: string[] }[]; acknowledged: boolean },
+  ) =>
+    req<{ ok: true }>("PUT", `/api/admin/roles/${encodeURIComponent(role)}/sudo`, rule),
+  /** Kuralı postern'den siler; hedeflerdeki dosya bir sonraki dokunuşa kadar kalıyor. */
+  deleteRoleSudo: (role: string) =>
+    req<{ ok: true; note?: string }>(
+      "DELETE",
+      `/api/admin/roles/${encodeURIComponent(role)}/sudo`,
+    ),
   rolePaths: (role: string) =>
     req<PathRule[]>(
       "GET",

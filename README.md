@@ -1084,6 +1084,37 @@ panel says the same thing on the Paths screen. The file browser refuses
 to open in exactly this situation, which is the one place postern makes
 the condition visible on its own.
 
+### What a role may run with sudo
+
+A role can carry one sudo rule, and the people in it draw it from the
+group rather than each getting a copy:
+
+```bash
+postern role sudo set --role dba \
+    --command '/usr/bin/pg_ctl reload' \
+    --command '/usr/sbin/nginx -t'
+postern role sudo show --role dba
+```
+
+On a target that becomes `%dba ALL=(root) NOPASSWD: ...` in
+`/etc/sudoers.d/postern-dba`, so membership in the role's group is what
+grants it. A temporary grant can still add commands for one account;
+those go into that account's own file and leave when the account does.
+The same rule is on the Roles screen in the panel, in the Sudo column.
+
+Two things are worth knowing before you write one. **A role now grants
+sudo as well as reach** — adding somebody to a role gives them more than
+it used to. And **the rule lands on a machine when postern next works on
+it**, which today means when a temporary account is opened there; writing
+a rule does not push it to every target the role can reach, and removing
+one does not take the file off machines that already have it.
+
+A command that can start another program — an editor, a pager,
+`find -exec` — hands out a root shell, and this rule hands it to everyone
+in the role. postern refuses such a rule and names the command; writing it
+anyway takes `--i-accept-a-root-shell` on the command line, or the
+matching checkbox in the panel.
+
 **The panel says who is speaking.** postern writes its own refusals with a
 `postern: ` prefix, but a prefix is available to anyone who can write text
 — and the target's error messages reach the client unchanged, so a target

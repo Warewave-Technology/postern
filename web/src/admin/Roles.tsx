@@ -10,6 +10,7 @@ import {
 import DataTable, { Column } from "./DataTable";
 import Modal from "./Modal";
 import PathRules from "./PathRules";
+import RoleSudo from "./RoleSudo";
 
 export default function Roles() {
   const { items, error, denied, loading, failed, refresh, setError } =
@@ -35,6 +36,12 @@ export default function Roles() {
    * "hangi rol hangi hedefe eriyor" olan bu tabloyu okunmaz yapardı.
    */
   const [paths, setPaths] = useState("");
+  /*
+   * Sudo kuralı da MODALDA ve satır başına: kural birkaç satır tutuyor ve
+   * tabloya sığdırmak, asıl sorusu "hangi rol nereye eriyor" olan bu
+   * tabloyu okunmaz yapardı (yol kurallarıyla aynı gerekçe).
+   */
+  const [sudoRole, setSudoRole] = useState("");
 
   // ⚠️ BAŞARIYI DÖNDÜRÜYOR. Hata durumunda modal AÇIK kalmalı: kapanan
   // bir modal, arkadaki hata satırını görmeyen kullanıcıya işlemin
@@ -108,6 +115,39 @@ export default function Roles() {
             ))}
           </span>
         ),
+    },
+    {
+      /*
+       * ⚠️ SUDO SÜTUNU, ÇÜNKÜ ROL ARTIK YETKİ DE VERİYOR. Kuralı yalnızca
+       * modalın içinde göstermek, "bu rol ne veriyor" sorusunu tabloda
+       * cevapsız bırakırdı: eklediğin kişiye ne verdiğini görmeden rol
+       * dağıtılır.
+       */
+      key: "sudo",
+      header: "Sudo",
+      className: "wrap",
+      value: (r) => (r.sudo ? r.sudo.commands.join(" ") : ""),
+      render: (r) => (
+        <div className="cell-form">
+          {r.sudo ? (
+            <span className="chips">
+              {r.sudo.commands.map((c) => (
+                <span key={c} className="chip">
+                  <code>{c}</code>
+                </span>
+              ))}
+              {r.sudo.acknowledged && (
+                <span className="chip warn">acknowledged root escape</span>
+              )}
+            </span>
+          ) : (
+            <span className="muted">no rule</span>
+          )}
+          <ActionButton onClick={() => setSudoRole(r.name)} label={`edit the sudo rule of role ${r.name}`}>
+            {r.sudo ? "Edit" : "Add"}
+          </ActionButton>
+        </div>
+      ),
     },
     {
       key: "grant",
@@ -240,6 +280,22 @@ export default function Roles() {
             kuruluyor. Aksi hâlde önceki rolün kuralları bir an için
             yenisininmiş gibi görünürdü. */}
         {paths !== "" && <PathRules key={paths} role={paths} />}
+      </Modal>
+
+      <Modal
+        open={sudoRole !== ""}
+        onClose={() => setSudoRole("")}
+        title={`Sudo for the role "${sudoRole}"`}
+        description="What everyone in this role may run with sudo on the machines it reaches. A temporary grant can still add more for one account."
+      >
+        {sudoRole !== "" && (
+          <RoleSudo
+            key={sudoRole}
+            role={sudoRole}
+            rule={items.find((r) => r.name === sudoRole)?.sudo}
+            onChanged={refresh}
+          />
+        )}
       </Modal>
 
       <Modal
