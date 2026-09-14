@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
-import TemporaryAccess, { commonGroups, grantState } from "./TemporaryAccess";
+import TemporaryAccess, { commonGroups, grantState, sudoSummary } from "./TemporaryAccess";
 import { api, type Grant, type TargetGroups } from "../api";
 
 const now = "2026-09-13T12:00:00Z";
@@ -253,4 +253,66 @@ it("seçilen hakları sırayla geri alır ve her birinin sonucunu yazar", async 
   expect(screen.queryByText("2 selected")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: /dismiss these results/i }));
   expect(screen.queryByText(/no route to host/)).toBeNull();
+});
+
+/*
+ * ⚠️ GEÇİCİ HAKTA DA KOMUT BAŞINA HESAP.
+ *
+ * ÖLÇÜLDÜ: kutu yalnızca komut metni alıyordu ve istekte hesap alanı
+ * yoktu — panelden verilebilen tek şey root'tu. Üstteki uyarı rolün
+ * kuralını "… (as postgres)" diye yazdığı için o satırı kutuya
+ * kopyalamak, "(as" ve "postgres)" argümanlı bir komutu ROOT olarak
+ * vermek oluyordu. Hesap artık kendi sütununda ve boş bırakılan hesabın
+ * root demek olduğunu ekran söylüyor.
+ */
+it("sudo komutunu hangi hesapla çalışacağıyla birlikte gönderiyor", async () => {
+  const user = userEvent.setup();
+  vi.spyOn(api, "allGrants").mockResolvedValue({ grants: [], now });
+  vi.spyOn(api, "targetGroups").mockImplementation((name) => Promise.resolve(inventory(name)));
+  const create = vi
+    .spyOn(api, "createGrant")
+    .mockResolvedValue({ grant: grant(), summary: "4 applied", steps: [step] });
+  render(<TemporaryAccess />);
+  await screen.findByText(/No temporary access has been granted/);
+
+  fireEvent.click(screen.getByRole("button", { name: /new temporary access/i }));
+  await waitFor(() => expect(screen.getByRole("option", { name: /ayse \(account ayse\)/ })).toBeTruthy());
+  fireEvent.change(screen.getByLabelText(/^Person/), { target: { value: "ayse" } });
+  const hostBox = await screen.findByRole("combobox", { name: "Hosts" });
+  fireEvent.focus(hostBox);
+  await user.click(screen.getByRole("option", { name: /web-01/ }));
+  fireEvent.mouseDown(document.body);
+
+  expect(screen.getByText(/No sudo command beyond what the groups above already give/)).toBeTruthy();
+
+  await user.type(screen.getByLabelText(/sudo command 1/i), "/usr/bin/pg_ctl reload");
+  await user.type(screen.getByLabelText(/runs as 1/i), "postgres");
+  // Satır dolunca yenisi kendiliğinden açılıyor: hesabı boş bırakılan bir
+  // komutun root demek olduğunu da ekran yazıyor.
+  await user.type(screen.getByLabelText(/sudo command 2/i), "/usr/sbin/nginx -t");
+  expect(screen.getByLabelText(/sudo command 3/i)).toBeTruthy();
+  expect(screen.getByText(/pg_ctl reload as postgres; \/usr\/sbin\/nginx -t as root/)).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("button", { name: /^grant temporary access$/i }));
+  await screen.findAllByText(/4 applied/);
+  expect(create).toHaveBeenCalledWith("web-01", expect.objectContaining({
+    sudo: {
+      commands: [
+        { path: "/usr/bin/pg_ctl", args: ["reload"], run_as: "postgres" },
+        { path: "/usr/sbin/nginx", args: ["-t"], run_as: "root" },
+      ],
+      acknowledged: false,
+    },
+  }));
+});
+
+/*
+ * Boş hesabın ne demek olduğunu cümle söylüyor: sudo'yu bilmeyen biri
+ * "Runs as" boş kaldığında komutun root olarak çalıştığını ekrandan
+ * okuyabilmeli.
+ */
+it("hesabı yazılmayan komutun root olduğunu yazıyor", () => {
+  expect(sudoSummary([{ command: "", run_as: "" }])).toMatch(/No sudo command/);
+  expect(sudoSummary([{ command: "/usr/bin/id", run_as: "" }])).toBe("/usr/bin/id as root");
+  expect(sudoSummary([{ command: " /usr/bin/id ", run_as: " zabbix " }])).toBe("/usr/bin/id as zabbix");
 });

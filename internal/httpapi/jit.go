@@ -99,14 +99,18 @@ func (s *Server) adminCreateGrant(w http.ResponseWriter, r *http.Request) {
 		Username string   `json:"username"`
 		Groups   []string `json:"groups"`
 		Duration string   `json:"duration"`
-		Sudo     *struct {
-			RunAs    string `json:"run_as"`
-			Commands []struct {
-				Path string   `json:"path"`
-				Args []string `json:"args"`
-			} `json:"commands"`
-			Acknowledged bool `json:"acknowledged"`
-		} `json:"sudo"`
+		/*
+		 * ⚠️ GÖVDE ROLÜN KURALIYLA AYNI ŞEKİL (sudoRuleInput) — kopya
+		 * değil, aynı tip.
+		 *
+		 * ÖLÇÜLDÜ: buradaki kopya komut başına hesabı TAŞIMIYORDU, yani
+		 * panel "pg_ctl reload"u postgres olarak veremiyor, verebildiği
+		 * tek şey root oluyordu. Dar seçeneği sunmayan bir ekran geniş
+		 * olanı yazdırır — ve geçici hak tam da dar yetki vermek için
+		 * var. İki uç tek tipi paylaşınca alanın birinde olup öbüründe
+		 * olmaması diye bir durum kalmıyor.
+		 */
+		Sudo *sudoRuleInput `json:"sudo"`
 		// cleanup_groups yoksa evet: geri almada boş kalan açılmış gruplar
 		// silinir. Panel onay kutusunu bu varsayılanla çiziyor.
 		CleanupGroups *bool `json:"cleanup_groups"`
@@ -136,10 +140,7 @@ func (s *Server) adminCreateGrant(w http.ResponseWriter, r *http.Request) {
 		CleanupGroups: in.CleanupGroups == nil || *in.CleanupGroups,
 	}
 	if in.Sudo != nil {
-		rule := sudoers.Rule{RunAs: in.Sudo.RunAs, Acknowledged: in.Sudo.Acknowledged}
-		for _, c := range in.Sudo.Commands {
-			rule.Commands = append(rule.Commands, sudoers.Command{Path: c.Path, Args: c.Args})
-		}
+		rule := in.Sudo.rule()
 		/*
 		 * ⚠️ KURAL BURADA DA DOĞRULANIYOR, HEDEFE GİTMEDEN. Plan yine
 		 * doğruluyor ama o noktada bağlantı açılmış, defter yazılmış oluyor;

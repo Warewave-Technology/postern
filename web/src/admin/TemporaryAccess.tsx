@@ -14,8 +14,28 @@ import {
 } from "../api";
 import { ActionButton, ErrorLine, ListState, Timestamp, useList } from "./common";
 import DataTable, { Column } from "./DataTable";
+import GrowingTable from "./GrowingTable";
 import Modal from "./Modal";
 import MultiSelect from "./MultiSelect";
+
+/** SudoRow, hak için yazılan tek bir sudo komutu ve hesabı. */
+export type SudoRow = { command: string; run_as: string };
+
+/*
+ * sudoSummary, tablonun altındaki cümle.
+ *
+ * ⚠️ BOŞ HESABIN NE ANLAMA GELDİĞİNİ EKRAN SÖYLÜYOR. "Runs as" boş
+ * bırakıldığında komut root olarak çalışıyor; bunu yalnızca sudo'yu bilen
+ * birinin çıkarmasına bırakmak, ekranın verdiği yetkiyi gizlemek olurdu.
+ */
+export function sudoSummary(rows: SudoRow[]): string {
+  const written = rows.filter((r) => r.command.trim() !== "");
+  if (written.length === 0) return "No sudo command beyond what the groups above already give.";
+
+  return written
+    .map((r) => `${r.command.trim()} as ${r.run_as.trim() || "root"}`)
+    .join("; ");
+}
 
 /**
  * TemporaryAccess — geçici erişim sekmesi: bütün hedeflerdeki haklar ve
@@ -415,7 +435,17 @@ function NewGrant({ onChanged, onClose }: { onChanged: () => Promise<unknown>; o
   const [groups, setGroups] = useState<string[]>([]);
   const [inventory, setInventory] = useState<Record<string, TargetGroups | { error: string }>>({});
   const [duration, setDuration] = useState<string>("4h");
-  const [commands, setCommands] = useState("");
+  /*
+   * ⚠️ KOMUTLAR SATIR SATIR, TEK BİR YAZIM KUTUSU DEĞİL — ve her satır
+   * KENDİ HESABINI taşıyor.
+   *
+   * ÖLÇÜLDÜ: kutu yalnızca komut metni alıyordu ve gövdede hesap alanı
+   * yoktu, yani buradan verilebilen tek şey root'tu. Üstteki uyarı
+   * rolün kuralını "pg_ctl reload (as postgres)" diye yazıyor; o satırı
+   * kutuya kopyalayan biri "(as" ve "postgres)" argümanlı bir komutu
+   * ROOT olarak vermiş oluyordu — yazdığının ne komutu ne hesabı.
+   */
+  const [commands, setCommands] = useState<SudoRow[]>([{ command: "", run_as: "" }]);
   const [acknowledged, setAcknowledged] = useState(false);
   const [canAcknowledge, setCanAcknowledge] = useState(false);
   const [cleanupGroups, setCleanupGroups] = useState(true);
@@ -461,15 +491,14 @@ function NewGrant({ onChanged, onClose }: { onChanged: () => Promise<unknown>; o
 
   const request = (): GrantRequest => {
     const g: GrantRequest = { username, groups, duration, cleanup_groups: cleanupGroups };
-    const lines = commands
-      .split("\n")
-      .map((l) => l.trim())
-      .filter(Boolean);
-    if (lines.length > 0) {
+    const rows = commands.filter((c) => c.command.trim() !== "");
+    if (rows.length > 0) {
       g.sudo = {
-        commands: lines.map((l) => {
-          const [path, ...args] = l.split(/\s+/);
-          return { path, args };
+        commands: rows.map((c) => {
+          const [path, ...args] = c.command.trim().split(/\s+/);
+          // Hesap boşsa root: sudo'nun kendi varsayılanı, ve sunucu da
+          // boş alanı böyle okuyor.
+          return { path, args, run_as: c.run_as.trim() || "root" };
         }),
         acknowledged,
       };
@@ -651,16 +680,38 @@ function NewGrant({ onChanged, onClose }: { onChanged: () => Promise<unknown>; o
             </p>
           )}
 
-          <div className="field-row">
-            <label>
-              Commands the account may run with sudo (optional, one per line)
-              <textarea
-                value={commands}
-                onChange={(e) => setCommands(e.target.value)}
-                rows={3}
-                placeholder={"/usr/bin/systemctl restart nginx\n/usr/bin/journalctl -u nginx"}
-              />
-            </label>
+          <div className="form-section" role="group" aria-labelledby="jit-sudo">
+            <h4 id="jit-sudo">Commands the account may run with sudo (optional)</h4>
+            {/*
+              ⚠️ HESAP KENDİ SÜTUNUNDA. Rol ekranındaki gerekçenin aynısı:
+              metne gömülü bir hesap düzenlenirken düşüyor ve komut sessizce
+              root'a çıkıyor — yanlış yöne, uyarısız. Boş bırakılan hesap
+              root demek ve satırın altındaki özet bunu yazıyor.
+            */}
+            <GrowingTable<SudoRow>
+              rows={commands}
+              onChange={setCommands}
+              empty={{ command: "", run_as: "" }}
+              removeLabel={(n) => `remove sudo command ${n}`}
+              columns={[
+                {
+                  key: "command",
+                  header: "Command",
+                  placeholder: "/usr/bin/systemctl restart nginx",
+                  label: (n) => `sudo command ${n}`,
+                },
+                {
+                  key: "run_as",
+                  header: "Runs as",
+                  placeholder: "root",
+                  className: "narrow",
+                  label: (n) => `runs as ${n}`,
+                },
+              ]}
+            />
+            <p className="muted small">
+              {sudoSummary(commands)}
+            </p>
           </div>
           {/*
             ⚠️ ONAY KUTUSU RET GELENE KADAR YOK — rol ekranındaki gerekçenin

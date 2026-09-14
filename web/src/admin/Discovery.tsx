@@ -13,6 +13,7 @@ import {
 } from "../api";
 import { ActionButton, ErrorLine, ListState, Timestamp, useList } from "./common";
 import DataTable, { Column } from "./DataTable";
+import GrowingTable from "./GrowingTable";
 import Modal from "./Modal";
 import MultiSelect from "./MultiSelect";
 
@@ -784,13 +785,10 @@ function ProbeResult({
  * (sunucu yeniden taramıyor). Yönetici neyi onayladıysa o yazılıyor.
  */
 /**
- * LabelTable — anahtar/değer satırları; son satır dolduruldukça yenisi
- * açılıyor.
+ * LabelTable — anahtar/değer satırları, doldukça büyüyen tabloda.
  *
- * ⚠️ "EKLE" DÜĞMESİ YOK. Düğmeli bir tabloda operatör son satırı yazıp
- * eklemeye basmayı unutuyor ve etiketi yazdığını sanarak ilerliyor —
- * serbest metin kutusunda aynı yanılgı yaşandı. Boş satır kendiliğinden
- * beliriyor, dolu satırlar zaten tablodalar.
+ * ⚠️ BÜYÜME KURALI GrowingTable'DA, BURADA DEĞİL: aynı davranış sudo
+ * komutlarında da lazım ve iki kopya zamanla ayrışır.
  */
 function LabelTable({
   rows,
@@ -799,67 +797,17 @@ function LabelTable({
   rows: LabelRow[];
   onChange: (rows: LabelRow[]) => void;
 }) {
-  const edit = (i: number, patch: Partial<LabelRow>) => {
-    const next = rows.map((r, n) => (n === i ? { ...r, ...patch } : r));
-    const last = next[next.length - 1];
-    if (last.key.trim() !== "" || last.value.trim() !== "") {
-      next.push({ key: "", value: "" });
-    }
-    onChange(next);
-  };
-
-  const remove = (i: number) => {
-    const next = rows.filter((_, n) => n !== i);
-    onChange(next.length > 0 ? next : [{ key: "", value: "" }]);
-  };
-
   return (
-    <div className="table-wrap">
-      <table className="label-table">
-        <thead>
-          <tr>
-            <th>Key</th>
-            <th>Value</th>
-            <th className="actions">
-              <span className="sr-only">Actions</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={i}>
-              <td>
-                <input
-                  value={r.key}
-                  aria-label={`label key ${i + 1}`}
-                  placeholder="env"
-                  onChange={(e) => edit(i, { key: e.target.value })}
-                />
-              </td>
-              <td>
-                <input
-                  value={r.value}
-                  aria-label={`label value ${i + 1}`}
-                  placeholder="prod"
-                  onChange={(e) => edit(i, { value: e.target.value })}
-                />
-              </td>
-              <td className="actions">
-                {(r.key !== "" || r.value !== "") && (
-                  <ActionButton
-                    variant="quiet"
-                    onClick={() => remove(i)}
-                    label={`remove label row ${i + 1}`}
-                  >
-                    Remove
-                  </ActionButton>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <GrowingTable<LabelRow>
+      rows={rows}
+      onChange={onChange}
+      empty={{ key: "", value: "" }}
+      removeLabel={(n) => `remove label row ${n}`}
+      columns={[
+        { key: "key", header: "Key", placeholder: "env", label: (n) => `label key ${n}` },
+        { key: "value", header: "Value", placeholder: "prod", label: (n) => `label value ${n}` },
+      ]}
+    />
   );
 }
 

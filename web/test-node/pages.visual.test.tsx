@@ -882,9 +882,17 @@ describe("sayfa düzeyinde görsel çıktı", () => {
     fireEvent.focus(screen.getByRole("combobox", { name: "Groups" }));
     fireEvent.click(screen.getByRole("option", { name: "dba" }));
     fireEvent.click(screen.getByRole("option", { name: "sre" }));
-    fireEvent.change(screen.getByLabelText(/Commands the account may run/), {
+    // Sudo komutları tablo: bir satır dolu, hesabı yazılmış; ikincisi
+    // hesabı boş (root) ve üçüncüsü kendiliğinden açılmış boş satır.
+    fireEvent.change(screen.getByLabelText(/sudo command 1/i), {
       target: { value: "/usr/bin/systemctl restart nginx" },
     });
+    fireEvent.change(screen.getByLabelText(/runs as 1/i), { target: { value: "root" } });
+    fireEvent.change(screen.getByLabelText(/sudo command 2/i), {
+      target: { value: "/usr/bin/pg_ctl reload" },
+    });
+    fireEvent.change(screen.getByLabelText(/runs as 2/i), { target: { value: "postgres" } });
+    await settle();
     page("jit-new");
     cleanup();
     vi.restoreAllMocks();

@@ -493,3 +493,50 @@ func TestMeSaysWhetherTemporaryAccessIsOn(t *testing.T) {
 		t.Error("hizmet bağlıyken jit_enabled false")
 	}
 }
+
+/*
+ * ⚠️ GEÇİCİ HAK DA KOMUT BAŞINA HESAP TAŞIYOR.
+ *
+ * ÖLÇÜLDÜ: gövdenin kendi kopyası komutun hesabını hiç okumuyordu, yani
+ * panelden verilebilen tek şey root'tu — "pg_ctl reload"u postgres olarak
+ * vermenin yolu yoktu. Dar seçeneği sunmayan bir ekran geniş olanı
+ * yazdırır. İki yön de ölçülüyor: geçerli bir hesap hedefe gitmeden
+ * reddedilmiyor, bozuk bir hesap ise 400 ile ve hedefe hiç dokunulmadan
+ * reddediliyor — ikincisi yalnızca alan GERÇEKTEN okunuyorsa olabilir.
+ */
+func TestAGrantCarriesTheAccountEachCommandRunsAs(t *testing.T) {
+	s, db, _, _, _ := jitServer(t)
+
+	bad := `{"username":"ayse","duration":"2h","sudo":{"commands":` +
+		`[{"path":"/usr/bin/pg_ctl","args":["reload"],"run_as":"post gres"}]}}`
+	w, out := postGrant(t, s, "web01", bad)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("bozuk hesap: durum = %d, 400 bekleniyordu: %s", w.Code, w.Body.String())
+	}
+	if msg, _ := out["error"].(string); !strings.Contains(msg, "post gres") {
+		t.Errorf("sebep hesabı söylemiyor: %q", msg)
+	}
+
+	/*
+	 * Geçerli hesap: doğrulama geçiyor, yani ret artık hedefe GİDİLDİKTEN
+	 * sonraki bir hata (sahte hedef useradd tanımıyor: 502). 400 dönerse
+	 * kural doğrulamada takılmış demektir.
+	 */
+	good := `{"username":"ayse","duration":"2h","sudo":{"commands":` +
+		`[{"path":"/usr/bin/pg_ctl","args":["reload"],"run_as":"postgres"}]}}`
+	w, out = postGrant(t, s, "web01", good)
+	if w.Code == http.StatusBadRequest {
+		t.Errorf("geçerli hesap reddedildi: %s", w.Body.String())
+	}
+	if msg, _ := out["error"].(string); strings.Contains(msg, "sudo rule refused") {
+		t.Errorf("geçerli hesap kural doğrulamasında düştü: %q", msg)
+	}
+
+	// Reddedilen istek hedefte de defterde de iz bırakmıyor.
+	grants, _ := db.JITGrantsForTarget(t.Context(), "web01", 10)
+	for _, g := range grants {
+		if g.Username == "ayse" && g.RevokedAt.IsZero() && g.ExpiresAt.After(time.Now()) {
+			t.Errorf("yarım kalan hak açık kaldı: %+v", g)
+		}
+	}
+}

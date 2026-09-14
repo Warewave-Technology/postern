@@ -551,7 +551,16 @@ export type GrantRequest = {
   duration: string;
   /** Geri almada postern'in açtığı boş grupları sil (varsayılan evet). */
   cleanup_groups: boolean;
-  sudo?: { run_as?: string; commands: { path: string; args: string[] }[]; acknowledged: boolean };
+  /*
+   * ⚠️ HESAP KOMUT BAŞINA — rolün kuralındaki gibi. Alan yokken panelden
+   * verilebilen tek şey root'tu; geçici hak tam da dar yetki vermek için
+   * var. run_as boş bırakılırsa sunucu root okuyor.
+   */
+  sudo?: {
+    run_as?: string;
+    commands: { path: string; args: string[]; run_as?: string }[];
+    acknowledged: boolean;
+  };
 };
 
 export type GrantResult = {

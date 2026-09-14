@@ -3867,14 +3867,20 @@ a.tcard-name:focus-visible {
 }
 
 /*
- * Etiket tablosu: anahtar/değer girdileri hücreyi dolduruyor.
+ * Büyüyen tablolar: girdiler hücreyi dolduruyor.
  *
  * ⚠️ VARSAYILAN GENİŞLİK BURADA YANLIŞ OKUNUYOR. Girdi kendi doğal
  * boyunda kalınca 1150 piksellik modalda 100 piksellik iki kutu ve çok
  * uzağında bir "Remove" kalıyor; tablo, satırın nerede bittiği okunmayan
  * seyrek bir ızgaraya dönüşüyordu. Sütun genişliği tablonun kendi işi.
  */
-.label-table input {
+.growing input {
   width: 100%;
   box-sizing: border-box;
+}
+
+/* Hesap sütunu dar: bir kullanıcı adı, komut kadar yer istemiyor. */
+.growing td.narrow,
+.growing th.narrow {
+  width: 12rem;
 }

@@ -81,6 +81,19 @@ audit rows into a shape it does not understand.
   of failing at registration. The count under the table says how many labels
   each machine will carry.
 
+- **A temporary grant can now name the account each sudo command runs as.**
+  The wizard took commands as free text and the request carried no account
+  field, so the only thing it could hand out was **root** — "reload
+  postgres as postgres" was not expressible on the screen whose whole
+  purpose is a narrow, short-lived grant. It is a table now, the same shape
+  the role's rule uses: one row per command with its own "Runs as", a row
+  that appears as the last one is filled, and a line underneath spelling out
+  what will be granted, including that a blank account means root. The
+  warning listing what the chosen roles already grant reads
+  `command (as postgres)`; copying such a line into the old box sent `(as`
+  and `postgres)` as arguments of a command granted to root, which is
+  neither the command nor the account anyone meant.
+
 - **A bell in the top bar counts machines waiting to be registered.**
   Discovery runs on a schedule, so what it finds waits in a list nobody is
   looking at. An administrator now sees the number wherever they are and
