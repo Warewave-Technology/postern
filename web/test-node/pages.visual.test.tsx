@@ -747,29 +747,19 @@ describe("sayfa düzeyinde görsel çıktı", () => {
     mockAll(base);
     await openSettings("Roles");
     page("settings-roles");
-    if (tryClick(/path/i)) {
-      await settle();
-      page("settings-roles-paths");
-    }
     cleanup();
     vi.restoreAllMocks();
 
-    // Sudo kuralı modalı: yazım kutusu, onay kutusu ve uyarı bir arada.
+    /*
+     * Rolün sayfası: hedefler, sudo kuralı ve yol kuralları bir arada.
+     * Liste yalnızca sayıyor, bu sayfa gösteriyor — yüz hedefli bir rolde
+     * ölçülmesi gereken yer burası.
+     */
     mockAll(base);
     await openSettings("Roles");
-    if (tryClick(/edit the sudo rule of role dba/i)) {
+    if (tryClick(/^dba$/i)) {
       await settle();
-      /*
-       * ⚠️ DOĞRU DİYALOĞU AÇ. Rol ekranında üç <dialog> var (yol
-       * kuralları, sudo, yeni rol); ilkini açmak yanlış modalın
-       * görüntüsünü "sudo modalı" diye kaydediyordu.
-       */
-      document.querySelectorAll("dialog").forEach((d) => {
-        if (d.textContent?.includes("Commands, one per line")) {
-          d.setAttribute("open", "");
-        }
-      });
-      page("settings-roles-sudo");
+      page("settings-roles-detail");
     }
     cleanup();
     vi.restoreAllMocks();

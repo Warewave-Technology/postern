@@ -30,7 +30,18 @@ audit rows into a shape it does not understand.
 
 ## Unreleased
 
-Nothing yet.
+### Changed
+
+- **A role now has its own page, and the list only counts.** Every role's
+  targets were drawn in its row, one chip per host, next to a target picker
+  and two buttons that opened modals. At a hundred targets that row buries
+  the table, and the table exists to answer which role reaches where. The
+  list now shows the name, how many hosts the role reaches and how many
+  sudo commands it hands out; the name opens a page with the targets in a
+  searchable table, the sudo rule, the SFTP path rules and the delete
+  button — the same shape a target already had. Searching still matches
+  target names and sudo commands, so "which role reaches db-01" is still
+  one box away even though the names are no longer printed in the row.
 
 ## 1.2.0 — 2026-09-14
 

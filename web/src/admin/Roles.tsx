@@ -1,51 +1,43 @@
 import { useState } from "react";
 import { api, Role, Target, toMessage } from "../api";
-import {
-  ActionButton,
-  ErrorLine,
-  ListState,
-  WarnLine,
-  useList,
-} from "./common";
+import { ErrorLine, ListState, WarnLine, useList } from "./common";
 import DataTable, { Column } from "./DataTable";
 import Modal from "./Modal";
-import PathRules from "./PathRules";
-import RoleSudo from "./RoleSudo";
+import RoleDetail from "./RoleDetail";
 
+/**
+ * Roles — rollerin listesi.
+ *
+ * ⚠️ LİSTE SAYIYOR, SAYFA GÖSTERİYOR. Önceki hâlde her satır rolün bütün
+ * hedeflerini rozet rozet çiziyor, ayrıca bir hedef seçme kutusu, bir
+ * "Paths" ve bir "Sudo" düğmesi taşıyordu. Yüz hedefli bir rolde o satır
+ * tabloyu okunmaz yapıyor (kullanıcı söyledi): "hangi rol nereye eriyor"
+ * sorusuna bakan tablo, tek bir rolün içeriğini göstermeye çalışırken
+ * bozuluyor. Ad artık detay sayfasına götürüyor — hedef listesindeki
+ * desenin aynısı.
+ *
+ * ⚠️ SAYILAR ROLÜN NE VERDİĞİNİ SÖYLÜYOR. Yalnızca ad gösteren bir liste,
+ * hangi rolün ağır olduğunu gizler: hedef sayısı ve sudo komutu sayısı,
+ * birini bir role eklemeden önce bakılacak iki sayı.
+ */
 export default function Roles() {
   const { items, error, denied, loading, failed, refresh, setError } =
     useList<Role>(api.roles);
-  // Hedefler ayrıca çekiliyor: adı elle yazdırmak, tek harf yanlışında
-  // "target not found" veren bir grant demekti. Kutu yalnızca gerçekten
-  // kayıtlı hedefleri sunuyor.
+  // Hedefler ayrıca çekiliyor: detay sayfasındaki kutu yalnızca gerçekten
+  // kayıtlı hedefleri sunsun, adı elle yazdırmak "target not found" veren
+  // bir grant demekti.
   const targets = useList<Target>(api.targets);
 
   const [name, setName] = useState("");
-  // Ekleme formu MODALDA: sayfanın işi listeyi göstermek, ekleme ara
-  // sıra yapılan bir eylem ve listenin altında kalıcı durması hem
-  // listeyi aşağı itiyor hem sayfanın ne için olduğunu bulanıklaştırıyordu.
+  // Ekleme formu MODALDA: sayfanın işi listeyi göstermek, ekleme ara sıra
+  // yapılan bir eylem ve listenin altında kalıcı durması hem listeyi aşağı
+  // itiyor hem sayfanın ne için olduğunu bulanıklaştırıyordu.
   const [adding, setAdding] = useState(false);
-  // Seçim SATIR BAŞINA tutuluyor; tek ortak state, bir satırda seçilen
-  // hedefi bütün satırlarda seçili gösterirdi.
-  const [picked, setPicked] = useState<Record<string, string>>({});
-  /*
-   * Yol kuralları MODALDA ve satır başına.
-   *
-   * ⚠️ Tabloya bir sütun daha eklemek yanlış olurdu: kurallar birkaç
-   * satır tutabiliyor ve hepsini yan yana sıkıştırmak, asıl sorusu
-   * "hangi rol hangi hedefe eriyor" olan bu tabloyu okunmaz yapardı.
-   */
-  const [paths, setPaths] = useState("");
-  /*
-   * Sudo kuralı da MODALDA ve satır başına: kural birkaç satır tutuyor ve
-   * tabloya sığdırmak, asıl sorusu "hangi rol nereye eriyor" olan bu
-   * tabloyu okunmaz yapardı (yol kurallarıyla aynı gerekçe).
-   */
-  const [sudoRole, setSudoRole] = useState("");
+  const [selected, setSelected] = useState<string | null>(null);
 
-  // ⚠️ BAŞARIYI DÖNDÜRÜYOR. Hata durumunda modal AÇIK kalmalı: kapanan
-  // bir modal, arkadaki hata satırını görmeyen kullanıcıya işlemin
-  // tuttuğunu düşündürür ve aynı adı bir daha yazdırır.
+  // ⚠️ BAŞARIYI DÖNDÜRÜYOR. Hata durumunda modal AÇIK kalmalı: kapanan bir
+  // modal, arkadaki hata satırını görmeyen kullanıcıya işlemin tuttuğunu
+  // düşündürür ve aynı adı bir daha yazdırır.
   const create = () =>
     api
       .createRole({ name: name.trim() })
@@ -58,169 +50,80 @@ export default function Roles() {
         return false;
       });
 
-  const grant = (role: string, target: string) =>
-    api
-      .grantTarget(role, target)
-      .then(() => {
-        setPicked((p) => ({ ...p, [role]: "" }));
-        return refresh();
-      })
-      .catch((e: unknown) => setError(toMessage(e)));
-
-  const revoke = (role: string, target: string) =>
-    api
-      .revokeTarget(role, target)
-      .then(refresh)
-      .catch((e: unknown) => setError(toMessage(e)));
-
-  const remove = (role: string) =>
-    api
-      .deleteRole(role)
-      .then(refresh)
-      .catch((e: unknown) => setError(toMessage(e)));
-
-  // Rol silmek yalnız satırı değil, o rolü taşıyan HERKESİN erişimini
-  // kaldırır. Onay metni hangi hedeflerin gittiğini adıyla söylüyor:
-  // "are you sure" bu işin ne kadarını geri alınamaz yaptığını gizler.
-  const deleteConfirm = (r: Role) =>
-    r.targets.length === 0
-      ? `Delete the role "${r.name}"? It grants no targets, but every user and group mapping holding it loses it immediately.`
-      : `Delete the role "${r.name}"? Everyone holding it immediately loses access to: ${r.targets.join(", ")}.`;
-
   const columns: Column<Role>[] = [
-    { key: "name", header: "Name", value: (r) => r.name },
+    {
+      key: "name",
+      header: "Name",
+      value: (r) => r.name,
+      render: (r) => (
+        <button className="link-cell" onClick={() => setSelected(r.name)}>
+          {r.name}
+        </button>
+      ),
+    },
     {
       key: "targets",
       header: "Targets",
-      className: "wrap",
       // Arama hedef adlarını da kapsıyor: "hangi rol db-01'e eriyor"
-      // sorusunun cevabı tek kutuya yazılabilsin.
-      value: (r) => r.targets.join(" "),
+      // sorusunun cevabı tek kutuya yazılabilsin — adlar satırda
+      // görünmese de.
+      value: (r) => `${r.targets.length} ${r.targets.join(" ")}`,
       render: (r) =>
         r.targets.length === 0 ? (
           <span className="muted">no targets</span>
         ) : (
-          <span className="chips">
-            {r.targets.map((t) => (
-              <span key={t} className="chip">
-                <code>{t}</code>
-                <ActionButton
-                  onClick={() => revoke(r.name, t)}
-                  confirm={`Revoke "${t}" from the role "${r.name}"? Everyone holding this role loses access to that host.`}
-                  label={`revoke ${t} from role ${r.name}`}
-                >
-                  revoke
-                </ActionButton>
-              </span>
-            ))}
-          </span>
+          <>
+            {r.targets.length} host{r.targets.length === 1 ? "" : "s"}
+          </>
         ),
     },
     {
       /*
-       * ⚠️ SUDO SÜTUNU, ÇÜNKÜ ROL ARTIK YETKİ DE VERİYOR. Kuralı yalnızca
-       * modalın içinde göstermek, "bu rol ne veriyor" sorusunu tabloda
-       * cevapsız bırakırdı: eklediğin kişiye ne verdiğini görmeden rol
-       * dağıtılır.
+       * ⚠️ SUDO SÜTUNU SAYIYOR, YAZMIYOR. Rol artık erişimin yanında
+       * yetki de veriyor ve bunu listede hiç göstermemek, birini role
+       * eklerken ne verdiğini görmemek demek. Komutların kendisi
+       * sayfada: iki yüz komutu bir hücreye sığdırmak da aynı tabloyu
+       * bozardı.
        */
       key: "sudo",
       header: "Sudo",
-      className: "wrap",
       value: (r) => (r.sudo ? r.sudo.commands.join(" ") : ""),
-      render: (r) => (
-        <div className="cell-form">
-          {r.sudo ? (
-            <span className="chips">
-              {r.sudo.commands.map((c) => (
-                <span key={c} className="chip">
-                  <code>{c}</code>
-                </span>
-              ))}
-              {r.sudo.acknowledged && (
-                <span className="chip warn">acknowledged root escape</span>
-              )}
+      render: (r) =>
+        r.sudo ? (
+          <span className="chips">
+            <span className="chip">
+              {r.sudo.commands.length} command
+              {r.sudo.commands.length === 1 ? "" : "s"}
             </span>
-          ) : (
-            <span className="muted">no rule</span>
-          )}
-          <ActionButton onClick={() => setSudoRole(r.name)} label={`edit the sudo rule of role ${r.name}`}>
-            {r.sudo ? "Edit" : "Add"}
-          </ActionButton>
-        </div>
-      ),
-    },
-    {
-      key: "grant",
-      header: "Grant target",
-      render: (r) => {
-        // Verilmiş hedefi tekrar sunmak anlamsız: sunucu onu sessizce
-        // yutuyor (ON CONFLICT DO NOTHING), yani hiçbir şey
-        // değiştirmeyen tıklama başarı gibi görünüyordu.
-        const free = targets.items.filter((t) => !r.targets.includes(t.name));
-        const choice = picked[r.name] ?? "";
-        return (
-          <div className="cell-form">
-            <select
-              aria-label={`target to grant to role ${r.name}`}
-              value={choice}
-              onChange={(e) =>
-                setPicked((p) => ({ ...p, [r.name]: e.target.value }))
-              }
-              disabled={free.length === 0}
-            >
-              <option value="">
-                {targets.items.length === 0
-                  ? "no targets registered"
-                  : free.length === 0
-                    ? "all targets granted"
-                    : "choose a target…"}
-              </option>
-              {free.map((t) => (
-                <option key={t.name} value={t.name}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-            <ActionButton
-              onClick={() => grant(r.name, choice)}
-              label={
-                choice
-                  ? `grant ${choice} to role ${r.name}`
-                  : `grant a target to role ${r.name}`
-              }
-              disabled={!choice}
-            >
-              Grant
-            </ActionButton>
-          </div>
-        );
-      },
-    },
-    {
-      key: "actions",
-      header: "Actions",
-      srHeader: true,
-      className: "actions",
-      render: (r) => (
-        <>
-          <ActionButton
-            onClick={() => setPaths(r.name)}
-            label={`sftp path rules for role ${r.name}`}
-          >
-            Paths
-          </ActionButton>
-          <ActionButton
-            variant="danger"
-            onClick={() => remove(r.name)}
-            confirm={deleteConfirm(r)}
-            label={`delete role ${r.name}`}
-          >
-            Delete
-          </ActionButton>
-        </>
-      ),
+            {r.sudo.acknowledged && (
+              <span className="chip warn">acknowledged root escape</span>
+            )}
+          </span>
+        ) : (
+          <span className="muted">no rule</span>
+        ),
     },
   ];
+
+  if (selected) {
+    const role = items.find((r) => r.name === selected);
+    if (role) {
+      return (
+        <RoleDetail
+          role={role}
+          targets={targets.items}
+          onBack={() => setSelected(null)}
+          onChanged={refresh}
+        />
+      );
+    }
+    /*
+     * Rol silinmiş ya da liste tazelenirken kaybolmuş olabilir. Burada
+     * setSelected ÇAĞIRMIYORUZ: render sırasında durum değiştirmek
+     * React'te yeniden render tetikler. Seçim duruyor, ekranda liste
+     * çiziliyor; sayfaya dönmenin yolu yeni bir tıklama.
+     */
+  }
 
   return (
     <section>
@@ -229,7 +132,8 @@ export default function Roles() {
           <h2>Roles</h2>
           <p className="page-sub">
             Access is granted only through a role: a role holds targets, and a
-            user holds roles.
+            user holds roles. Open one to see what it reaches and what it may
+            run there.
           </p>
         </div>
         <button className="btn-primary" onClick={() => setAdding(true)}>
@@ -238,12 +142,12 @@ export default function Roles() {
       </div>
       <ErrorLine msg={error} />
 
-      {/* Hedef listesi düşerse seçim kutusu boş kalır; sebebini
+      {/* Hedef listesi düşerse detaydaki seçim kutusu boş kalır; sebebini
           söylemezsek operatör panelin bozuk olduğunu sanar. */}
       <WarnLine
         msg={
           targets.error &&
-          `Targets could not be loaded (${targets.error}) — you can still delete roles, but nothing can be granted until that list comes back.`
+          `Targets could not be loaded (${targets.error}) — you can still open a role, but nothing can be granted until that list comes back.`
         }
       />
       {!targets.loading && !targets.error && targets.items.length === 0 && (
@@ -265,44 +169,16 @@ export default function Roles() {
           rowKey={(r) => r.name}
           initialSort={{ key: "name", dir: "asc" }}
           noun="role"
-          searchLabel="search roles by name or granted target"
+          searchLabel="search roles by name, granted target or sudo command"
           searchPlaceholder="Search roles…"
         />
       )}
 
       <Modal
-        open={paths !== ""}
-        onClose={() => setPaths("")}
-        title={`SFTP paths — ${paths}`}
-        description="Which paths this role may reach over SFTP. A role with no rules is unrestricted, and rules restrict a role rather than a user."
-      >
-        {/* key: modal başka bir role açıldığında bileşen SIFIRDAN
-            kuruluyor. Aksi hâlde önceki rolün kuralları bir an için
-            yenisininmiş gibi görünürdü. */}
-        {paths !== "" && <PathRules key={paths} role={paths} />}
-      </Modal>
-
-      <Modal
-        open={sudoRole !== ""}
-        onClose={() => setSudoRole("")}
-        title={`Sudo for the role "${sudoRole}"`}
-        description="What everyone in this role may run with sudo on the machines it reaches. A temporary grant can still add more for one account."
-      >
-        {sudoRole !== "" && (
-          <RoleSudo
-            key={sudoRole}
-            role={sudoRole}
-            rule={items.find((r) => r.name === sudoRole)?.sudo}
-            onChanged={refresh}
-          />
-        )}
-      </Modal>
-
-      <Modal
         open={adding}
         onClose={() => setAdding(false)}
         title="New role"
-        description="A role starts empty and grants nothing until you give it a target in the table."
+        description="A role starts empty and grants nothing until you open it and give it a target."
       >
         <div className="field-row">
           <label>
@@ -312,13 +188,13 @@ export default function Roles() {
                 "ops" mapping'ine hiç bağlanmazdı. */}
             <input value={name} onChange={(e) => setName(e.target.value)} />
           </label>
-          <ActionButton
-            variant="primary"
+          <button
+            className="btn-primary"
             onClick={() => create().then((ok) => ok && setAdding(false))}
             disabled={!name.trim()}
           >
             Create role
-          </ActionButton>
+          </button>
         </div>
       </Modal>
     </section>
