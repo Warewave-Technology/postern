@@ -160,4 +160,35 @@ describe("RoleSudo", () => {
     await waitFor(() => expect(del).toHaveBeenCalledWith("ops"));
     expect((await screen.findByText(/the file stays until postern/i)).textContent).toBeTruthy();
   });
+
+  /*
+   * ⚠️ RİSK SATIRIN KENDİSİNDE İŞARETLİ. Tablonun altındaki "burada bir
+   * komut riskli" notu, altı komutluk bir kuralda hangisinin olduğunu
+   * söylemiyordu (kullanıcı ekrana bakıp söyledi): işaret riskli satırda,
+   * sebebi de ekran okuyucuya açık metinde.
+   */
+  it("kaçış yolu olan komutu satırında işaretliyor", () => {
+    render(
+      <RoleSudo
+        role="ops"
+        rule={{
+          ...rule,
+          acknowledged: true,
+          commands: [
+            { command: "/usr/sbin/nginx -t", run_as: "root" },
+            { command: "/usr/bin/vim", run_as: "root", escape: "escapes to a shell" },
+          ],
+        }}
+        onChanged={vi.fn()}
+      />,
+    );
+
+    const marks = screen.getAllByText(/warning: \/usr\/bin\/vim escapes to a shell/i);
+    expect(marks).toHaveLength(1);
+    // Risksiz komutun satırında işaret yok.
+    const safeRow = screen.getByText("/usr/sbin/nginx -t").closest("tr")!;
+    expect(safeRow.querySelector(".risk")).toBeNull();
+    const riskyRow = screen.getByText("/usr/bin/vim").closest("tr")!;
+    expect(riskyRow.querySelector(".risk")).toBeTruthy();
+  });
 });

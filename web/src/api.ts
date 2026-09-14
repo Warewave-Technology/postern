@@ -188,6 +188,10 @@ export type User = {
 export type RoleSudoCommand = {
   /** "/usr/bin/pg_ctl reload" — yol ve izin verilen argümanlar. */
   command: string;
+  /** ⚠️ DOLUYSA BU KOMUT DAR YETKİDEN ÇIKIŞ YOLU ve cümlesi burada.
+   *  Tablonun altına "burada bir komut riskli" yazmak, altı komutluk bir
+   *  kuralda hangisinin olduğunu söylemiyordu. */
+  escape?: string;
   /** ⚠️ HESAP KOMUT BAŞINA: sudoers bunu taşıyor, kural başına tek hesap
    *  aynı role iki ayrı kural yazdırırdı. Sunucu etkin değeri hesaplayıp
    *  gönderiyor, yani burası hiç boş gelmiyor. */

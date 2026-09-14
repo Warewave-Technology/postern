@@ -318,7 +318,15 @@ const roles = [
     targets: ["db-primary", LONG_HOST],
     // Kurallı rol: sütunun dolu hâli ve onaylanmış kaçış rozeti ölçülüyor.
     sudo: {
-      commands: ["/usr/bin/pg_ctl reload", "/usr/bin/less /var/log/postgresql/postgresql.log"],
+      commands: [
+        { command: "/usr/bin/pg_ctl reload", run_as: "postgres" },
+        // Riskli satır: işaretin ve sebebinin ekranda ölçülmesi için.
+        {
+          command: "/usr/bin/less /var/log/postgresql/postgresql.log",
+          run_as: "root",
+          escape: "escapes to a shell",
+        },
+      ],
       acknowledged: true,
       updated_by: "yigit.basalma",
       updated_at: T(9),

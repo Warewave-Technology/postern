@@ -95,8 +95,28 @@ export default function RoleSudo({
       key: "command",
       header: "Command",
       className: "wrap",
-      value: (c) => c.command,
-      render: (c) => <code>{c.command}</code>,
+      // Arama sebebi de kapsıyor: "hangi komutlar kaçış yolu" sorusu tek
+      // kutuya yazılabilsin.
+      value: (c) => `${c.command} ${c.escape ?? ""}`,
+      render: (c) => (
+        <>
+          {/*
+            ⚠️ RİSK SATIRIN BAŞINDA. Tablonun altındaki not hangi komutun
+            riskli olduğunu söylemiyordu; okuyan ya hepsinden şüpheleniyor
+            ya hiçbirinden (kullanıcı ekrana bakıp söyledi). Sebep hem
+            ipucunda hem ekran okuyucuya açık metinde.
+          */}
+          {c.escape && (
+            <span className="risk" title={`${c.command} ${c.escape}`}>
+              <span aria-hidden="true">!</span>
+              <span className="sr-only">
+                warning: {c.command} {c.escape}
+              </span>
+            </span>
+          )}
+          <code>{c.command}</code>
+        </>
+      ),
     },
     {
       /*
@@ -169,9 +189,12 @@ export default function RoleSudo({
           searchLabel={`search the sudo commands of ${role}`}
           searchPlaceholder="Search commands…"
           foot={
-            rule?.acknowledged ? (
-              <span className="chip warn">
-                a command here was accepted as a way out to a root shell
+            commands.some((c) => c.escape) ? (
+              <span className="muted small">
+                A command marked <span className="risk">!</span> can start
+                another program, so the role really gets{" "}
+                {commands.length === 1 ? "that account" : "those accounts"} in
+                full. Somebody accepted that when the rule was written.
               </span>
             ) : undefined
           }

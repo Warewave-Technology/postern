@@ -212,3 +212,43 @@ func TestRoleSudoEndpointsAreBehindTheAdminAndSameOriginGates(t *testing.T) {
 		t.Errorf("yönetici yazamadı: %d", code)
 	}
 }
+
+/*
+ * ⚠️ RİSK SATIRIN KENDİSİNDE. Tablonun altındaki "burada bir komut kabul
+ * edildi" notu, altı komutluk bir kuralda hangisinin riskli olduğunu
+ * söylemiyordu; okuyan ya hepsinden şüpheleniyor ya hiçbirinden. Cevap
+ * artık komut başına sebebi taşıyor ve risksiz komut onu taşımıyor.
+ */
+func TestRoleSudoMarksWhichCommandIsTheWayOut(t *testing.T) {
+	s, db := dbServer(t)
+	if _, err := db.CreateRole(t.Context(), "ops"); err != nil {
+		t.Fatal(err)
+	}
+
+	body := `{"acknowledged":true,"commands":[` +
+		`{"path":"/usr/sbin/nginx","args":["-t"]},` +
+		`{"path":"/usr/bin/vim"},` +
+		`{"path":"/usr/bin/pg_ctl","args":["reload"],"run_as":"postgres"}]}`
+	if w := callRoleSudo(t, s, s.adminSetRoleSudo, http.MethodPut, "ops", body); w.Code != http.StatusOK {
+		t.Fatalf("yazma: %d %s", w.Code, w.Body.String())
+	}
+
+	w := callRoleSudo(t, s, s.adminRoleSudo, http.MethodGet, "ops", "")
+	var got sudoRuleView
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("okuma: %s (%v)", w.Body.String(), err)
+	}
+	risky := map[string]string{}
+	for _, c := range got.Commands {
+		risky[c.Command] = c.Escape
+	}
+	if risky["/usr/bin/vim"] == "" {
+		t.Errorf("kaçış yolu olan komut işaretlenmemiş: %+v", got.Commands)
+	}
+	if !strings.Contains(risky["/usr/bin/vim"], "shell") {
+		t.Errorf("sebep okunur değil: %q", risky["/usr/bin/vim"])
+	}
+	if risky["/usr/sbin/nginx -t"] != "" || risky["/usr/bin/pg_ctl reload"] != "" {
+		t.Errorf("risksiz komutlar da işaretlenmiş: %+v", got.Commands)
+	}
+}

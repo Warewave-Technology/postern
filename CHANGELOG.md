@@ -53,6 +53,16 @@ audit rows into a shape it does not understand.
   last one removes the rule, which is what the server does with a rule that
   has no commands left.
 
+- **The risky command in a sudo rule is marked on its own row.** A rule that
+  had been accepted despite an escape risk carried one line under the table
+  saying a command in it was a way out to a root shell. In a rule with six
+  commands that names none of them, so the reader either suspects all of
+  them or none. The command that can start another program now carries a red
+  exclamation mark beside it, with the reason in its tooltip and in the text
+  a screen reader gets, and the line under the table explains the mark
+  rather than announcing an anonymous risk. Searching the table matches the
+  reason too, so "which commands here are a way out" is one box away.
+
 - **The acknowledgement for a risky sudo command is only asked when there is
   something to acknowledge.** The checkbox sat under every sudo form,
   whether or not the rule held anything risky, and its text talked about

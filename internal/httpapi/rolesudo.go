@@ -40,6 +40,16 @@ func (s *Server) registerRoleSudoRoutes(mux *http.ServeMux) {
 type sudoCommandView struct {
 	Command string `json:"command"`
 	RunAs   string `json:"run_as"`
+	/*
+	 * Escape doluysa BU komut dar yetkiden çıkış yolu ve cümlesi burada.
+	 *
+	 * ⚠️ RİSK SATIRIN KENDİSİNDE OLMAK ZORUNDA. Tablonun altına "burada
+	 * bir komut kabul edildi" diye bir not koymak, altı komutluk bir
+	 * kuralda HANGİSİNİN riskli olduğunu söylemiyor (kullanıcı ekrana
+	 * bakıp söyledi) — ve okuyan kişi ya hepsinden şüphelenir ya
+	 * hiçbirinden.
+	 */
+	Escape string `json:"escape,omitempty"`
 }
 
 // sudoRuleView, kuralın panele giden hâli.
@@ -56,9 +66,19 @@ func sudoView(rs store.RoleSudo) sudoRuleView {
 		UpdatedBy:    rs.UpdatedBy, UpdatedAt: rs.UpdatedAt,
 		Commands: make([]sudoCommandView, 0, len(rs.Rule.Commands)),
 	}
+	// Kaçış bulguları komut adıyla anahtarlanıyor: kural yazılırken
+	// hangi komutun neden kabul edildiği, kuralı OKUYAN ekranda da
+	// görünsün.
+	escapes := map[string]string{}
+	for _, f := range sudoers.Validate(rs.Rule) {
+		if f.Escape && f.Command != "" {
+			escapes[f.Command] = f.Reason
+		}
+	}
 	for _, c := range rs.Rule.Commands {
+		name := c.String()
 		out.Commands = append(out.Commands, sudoCommandView{
-			Command: c.String(), RunAs: c.RunAsOr(rs.Rule.RunAs),
+			Command: name, RunAs: c.RunAsOr(rs.Rule.RunAs), Escape: escapes[name],
 		})
 	}
 

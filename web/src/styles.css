@@ -3794,6 +3794,26 @@ a.tcard-name:focus-visible {
    arasında nefes olmadan, kutu o cümlenin devamı gibi okunuyordu
    (ekrana bakılarak görüldü) — oysa biri sunucunun cümlesi, öbürü
    operatörün kararı. */
+/* ⚠️ RİSKLİ SATIRIN İŞARETİ. Kırmızı ve komutun önünde: gözün tabloda
+   ilk gördüğü şey hangi satırın tehlikeli olduğu olmalı, "burada bir
+   yerde riskli bir komut var" diyen bir dipnot değil. */
+.risk {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin-right: 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--danger-line);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-weight: 700;
+  font-size: 12px;
+  line-height: 1;
+  vertical-align: middle;
+}
+
 .check-ack {
   margin-top: 0.9rem;
 }
