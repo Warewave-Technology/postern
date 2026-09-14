@@ -33,7 +33,16 @@ export default function RoleSudo({
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
   const [adding, setAdding] = useState(false);
-  const [editing, setEditing] = useState(false);
+  /*
+   * ⚠️ DÜZENLEME SATIR BAZINDA, TOPLU METİN DEĞİL.
+   *
+   * Önceki hâl bütün kuralı tek bir yazım kutusuna koyuyordu ve komutun
+   * hesabı satır başındaki "(postgres)" önekinde taşınıyordu. ÖLÇÜLDÜ:
+   * o öneki elle yeniden yazarken düşüren bir düzenleme, komutu sessizce
+   * root'a çeviriyordu — yani yanlış yöne, ve hiçbir uyarı olmadan.
+   * Hesap artık kendi alanında; kaybolabileceği bir yer yok.
+   */
+  const [editing, setEditing] = useState<RoleSudoCommand | null>(null);
 
   const commands: RoleSudoCommand[] = rule?.commands ?? [];
 
@@ -141,6 +150,13 @@ export default function RoleSudo({
       srHeader: true,
       className: "actions",
       render: (c) => (
+        <>
+        <ActionButton
+          onClick={() => setEditing(c)}
+          label={`edit command ${c.command} of role ${role}`}
+        >
+          Edit
+        </ActionButton>
         <ActionButton
           variant="danger"
           onClick={() => removeCommand(c)}
@@ -153,6 +169,7 @@ export default function RoleSudo({
         >
           Remove
         </ActionButton>
+        </>
       ),
     },
   ];
@@ -205,9 +222,6 @@ export default function RoleSudo({
         <ActionButton variant="primary" onClick={() => setAdding(true)}>
           Add command
         </ActionButton>
-        <ActionButton onClick={() => setEditing(true)}>
-          {commands.length === 0 ? "Write the rule" : "Edit all commands"}
-        </ActionButton>
         {rule && (
           <span className="form-push">
             <ActionButton
@@ -233,9 +247,10 @@ export default function RoleSudo({
           <RuleForm
             role={role}
             initial=""
-            single
+            initialRunAs="root"
+            submitLabel="Add command"
             onSave={async (next, ack) => {
-              await write([...commands, ...next], ack);
+              await write([...commands, next], ack);
               setAdding(false);
             }}
           />
@@ -243,18 +258,26 @@ export default function RoleSudo({
       </Modal>
 
       <Modal
-        open={editing}
-        onClose={() => setEditing(false)}
-        title={`Sudo commands of "${role}"`}
-        description="The whole rule, one command per line. Start a line with (account) to run that one as somebody other than root. What is here replaces what the role carries."
+        open={editing !== null}
+        onClose={() => setEditing(null)}
+        narrow
+        title={`Edit a sudo command of "${role}"`}
+        description="The command and the account it runs as. Everything else in the rule stays as it is."
       >
         {editing && (
           <RuleForm
             role={role}
-            initial={commands.map(writeLine).join("\n")}
+            initial={editing.command}
+            initialRunAs={editing.run_as}
+            submitLabel="Save command"
             onSave={async (next, ack) => {
-              await write(next, ack);
-              setEditing(false);
+              await write(
+                commands.map((c) =>
+                  c.command === editing.command && c.run_as === editing.run_as ? next : c,
+                ),
+                ack,
+              );
+              setEditing(null);
             }}
           />
         )}
@@ -263,53 +286,21 @@ export default function RoleSudo({
   );
 }
 
-/*
- * parseLines, yazım kutusunu komutlara çevirir.
- *
- * ⚠️ SATIR BAŞINDAKİ (hesap) sudoers'ın kendi yazımı. Kutuya ayrı bir
- * "hesap" alanı koymak, satır satır farklı hesap yazmayı imkânsız
- * kılardı; bu önek dosyada göreceği biçimin aynısı, yani öğrenilen şey
- * iki yerde de aynı.
- */
-function parseLines(text: string): RoleSudoCommand[] {
-  return text
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .map((l) => {
-      const m = /^\(([^)]*)\)\s*(.+)$/.exec(l);
-      if (m) {
-        return { run_as: m[1].trim() || "root", command: m[2].trim() };
-      }
-      return { run_as: "root", command: l };
-    });
-}
-
-// writeLine, parseLines'ın tersi: kutuya konan satır.
-function writeLine(c: RoleSudoCommand): string {
-  return c.run_as === "root" ? c.command : `(${c.run_as}) ${c.command}`;
-}
-
-/**
- * RuleForm — komut yazma kutusu, modalların içinde.
- *
- * ⚠️ ONAY KUTUSU ÖNCEDEN İŞARETLİ DEĞİL. Sunucu kaçış riski taşıyan
- * kuralı reddedip SEBEBİNİ söylüyor; kutu ancak o cümle ekrana geldikten
- * sonra işaretleniyor, yani onaylayan neyi onayladığını okumuş oluyor.
- */
 function RuleForm({
   role,
   initial,
-  single = false,
+  initialRunAs,
+  submitLabel,
   onSave,
 }: {
   role: string;
   initial: string;
-  single?: boolean;
-  onSave: (commands: RoleSudoCommand[], acknowledged: boolean) => Promise<void>;
+  initialRunAs: string;
+  submitLabel: string;
+  onSave: (command: RoleSudoCommand, acknowledged: boolean) => Promise<void>;
 }) {
   const [text, setText] = useState(initial);
-  const [runAs, setRunAs] = useState("root");
+  const [runAs, setRunAs] = useState(initialRunAs);
   const [acknowledged, setAcknowledged] = useState(false);
   const [error, setError] = useState("");
   /*
@@ -330,18 +321,19 @@ function RuleForm({
   const [canAcknowledge, setCanAcknowledge] = useState(false);
 
   /*
-   * Tek komut kipinde hesap ayrı bir alan; toplu kipte satır başındaki
-   * (hesap) öneki taşıyor, çünkü orada her satırın hesabı farklı olabiliyor
-   * ve tek bir alan hepsini aynı hesaba zorlardı.
+   * ⚠️ HESAP KENDİ ALANINDA, METNİN İÇİNDE DEĞİL. Metne gömülü bir hesap
+   * ("(postgres) /usr/bin/pg_ctl") elle düzenlenirken düşürülebiliyor ve
+   * düştüğünde komut sessizce root'a çıkıyordu — ölçüldü.
    */
-  const commands = single
-    ? parseLines(text).map((c) => ({ ...c, run_as: runAs.trim() || "root" }))
-    : parseLines(text);
+  const command: RoleSudoCommand = {
+    command: text.trim(),
+    run_as: runAs.trim() || "root",
+  };
 
   const save = async () => {
     setError("");
     try {
-      await onSave(commands, acknowledged);
+      await onSave(command, acknowledged);
     } catch (e: unknown) {
       setError(toMessage(e));
       if (e instanceof ApiError && e.acknowledgeable) {
@@ -353,33 +345,22 @@ function RuleForm({
   return (
     <>
       <div className="form-grid cols-2">
-        <label className={single ? "" : "span-all"}>
-          {single ? "Command" : "Commands, one per line"}
-          {single ? (
-            <input
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="/usr/sbin/nginx -t"
-            />
-          ) : (
-            <textarea
-              rows={6}
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder={"/usr/sbin/nginx -t\n(postgres) /usr/bin/pg_ctl reload"}
-            />
-          )}
+        <label>
+          Command
+          <input
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="/usr/sbin/nginx -t"
+          />
         </label>
-        {single && (
-          <label>
-            Runs as
-            <input
-              value={runAs}
-              onChange={(e) => setRunAs(e.target.value)}
-              placeholder="root"
-            />
-          </label>
-        )}
+        <label>
+          Runs as
+          <input
+            value={runAs}
+            onChange={(e) => setRunAs(e.target.value)}
+            placeholder="root"
+          />
+        </label>
       </div>
 
       <ErrorLine msg={error} />
@@ -398,13 +379,13 @@ function RuleForm({
       )}
 
       <div className="form-actions">
-        <ActionButton variant="primary" onClick={save} disabled={commands.length === 0}>
-          {single ? "Add command" : "Save rule"}
+        <ActionButton variant="primary" onClick={save} disabled={command.command === ""}>
+          {submitLabel}
         </ActionButton>
         <span className="muted small">
-          {commands.length === 0
+          {command.command === ""
             ? "Nothing to save yet."
-            : `${commands.length} command${commands.length === 1 ? "" : "s"} for ${role}.`}
+            : `${command.command} as ${command.run_as}, for everyone in ${role}.`}
         </span>
       </div>
     </>

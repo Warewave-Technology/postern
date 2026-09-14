@@ -53,6 +53,16 @@ audit rows into a shape it does not understand.
   last one removes the rule, which is what the server does with a rule that
   has no commands left.
 
+- **A sudo command is edited on its own row, and the account it runs as is a
+  field rather than a prefix in text.** Editing the whole rule meant editing
+  a box of lines where a non-root account was carried as `(postgres) ` in
+  front of the command. Measured: retyping such a line without the prefix
+  sent the command as **root** — a silent escalation, in the direction that
+  matters, from a screen whose whole job is to make a grant legible. Each
+  row now has Edit, which opens the command and its account as two fields
+  and rewrites only that row; the other commands are not rewritten at all,
+  so there is nothing to lose.
+
 - **The risky command in a sudo rule is marked on its own row.** A rule that
   had been accepted despite an escape risk carried one line under the table
   saying a command in it was a way out to a root shell. In a rule with six

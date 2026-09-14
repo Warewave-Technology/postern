@@ -108,21 +108,20 @@ describe("RoleSudo", () => {
     const ackLabel = /i understand this command can start another program/i;
     const set = vi
       .spyOn(api, "setRoleSudo")
-      .mockRejectedValueOnce(new ApiError(422, "/usr/bin/vim escapes to a shell", true))
-      .mockRejectedValueOnce(new ApiError(422, "/usr/bin/* is a wildcard", false));
+      .mockRejectedValueOnce(new ApiError(422, "/usr/bin/vim escapes to a shell", true));
 
     render(<RoleSudo role="ops" onChanged={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: /write the rule/i }));
-    const box = await screen.findByLabelText(/commands, one per line/i);
+    fireEvent.click(screen.getByRole("button", { name: /add command/i }));
+    const box = await screen.findByLabelText(/^command$/i);
     expect(screen.queryByLabelText(ackLabel)).toBeNull();
 
     await userEvent.type(box, "/usr/bin/vim");
-    fireEvent.click(screen.getByRole("button", { name: /save rule/i }));
+    fireEvent.click(screen.getAllByRole("button", { name: /add command/i }).at(-1)!);
 
     expect(await screen.findByText(/escapes to a shell/i)).toBeTruthy();
     expect(screen.getByLabelText(ackLabel)).not.toBeChecked();
-    // Kutu, yazılanı silmiyor: modal açık kalıyor ve metin duruyor.
-    expect(screen.getByLabelText(/commands, one per line/i)).toBeTruthy();
+    // Modal açık kalıyor ve yazılan duruyor.
+    expect(screen.getByLabelText(/^command$/i)).toBeTruthy();
     expect(set).toHaveBeenCalledTimes(1);
   });
 
@@ -132,14 +131,70 @@ describe("RoleSudo", () => {
     );
     render(<RoleSudo role="ops" onChanged={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /write the rule/i }));
-    await userEvent.type(await screen.findByLabelText(/commands, one per line/i), "/usr/bin/*");
-    fireEvent.click(screen.getByRole("button", { name: /save rule/i }));
+    fireEvent.click(screen.getByRole("button", { name: /add command/i }));
+    await userEvent.type(await screen.findByLabelText(/^command$/i), "/usr/bin/*");
+    fireEvent.click(screen.getAllByRole("button", { name: /add command/i }).at(-1)!);
 
     expect(await screen.findByText(/is a wildcard/i)).toBeTruthy();
     expect(
       screen.queryByLabelText(/i understand this command can start another program/i),
     ).toBeNull();
+  });
+
+  /*
+   * ⚠️ DÜZENLEME SATIR BAZINDA VE HESAP KENDİ ALANINDA — ÖLÇÜLEN ARIZA
+   * BURADAN GELDİ. Kuralın tamamı tek bir yazım kutusundayken komutun
+   * hesabı satır başındaki "(postgres)" önekinde taşınıyordu; öneki elle
+   * düşüren bir düzenleme komutu sessizce ROOT'a çeviriyordu. Ölçüldü:
+   * kutuya "(postgres) /usr/bin/pg_ctl reload" yerine öneksiz satır
+   * yazıldığında istek run_as=root gidiyordu.
+   *
+   * Şimdi bir satırı düzenlemek yalnızca o satırı değiştiriyor; öbür
+   * komutların hesabı elle korunmuyor, hiç dokunulmuyor.
+   */
+  it("bir satırı düzenlerken öbür komutların hesabını bozmuyor", async () => {
+    const set = vi.spyOn(api, "setRoleSudo").mockResolvedValue({ ok: true });
+    render(<RoleSudo role="dba" rule={rule} onChanged={vi.fn().mockResolvedValue(undefined)} />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /edit command \/usr\/sbin\/nginx -t of role dba/i }),
+    );
+    const box = await screen.findByLabelText(/^command$/i);
+    expect((box as HTMLInputElement).value).toBe("/usr/sbin/nginx -t");
+    expect((screen.getByRole("textbox", { name: /runs as/i }) as HTMLInputElement).value).toBe("root");
+
+    await userEvent.clear(box);
+    await userEvent.type(box, "/usr/sbin/nginx -s reload");
+    fireEvent.click(screen.getByRole("button", { name: /save command/i }));
+
+    await waitFor(() => expect(set).toHaveBeenCalledTimes(1));
+    expect(set.mock.calls[0][1].commands).toEqual([
+      { path: "/usr/sbin/nginx", args: ["-s", "reload"], run_as: "root" },
+      // ⚠️ postgres KALDI: düzenlenmeyen satıra dokunulmadı.
+      { path: "/usr/bin/pg_ctl", args: ["reload"], run_as: "postgres" },
+    ]);
+  });
+
+  // Satırın hesabı da düzenlenebiliyor, kendi alanından.
+  it("bir satırın hesabını değiştirebiliyor", async () => {
+    const set = vi.spyOn(api, "setRoleSudo").mockResolvedValue({ ok: true });
+    render(<RoleSudo role="dba" rule={rule} onChanged={vi.fn().mockResolvedValue(undefined)} />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /edit command \/usr\/bin\/pg_ctl reload of role dba/i }),
+    );
+    const runAs = await screen.findByRole("textbox", { name: /runs as/i });
+    expect((runAs as HTMLInputElement).value).toBe("postgres");
+    await userEvent.clear(runAs);
+    await userEvent.type(runAs, "pgbouncer");
+    fireEvent.click(screen.getByRole("button", { name: /save command/i }));
+
+    await waitFor(() => expect(set).toHaveBeenCalledTimes(1));
+    expect(set.mock.calls[0][1].commands[1]).toEqual({
+      path: "/usr/bin/pg_ctl",
+      args: ["reload"],
+      run_as: "pgbouncer",
+    });
   });
 
   /*
