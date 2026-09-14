@@ -162,3 +162,28 @@ func TestAutomaticProvisioningRefusesTheManagementAccount(t *testing.T) {
 		t.Fatalf("sıradan dizin hesabı açılmadı — retler yanlış sebepten geliyor olabilir: %v", err)
 	}
 }
+
+/*
+ * ⚠️ postern-jit ADLI BİR HESAP DA AÇILMIYOR. Ad bir GRUBUN adı ve
+ * süpürücü geçici hesapları o gruptan tanıyor; aynı adı taşıyan bir
+ * hesap o ayrımı bulandırır. Yönetim hesabının reddiyle aynı sınıf,
+ * ayrı bir sebep.
+ */
+func TestAutomaticProvisioningRefusesTheJITMarkerName(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedMappingFixtures(t, s)
+	if err := s.AddGroupMapping(ctx, "sysadmins", "ops", "yigit"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateFromDirectory(ctx, DirectoryAccount{
+		Username: "postern-jit", Subject: "dir-jit", Groups: []string{"sysadmins"},
+	}); !errors.Is(err, ErrAccessDenied) {
+		t.Errorf("postern-jit adlı dizin hesabı açıldı: %v", err)
+	}
+	if _, err := s.CreateFromDirectory(ctx, DirectoryAccount{
+		Username: "siradan", Subject: "dir-siradan", Groups: []string{"sysadmins"},
+	}); err != nil {
+		t.Fatalf("sıradan hesap açılmadı — ret yanlış sebepten geliyor olabilir: %v", err)
+	}
+}

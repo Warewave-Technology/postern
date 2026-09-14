@@ -2389,6 +2389,14 @@ var reservedOSUsers = map[string]bool{
 	"redis": true, "nginx": true, "www-data": true, "docker": true,
 	"adm": true, "wheel": true, "sudo": true, "operator": true,
 	"halt": true, "shutdown": true, "ftp": true, "ntp": true, "dbus": true,
+	/*
+	 * postern-jit bir GRUP adı, hesap adı değil — ve tam bu yüzden
+	 * burada. Süpürücü geçici hesapları o gruba üyelikten buluyor
+	 * (provision.JITGroup, Account.InJITGroup). Aynı adı taşıyan bir
+	 * hesap, dizinden gelse bile, o ayrımın içine oturuyor: birincil
+	 * grubu kendi adıyla açılan bir hesap listede "geçici" görünür.
+	 */
+	"postern-jit": true,
 }
 
 // HasIdPIdentity, hesabın bir OIDC kimliğine bağlı olup olmadığı.
