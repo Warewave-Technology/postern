@@ -608,7 +608,10 @@ func TestATemporaryAccountGetsAPrincipalsFileWhenSshdWantsOne(t *testing.T) {
 	if found == nil {
 		t.Fatalf("principals adımı yok:\n%s", commandsOf(steps))
 	}
-	if found.Command != "sudo -n tee /etc/ssh/auth_principals/jitayse >/dev/null" || found.Content != "jitayse\n" {
+	// ⚠️ İZİN KOMUTUN PARÇASI: dosyanın izni hedefin umask'ına
+	// bırakılmıyor (bkz. plan.go'daki gerekçe).
+	if found.Command != "sudo -n tee /etc/ssh/auth_principals/jitayse >/dev/null && "+
+		"sudo -n chmod 0644 /etc/ssh/auth_principals/jitayse" || found.Content != "jitayse\n" {
 		t.Errorf("adım yanlış: %q içerik %q", found.Command, found.Content)
 	}
 	if got := commandsOf(steps); strings.Index(got, "useradd") > strings.Index(got, "tee /etc/ssh") {

@@ -343,8 +343,14 @@ func Plan(caps upstream.ManageCapabilities, d Desired, o Observed) ([]Step, erro
 		 * aranmıyor). Rol kalıcı hesapların dosyalarını yazıyor; geçici
 		 * hesabınkini postern yazmak zorunda. İçerik sertifikanın
 		 * principal'ı, yani hesabın adı (upstream/dial.go: Principals =
-		 * OSUser). tee root'la, umask'la 0644 — sshd'nin StrictModes'u
-		 * için yeterli.
+		 * OSUser).
+		 *
+		 * ⚠️ İZİN AÇIKÇA VERİLİYOR, HEDEFİN UMASK'INA BIRAKILMIYOR. İlk
+		 * hâli yalnızca `tee` idi ve yorumu "umask'la 0644" diyordu; o
+		 * bir varsayım, hedefin kararı. umask 000 ile açılmış bir kök
+		 * kabuğunda aynı komut dünyaya yazılabilir bir dosya bırakır.
+		 * Dosyanın içeriği kimin o hesabı açabileceğini söylüyor; onu
+		 * hedefin ayarına bağlamak bu ürünün her yerde reddettiği şey.
 		 */
 		// Her hesap için — postern'in açtığı kalıcı hesap da sertifikayla
 		// giriyor ve rolün sözlüğüne bağımlı kalmamalı.
@@ -355,8 +361,9 @@ func Plan(caps upstream.ManageCapabilities, d Desired, o Observed) ([]Step, erro
 			}
 			if content := u.Name + "\n"; o.Principals[path] != content {
 				steps = append(steps, Step{
-					Kind:    StepPrincipal,
-					Command: "sudo -n tee " + path + " >/dev/null",
+					Kind: StepPrincipal,
+					Command: "sudo -n tee " + path + " >/dev/null && " +
+						"sudo -n chmod 0644 " + path,
 					Content: content,
 					Why:     "let the certificate for " + u.Name + " open this account",
 				})

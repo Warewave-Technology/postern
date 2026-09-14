@@ -130,6 +130,17 @@ func TestATemporaryAccountIsCreatedAndTakenAwayAgain(t *testing.T) {
 		t.Fatalf("sertifikayla giren hesap %q (%v), jitayse bekleniyordu", who, err)
 	}
 
+	/*
+	 * ⚠️ DOSYANIN İZNİ ÖLÇÜLÜYOR, UMASK'A GÜVENİLMİYOR. İçerik o hesabı
+	 * kimin açabileceğini söylüyor; izni hedefin ayarına bırakan bir
+	 * yazma, umask 000 ile açılmış bir kök kabuğunda dünyaya yazılabilir
+	 * bir dosya bırakırdı.
+	 */
+	if mode, merr := r.Exec(ctx, "sudo -n stat -c %a /etc/ssh/auth_principals/jitayse", ""); merr != nil ||
+		strings.TrimSpace(mode) != "644" {
+		t.Errorf("principals dosyasının izni %q (%v), 644 bekleniyordu", strings.TrimSpace(mode), merr)
+	}
+
 	g, err := db.JITGrant(ctx, out.Grant.ID)
 	if err != nil {
 		t.Fatal(err)
