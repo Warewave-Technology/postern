@@ -255,6 +255,27 @@
 # validate, dosya yerine konmadan önce hedefin KENDİ visudo'suyla
 # koşuyor: sözdizimi sudo sürümüne göre değişiyor ve bastion'da
 # doğrulamak arkasını dolduramayacağımız bir iddia olurdu.
+# ⚠️ AYNI SORU BİR DE YÖNETİM HESABININ BAĞLAMINDA SORULUYOR.
+#
+# Yukarıdaki kontrol `sshd -T` kullanıyor: o çıktı genel yapılandırmanın
+# birleşimi ve Match bloklarını YOK SAYIYOR. Demo hedefinde ölçüldü —
+# sshd_config'e "Match User <hesap>" altında başka bir
+# AuthorizedPrincipalsFile konduğunda genel okuma eski değeri, `-C user=`
+# ile okuma yeni değeri veriyor. Yani genel kontrol geçerken yönetim
+# hesabının dosyası sshd'nin bakmadığı yerde olabilir; postern da aynı
+# sebeple artık hesabın bağlamında okuyor (provision.PrincipalsPatternFor).
+- name: Confirm sshd uses our principals file for the management account too
+  ansible.builtin.shell: >-
+    set -o pipefail && sshd -T -C user={{ postern_manage_user }} 2>/dev/null |
+    awk -v want='{{ postern_principals_dir }}/%u'
+    'tolower($1) == "authorizedprincipalsfile" && $2 == want { found = 1 } END { exit !found }'
+  args:
+    executable: /bin/bash
+  changed_when: false
+  register: postern_principals_for_manage
+  failed_when: postern_principals_for_manage.rc != 0
+  when: postern_manage_host
+
 - name: Grant the management account sudo
   ansible.builtin.copy:
     content: |

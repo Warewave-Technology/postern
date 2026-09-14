@@ -1,0 +1,11 @@
+---
+# site.yml — applies the postern_target role to managed hosts.
+#
+# Usage:
+#   ansible-playbook -i <inventory> site.yml -e "postern_ca_pubkey=..."
+
+- name: Apply postern target hardening
+  hosts: postern
+  become: true
+  roles:
+    - postern_target

@@ -119,6 +119,21 @@ audit rows into a shape it does not understand.
 
 ### Added
 
+- **The Ansible role that prepares a target is now covered by a test.** It
+  had none: the role writes the CA, the principals files and the management
+  account's sudo rule, and nothing checked that a change to it still
+  produced a host postern can manage. The test starts a container, runs
+  `ansible-playbook` against it for real (apply, not a dry run) and then
+  reads the result off the host: the sudoers file at 0440 root:root, the
+  principals files at 0644, their directory at 0755, and sshd's own answer
+  for which principals file it will use for the management account. The
+  role asks sshd that last question itself now, in the management
+  account's context rather than globally, for the same reason the bastion
+  does. A caller with no service manager — a container, a chroot, an image
+  build — can turn the sshd reload off with `postern_reload_sshd=false`;
+  it stays on and loud everywhere else, because a reload that silently
+  does nothing leaves a host that looks configured and is not.
+
 - **postern can manage the accounts on a target, not just broker access to
   them.** The Ansible role gained an opt-in management account
   (`postern_manage_host`, off by default): a `postern` system account that

@@ -3,7 +3,16 @@
 # üzerinden çalışan biri, hedefin yapılandırması güncellendiği için
 # işinden olur. reload yeni bağlantılara yeni ayarları uyguluyor,
 # çalışanlara dokunmuyor.
+#
+# ⚠️ KAPATILABİLİR, AMA VARSAYILAN AÇIK VE GÜRÜLTÜLÜ. Servis yöneticisi
+# olmayan yerlerde (konteyner imajı, chroot, altın imaj kurma) reload
+# "Could not find the requested service sshd" ile düşüyor — entegrasyon
+# testinde ölçüldü. Bunu handler'ın içinde yutmak, GERÇEK bir reload
+# hatasını da yutardı: sshd ayağa kalkmamışken rol "tamam" derdi.
+# Bu yüzden karar çağıranın: postern_reload_sshd=false diyen, sshd'yi
+# kendisi yeniden yükleyeceğini söylemiş oluyor.
 - name: Reload sshd
   ansible.builtin.service:
     name: sshd
     state: reloaded
+  when: postern_reload_sshd | default(true) | bool
