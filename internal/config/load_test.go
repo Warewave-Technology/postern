@@ -578,3 +578,26 @@ func TestPublicKeyLoginDefaultsOn(t *testing.T) {
 		t.Error("false okunmadı")
 	}
 }
+
+/*
+ * ⚠️ BOŞ recording.dir YAPILANDIRMADA DÜŞÜYOR, AÇILIŞTA DEĞİL. Kural
+ * zaten vardı ama testi yoktu: kaldırılırsa sshd.New "mkdir :" gibi
+ * yapılandırmadan söz etmeyen bir hatayla ölüyor ve operatör eksik
+ * satırı aramaya nereden başlayacağını bilmiyor. Kayıt bu üründe
+ * seçenek değil — kaydı açılamayan oturum reddediliyor.
+ *
+ * Kabul karşı örneği yanında: ret yolun kendisinden değil, boş alandan
+ * geliyor.
+ */
+func TestValidateRefusesAnEmptyRecordingDir(t *testing.T) {
+	cfg := validConfig()
+	cfg.Recording.Dir = ""
+	if err := cfg.Validate(); err == nil {
+		t.Error("boş recording.dir kabul edildi")
+	}
+
+	cfg.Recording.Dir = "/var/lib/postern/recordings"
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("dolu recording.dir reddedildi: %v", err)
+	}
+}
