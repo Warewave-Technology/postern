@@ -43,6 +43,16 @@ audit rows into a shape it does not understand.
   target names and sudo commands, so "which role reaches db-01" is still
   one box away even though the names are no longer printed in the row.
 
+  On that page all three lists are tables with their own search, because
+  each of them is the one that grows: a role can carry a hundred targets,
+  a couple of hundred sudo commands and as many path rules, and a list you
+  cannot search is a list you scroll past. Granting targets moved into a
+  dialog with the multi-select the temporary-access wizard uses, so several
+  hosts go in at once and an already-granted host is not offered again;
+  sudo commands are added one at a time or edited in bulk, and removing the
+  last one removes the rule, which is what the server does with a rule that
+  has no commands left.
+
 ## 1.2.0 — 2026-09-14
 
 ### Security

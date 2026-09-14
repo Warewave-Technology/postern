@@ -102,9 +102,15 @@ describe("kural ekleme", () => {
     render(<PathRules role="ops" />);
     await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
 
+    /*
+     * ⚠️ FORM ARTIK MODALDA. Kural listesi tabloya döndü ve ekleme
+     * formunun tablonun altında kalıcı durması, iki yüz kurallı bir rolde
+     * sayfanın dibine düşüyordu; düğme açıyor.
+     */
+    await userEvent.click(screen.getAllByRole("button", { name: "Add rule" })[0]);
     await userEvent.type(screen.getByLabelText("Prefix"), "/srv");
     await userEvent.selectOptions(screen.getByLabelText(/access for/), "write");
-    await userEvent.click(screen.getByRole("button", { name: "Add rule" }));
+    await userEvent.click(screen.getAllByRole("button", { name: "Add rule" }).at(-1)!);
 
     expect(set).toHaveBeenCalledWith("ops", {
       prefix: "/srv",
@@ -124,9 +130,15 @@ describe("kural ekleme", () => {
     render(<PathRules role="ops" />);
     await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
 
+    /*
+     * ⚠️ FORM ARTIK MODALDA. Kural listesi tabloya döndü ve ekleme
+     * formunun tablonun altında kalıcı durması, iki yüz kurallı bir rolde
+     * sayfanın dibine düşüyordu; düğme açıyor.
+     */
+    await userEvent.click(screen.getAllByRole("button", { name: "Add rule" })[0]);
     await userEvent.type(screen.getByLabelText("Prefix"), "/etc");
     await userEvent.selectOptions(screen.getByLabelText(/access for/), "deny");
-    await userEvent.click(screen.getByRole("button", { name: "Add rule" }));
+    await userEvent.click(screen.getAllByRole("button", { name: "Add rule" }).at(-1)!);
 
     expect(set).toHaveBeenCalledWith("ops", {
       prefix: "/etc",
@@ -143,8 +155,14 @@ describe("kural ekleme", () => {
 
     // Gözle görünmeyen bir boşluk, hiçbir zaman eşleşmeyen bir kural
     // yazdırırdı: yönetici koruma koyduğunu sanır, koymamış olurdu.
+    /*
+     * ⚠️ FORM ARTIK MODALDA. Kural listesi tabloya döndü ve ekleme
+     * formunun tablonun altında kalıcı durması, iki yüz kurallı bir rolde
+     * sayfanın dibine düşüyordu; düğme açıyor.
+     */
+    await userEvent.click(screen.getAllByRole("button", { name: "Add rule" })[0]);
     await userEvent.type(screen.getByLabelText("Prefix"), "  /srv  ");
-    await userEvent.click(screen.getByRole("button", { name: "Add rule" }));
+    await userEvent.click(screen.getAllByRole("button", { name: "Add rule" }).at(-1)!);
 
     expect(set.mock.calls[0][1].prefix).toBe("/srv");
   });
@@ -159,8 +177,14 @@ describe("kural ekleme", () => {
     render(<PathRules role="ops" />);
     await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
 
+    /*
+     * ⚠️ FORM ARTIK MODALDA. Kural listesi tabloya döndü ve ekleme
+     * formunun tablonun altında kalıcı durması, iki yüz kurallı bir rolde
+     * sayfanın dibine düşüyordu; düğme açıyor.
+     */
+    await userEvent.click(screen.getAllByRole("button", { name: "Add rule" })[0]);
     await userEvent.type(screen.getByLabelText("Prefix"), "var/log");
-    await userEvent.click(screen.getByRole("button", { name: "Add rule" }));
+    await userEvent.click(screen.getAllByRole("button", { name: "Add rule" }).at(-1)!);
 
     await waitFor(() =>
       expect(screen.getByRole("alert").textContent).toMatch(/must be absolute/),

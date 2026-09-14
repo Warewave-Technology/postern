@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, PathRule, toMessage } from "../api";
 import { ActionButton, ErrorLine } from "./common";
+import DataTable, { Column } from "./DataTable";
+import Modal from "./Modal";
 
 /**
  * PathRules — bir rolün SFTP yol kuralları.
@@ -22,6 +24,7 @@ export default function PathRules({ role }: { role: string }) {
   const [error, setError] = useState("");
   const [prefix, setPrefix] = useState("");
   const [mode, setMode] = useState<"read" | "write" | "deny">("read");
+  const [adding, setAdding] = useState(false);
 
   const load = useCallback(() => {
     api
@@ -35,10 +38,13 @@ export default function PathRules({ role }: { role: string }) {
 
   useEffect(load, [load]);
 
+  // ⚠️ BAŞARIYI DÖNDÜRÜYOR: hata durumunda modal AÇIK kalmalı, yoksa
+  // kapanan modal arkadaki hata satırını görmeyen kullanıcıya işlemin
+  // tuttuğunu düşündürür.
   const add = () => {
     const p = prefix.trim();
-    if (!p) return;
-    api
+    if (!p) return Promise.resolve(false);
+    return api
       .setRolePath(role, {
         prefix: p,
         allow: mode !== "deny",
@@ -47,8 +53,12 @@ export default function PathRules({ role }: { role: string }) {
       .then(() => {
         setPrefix("");
         load();
+        return true;
       })
-      .catch((e: unknown) => setError(toMessage(e)));
+      .catch((e: unknown) => {
+        setError(toMessage(e));
+        return false;
+      });
   };
 
   const remove = (p: string) =>
@@ -63,6 +73,47 @@ export default function PathRules({ role }: { role: string }) {
    * daraltma yaptığını düşündürürdü; oysa yaptığı şey rolü kısıtsız
    * bırakmak.
    */
+  const columns: Column<PathRule>[] = [
+    {
+      key: "prefix",
+      header: "Prefix",
+      // wrap: uzun bir önek tek parça; sarmayınca tablo kartın
+      // gövdesinden taşıyordu (ölçüldü).
+      className: "wrap",
+      value: (r) => r.prefix,
+      render: (r) => <code>{r.prefix}</code>,
+    },
+    {
+      key: "access",
+      header: "Access",
+      value: (r) => (!r.allow ? "denied" : r.can_write ? "read-write" : "read-only"),
+      render: (r) =>
+        !r.allow ? (
+          <span className="badge badge-danger">denied</span>
+        ) : r.can_write ? (
+          <span className="badge badge-warn">read-write</span>
+        ) : (
+          <span className="badge badge-ok">read-only</span>
+        ),
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      srHeader: true,
+      className: "actions",
+      render: (r) => (
+        <ActionButton
+          variant="danger"
+          onClick={() => remove(r.prefix)}
+          confirm={removeConfirm(r.prefix)}
+          label={`remove rule ${r.prefix} from role ${role}`}
+        >
+          Remove
+        </ActionButton>
+      ),
+    },
+  ];
+
   const removeConfirm = (p: string) =>
     rules?.length === 1
       ? `Remove "${p}"? It is the last rule on "${role}", so the role becomes unrestricted — every path opens for everyone holding it.`
@@ -81,69 +132,26 @@ export default function PathRules({ role }: { role: string }) {
         </p>
       )}
 
+      {/*
+        ⚠️ TABLO, ELLE ÇİZİLEN LİSTE DEĞİL. Bir rolde yüzlerce kural
+        olabiliyor ve önceki hâlde aradığın öneki bulmanın yolu sayfada
+        göz gezdirmekti (kullanıcı söyledi). DataTable arama, sıralama ve
+        sayımı hazır getiriyor; sütunlar panelin geri kalanıyla aynı.
+      */}
       {rules && rules.length > 0 && (
-        <table className="pathrules-list">
-          <thead>
-            <tr>
-              <th>Prefix</th>
-              <th>Access</th>
-              <th className="sr-only">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rules.map((r) => (
-              <tr key={r.prefix}>
-                {/* wrap: uzun bir önek tek parça; sarmayınca tablo
-                    modalın gövdesinden 33px taşıyordu (ölçüldü). */}
-                <td className="wrap">
-                  <code>{r.prefix}</code>
-                </td>
-                <td>
-                  {!r.allow ? (
-                    <span className="badge badge-danger">denied</span>
-                  ) : r.can_write ? (
-                    <span className="badge badge-warn">read-write</span>
-                  ) : (
-                    <span className="badge badge-ok">read-only</span>
-                  )}
-                </td>
-                <td className="actions">
-                  <ActionButton
-                    onClick={() => remove(r.prefix)}
-                    confirm={removeConfirm(r.prefix)}
-                    label={`remove rule ${r.prefix} from role ${role}`}
-                  >
-                    Remove
-                  </ActionButton>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <DataTable
+          rows={rules}
+          columns={columns}
+          rowKey={(r) => r.prefix}
+          initialSort={{ key: "prefix", dir: "asc" }}
+          noun="rule"
+          searchLabel={`search the SFTP path rules of ${role}`}
+          searchPlaceholder="Search prefixes…"
+        />
       )}
 
-      <div className="field-row">
-        <label>
-          Prefix
-          <input
-            value={prefix}
-            placeholder="/var/log"
-            onChange={(e) => setPrefix(e.target.value)}
-          />
-        </label>
-        <label>
-          Access
-          <select
-            value={mode}
-            onChange={(e) => setMode(e.target.value as typeof mode)}
-            aria-label={`access for the new rule on role ${role}`}
-          >
-            <option value="read">Read-only</option>
-            <option value="write">Read-write</option>
-            <option value="deny">Deny</option>
-          </select>
-        </label>
-        <ActionButton variant="primary" onClick={add} disabled={!prefix.trim()}>
+      <div className="form-actions">
+        <ActionButton variant="primary" onClick={() => setAdding(true)}>
           Add rule
         </ActionButton>
       </div>
@@ -164,6 +172,46 @@ export default function PathRules({ role }: { role: string }) {
         rule constrains the path the client writes, so a link inside an allowed
         directory can still lead somewhere no rule names.
       </p>
+
+      <Modal
+        open={adding}
+        onClose={() => setAdding(false)}
+        narrow
+        title={`Add an SFTP path rule to "${role}"`}
+        description="A prefix and what the role may do under it. The longest matching prefix wins, and at equal length a deny beats an allow."
+      >
+        <div className="form-grid cols-2">
+          <label className="span-all">
+            Prefix
+            <input
+              value={prefix}
+              placeholder="/var/log"
+              onChange={(e) => setPrefix(e.target.value)}
+            />
+          </label>
+          <label>
+            Access
+            <select
+              value={mode}
+              onChange={(e) => setMode(e.target.value as typeof mode)}
+              aria-label={`access for the new rule on role ${role}`}
+            >
+              <option value="read">Read-only</option>
+              <option value="write">Read-write</option>
+              <option value="deny">Deny</option>
+            </select>
+          </label>
+        </div>
+        <div className="form-actions">
+          <ActionButton
+            variant="primary"
+            onClick={() => add().then((ok) => ok && setAdding(false))}
+            disabled={!prefix.trim()}
+          >
+            Add rule
+          </ActionButton>
+        </div>
+      </Modal>
     </div>
   );
 }

@@ -2,6 +2,8 @@ import { useState } from "react";
 import { api, Role, Target, toMessage } from "../api";
 import { ActionButton, ErrorLine, OkLine } from "./common";
 import DataTable, { Column } from "./DataTable";
+import Modal from "./Modal";
+import MultiSelect from "./MultiSelect";
 import { BackIcon } from "../icons";
 import PathRules from "./PathRules";
 import RoleSudo from "./RoleSudo";
@@ -34,20 +36,39 @@ export default function RoleDetail({
 }) {
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
-  const [picked, setPicked] = useState("");
+  const [granting, setGranting] = useState(false);
+  const [picked, setPicked] = useState<string[]>([]);
 
+  /*
+   * ⚠️ HEDEFLER BİRER BİRER VERİLİYOR AMA SEÇİM TOPLU. Uç hedef başına
+   * tek grant alıyor; biri düşerse kalanı yine veriliyor ve kaçının
+   * verildiği söyleniyor. Toplu bir isteği tek bir "başarısız"a indirmek,
+   * yarısı verilmiş bir rolü hiç verilmemiş gibi gösterirdi.
+   */
   const grant = async () => {
-    if (!picked) return;
+    if (picked.length === 0) return;
     setError("");
     setOk("");
-    try {
-      await api.grantTarget(role.name, picked);
-      setPicked("");
-      setOk(`${picked} granted to ${role.name}.`);
-      await onChanged();
-    } catch (e: unknown) {
-      setError(toMessage(e));
+    const failed: string[] = [];
+    let done = 0;
+    for (const t of picked) {
+      try {
+        await api.grantTarget(role.name, t);
+        done++;
+      } catch (e: unknown) {
+        failed.push(`${t}: ${toMessage(e)}`);
+      }
     }
+    setPicked([]);
+    await onChanged();
+    if (done > 0) {
+      setOk(`${done} target${done === 1 ? "" : "s"} granted to ${role.name}.`);
+    }
+    if (failed.length > 0) {
+      setError(failed.join("; "));
+      return;
+    }
+    setGranting(false);
   };
 
   const revoke = async (target: string) => {
@@ -142,32 +163,21 @@ export default function RoleDetail({
           </p>
         </div>
         <div className="card-body">
-          <div className="cell-form">
-            <label>
-              Grant a target
-              <select
-                aria-label={`target to grant to role ${role.name}`}
-                value={picked}
-                onChange={(e) => setPicked(e.target.value)}
-                disabled={free.length === 0}
-              >
-                <option value="">
-                  {targets.length === 0
-                    ? "no targets registered"
-                    : free.length === 0
-                      ? "all targets granted"
-                      : "choose a target…"}
-                </option>
-                {free.map((t) => (
-                  <option key={t.name} value={t.name}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <ActionButton variant="primary" onClick={grant} disabled={!picked}>
-              Grant
+          <div className="form-actions">
+            <ActionButton
+              variant="primary"
+              onClick={() => setGranting(true)}
+              disabled={free.length === 0}
+            >
+              Grant targets
             </ActionButton>
+            <span className="muted small">
+              {targets.length === 0
+                ? "No targets are registered yet."
+                : free.length === 0
+                  ? "Every registered target is already granted to this role."
+                  : `${free.length} target${free.length === 1 ? "" : "s"} not granted yet.`}
+            </span>
           </div>
 
           {role.targets.length === 0 ? (
@@ -187,6 +197,45 @@ export default function RoleDetail({
           )}
         </div>
       </div>
+
+      <Modal
+        open={granting}
+        onClose={() => {
+          setGranting(false);
+          setPicked([]);
+        }}
+        title={`Grant targets to "${role.name}"`}
+        description="Everyone holding this role can open a session to whatever you add here."
+      >
+        {/*
+          ⚠️ KENDİ ÇOKLU SEÇİMİMİZ, TARAYICININ LİSTESİ DEĞİL. Yüz hedefli
+          bir envanterde <select multiple> aranamıyor ve seçilenler
+          görünmüyor; MultiSelect arama, etiket ve "hepsini seç" taşıyor
+          (geçici erişim sihirbazında ölçüldü).
+
+          ⚠️ VERİLMİŞ HEDEF LİSTEDE YOK: sunucu onu sessizce yutuyor
+          (ON CONFLICT DO NOTHING), yani hiçbir şeyi değiştirmeyen bir
+          tıklama başarı gibi görünürdü.
+        */}
+        <MultiSelect
+          label="Targets"
+          options={free.map((t) => ({
+            value: t.name,
+            label: t.name,
+            hint: `${t.host}:${t.port}`,
+          }))}
+          value={picked}
+          onChange={setPicked}
+          placeholder="Search targets…"
+          emptyText="Every registered target is already granted to this role."
+        />
+        <ErrorLine msg={error} />
+        <div className="form-actions">
+          <ActionButton variant="primary" onClick={grant} disabled={picked.length === 0}>
+            Grant {picked.length > 0 ? `${picked.length} target${picked.length === 1 ? "" : "s"}` : "targets"}
+          </ActionButton>
+        </div>
+      </Modal>
 
       <div className="card">
         <div className="card-head">

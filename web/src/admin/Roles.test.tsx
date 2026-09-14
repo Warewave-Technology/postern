@@ -71,8 +71,9 @@ it("ada tıklayınca rolün sayfasını açıyor", async () => {
   expect(screen.getByRole("heading", { name: /^targets$/i })).toBeTruthy();
   expect(screen.getByRole("heading", { name: /^sudo$/i })).toBeTruthy();
   expect(screen.getByRole("heading", { name: /^sftp paths$/i })).toBeTruthy();
-  // Kural sayfada komutlarıyla duruyor, listede yalnızca sayılıyordu.
-  expect(screen.getByDisplayValue(/\/usr\/sbin\/nginx -t/)).toBeTruthy();
+  // Kural sayfada komutlarıyla duruyor (tabloda), listede yalnızca sayılıyordu.
+  expect(screen.getByText("/usr/sbin/nginx -t")).toBeTruthy();
+  expect(screen.getByPlaceholderText(/search commands/i)).toBeTruthy();
   // Rolü silmek de sayfada: liste satırında düğme kalabalığı yapıyordu.
   expect(screen.getByRole("button", { name: /delete role sre/i })).toBeTruthy();
 
@@ -93,10 +94,16 @@ it("sayfadan hedef veriyor ve geri alıyor", async () => {
   render(<Roles />);
   fireEvent.click(await screen.findByRole("button", { name: "sre" }));
 
-  const select = screen.getByLabelText(/target to grant to role sre/i) as HTMLSelectElement;
-  expect(within(select).queryByRole("option", { name: "host-000" })).toBeNull();
-  fireEvent.change(select, { target: { value: "db-01" } });
-  fireEvent.click(screen.getByRole("button", { name: /^grant$/i }));
+  /*
+   * ⚠️ VERME MODALDA VE ÇOKLU. Kart gövdesindeki tek seçimlik kutu yüz
+   * hedefli bir envanterde aranamıyordu; modal kendi MultiSelect'imizi
+   * taşıyor ve verilmiş hedefi hiç sunmuyor.
+   */
+  fireEvent.click(screen.getByRole("button", { name: /grant targets/i }));
+  fireEvent.focus(await screen.findByRole("combobox", { name: /targets/i }));
+  expect(screen.queryByRole("option", { name: /host-000/ })).toBeNull();
+  fireEvent.click(screen.getByRole("option", { name: /db-01/ }));
+  fireEvent.click(screen.getByRole("button", { name: /grant 1 target/i }));
   await waitFor(() => expect(grant).toHaveBeenCalledWith("sre", "db-01"));
 
   fireEvent.click(screen.getAllByRole("button", { name: /revoke host-000 from role sre/i })[0]);
