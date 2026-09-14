@@ -70,6 +70,17 @@ audit rows into a shape it does not understand.
   labels step says what it will attach rather than leaving that to the
   final screen.
 
+- **Labels in the registration wizard are a table, not a text box.** The box
+  took one `key=value` per line, so its rules had to be learned before the
+  first label: a line missing the equals sign was dropped without a word,
+  and a line that looked like the placeholder was read as one. Keys and
+  values are now two columns, an empty row appears as soon as the last one
+  is filled — so there is no Add button to forget — and a row can be
+  removed. A key the server would refuse is named with the reason while it
+  is being typed, and the step will not advance until it is fixed, instead
+  of failing at registration. The count under the table says how many labels
+  each machine will carry.
+
 - **A bell in the top bar counts machines waiting to be registered.**
   Discovery runs on a schedule, so what it finds waits in a list nobody is
   looking at. An administrator now sees the number wherever they are and

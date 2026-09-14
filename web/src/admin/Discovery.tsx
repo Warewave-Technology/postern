@@ -59,16 +59,43 @@ export function machineState(m: DiscoveredMachine): MachineState {
   return { text: "new", cls: "badge badge-info", registrable: true };
 }
 
-/** "k=v" satırlarını etikete çevirir; bozuk satırı hata olarak döner. */
-export function parseLabels(text: string): { labels: Record<string, string>; error: string } {
+/** LabelRow, etiket tablosunun tek satırı. */
+export type LabelRow = { key: string; value: string };
+
+/*
+ * ⚠️ ANAHTAR KURALI SUNUCUNUNKİYLE AYNI (store.ValidateLabel). Panelde
+ * daha gevşek bir kural, yazdırıp sonra reddedilen bir etiket demek;
+ * daha katı bir kural, sunucunun kabul ettiği bir adı yazdırmamak.
+ */
+const labelKeyRe = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$/;
+
+/*
+ * labelsOf, tablo satırlarını etiket haritasına çevirir ve okunur bir
+ * hata döner.
+ *
+ * ⚠️ SERBEST METİN YERİNE TABLO. Kutuya "env=prod" yazdırmak, yazım
+ * biçimini öğretilmesi gereken bir şeye çeviriyordu: eşittir unutulunca
+ * satır sessizce düşüyor, yer tutucu yazılmış sanılıyordu (kullanıcı
+ * söyledi). İki alan, hangi parçanın anahtar hangisinin değer olduğunu
+ * kendisi söylüyor.
+ */
+export function labelsOf(rows: LabelRow[]): { labels: Record<string, string>; error: string } {
   const labels: Record<string, string> = {};
-  for (const raw of text.split("\n")) {
-    const line = raw.trim();
-    if (!line) continue;
-    const eq = line.indexOf("=");
-    if (eq <= 0) return { labels, error: `"${line}" is not key=value` };
-    labels[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+  for (const r of rows) {
+    const key = r.key.trim();
+    const value = r.value.trim();
+    if (key === "" && value === "") continue;
+    if (key === "") return { labels, error: `"${value}" has no key` };
+    if (!labelKeyRe.test(key)) {
+      return {
+        labels,
+        error: `label key "${key}" is not allowed: letters, digits, dot, dash or underscore (max 63)`,
+      };
+    }
+    if (key in labels) return { labels, error: `label key "${key}" is written twice` };
+    labels[key] = value;
   }
+
   return { labels, error: "" };
 }
 
@@ -756,6 +783,86 @@ function ProbeResult({
  * ⚠️ ÖZET EKRANI PARMAK İZİNİ GÖSTERİYOR ve kayıt o anahtarı sabitliyor
  * (sunucu yeniden taramıyor). Yönetici neyi onayladıysa o yazılıyor.
  */
+/**
+ * LabelTable — anahtar/değer satırları; son satır dolduruldukça yenisi
+ * açılıyor.
+ *
+ * ⚠️ "EKLE" DÜĞMESİ YOK. Düğmeli bir tabloda operatör son satırı yazıp
+ * eklemeye basmayı unutuyor ve etiketi yazdığını sanarak ilerliyor —
+ * serbest metin kutusunda aynı yanılgı yaşandı. Boş satır kendiliğinden
+ * beliriyor, dolu satırlar zaten tablodalar.
+ */
+function LabelTable({
+  rows,
+  onChange,
+}: {
+  rows: LabelRow[];
+  onChange: (rows: LabelRow[]) => void;
+}) {
+  const edit = (i: number, patch: Partial<LabelRow>) => {
+    const next = rows.map((r, n) => (n === i ? { ...r, ...patch } : r));
+    const last = next[next.length - 1];
+    if (last.key.trim() !== "" || last.value.trim() !== "") {
+      next.push({ key: "", value: "" });
+    }
+    onChange(next);
+  };
+
+  const remove = (i: number) => {
+    const next = rows.filter((_, n) => n !== i);
+    onChange(next.length > 0 ? next : [{ key: "", value: "" }]);
+  };
+
+  return (
+    <div className="table-wrap">
+      <table className="label-table">
+        <thead>
+          <tr>
+            <th>Key</th>
+            <th>Value</th>
+            <th className="actions">
+              <span className="sr-only">Actions</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i}>
+              <td>
+                <input
+                  value={r.key}
+                  aria-label={`label key ${i + 1}`}
+                  placeholder="env"
+                  onChange={(e) => edit(i, { key: e.target.value })}
+                />
+              </td>
+              <td>
+                <input
+                  value={r.value}
+                  aria-label={`label value ${i + 1}`}
+                  placeholder="prod"
+                  onChange={(e) => edit(i, { value: e.target.value })}
+                />
+              </td>
+              <td className="actions">
+                {(r.key !== "" || r.value !== "") && (
+                  <ActionButton
+                    variant="quiet"
+                    onClick={() => remove(i)}
+                    label={`remove label row ${i + 1}`}
+                  >
+                    Remove
+                  </ActionButton>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function RegisterWizard({
   machines,
   onDone,
@@ -780,11 +887,12 @@ function RegisterWizard({
   const [chosenRoles, setChosenRoles] = useState<string[]>([]);
   const [tagRoles, setTagRoles] = useState(true);
   const [preselected, setPreselected] = useState(false);
-  const [labelText, setLabelText] = useState("");
+  // Sonda hep boş bir satır duruyor; dolduruldukça yenisi açılıyor.
+  const [labelRows, setLabelRows] = useState<LabelRow[]>([{ key: "", value: "" }]);
   const [results, setResults] = useState<Registered[] | null>(null);
   const [error, setError] = useState("");
 
-  const parsed = parseLabels(labelText);
+  const parsed = labelsOf(labelRows);
   const tagRoleNames = Array.from(new Set(machines.map((m) => m.role).filter((r): r is string => !!r)));
   const missingRoles = tagRoleNames.filter((r) => !roles.items.some((x) => x.name === r));
 
@@ -867,27 +975,14 @@ function RegisterWizard({
       )}
       {step === 1 && (
         <>
-          <label>
-            Labels, one key=value per line
-            <textarea
-              rows={4}
-              value={labelText}
-              onChange={(e) => setLabelText(e.target.value)}
-              placeholder={"env=prod\nteam=platform"}
-            />
-          </label>
+          <LabelTable rows={labelRows} onChange={setLabelRows} />
           <ErrorLine msg={parsed.error} />
-          {/* ⚠️ YAZILAN ETİKET HEMEN GÖRÜNÜYOR. Kutunun yer tutucusunu
-              yazılmış sanıp özette "etiket yok" görmek, aynı ekranda iki
-              kez yaşanabilecek bir yanılgıydı. */}
           <p className="muted small">
-            {parsed.error
-              ? "Fix the line above to see what will be attached."
-              : Object.keys(parsed.labels).length === 0
-                ? "No labels yet — the box is empty."
-                : `Will attach: ${Object.entries(parsed.labels)
-                    .map(([k, v]) => `${k}=${v}`)
-                    .join(", ")}`}
+            {Object.keys(parsed.labels).length === 0
+              ? "Labels are optional: leave the rows empty to attach none."
+              : `${Object.keys(parsed.labels).length} label${
+                  Object.keys(parsed.labels).length === 1 ? "" : "s"
+                } will be attached to each machine.`}
           </p>
         </>
       )}

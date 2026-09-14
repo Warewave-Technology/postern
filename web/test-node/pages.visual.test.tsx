@@ -185,6 +185,24 @@ window.__check = function () {
 /** İki temayı da diske yazar; denetim yardımcıları için kontrol listesini ekler. */
 function page(name: string) {
   fs.mkdirSync(OUT, { recursive: true });
+  /*
+   * ⚠️ YAZILAN DEĞER ÖZNİTELİK DEĞİL, ÖZELLİK. innerHTML yalnızca
+   * öznitelikleri taşıyor, bu yüzden doldurulmuş bir form anlık
+   * görüntüde BOŞ çıkıyordu: etiket tablosunun yazılı satırı ile boş
+   * satırı ayırt edilemiyor, tarama da dolu bir formu hiç ölçmemiş
+   * oluyordu. Özellikler serileştirmeden önce özniteliğe basılıyor;
+   * React denetimli girdilerde özellik değişmediği için ekrandaki
+   * durum bozulmuyor.
+   */
+  for (const el of document.querySelectorAll("input, textarea")) {
+    const f = el as HTMLInputElement;
+    if (f.type === "checkbox" || f.type === "radio") {
+      if (f.checked) f.setAttribute("checked", "");
+      else f.removeAttribute("checked");
+    } else if (f.value !== "") {
+      f.setAttribute("value", f.value);
+    }
+  }
   const body = document.body.innerHTML;
   for (const theme of ["light", "dark"]) {
     fs.writeFileSync(
@@ -253,6 +271,24 @@ function mockAll(fix: Fixtures) {
 
 const click = (name: string | RegExp) => {
   fireEvent.click(screen.getByRole("button", { name }));
+};
+
+/*
+ * showDialog, İSTENEN modalı açar — sayfadaki ilkini değil.
+ *
+ * ⚠️ ÖLÇÜLEN KUSUR: jsdom showModal() çalıştırmıyor, bu yüzden snapshot
+ * için `open` elle veriliyordu; ama `querySelector("dialog")` DOM'daki
+ * ilk modalı buluyor. Keşif ekranında bu "Edit source" modalı, yani
+ * sihirbazın görüntüsüne 69 piksellik boş bir kutu giriyordu ve tarama
+ * onu gerçek bir yerleşim kusuru gibi gösteriyordu. Başlığıyla seçiliyor;
+ * öbür modallar kapatılıyor.
+ */
+const showDialog = (re: RegExp) => {
+  const all = [...document.querySelectorAll("dialog")];
+  for (const d of all) {
+    if (re.test(d.textContent ?? "")) d.setAttribute("open", "");
+    else d.removeAttribute("open");
+  }
 };
 
 /** Varsa tıklar; yoksa sessizce false döner (düğme adı keşfediliyor). */
@@ -884,6 +920,7 @@ describe("sayfa düzeyinde görsel çıktı", () => {
         m("qemu/104", "bad-01", { fingerprint: undefined, problem: "no host key from 10.0.0.9:22 (dial tcp 10.0.0.9:22: i/o timeout)" }),
         m("qemu/105", "ign-01", { ignored: true }),
         m("qemu/106", "moved-01", { target: "moved-01", problem: "its host key SHA256:x differs from SHA256:y pinned on target moved-01; the target was left untouched" }),
+        m("qemu/107", "off-01", { running: false }), m("qemu/108", "off-02", { running: false }),
       ],
       secrets_available: true, min_interval_seconds: 300,
     };
@@ -893,8 +930,14 @@ describe("sayfa düzeyinde görsel çıktı", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /select web-01/i }));
     click(/register 1 selected/i);
     await settle();
-    document.querySelector("dialog")?.setAttribute("open", "");
+    showDialog(/register 1 machine/i);
     page("settings-discovery-register");
+    click(/^next$/i);
+    await settle();
+    fireEvent.change(screen.getByLabelText(/label key 1/i), { target: { value: "env" } });
+    fireEvent.change(screen.getByLabelText(/label value 1/i), { target: { value: "prod" } });
+    await settle();
+    page("settings-discovery-labels");
     cleanup();
     vi.restoreAllMocks();
 
@@ -902,7 +945,7 @@ describe("sayfa düzeyinde görsel çıktı", () => {
     await openSettings("Discovery");
     click(/^add source$/i);
     await settle();
-    document.querySelector("dialog")?.setAttribute("open", "");
+    showDialog(/add a discovery source/i);
     page("settings-discovery-source");
     cleanup();
     vi.restoreAllMocks();

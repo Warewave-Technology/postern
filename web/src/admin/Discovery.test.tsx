@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
-import Discovery, { machineState, parseLabels } from "./Discovery";
+import Discovery, { labelsOf, machineState } from "./Discovery";
 import { api, type DiscoveredMachine, type DiscoveryOverview, type DiscoverySource } from "../api";
 
 const source = (over: Partial<DiscoverySource> = {}): DiscoverySource => ({
@@ -86,8 +86,23 @@ it("durumu satırdan türetiyor: yalnızca yeni ve anahtarlı makine kaydedilebi
   expect(machineState(machine({ ignored: true, missing_since: "x" })).text).toBe("ignored");
   expect(machineState(machine({ fingerprint: undefined })).text).toBe("blocked");
   expect(machineState(machine({ problem: "bad name" })).registrable).toBe(false);
-  expect(parseLabels("env=prod\n team = platform \n\n").labels).toEqual({ env: "prod", team: "platform" });
-  expect(parseLabels("bozuk").error).toMatch(/key=value/);
+  expect(
+    labelsOf([
+      { key: "env", value: "prod" },
+      { key: " team ", value: " platform " },
+      { key: "", value: "" },
+    ]).labels,
+  ).toEqual({ env: "prod", team: "platform" });
+  // ⚠️ SUNUCUNUN KURALIYLA AYNI: panelde daha gevşek bir kural, yazdırıp
+  // sonra reddedilen bir etiket demek.
+  expect(labelsOf([{ key: "", value: "prod" }]).error).toMatch(/has no key/);
+  expect(labelsOf([{ key: "env prod", value: "x" }]).error).toMatch(/not allowed/);
+  expect(
+    labelsOf([
+      { key: "env", value: "a" },
+      { key: "env", value: "b" },
+    ]).error,
+  ).toMatch(/written twice/);
 });
 
 it("kaynakları son koşularıyla, makineleri durumlarıyla listeliyor", async () => {
@@ -129,7 +144,15 @@ it("seçili yeni makineleri roller ve etiketlerle kaydediyor", async () => {
   expect(register).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: /^next$/i }));
   expect(await screen.findByText(/step 2 of 3/i)).toBeTruthy();
-  await userEvent.type(screen.getByLabelText(/labels, one key=value per line/i), "env=prod");
+  /*
+   * ⚠️ ETİKET ARTIK TABLO: anahtar ve değer ayrı alanlar. Serbest metinde
+   * eşittiri unutan satır sessizce düşüyordu ve yer tutucu yazılmış
+   * sanılıyordu (kullanıcı söyledi).
+   */
+  await userEvent.type(screen.getByLabelText(/label key 1/i), "env");
+  await userEvent.type(screen.getByLabelText(/label value 1/i), "prod");
+  // Dolan satır yenisini açıyor: "ekle" düğmesi unutulacak bir adım olurdu.
+  expect(screen.getByLabelText(/label key 2/i)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: /^next$/i }));
   expect(await screen.findByText(/step 3 of 3/i)).toBeTruthy();
   expect(screen.getAllByText("SHA256:abc").length).toBeGreaterThan(0);
@@ -286,9 +309,9 @@ it("etiket rolünü seçili getiriyor ve özette tekrar etmiyor", async () => {
   expect(await screen.findByRole("button", { name: "remove web" })).toBeTruthy();
 
   fireEvent.click(screen.getByRole("button", { name: /^next$/i }));
-  await userEvent.type(await screen.findByLabelText(/labels, one key=value per line/i), "env=prod");
-  // Yazılan etiket adımın kendisinde görünüyor.
-  expect(screen.getByText(/will attach: env=prod/i)).toBeTruthy();
+  await userEvent.type(await screen.findByLabelText(/label key 1/i), "env");
+  await userEvent.type(screen.getByLabelText(/label value 1/i), "prod");
+  expect(screen.getByText(/1 label will be attached/i)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: /^next$/i }));
 
   // Arka plandaki liste de aynı adı taşıyor; özet tablosunun satırını
@@ -301,4 +324,42 @@ it("etiket rolünü seçili getiriyor ve özette tekrar etmiyor", async () => {
   // Makinenin platform etiketleri de özette.
   expect(row.cells[2].textContent).toContain("role_web");
   expect(screen.getByText(/labels attached to each machine/i)).toBeTruthy();
+});
+
+/*
+ * ⚠️ SATIR DOLDUKÇA YENİSİ AÇILIYOR VE SİLİNEBİLİYOR. "Ekle" düğmeli bir
+ * tabloda son satırı yazıp eklemeye basmamak, etiketi yazdığını sanarak
+ * ilerlemek demek — serbest metin kutusunda yaşanan yanılgının aynısı.
+ */
+it("etiket tablosu doldukça büyüyor ve bozuk anahtarı ilerletmiyor", async () => {
+  vi.spyOn(api, "discovery").mockResolvedValue(overview);
+  const register = vi.spyOn(api, "registerDiscovered").mockResolvedValue({ results: [] });
+  render(<Discovery />);
+  await screen.findByText("web-01");
+
+  fireEvent.click(screen.getByRole("checkbox", { name: /select web-01/i }));
+  fireEvent.click(screen.getByRole("button", { name: /register 1 selected/i }));
+  fireEvent.click(await screen.findByRole("button", { name: /^next$/i }));
+
+  await userEvent.type(await screen.findByLabelText(/label key 1/i), "env");
+  await userEvent.type(screen.getByLabelText(/label value 1/i), "prod");
+  await userEvent.type(screen.getByLabelText(/label key 2/i), "team");
+  await userEvent.type(screen.getByLabelText(/label value 2/i), "platform");
+  expect(screen.getByLabelText(/label key 3/i)).toBeTruthy();
+  expect(screen.getByText(/2 labels will be attached/i)).toBeTruthy();
+
+  // Bozuk anahtar: sebebiyle söyleniyor ve ileri gidilmiyor.
+  await userEvent.type(screen.getByLabelText(/label key 3/i), "env prod");
+  expect(screen.getByText(/not allowed/i)).toBeTruthy();
+  expect((screen.getByRole("button", { name: /^next$/i }) as HTMLButtonElement).disabled).toBe(true);
+
+  fireEvent.click(screen.getByRole("button", { name: /remove label row 3/i }));
+  fireEvent.click(screen.getByRole("button", { name: /^next$/i }));
+  fireEvent.click(await screen.findByRole("button", { name: /register 1 machine/i }));
+
+  await waitFor(() =>
+    expect(register).toHaveBeenCalledWith(
+      expect.objectContaining({ labels: { env: "prod", team: "platform" } }),
+    ),
+  );
 });

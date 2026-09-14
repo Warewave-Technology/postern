@@ -3865,3 +3865,16 @@ a.tcard-name:focus-visible {
 .form-actions > .form-push {
   margin-left: auto;
 }
+
+/*
+ * Etiket tablosu: anahtar/değer girdileri hücreyi dolduruyor.
+ *
+ * ⚠️ VARSAYILAN GENİŞLİK BURADA YANLIŞ OKUNUYOR. Girdi kendi doğal
+ * boyunda kalınca 1150 piksellik modalda 100 piksellik iki kutu ve çok
+ * uzağında bir "Remove" kalıyor; tablo, satırın nerede bittiği okunmayan
+ * seyrek bir ızgaraya dönüşüyordu. Sütun genişliği tablonun kendi işi.
+ */
+.label-table input {
+  width: 100%;
+  box-sizing: border-box;
+}
