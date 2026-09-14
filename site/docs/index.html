@@ -330,8 +330,8 @@ $ ssh -J bastion ...                <span class="c"># not this; postern is not a
         <code>darwin_amd64</code> and <code>darwin_arm64</code> — so substitute
         the one you need for <code>linux_amd64</code> below.
       </p>
-<pre>$ B=https://github.com/Warewave-Technology/postern/releases/download/v1.1.0
-$ curl -LO $B/postern_1.1.0_linux_amd64.tar.gz
+<pre>$ B=https://github.com/Warewave-Technology/postern/releases/download/v1.2.0
+$ curl -LO $B/postern_1.2.0_linux_amd64.tar.gz
 $ curl -LO $B/checksums.txt
 $ curl -LO $B/checksums.txt.bundle
 </pre>
@@ -362,7 +362,7 @@ Verified OK
         install:
       </p>
 <pre>$ sha256sum -c checksums.txt --ignore-missing     <span class="c"># macOS: shasum -a 256 in place of sha256sum</span>
-$ tar xzf postern_1.1.0_linux_amd64.tar.gz
+$ tar xzf postern_1.2.0_linux_amd64.tar.gz
 $ sudo install -o root -g root -m 0755 postern /usr/bin/postern   <span class="c"># where the systemd unit looks</span>
 </pre>
       <div class="note"><b>Or install the package</b><p>Releases also carry <code>.deb</code>, <code>.rpm</code> and <code>.apk</code> packages, which place the binary at the same path, install the systemd unit, and create the <code>postern</code> account and its directories with the right ownership. They deliberately do <i>not</i> start the service: postern needs a configuration, a CA key, a master key and a database before it can open, so the package installs and then tells you the five commands that come next. Removing the package stops the service and leaves recordings, keys, configuration and the database where they are — uninstalling a bastion is not the same as deleting its evidence.</p></div>

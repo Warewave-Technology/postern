@@ -30,6 +30,10 @@ audit rows into a shape it does not understand.
 
 ## Unreleased
 
+Nothing yet.
+
+## 1.2.0 — 2026-09-14
+
 ### Security
 
 - **A postern username could forge lines in a target's sshd log.** A
@@ -98,10 +102,14 @@ audit rows into a shape it does not understand.
 
 ### Needs action if you rely on recordings as evidence
 
-- **Recordings now carry a tamper-evident chain, and seven schema migrations
-  land with this release (034–040).** Run `postern db migrate` before starting
-  the new binary; the bastion refuses to start against a schema it does not
-  match rather than writing audit rows into a shape it does not understand.
+- **Recordings now carry a tamper-evident chain, and thirteen schema
+  migrations land with this release (034–046).** Run `postern db migrate`
+  before starting the new binary; the bastion refuses to start against a
+  schema it does not match rather than writing audit rows into a shape it
+  does not understand. Besides the chain, they carry the panel's path rules,
+  the authenticator lockout, security keys, temporary access and what it
+  cleans up, discovery sources and the machines they find, and the sudo rule
+  a role carries.
 
   Sessions that closed **before** migration 034 have no chain, and
   `postern session verify` reports them as *cannot be verified* — not as
@@ -831,6 +839,18 @@ audit rows into a shape it does not understand.
   somebody believe they had written a restriction they had not.
 
 ### Changed
+
+- **An account can no longer be auto-provisioned under the name of the
+  temporary-access marker group.** `postern-jit` is a group, and the sweeper
+  recognises a temporary account by membership in it; a directory account
+  carrying that name would sit inside the distinction. It joins the reserved
+  names, beside the management account. An account of that name created
+  before this release keeps working; only automatic provisioning refuses it.
+
+- **The principals file postern writes is created with the mode postern
+  chose.** It was written with a bare `tee`, which leaves the mode to the
+  target's umask; the file says which certificate may open the account, and
+  a root shell opened with `umask 000` would have left it world-writable.
 
 - **The quickstart's demo machines are set up the way the Ansible role sets up
   a real target**, so *Check management access* can be tried from the panel

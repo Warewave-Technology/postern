@@ -50,8 +50,8 @@ in. Four are published: `linux_amd64`, `linux_arm64`, `darwin_amd64` and
 `darwin_arm64`.
 
 ```bash
-B=https://github.com/Warewave-Technology/postern/releases/download/v1.1.0
-curl -LO $B/postern_1.1.0_linux_amd64.tar.gz
+B=https://github.com/Warewave-Technology/postern/releases/download/v1.2.0
+curl -LO $B/postern_1.2.0_linux_amd64.tar.gz
 curl -LO $B/checksums.txt
 curl -LO $B/checksums.txt.bundle
 ```
