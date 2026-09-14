@@ -121,14 +121,49 @@ func (s *Service) Grant(ctx context.Context, req Request, actor string) (Outcome
 	desired := provision.Desired{Users: []provision.User{{
 		Name: user.OSUser, Groups: req.Groups, JIT: true, ExpiresAt: grant.ExpiresAt, Sudo: req.Sudo,
 	}}}
+	/*
+	 * ⚠️ ROLÜN SUDO KURALI GRUBUN DOSYASINA, HAKKINKİ HESABINKİNE.
+	 *
+	 * Seçilen grupların bir kısmı postern rolü ve rolün bir sudo kuralı
+	 * olabiliyor (göç 046). O kural `%rol` satırı olarak grubun dosyasına
+	 * yazılıyor; kişi onu ÜYELİKTEN çekiyor, yani aynı roldeki herkes aynı
+	 * kuralı alıyor ve kural tek yerde duruyor. Hak sırasında verilen ek
+	 * kural (req.Sudo) hesabın kendi dosyasında kalıyor ve hesapla birlikte
+	 * gidiyor.
+	 *
+	 * ⚠️ İŞARET GRUBUNA KURAL YAZILMIYOR. postern-jit o makinedeki BÜTÜN
+	 * geçici hesapların ortak grubu; oraya yazılan bir kural, birine
+	 * verilen yetkiyi hepsine verirdi. Roller ayrı gruplar, bu yüzden bu
+	 * yol güvenli.
+	 */
+	rules, err := s.store.RoleSudoRules(ctx)
+	if err != nil {
+		return Outcome{}, s.failed(ctx, actor, "jit.grant", target.Name,
+			"could not read the roles' sudo rules", err)
+	}
+	byRole := make(map[string]store.RoleSudo, len(rules))
+	for name, r := range rules {
+		byRole[strings.ToLower(name)] = r
+	}
+	var withRule []string
 	for _, g := range req.Groups {
-		desired.Groups = append(desired.Groups, provision.Group{Name: g})
+		group := provision.Group{Name: g}
+		if r, ok := byRole[strings.ToLower(g)]; ok {
+			group.Sudo = r.Rule
+			withRule = append(withRule, g)
+		}
+		desired.Groups = append(desired.Groups, group)
 	}
 
 	details := fmt.Sprintf("granting %s (account %s) on %s for %s; groups %s",
 		user.Name, user.OSUser, target.Name, req.Duration, listOrNone(req.Groups))
 	if req.Sudo != nil {
 		details += "; with a sudo rule"
+	}
+	// Rolün kuralı da deftere: hedefte grubun dosyasına yazılan yetki,
+	// hakkı veren satırdan okunabilmeli.
+	if len(withRule) > 0 {
+		details += "; role sudo rules applied for " + strings.Join(withRule, ", ")
 	}
 	if err := s.audit(ctx, actor, "jit.grant", target.Name, details); err != nil {
 		return Outcome{}, err

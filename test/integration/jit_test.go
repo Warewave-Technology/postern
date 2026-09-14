@@ -70,6 +70,21 @@ func TestATemporaryAccountIsCreatedAndTakenAwayAgain(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
+	/*
+	 * ⚠️ İKİ AYRI SUDO KAYNAĞI, İKİ AYRI DOSYA. Rolün kuralı grubun
+	 * dosyasına (`%yayilim`), hakkın kuralı hesabın dosyasına yazılıyor.
+	 * Kullanıcının tasarımı bu: yetki gruba tanımlanıyor, kişi üyelikten
+	 * çekiyor; hak sırasında verilen ek yetki yalnızca o hesaba ait.
+	 */
+	if _, err := db.CreateRole(ctx, "yayilim"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetRoleSudo(ctx, "yayilim", sudoers.Rule{Commands: []sudoers.Command{
+		{Path: "/usr/sbin/nginx", Args: []string{"-s", "reload"}},
+	}}, "ops"); err != nil {
+		t.Fatal(err)
+	}
+
 	rule := &sudoers.Rule{Commands: []sudoers.Command{{Path: "/usr/bin/nginx", Args: []string{"-t"}}}}
 	out, err := svc.Grant(ctx, jit.Request{
 		Username: "ayse", Target: "cert-target", Groups: []string{"yayilim", "gecici"},
@@ -101,8 +116,15 @@ func TestATemporaryAccountIsCreatedAndTakenAwayAgain(t *testing.T) {
 	if _, err := r.Exec(ctx, "sudo -n usermod -a -G yayilim deploy", ""); err != nil {
 		t.Fatalf("deploy yayilim grubuna alınamadı: %v", err)
 	}
-	if list, err := r.Exec(ctx, "sudo -n -l -U jitayse", ""); err != nil || !strings.Contains(list, "/usr/bin/nginx -t") {
-		t.Errorf("sudo kuralı hedefte etkin değil: %q (%v)", list, err)
+	if list, err := r.Exec(ctx, "sudo -n -l -U jitayse", ""); err != nil ||
+		!strings.Contains(list, "/usr/bin/nginx -t") ||
+		!strings.Contains(list, "/usr/sbin/nginx -s reload") {
+		t.Errorf("sudo kuralları hedefte etkin değil: %q (%v)", list, err)
+	}
+	// Rolün kuralı GRUBUN dosyasında, hesabınkinden ayrı.
+	if body, err := r.Exec(ctx, "sudo -n cat "+provision.SudoPath("yayilim"), ""); err != nil ||
+		!strings.Contains(body, "%yayilim") || !strings.Contains(body, "/usr/sbin/nginx -s reload") {
+		t.Errorf("rolün kuralı grubun dosyasında değil: %q (%v)", body, err)
 	}
 	// Yedek süre yazılmış olmalı: chage -l ya da shadow'un 8. alanı.
 	if shadow, err := r.Exec(ctx, "sudo -n getent shadow jitayse", ""); err != nil || strings.Split(strings.TrimSpace(shadow), ":")[7] == "" {
@@ -169,6 +191,15 @@ func TestATemporaryAccountIsCreatedAndTakenAwayAgain(t *testing.T) {
 	}
 	if f, _ := r.Exec(ctx, "sudo -n test -e "+provision.UserSudoPath("jitayse")+" && echo VAR || echo YOK", ""); strings.TrimSpace(f) != "YOK" {
 		t.Errorf("sudo dosyası duruyor")
+	}
+	/*
+	 * ⚠️ ROLÜN DOSYASI KALIYOR — hakka değil ROLE ait. Geri alma hakkı
+	 * kaldırıyor; rolün yetkisini kaldırmak ayrı ve bilinçli bir iş
+	 * (rolün kuralını silmek). Hesap gittiği için kimse o kuralı
+	 * çekmiyor: yetki üyelikten geliyor.
+	 */
+	if f, _ := r.Exec(ctx, "sudo -n test -e "+provision.SudoPath("yayilim")+" && echo VAR || echo YOK", ""); strings.TrimSpace(f) != "VAR" {
+		t.Errorf("rolün sudo dosyası geri almada silindi")
 	}
 	if f, _ := r.Exec(ctx, "sudo -n test -e /etc/ssh/auth_principals/jitayse && echo VAR || echo YOK", ""); strings.TrimSpace(f) != "YOK" {
 		t.Errorf("principals dosyası duruyor")

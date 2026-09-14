@@ -119,6 +119,29 @@ audit rows into a shape it does not understand.
 
 ### Added
 
+- **A role can carry a sudo rule, and the people in it draw that rule from
+  the group.** Until now a sudo rule could only be written per grant, into
+  the account's own file on the target, so the same rule was retyped for
+  every person and drifted between them. A role's rule is written once and
+  lands on a target as `%<role> ALL=(runas) NOPASSWD: ...` in
+  `/etc/sudoers.d/postern-<role>`; membership in the role's group is what
+  grants it. What a grant adds on top still goes into the account's own
+  file and leaves with the account, so a grant can widen a person's rights
+  for four hours without widening the role's.
+
+  Two consequences worth stating plainly. A role now grants sudo as well as
+  reach, so adding someone to a role gives them more than it used to, and
+  the screen says so. And the rule reaches a machine when postern next
+  touches it — opening a temporary account there, for now — rather than
+  being pushed to every target the role can reach.
+
+  The marker group deliberately carries no rule: `postern-jit` holds every
+  temporary account on the host, so a rule written there would hand one
+  person's rights to all of them. A rule that `sudoers.Validate` reads as a
+  way out to a root shell is refused at the point it is written rather than
+  when it reaches a target, so a saved rule is one that can actually be
+  applied. Migration 046 adds the table.
+
 - **The Ansible role that prepares a target is now covered by a test.** It
   had none: the role writes the CA, the principals files and the management
   account's sudo rule, and nothing checked that a change to it still
