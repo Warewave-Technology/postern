@@ -53,6 +53,15 @@ audit rows into a shape it does not understand.
   last one removes the rule, which is what the server does with a rule that
   has no commands left.
 
+- **The pills listing a user's roles are no longer lopsided.** They were
+  padded for a remove button on their right — 0.5rem of room on the left,
+  0.18rem on the right. That button moved to the role's own page when the
+  roles list became a summary, so the padding was left describing a control
+  that no longer exists and the text sat against the left edge of the pill.
+  The padding is even now, the pill's height no longer depends on the line
+  height of whatever table it sits in, and the rules for the button that is
+  gone went with it.
+
 - **A sudo command is edited on its own row, and the account it runs as is a
   field rather than a prefix in text.** Editing the whole rule meant editing
   a box of lines where a non-root account was carried as `(postgres) ` in

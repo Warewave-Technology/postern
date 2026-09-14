@@ -1422,15 +1422,27 @@ label.check input[type="checkbox"] {
   gap: 0.35rem;
   align-items: center;
 }
+/*
+ * ⚠️ DOLGU SİMETRİK, VE BİR ZAMANLAR DEĞİLDİ. Etiketin sağında bir
+ * "revoke" düğmesi varken sağ dolgu bilerek dardı (0.18rem), sol genişti
+ * (0.5rem). O düğmeler rol sayfasına, tabloya taşındı; geriye metni sola
+ * yapışık, sağı boş duran yamuk bir hap kaldı (kullanıcı ekrana bakıp
+ * söyledi). Düğmeli bir etiket geri gelirse kendi değiştiricisini alır.
+ *
+ * line-height açıkça yazılı: hapın yüksekliği bulunduğu hücrenin satır
+ * yüksekliğine bağlı kalırsa, aynı etiket iki tabloda iki farklı boyda
+ * çiziliyor.
+ */
 .chip {
   display: inline-flex;
   align-items: center;
-  gap: 0.15rem;
-  padding: 0.13rem 0.18rem 0.13rem 0.5rem;
+  gap: 0.3rem;
+  padding: 0.16rem 0.55rem;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--sunken);
   font-size: 12px;
+  line-height: 1.35;
 }
 /* ⚠️ ONAYLANMIŞ KAÇIŞ RİSKİ GÖZE ÇARPMALI: rolün sudo kuralı bir
    editör ya da sayfalayıcı içeriyorsa o rol pratikte root veriyor ve
@@ -1440,27 +1452,12 @@ label.check input[type="checkbox"] {
   border-color: var(--warn-line);
   color: var(--warn);
   background: var(--warn-bg);
-  padding-right: 0.5rem;
 }
 .chip code {
   font-size: 12px;
+  line-height: inherit;
   color: var(--ink);
 }
-.chip button {
-  padding: 0.1rem 0.35rem;
-  border: 0;
-  border-radius: 999px;
-  background: none;
-  box-shadow: none;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1;
-}
-.chip button:hover:not(:disabled) {
-  background: var(--danger-bg);
-  color: var(--danger);
-}
-
 /* Etiket çipi: key=value. Anahtar soluk, değer koyu — gözle ayrılsınlar. */
 .label-chip {
   display: inline-flex;
