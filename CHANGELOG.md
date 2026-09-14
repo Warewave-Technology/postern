@@ -837,6 +837,26 @@ audit rows into a shape it does not understand.
 
 ### Fixed
 
+- **A temporary account now gets its principals file where that host's sshd
+  actually looks for it.** postern read `AuthorizedPrincipalsFile` from
+  `sshd -T`, which reports the merged global configuration and ignores
+  `Match` blocks. Measured on a demo target: with
+
+  ```
+  Match User jitayse
+    AuthorizedPrincipalsFile /etc/ssh/jit_principals/%u
+  ```
+
+  in `sshd_config`, the plain read still answered
+  `/etc/ssh/auth_principals/%u` while a read in the account's own context
+  answered `/etc/ssh/jit_principals/%u`. postern wrote the file to the first
+  path, so the grant reported success and the person could not open a
+  session. Both granting and revoking now read the directive with
+  `-C user=<account>`, and revoking therefore removes the file it wrote
+  rather than leaving one behind for the next account of the same name. A
+  target that cannot answer keeps today's behaviour instead of falling back
+  to an empty path, which would have skipped writing the file at all.
+
 - **A session cut short keeps its last bytes in the recording.** When a
   session was ended by postern rather than by the two sides hanging up
   — an administrator closing it, a temporary grant expiring, the

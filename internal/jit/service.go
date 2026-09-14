@@ -146,7 +146,12 @@ func (s *Service) Grant(ctx context.Context, req Request, actor string) (Outcome
 	}
 	// Hedefin sshd'si principals dosyası istiyorsa geçici hesabınki de
 	// yazılacak — yoksa hesap açılır ama sertifika onu açamaz.
-	desired.PrincipalsFile = caps.PrincipalsFile
+	/*
+	 * Desen hesabın BAĞLAMINDA okunuyor: Match User bloğu olan bir
+	 * sshd'de genel değer yanlış yolu gösteriyor ve dosya sshd'nin
+	 * bakmadığı yere yazılıyor (bkz. PrincipalsPatternFor).
+	 */
+	desired.PrincipalsFile = provision.PrincipalsPatternFor(ctx, runner, user.OSUser, caps.PrincipalsFile)
 	observed, err := provision.Observe(ctx, runner, desired)
 	if err != nil {
 		return Outcome{}, s.failed(ctx, actor, "jit.grant", target.Name, "could not read the target", err)
@@ -259,7 +264,15 @@ func (s *Service) Revoke(ctx context.Context, id, actor, via string) (Outcome, e
 	if g.Sudo != nil {
 		sudoFiles = []string{provision.UserSudoPath(g.OSUser)}
 	}
-	principals, err := provision.PrincipalsPath(caps.PrincipalsFile, g.OSUser)
+	/*
+	 * ⚠️ GERİ ALMA, YAZILAN YERİ SİLMEK ZORUNDA. Desen hak verilirken
+	 * hesabın bağlamında okundu; burada genel değeri kullanmak, Match
+	 * bloklu bir hedefte dosyayı yazdığımız yerde bırakırdı — ve aynı
+	 * hesap adına ikinci bir hak verildiğinde postern yazmadan önce
+	 * duran bir principals dosyası kapıyı açık tutardı.
+	 */
+	pattern := provision.PrincipalsPatternFor(ctx, runner, g.OSUser, caps.PrincipalsFile)
+	principals, err := provision.PrincipalsPath(pattern, g.OSUser)
 	if err != nil {
 		return out, s.revokeFailedAfter(ctx, g, actor, via, "refused to locate the principals file", err, 6*time.Hour)
 	}
