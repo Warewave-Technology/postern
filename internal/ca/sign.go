@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+
+	"github.com/Warewave-Technology/postern/internal/model"
 )
 
 const (
@@ -67,11 +69,11 @@ func (c *CA) Sign(req CertRequest) (*ssh.Certificate, error) {
 	 * Temizlemek yerine REDDETMEK, çünkü sessizce değiştirilmiş bir KeyID
 	 * denetimde kişiyle eşleşmez.
 	 */
-	if bad := controlChar(req.KeyID); bad >= 0 {
+	if bad := model.ControlCharAt(req.KeyID); bad >= 0 {
 		return nil, fmt.Errorf("ca.Sign: req.KeyID has a control character at byte %d", bad)
 	}
 	for _, p := range req.Principals {
-		if bad := controlChar(p); bad >= 0 {
+		if bad := model.ControlCharAt(p); bad >= 0 {
 			return nil, fmt.Errorf("ca.Sign: principal %q has a control character at byte %d", p, bad)
 		}
 	}
@@ -133,17 +135,6 @@ func (c *CA) Sign(req CertRequest) (*ssh.Certificate, error) {
 	}
 
 	return &cert, nil
-}
-
-// controlChar, ilk kontrol baytının konumunu döner; yoksa -1.
-func controlChar(s string) int {
-	for i := 0; i < len(s); i++ {
-		if c := s[i]; c < 0x20 || c == 0x7f {
-			return i
-		}
-	}
-
-	return -1
 }
 
 func generateRandomSerial64() (uint64, error) {

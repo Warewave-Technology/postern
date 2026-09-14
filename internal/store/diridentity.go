@@ -120,6 +120,9 @@ func (s *Store) CreateFromDirectory(ctx context.Context, acc DirectoryAccount) (
 	 * ve refuseBadOSUser'dan geçmiyor; uid'si "postern" olan bir dizin
 	 * kaydı, kimse karar vermeden yönetim hesabının adıyla açılırdı.
 	 */
+	if err := refuseBadUsername("store.CreateFromDirectory", acc.Username); err != nil {
+		return model.User{}, err
+	}
 	if reservedOSUsers[acc.Username] || model.IsManagementName(acc.Username) {
 		return model.User{}, fmt.Errorf(
 			"store.CreateFromDirectory[%s]: refusing to auto-provision a reserved "+

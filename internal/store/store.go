@@ -192,7 +192,35 @@ func refuseBadOSUser(op, osUser string) error {
 		op, osUser, ErrInvalid)
 }
 
+/*
+ * refuseBadUsername, postern kullanıcı adını YAZMADAN ÖNCE eler.
+ *
+ * ⚠️ KAPI TABLOYA YAZAN YERDE, çağıranda değil — refuseBadOSUser ile
+ * aynı gerekçe: kural çağrı yerlerine dağıtıldığında yeni bir çağıran
+ * onu hatırlamak zorunda kalıyor ve biri mutlaka unutuyor. Ölçüldü:
+ * kontrol yalnızca panel ve CLI çağrılarına konduğunda SSH giriş yolu
+ * (sshd/auth.go -> ProvisionUser, RecordPending) ve `admin bootstrap`
+ * açıkta kalmıştı; oysa adın zarar verdiği yer tam da sertifikayla
+ * açılan oturumun hedefte bıraktığı günlük satırı.
+ *
+ * ⚠️ RET DENETİM DEFTERİNE YAZILMIYOR, SUNUCU GÜNLÜĞÜNE YAZILIYOR.
+ * Reddedilen ad saldırganın seçtiği metin; onu admin_log'a koymak,
+ * kaçırmaya çalıştığımız karakterleri denetim tablosuna elimizle
+ * taşımak olurdu. admin_log "kim neyi DEĞİŞTİRDİ" defteri olarak
+ * kalıyor; ret, sunucu günlüğüne %q ile kaçırılarak düşüyor.
+ */
+func refuseBadUsername(op, username string) error {
+	if err := model.ValidUsername(username); err != nil {
+		return fmt.Errorf("%s: %v: %w", op, err, ErrInvalid)
+	}
+
+	return nil
+}
+
 func (s *Store) CreateUser(ctx context.Context, username, email, osUser string) (string, error) {
+	if err := refuseBadUsername("store.CreateUser", username); err != nil {
+		return "", err
+	}
 	if err := refuseBadOSUser("store.CreateUser", osUser); err != nil {
 		return "", err
 	}
@@ -1750,6 +1778,9 @@ func (s *Store) SetUserEmail(ctx context.Context, username, email string) error 
 // principal'ını değiştirir — geçmiş denetim kayıtlarına dokunmaz
 // (sessions.os_user o günkü kararı saklar; sebebi şemada yazıyor).
 func (s *Store) SetUserOSUser(ctx context.Context, username, osUser string) error {
+	if err := refuseBadUsername("store.SetUserOSUser", username); err != nil {
+		return err
+	}
 	if err := refuseBadOSUser("store.SetUserOSUser", osUser); err != nil {
 		return err
 	}

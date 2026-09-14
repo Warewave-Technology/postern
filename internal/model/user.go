@@ -6,7 +6,10 @@
 // motorun SQLite'tan PostgreSQL'e geçmesi de bu pakete dokunmadı.
 package model
 
-import "regexp"
+import (
+	"fmt"
+	"regexp"
+)
 
 // User, bastion'da kimliği doğrulanmış kişi.
 type User struct {
@@ -65,4 +68,49 @@ var osUserNamePattern = regexp.MustCompile(`^[a-z_][a-z0-9_.-]{0,31}$`)
 // ValidOSUserName reports whether name may be used as a target account.
 func ValidOSUserName(name string) bool {
 	return osUserNamePattern.MatchString(name)
+}
+
+/*
+ * ControlCharAt, dizgideki ilk kontrol karakterinin bayt konumu; yoksa -1.
+ *
+ * ⚠️ TEK TANIM, İKİ KAPI. Aynı kural hem SERTİFİKA İMZALANIRKEN
+ * (ca.Sign: key id ve principal) hem de kullanıcı adı VERİTABANINA
+ * YAZILIRKEN uygulanıyor. İki ayrı kopya yazmak, ikisinin ayrışması
+ * demekti — ve ayrışmanın yönü fark ediyor: yazma kuralı imzalama
+ * kuralından GEVŞEK olursa, açılabilen ama sertifikası hiç kesilemeyen
+ * bir hesap doğar. Bu depo o arızayı bir kez ölçtü (os_user kuralı
+ * yalnızca politika kapısındaydı; hesap "kurulmuş görünüp her oturumda
+ * reddedilen" hâlde doğuyordu, bkz. refuseBadOSUser).
+ *
+ * ⚠️ C1 DE SAYILIYOR (U+0080-U+009F), imzalama tarafındaki bayt
+ * taramasının kaçırdığı aralık: UTF-8'de C2 80 olarak kodlanıyor ve iki
+ * baytın ikisi de 0x20'nin üstünde. Terminal ve günlük ayrıştırıcıları
+ * onları da yorumluyor. Kural bu yüzden rune üzerinden.
+ */
+func ControlCharAt(s string) int {
+	for i, r := range s {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
+			return i
+		}
+	}
+
+	return -1
+}
+
+/*
+ * ValidUsername, adın postern kullanıcı adı olarak yazılabilir olduğu.
+ *
+ * ⚠️ YALNIZCA KONTROL KARAKTERİ ELENİYOR, ŞEKİL DEĞİL. Kullanıcı adı
+ * kimlik sağlayıcısından geliyor ve e-posta, UPN ya da uzun bir dizin
+ * adı olabiliyor; ona bir desen dayatmak kurumun kendi ad alanını
+ * reddetmek olurdu. Elenen şey ÖLÇÜLEN zarar: ad, sertifikanın key
+ * id'sine giriyor ve hedefin sshd günlüğüne olduğu gibi yazılıyor —
+ * satır sonu taşıyan bir ad, o günlüğe kendi satırını yazdırıyordu.
+ */
+func ValidUsername(name string) error {
+	if i := ControlCharAt(name); i >= 0 {
+		return fmt.Errorf("username %q has a control character at byte %d", name, i)
+	}
+
+	return nil
 }

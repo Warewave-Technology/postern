@@ -56,6 +56,10 @@ func (s *Store) RecordPending(ctx context.Context, p PendingUser) (string, error
 	if strings.TrimSpace(p.Subject) == "" {
 		return "", fmt.Errorf("store.RecordPending: empty subject")
 	}
+	// Kuyruk da bir yazma yolu: onaylandığında bu ad users'a geçiyor.
+	if err := refuseBadUsername("store.RecordPending", p.Username); err != nil {
+		return "", err
+	}
 	id, err := newID()
 	if err != nil {
 		return "", err
@@ -176,6 +180,15 @@ func (s *Store) ApprovePending(ctx context.Context, id, osUser, by string) (Pend
 	 * kontrolünü ekliyor.
 	 */
 	if err := refuseBadOSUser("store.ApprovePending", osUser); err != nil {
+		return PendingUser{}, err
+	}
+	/*
+	 * ⚠️ ONAY DA AYRI BİR KAPI, kuyruk kapısı olsa bile: bu satırlar
+	 * kapıdan ÖNCE yazılmış olabiliyor ve onay onları users'a taşıyor.
+	 * Kuyruğa güvenmek, eski bir satırı yeni kuralın etrafından
+	 * dolaştırırdı.
+	 */
+	if err := refuseBadUsername("store.ApprovePending", p.Username); err != nil {
 		return PendingUser{}, err
 	}
 

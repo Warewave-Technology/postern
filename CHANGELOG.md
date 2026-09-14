@@ -56,8 +56,24 @@ audit rows into a shape it does not understand.
   SELECT username FROM users WHERE username ~ '[[:cntrl:]]';
   ```
 
-  and recreate them under a clean name. Refusing such names when they are
-  written, rather than when they are used, is tracked separately.
+  and recreate them under a clean name.
+
+  Such a name can also no longer be **written**. The refusal now sits in the
+  store, beside the one that already guards target account names: every path
+  that writes a username goes through it — an administrator creating an
+  account from the panel or the CLI, `admin bootstrap`, the approval queue,
+  an identity provider provisioning one at the panel or over SSH, and a
+  directory account created on first sign-in. Putting the check at the call
+  sites instead was tried and measured: the SSH sign-in path and
+  `admin bootstrap` were left out, which are precisely the paths that end in
+  a certificate. The rule is the same one signing uses, defined once and
+  shared, because a write rule looser than the signing rule would create
+  accounts that can be opened but never given a certificate. It also covers
+  the C1 range, which the byte-level check at signing time does not see.
+
+  A refused name is written to the server log, not to the admin log: the
+  name is attacker-chosen text, and carrying it into the audit table is the
+  thing being prevented.
 
 ### Needs action if you installed the binary by hand
 
