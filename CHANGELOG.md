@@ -32,6 +32,32 @@ audit rows into a shape it does not understand.
 
 ### Changed
 
+- **The config file is readable from the panel, and the archive card moved
+  there.** What a bastion is running with — where it listens, how long a
+  session may idle, where recordings go — lived only in a file on the host,
+  so answering "what is this thing configured to do" meant an SSH session
+  and a `cat`. There is now a Configuration screen under Audit that shows
+  those values read-only: the file's path, every setting grouped by area,
+  and one line each on what it does. Nothing can be changed from it. That
+  is deliberate — a panel session that could move the listen address, the
+  recording destination or the trust chain would be a panel session that
+  could redirect the audit trail.
+
+  Two settings are named but never shown: the database connection string
+  and the OIDC client secret. Their values do not reach the browser at all,
+  and they are listed by name with the reason, since a setting that is
+  simply absent reads as one nobody wrote. The screen works off an
+  allow-list rather than dumping the config, and a test fails if a new
+  config field is added without being classified as shown or withheld —
+  otherwise the day someone adds `smtp.password`, the panel starts printing
+  it and no one notices.
+
+  The recording archive card — where the archive's key is rotated — sat at
+  the bottom of the LDAP screen. Its own comment said it was shown
+  independently of the identity source, but the screen it sat on meant an
+  install using local accounts never saw it at all. It is on the
+  Configuration screen now, next to the archive destination it belongs to.
+
 - **A role now has its own page, and the list only counts.** Every role's
   targets were drawn in its row, one chip per host, next to a target picker
   and two buttons that opened modals. At a hundred targets that row buries

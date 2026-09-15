@@ -516,6 +516,38 @@ const adminLog: LogEntry[] = Array.from({ length: 18 }, (_, i) => {
 const base: Fixtures = {
   me: meAdmin,
   /*
+   * Salt-okunur yapılandırma: uzun bir yol, yazılmamış bir ayar ve
+   * gizlenen iki alan — üçü de satırın biçimini farklı zorluyor.
+   */
+  config: {
+    path: "/etc/postern/config.yaml",
+    groups: [
+      {
+        title: "listen",
+        entries: [
+          { key: "listen.addr", value: ":2222", note: "where the bastion listens for SSH" },
+          { key: "listen.handshake_timeout", value: "30s", note: "how long a connection may take to authenticate" },
+        ],
+      },
+      {
+        title: "recording",
+        entries: [
+          { key: "recording.dir", value: "/var/lib/postern/recordings", note: "where session recordings are written" },
+          { key: "recording.archive.endpoint", value: "(not set)", note: "where recordings are copied off the box" },
+          {
+            key: "recording.archive.prefix",
+            value: "bastion/eu-west-1/prod/session-recordings",
+            note: "the key prefix used there",
+          },
+        ],
+      },
+    ],
+    withheld: [
+      { key: "database.dsn", value: "", note: "carries the database password" },
+      { key: "oidc.client_secret", value: "", note: "is a secret" },
+    ],
+  },
+  /*
    * Çan dolu: rozetin rengi ve listenin yerleşimi ancak bekleyen iş
    * varken taranabiliyor. Üç kaynak da temsil ediliyor, çünkü satırın
    * uzunluğu kaynağa göre değişiyor.
@@ -679,7 +711,17 @@ const openSettings = async (section?: string | RegExp) => {
   }
 };
 
-describe("sayfa düzeyinde görsel çıktı", () => {
+/*
+ * ⚠️ VARSAYILAN 5 SANİYELİK SÜRE BURADA YETMİYOR — ölçüldü. Bu dosya
+ * ellinin üzerinde sayfayı iki temada render edip diske yazıyor; tek
+ * başına koşarken 3,5 saniye sürüyor, 53 dosyayla birlikte koşarken 5'i
+ * aşıyordu. Süre aşımı testi ORTASINDA kesiyor, yani cleanup() hiç
+ * çalışmıyor ve BİR SONRAKİ test önceki sayfanın DOM'u ekrandayken
+ * başlıyor: ortaya, sebebi bambaşka görünen ikinci bir hata çıkıyor
+ * ("yigit.basalma düğmesi bulunamadı"). Uzun bir testin süresini
+ * uzatmak, ardından gelen testleri de dürüst tutuyor.
+ */
+describe("sayfa düzeyinde görsel çıktı", { timeout: 30_000 }, () => {
   it("oturum öncesi ekranlar", async () => {
     mockAll({ ...base, me: () => Promise.reject(new ApiError(401, "unauthenticated")), authMethods: { source: "local", oidc: false, local: true, ldap: false } });
     render(<App />);
@@ -825,6 +867,7 @@ describe("sayfa düzeyinde görsel çıktı", () => {
       ["sessions", "Sessions"],
       ["files", "File history"],
       ["log", "Admin log"],
+      ["config", "Configuration"],
     ];
     for (const [name, label] of sections) {
       mockAll(base);

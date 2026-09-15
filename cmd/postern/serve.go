@@ -747,6 +747,13 @@ func newServeCmd() *cobra.Command {
 						archiveHostSecret = v
 					}
 				}
+				/*
+				 * Salt-okunur yapılandırma ekranı: KOPYA veriliyor, işaretçi
+				 * değil. Panelin elindeki bir işaretçi üzerinden yazma yolu
+				 * açılması, bu ekranın tek kuralını (hiçbir şey değişmiyor)
+				 * bir gözden kaçmaya bağlardı.
+				 */
+				webAPI.UseConfig(*cfg, configPath)
 				webAPI.UseArchive(cfg.Recording.Archive, archiveHostSecret)
 
 				// Web terminali yalnızca açıkça istendiğinde: rota bile

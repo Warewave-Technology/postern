@@ -8,7 +8,6 @@ import {
   WarnLine,
   useList,
 } from "./common";
-import ArchiveCredential from "./ArchiveCredential";
 import AdminGroup from "./AdminGroup";
 import SyncPanel from "./SyncPanel";
 
@@ -923,14 +922,7 @@ export default function Settings({ meName }: { meName?: string }) {
         </>
       )}
 
-      {/*
-        ⚠️ KİMLİK KAYNAĞINDAN BAĞIMSIZ GÖSTERİLİYOR.
-        Arşiv, LDAP/OIDC sihirbazının bir adımı değil: yerel kimlikle
-        çalışan bir kurulumun da kayıtları dışarı yazması gerekiyor.
-        Sihirbazın içine koymak, o kurulumlarda ekranı hiç
-        göstermemek olurdu.
-      */}
-      <ArchiveCredential />
+
     </section>
   );
 }

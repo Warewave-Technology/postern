@@ -582,6 +582,18 @@ export type Notification = {
 
 export type NotificationList = { items: Notification[]; count: number };
 
+/*
+ * Yapılandırma, SALT-OKUNUR. Değerler host'taki dosyadan geliyor ve
+ * panelden değiştirilemiyor; withheld, değeri bilerek gösterilmeyen
+ * alanların adı ve sebebi.
+ */
+export type ConfigEntry = { key: string; value: string; note: string };
+export type ConfigView = {
+  path: string;
+  groups: { title: string; entries: ConfigEntry[] }[];
+  withheld: ConfigEntry[];
+};
+
 export type GrantResult = {
   grant: Grant;
   summary: string;
@@ -1339,6 +1351,8 @@ export const api = {
   allGrants: () => req<{ grants: Grant[]; now: string }>("GET", "/api/admin/grants"),
 
   discovery: () => req<DiscoveryOverview>("GET", "/api/admin/discovery"),
+  /** Host'taki yapılandırma dosyasının salt-okunur görünümü. */
+  config: () => req<ConfigView>("GET", "/api/admin/config"),
   /** Bekleyen işler — üst çubuktaki çan ve listesi. */
   notifications: () => req<NotificationList>("GET", "/api/admin/notifications"),
   /** Formdaki değerlerle kaynağa bağlanır; id verilirse ve sır boşsa kayıtlı sır. */

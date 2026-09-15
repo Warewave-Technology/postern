@@ -12,6 +12,7 @@ import { ErrorLine } from "./admin/common";
 import Modal from "./admin/Modal";
 import Users from "./admin/Users";
 import Targets from "./admin/Targets";
+import Configuration from "./admin/Configuration";
 import Discovery from "./admin/Discovery";
 import Notifications from "./Notifications";
 import UserMenu from "./UserMenu";
@@ -67,7 +68,8 @@ type Section =
   | "ldap"
   | "sessions"
   | "files"
-  | "log";
+  | "log"
+  | "config";
 
 /*
  * Kenar listesi GRUPLANMIŞ.
@@ -137,6 +139,13 @@ const NAV: { title?: string; items: [Section, string, ReactNode][] }[] = [
        */
       ["files", "File history", <SearchIcon key="i" size={15} />],
       ["log", "Admin log", <LogIcon key="i" />],
+      /*
+       * ⚠️ AUDIT ALTINDA, çünkü sorusu aynı soru: "bu bastion neyi nasıl
+       * yapıyor". Oturumlar ve defter olanı anlatıyor, bu ekran hangi
+       * kurallarla olduğunu. Kendi başına bir "ayarlar" başlığı açmak,
+       * değiştirilemeyen bir şeyi değiştirilebilir gibi gösterirdi.
+       */
+      ["config", "Configuration", <LogIcon key="i" />],
     ],
   },
 ];
@@ -1056,6 +1065,7 @@ export default function App() {
                   {section === "signin" && <AuthSource />}
                   {section === "oidc" && <OIDCSettingsScreen />}
                   {section === "ldap" && <Settings meName={me.name} />}
+                  {section === "config" && <Configuration />}
                   {section === "sessions" && <Sessions theme={resolved} />}
                   {section === "files" && <FileHistory />}
                   {section === "log" && <AdminLog />}

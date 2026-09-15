@@ -91,6 +91,13 @@ type Server struct {
 	 * panelden değiştirilemiyor. Panelin salt okunur alanları doğru
 	 * çizebilmesi ve "buradan yönetilmiyor" diyebilmesi için burada.
 	 */
+	/*
+	 * config, okunmuş yapılandırmanın KOPYASI ve dosyanın yolu — salt
+	 * okunur ekran için. nil ise /api/admin/config rotası hiç kurulmuyor.
+	 */
+	config     *config.Config
+	configPath string
+
 	archiveDest config.ArchiveConfig
 
 	// archiveHostSecret, host'tan gelen yükleme sırrı (dosya ya da
