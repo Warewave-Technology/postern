@@ -413,7 +413,6 @@ func (s *Store) DiscoveredMachines(ctx context.Context, sourceID string) ([]Disc
 	return out, translateErr("store.DiscoveredMachines", rows.Err())
 }
 
-
 // DiscoveredMachine, tek makine.
 func (s *Store) DiscoveredMachine(ctx context.Context, sourceID, ref string) (DiscoveredMachine, error) {
 	m, err := scanDiscoveredMachine(s.db.QueryRowContext(ctx, discoveredMachineSelect+`

@@ -247,7 +247,6 @@ func (s *Server) adminTestDiscoverySource(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, p)
 }
 
-
 // adminUpdateDiscoverySource: PUT /api/admin/discovery/sources/{id}
 func (s *Server) adminUpdateDiscoverySource(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
