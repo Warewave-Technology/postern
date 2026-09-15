@@ -368,8 +368,31 @@ func TestTheBadgeCountsOnlyMachinesThatCanBeRegistered(t *testing.T) {
 	save("qemu/5", "anahtarsiz", "", "not running, so its host key cannot be read", false, false)
 	save("qemu/6", "sorunlu", "ssh-ed25519 EEEE", "a target named x already exists", false, false)
 
-	w, out = callDiscovery(t, s, s.adminDiscoveryNewCount, http.MethodGet, "", nil)
-	if w.Code != http.StatusOK || out["new"] != float64(2) {
-		t.Errorf("rozet sayısı: %d %s", w.Code, w.Body.String())
+	/*
+	 * Rozeti besleyen liste artık bildirimler ucu; "yeni" tanımının
+	 * ölçüldüğü yer de orası. Sayı DEĞİL satırlar sınanıyor: rozette
+	 * doğru sayıyı gösterip listede yanlış makineleri saymak da aynı
+	 * güveni bozardı.
+	 */
+	w, out = callDiscovery(t, s, s.adminNotifications, http.MethodGet, "", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("bildirimler: %d %s", w.Code, w.Body.String())
+	}
+	items, _ := out["items"].([]any)
+	var waiting []string
+	for _, it := range items {
+		m, _ := it.(map[string]any)
+		if m["kind"] == "discovery.new" {
+			sum, _ := m["summary"].(string)
+			waiting = append(waiting, sum)
+		}
+	}
+	if len(waiting) != 2 {
+		t.Errorf("bekleyen makineler: %v, ikisi bekleniyordu — %s", waiting, w.Body.String())
+	}
+	for _, s := range waiting {
+		if !strings.HasPrefix(s, "sayilir-") {
+			t.Errorf("kaydedilemeyecek bir makine bildirime girdi: %q", s)
+		}
 	}
 }

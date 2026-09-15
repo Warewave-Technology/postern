@@ -123,3 +123,80 @@ describe("tablo başlığı dolgusu", () => {
     expect(/padding:\s*0\s*;/.test(zeroed)).toBe(true);
   });
 });
+
+/*
+ * ⚠️ TANIMSIZ BİR DEĞİŞKENE YAPILAN ATIF, SESSİZCE HİÇBİR ŞEY YAPAR.
+ *
+ * CSS'te `color: var(--bg)` gibi bir satır, --bg tanımlı değilse
+ * GEÇERSİZ olur: özellik hiç uygulanmaz ve öğe rengi miras alır. Ekran
+ * çizilir, hata vermez, testler geçer — yalnızca renk yanlıştır.
+ *
+ * İki tanesi ölçüldü ve ikisi de görünürlük kaybıydı: çan rozeti
+ * `color: var(--bg)` yüzünden yazısını `.bell`'in soluk renginden miras
+ * alıyordu (adaçayı üstünde adaçayı, sayı okunmuyordu), ve verilen
+ * parolanın kutusu `background: var(--bg)` yüzünden ŞEFFAF çiziliyordu.
+ * İkincisinin komşu satırında aynı sınıftan bir hata (--border) bir kez
+ * fark edilip düzeltilmiş, bu bırakılmıştı — yani göz bu hatayı
+ * yakalamıyor.
+ */
+describe("değişken atıfları", () => {
+  it("var(--x) yazılan her jeton tanımlı", () => {
+    const defined = new Set<string>();
+    for (const m of css.matchAll(/(--[a-z0-9-]+)\s*:/g)) defined.add(m[1]);
+
+    const missing = new Set<string>();
+    // Yedekli kullanım — var(--x, 10px) — kasıtlı: yedeği olan atıf
+    // tanımsızken de doğru davranır, o yüzden aranmıyor.
+    for (const m of css.matchAll(/var\(\s*(--[a-z0-9-]+)\s*\)/g)) {
+      if (!defined.has(m[1])) missing.add(m[1]);
+    }
+
+    expect([...missing].sort()).toEqual([]);
+  });
+});
+
+/*
+ * Bekleyen iş rozetinin okunurluğu ÖLÇÜLÜYOR, göze bırakılmıyor.
+ *
+ * ⚠️ Rozetin işi bir sayı göstermek; okunmayan bir sayı, olmayan bir
+ * rozetten daha kötü, çünkü yer kaplayıp işi yapılmış gösteriyor. Eşik
+ * WCAG AA'nın küçük metin için istediği 4.5:1 — rozet 11px ve kalın.
+ */
+describe("rozet okunurluğu", () => {
+  const lum = (hex: string) => {
+    const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+    const [r, g, b] = c.map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const ratio = (a: string, b: string) => {
+    const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+
+    return (hi + 0.05) / (lo + 0.05);
+  };
+
+  it("iki temada da 4.5:1 üstünde", () => {
+    for (const marker of [":root", ':root[data-theme="dark"]']) {
+      const t = tokensAfter(marker);
+      expect(ratio(t["--attention"], t["--attention-fg"])).toBeGreaterThan(4.5);
+    }
+  });
+});
+
+/*
+ * ⚠️ GENEL `button` KURALI nowrap VERİYOR; bildirim satırı ondan
+ * MUAF olmak zorunda.
+ *
+ * Ölçüldü: muafiyet yokken sebep cümlesi sarmıyor, panelin sağından
+ * taşıyor ve kesiliyordu. Görsel tarama bunu bir kusur olarak da
+ * bildirmiyordu — kap `overflow` taşıdığı için taşma orada "tasarımın
+ * kendisi" sayılıyor. Yani bu satırı koruyan tek şey burası.
+ */
+describe("bildirim satırı", () => {
+  it("düğme olmasına rağmen metni sarıyor", () => {
+    const rule = css.slice(css.indexOf(".notify-panel button {"));
+    const body = rule.slice(0, rule.indexOf("}"));
+    expect(body).toMatch(/white-space:\s*normal/);
+    expect(body).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\)/);
+  });
+});

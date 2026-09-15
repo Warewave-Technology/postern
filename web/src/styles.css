@@ -81,6 +81,20 @@
   --accent-soft: #d7e6e4;
   --accent-line: #a8c8c4;
 
+  /*
+   * Bekleyen iş sayısının rengi — vurgudan AYRI jeton.
+   *
+   * ⚠️ ÖLÇÜLDÜ: rozet `--accent` taşıyordu ve koyu temada o renk soluk
+   * bir adaçayı yeşili; üst çubuğun kendi zemininde sayı okunmuyordu
+   * (kullanıcı ekrana bakıp "rengi onu görünmez kılmış" dedi). Ayrı
+   * jeton olmasının ikinci sebebi anlam: "vurgu" ekranın kimliği,
+   * "bekleyen iş" ise bir çağrı; vurgu ailesi değiştiğinde çağrının
+   * okunurluğu onunla birlikte kaymamalı. Kontrast oranı testte
+   * ölçülüyor (styles.test.ts).
+   */
+  --attention: #af3a03;
+  --attention-fg: #fbf1c7;
+
   --danger: #7d0005;
   --danger-bg: #f7ddd3;
   --danger-line: #dfae9e;
@@ -165,6 +179,8 @@
     --accent-fg: #1d2021;
     --accent-soft: #182022;
     --accent-line: #354a48;
+  --attention: #fe8019;
+  --attention-fg: #1d2021;
 
     --danger: #ff9a8c;
     --danger-bg: #261311;
@@ -213,6 +229,8 @@
   --accent-fg: #1d2021;
   --accent-soft: #182022;
   --accent-line: #354a48;
+  --attention: #fe8019;
+  --attention-fg: #1d2021;
 
   --danger: #ff9a8c;
   --danger-bg: #261311;
@@ -3153,8 +3171,12 @@ a.tcard-name:focus-visible {
   word-break: break-all;
   padding: 0.7rem 0.8rem;
   border-radius: var(--radius);
-  background: var(--bg);
-  /* --border diye bir değişken yok (çizgiler --line); kutu çerçevesiz çiziliyordu. */
+  /* --bg diye bir değişken de yok (zeminler --surface/--sunken); kutu
+     ŞEFFAF çiziliyordu — üstelik gösterdiği şey bir kez görünen bir
+     parola. Komşu satırdaki --border aynı sınıftan bir hataydı ve bir
+     kez fark edilip düzeltilmiş, bu bırakılmıştı; artık ikisini de
+     styles.test.ts ölçüyor. */
+  background: var(--sunken);
   border: 1px solid var(--line);
   margin: 0 0 0.6rem;
 }
@@ -3833,8 +3855,8 @@ a.tcard-name:focus-visible {
   min-width: 1.1rem;
   padding: 0 0.3rem;
   border-radius: 999px;
-  background: var(--accent);
-  color: var(--bg);
+  background: var(--attention);
+  color: var(--attention-fg);
   font-size: 11px;
   font-weight: 700;
   line-height: 1.45;
@@ -3883,4 +3905,198 @@ a.tcard-name:focus-visible {
 .growing td.narrow,
 .growing th.narrow {
   width: 12rem;
+}
+
+/*
+ * Kullanıcı menüsü: üst çubuğun sağ ucundaki tek düğme.
+ *
+ * ⚠️ MENÜ PANELİ KONUMLANDIRILIYOR, AKIŞTA DEĞİL. Akışta duran bir
+ * panel üst çubuğu yükseltir ve altındaki sayfayı aşağı iter — menü
+ * her açıldığında sayfa zıplar.
+ */
+.usermenu {
+  position: relative;
+}
+.usermenu-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--sunken);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+.usermenu-button:hover {
+  border-color: var(--line-strong);
+}
+/* Küçülebilsin: flex çocuğunun varsayılan min-width'i içeriği kadar ve
+   o hâliyle isim ne kısalıyor ne sığıyor. */
+.usermenu,
+.usermenu-button,
+.usermenu-button .who {
+  min-width: 0;
+}
+.usermenu-who {
+  margin: 0.3rem 0.55rem 0.45rem;
+  font-size: 12px;
+  color: var(--muted);
+}
+.usermenu-who strong {
+  color: var(--ink);
+  font-weight: 550;
+}
+.usermenu-who .badge {
+  margin-left: 0.35rem;
+}
+/*
+ * ⚠️ DAR EKRANDA DÜĞME İKONA DÜŞÜYOR. Tam ad + rozet + ok, 390 piksellik
+ * bir çubukta 201 piksel yer kaplıyor ve sayfanın tamamını yatay
+ * kaydırıyordu (tarama PAGE-SCROLL dedi, ölçüldü). İsim kaybolmuyor:
+ * menünün başındaki satıra taşınıyor.
+ */
+@media (max-width: 560px) {
+  .usermenu-button .who,
+  .usermenu-button .badge {
+    display: none;
+  }
+}
+.usermenu-button .caret {
+  color: var(--muted);
+  transition: transform 0.12s ease;
+}
+/* Ok açıkken dönüyor: menünün açık olduğu düğmenin kendisinden de
+   okunabilmeli, yalnızca panelin varlığından değil. */
+.usermenu-button .caret.open {
+  transform: rotate(180deg);
+}
+.usermenu-panel {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  min-width: 13rem;
+  z-index: 30;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 0.3rem;
+}
+.usermenu-group + .usermenu-group {
+  border-top: 1px solid var(--line-soft);
+  margin-top: 0.3rem;
+  padding-top: 0.3rem;
+}
+.usermenu-title {
+  margin: 0.25rem 0.55rem 0.3rem;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.usermenu-panel button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.42rem 0.55rem;
+  border: 0;
+  border-radius: calc(var(--radius) - 2px);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.usermenu-panel button:hover {
+  background: var(--hover);
+}
+.usermenu-panel form {
+  margin: 0;
+}
+
+/*
+ * Bildirim listesi: çanın altından açılan panel.
+ *
+ * ⚠️ SATIR ÜÇ SATIRLIK. Özet, sebep ve "ne zamandan beri" — üçü de
+ * kararı veren bilgi ve tek satıra sıkıştırıldıklarında sonuncusu
+ * okunmuyordu. Panel geniş: 26rem'in altında sebep cümlesi dört satıra
+ * bölünüyor ve liste bir metin bloğuna dönüşüyor.
+ */
+.notifications {
+  position: relative;
+}
+.notify-panel {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  width: 26rem;
+  max-width: calc(100vw - 2rem);
+  max-height: 24rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  z-index: 30;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 0.3rem;
+}
+.notify-head {
+  margin: 0.25rem 0.55rem 0.3rem;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.notify-panel button {
+  display: grid;
+  /*
+   * ⚠️ minmax(0, 1fr), sade `auto` DEĞİL — ölçüldü. Izgara çocuğunun
+   * varsayılan `min-width: auto`su sütunu içeriğin en geniş hâline
+   * kadar büyütüyor: sebep cümlesi sarmak yerine panelin sağından
+   * taşıyor ve `overflow: auto` onu sessizce kesiyordu. Ekranda
+   * görüldü; tarama da bunu "kaydırıcı" sayıp bir kusur olarak
+   * bildirmiyordu, çünkü kaydırma o kapta tasarımın kendisi.
+   */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.15rem;
+  width: 100%;
+  /*
+   * ⚠️ GENEL `button` KURALI nowrap VERİYOR ve burada yanlış. O kural
+   * bir düğme ETİKETİNİN ortadan bölünmemesi için var ("Add source" iki
+   * satıra düşmesin); bildirim satırı ise bir etiket değil, iki cümle.
+   * nowrap kalınca sebep cümlesi sarmıyor, panelin sağından taşıyor ve
+   * kesiliyordu — ekranda görüldü. Izgara düzeltmesi (minmax) tek başına
+   * yetmedi, çünkü sarmayı engelleyen şey sütun genişliği değil metnin
+   * kendisiydi.
+   */
+  white-space: normal;
+  padding: 0.5rem 0.55rem;
+  border: 0;
+  border-radius: calc(var(--radius) - 2px);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.notify-panel button + button {
+  border-top: 1px solid var(--line-soft);
+  border-radius: 0;
+}
+.notify-panel button:hover {
+  background: var(--hover);
+}
+.notify-summary {
+  font-weight: 550;
+}
+.notify-detail,
+.notify-at {
+  font-size: 12px;
+  color: var(--muted);
 }

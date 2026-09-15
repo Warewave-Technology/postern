@@ -114,7 +114,14 @@ describe("App gezinmesi", () => {
     vi.spyOn(api, "me").mockResolvedValue(me);
 
     render(<App />);
-    await screen.findByRole("button", { name: "Home" });
+    /*
+     * ⚠️ "İÇERİ GİRDİK" KANITI ARTIK KULLANICI DÜĞMESİ, SEKME DEĞİL.
+     * Profil menüye taşınınca yönetici olmayanda geriye tek sekme
+     * kalıyor ve tek maddelik çubuk hiç çizilmiyor — yani "Home"
+     * düğmesini beklemek, yönetici olmayan bir kurulumda sonsuza kadar
+     * beklemek demek.
+     */
+    await screen.findByRole("button", { name: /yigit/ });
 
     expect(
       screen.queryByRole("button", { name: "Settings" }),
@@ -337,8 +344,9 @@ describe("App oturum bitisi", () => {
     try {
       render(<App />);
 
-      // Önce içeri girmiş olmalı…
-      await screen.findByRole("button", { name: "Home" });
+      // Önce içeri girmiş olmalı… (kullanıcı düğmesi: yönetici olmayanda
+      // sekme çubuğu tek maddeye düştüğü için hiç çizilmiyor)
+      await screen.findByRole("button", { name: /yigit/ });
 
       // …sonra 401 gelince giriş ekranına dönmeli, sebebiyle birlikte.
       await waitFor(() =>
@@ -1114,10 +1122,14 @@ describe("kimlik sağlayıcı ekranı", () => {
  * yoksa KAPALI mı olduğunu ayırt edemiyordu.
  */
 describe("profil sekmesi", () => {
+  /*
+   * ⚠️ PROFİL SEKMEDE DEĞİL, KULLANICI MENÜSÜNDE. Hesaba ait her şey
+   * (isim, admin rozeti, çıkış) tek düğmede toplandı; profil de oraya
+   * taşındı, çünkü bir çalışma alanı değil hesabın kendisi.
+   */
   const goProfile = async () => {
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Profile" }),
-    );
+    await userEvent.click(await screen.findByRole("button", { name: /yigit|ayse/ }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Profile" }));
   };
 
   /*
@@ -1174,7 +1186,8 @@ describe("profil sekmesi", () => {
       public_key_login: false,
     });
     render(<App />);
-    expect(await screen.findByRole("button", { name: "Profile" })).toBeTruthy();
+    await userEvent.click(await screen.findByRole("button", { name: /ayse/ }));
+    expect(await screen.findByRole("menuitem", { name: "Profile" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Settings" })).toBeNull();
   });
 

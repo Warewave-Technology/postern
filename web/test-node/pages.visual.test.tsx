@@ -299,6 +299,18 @@ const tryClick = (re: RegExp): boolean => {
   return true;
 };
 
+/*
+ * goProfile, kullanıcı menüsünü açıp profile gider.
+ *
+ * ⚠️ PROFİL ARTIK SEKMEDE DEĞİL: hesaba ait her şey üst çubuğun
+ * sağındaki tek düğmede toplandı (bkz. UserMenu).
+ */
+const goProfile = () => {
+  const button = screen.queryAllByRole("button").find((el) => /^(yigit|ayse)/.test(el.textContent ?? ""));
+  if (button) fireEvent.click(button);
+  tryClick(/^profile$/i);
+};
+
 /* ------------------------------------------------------------------ */
 /* Fikstürler                                                          */
 /* ------------------------------------------------------------------ */
@@ -503,6 +515,38 @@ const adminLog: LogEntry[] = Array.from({ length: 18 }, (_, i) => {
 
 const base: Fixtures = {
   me: meAdmin,
+  /*
+   * Çan dolu: rozetin rengi ve listenin yerleşimi ancak bekleyen iş
+   * varken taranabiliyor. Üç kaynak da temsil ediliyor, çünkü satırın
+   * uzunluğu kaynağa göre değişiyor.
+   */
+  notifications: {
+    count: 3,
+    items: [
+      {
+        kind: "identity.pending",
+        at: T(6),
+        summary: "hasan.demir is waiting for approval",
+        detail: "Signed in through dir and has no account here yet; approving one creates it.",
+        section: "pending",
+      },
+      {
+        kind: "discovery.new",
+        at: T(10),
+        summary: "web-01 is waiting to be registered",
+        detail: "Found by lab cluster. It becomes a target — and reachable — only once you register it.",
+        section: "discovery",
+      },
+      {
+        kind: "grant.revoke_failed",
+        at: T(11),
+        summary: "ayse could not be removed from prod-eu-west-1-database-replica-02.internal.example.com",
+        detail:
+          "The access expired but the account is still there after 4 attempt(s): dial tcp 10.42.7.19:22: connect: no route to host",
+        section: "jit",
+      },
+    ],
+  },
   authMethods: { source: "ldap", oidc: false, local: false, ldap: true },
   authSource: {
     source: "ldap",
@@ -669,6 +713,29 @@ describe("sayfa düzeyinde görsel çıktı", () => {
     render(<App />);
     await settle();
     page("home");
+    /*
+     * Kullanıcı menüsü AÇIK hâliyle de taranıyor: üst çubuğun sağ ucu
+     * artık tek bir düğme ve menüsü, yani orada bir yerleşim kusuru
+     * ancak menü açıkken görünür.
+     */
+    // Bildirim listesi açık hâliyle de taranıyor: rozetin rengi ve üç
+    // satırlık düzeni ancak burada görünüyor.
+    const bellButton = screen.queryAllByRole("button").find((el) => /waiting for you/i.test(el.getAttribute("aria-label") ?? ""));
+    if (bellButton) {
+      fireEvent.click(bellButton);
+      await settle();
+      page("home-notifications");
+      fireEvent.click(bellButton);
+      await settle();
+    }
+    const userButton = screen.queryAllByRole("button").find((el) => /^yigit/.test(el.textContent ?? ""));
+    if (userButton) {
+      fireEvent.click(userButton);
+      await settle();
+      page("home-usermenu");
+      fireEvent.click(userButton);
+      await settle();
+    }
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "env: staging" } });
     await settle();
     page("home-nomatch");
@@ -702,7 +769,7 @@ describe("sayfa düzeyinde görsel çıktı", () => {
     mockAll({ ...base, authMethods: { source: "local", oidc: false, local: true, ldap: false } });
     render(<App />);
     await settle();
-    click("Profile");
+    goProfile();
     await settle();
     page("profile-local");
     cleanup();
@@ -711,7 +778,7 @@ describe("sayfa düzeyinde görsel çıktı", () => {
     mockAll({ ...base, me: { ...meUser, can_change_password: false, public_key_login: false }, myKeys: { keys: [], reauth_required: false, reauth_possible: false } });
     render(<App />);
     await settle();
-    click("Profile");
+    goProfile();
     await settle();
     page("profile-sso-user");
     cleanup();

@@ -363,3 +363,26 @@ func nonNil(in []string) []string {
 
 	return in
 }
+
+/*
+ * FailedRevokes, geri alınamamış haklar — süresi dolmuş ama hedefteki
+ * hesabı hâlâ duran kayıtlar.
+ *
+ * ⚠️ SINIRSIZ VE KENDİ SORGUSU, JITGrants'ın SÜZÜLMÜŞ HÂLİ DEĞİL. Liste
+ * en yeniden eskiye sıralı ve sınırlı; geri alması aylardır düşen bir
+ * hak, üstüne binen yeni haklarla o sınırın altına kayar ve tam da en
+ * çok bakılması gereken kayıt görünmez olurdu. Sayı zaten küçük: burada
+ * bir satır olması, bir makinede fazladan bir hesap durması demek.
+ */
+func (s *Store) FailedRevokes(ctx context.Context) ([]JITGrant, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+jitColumns+` FROM jit_grants
+		WHERE revoked_at IS NULL AND revoke_error <> ''
+		ORDER BY expires_at, id;`)
+	if err != nil {
+		return nil, translateErr("store.FailedRevokes", err)
+	}
+	defer rows.Close()
+
+	return scanJITGrants("store.FailedRevokes", rows)
+}

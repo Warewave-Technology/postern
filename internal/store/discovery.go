@@ -413,26 +413,6 @@ func (s *Store) DiscoveredMachines(ctx context.Context, sourceID string) ([]Disc
 	return out, translateErr("store.DiscoveredMachines", rows.Err())
 }
 
-/*
- * NewDiscoveredCount, kaydedilmeyi bekleyen makine sayısı.
- *
- * ⚠️ PANELDEKİ "yeni" DURUMUYLA AYNI KOŞUL, ve öyle kalmak zorunda:
- * rozet başka bir şey sayarsa, tıklayan kişi listede o kadar satır
- * bulamıyor ve rozete bir daha bakmıyor. Yeni = hedef değil, yok
- * sayılmamış, kaynakta duruyor, sorunsuz ve anahtarı okunmuş.
- */
-func (s *Store) NewDiscoveredCount(ctx context.Context) (int, error) {
-	var n int
-	err := s.db.QueryRowContext(ctx, `
-		SELECT count(*) FROM discovered_machines
-		WHERE target_id IS NULL AND NOT ignored AND missing_since IS NULL
-		  AND problem = '' AND host_key <> '';`).Scan(&n)
-	if err != nil {
-		return 0, translateErr("store.NewDiscoveredCount", err)
-	}
-
-	return n, nil
-}
 
 // DiscoveredMachine, tek makine.
 func (s *Store) DiscoveredMachine(ctx context.Context, sourceID, ref string) (DiscoveredMachine, error) {

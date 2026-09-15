@@ -563,6 +563,25 @@ export type GrantRequest = {
   };
 };
 
+/*
+ * Notification, yöneticinin bakması gereken bekleyen bir iş.
+ *
+ * ⚠️ "at" BEKLEMENİN BAŞLANGICI, listenin üretildiği an değil: üç
+ * gündür bekleyen bir onay ile beş dakikalıkı aynı aciliyette değil.
+ * Liste sunucuda her çağrıda durumdan türetiliyor, yani "okundu" diye
+ * bir durum yok — satır, işi yapılınca kayboluyor.
+ */
+export type Notification = {
+  kind: string;
+  at: string;
+  summary: string;
+  detail: string;
+  /** İşin yapılacağı panel bölümü. */
+  section: string;
+};
+
+export type NotificationList = { items: Notification[]; count: number };
+
 export type GrantResult = {
   grant: Grant;
   summary: string;
@@ -1320,8 +1339,8 @@ export const api = {
   allGrants: () => req<{ grants: Grant[]; now: string }>("GET", "/api/admin/grants"),
 
   discovery: () => req<DiscoveryOverview>("GET", "/api/admin/discovery"),
-  /** Kaydedilmeyi bekleyen makine sayısı — üst çubuktaki çan. */
-  discoveryNewCount: () => req<{ new: number }>("GET", "/api/admin/discovery/new"),
+  /** Bekleyen işler — üst çubuktaki çan ve listesi. */
+  notifications: () => req<NotificationList>("GET", "/api/admin/notifications"),
   /** Formdaki değerlerle kaynağa bağlanır; id verilirse ve sır boşsa kayıtlı sır. */
   testDiscoverySource: (s: DiscoverySourceInput & { id?: string }) =>
     req<DiscoveryProbe>("POST", "/api/admin/discovery/test", s),

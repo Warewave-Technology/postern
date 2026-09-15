@@ -94,12 +94,42 @@ audit rows into a shape it does not understand.
   and `postgres)` as arguments of a command granted to root, which is
   neither the command nor the account anyone meant.
 
-- **A bell in the top bar counts machines waiting to be registered.**
-  Discovery runs on a schedule, so what it finds waits in a list nobody is
-  looking at. An administrator now sees the number wherever they are and
-  clicks it to land on the screen that does something about it. It counts
-  exactly what the list calls new, disappears at zero, and stays quiet if
-  the count cannot be read.
+- **A bell in the top bar lists everything waiting for an administrator.**
+  Work that nobody is looking at piles up in three different screens:
+  machines discovery found and nobody registered, people who signed in and
+  are waiting for an account, and temporary accounts postern could not
+  remove from a host. The bell carries the total wherever you are, and
+  opening it shows each one with what it is, why it matters and how long it
+  has been waiting — clicking a line goes to the screen that settles it.
+  An earlier version jumped straight to the discovery screen, which made
+  two thirds of the count invisible.
+
+  The list is derived on every request rather than stored, so there is no
+  "mark as read": a line disappears when the work is done. It also survives
+  a broken source — if one of the three queries fails, its failure is one
+  line in the list instead of silently shortening it, because a list that
+  quietly drops a source reads as "nothing is waiting".
+
+- **The top right is one control instead of five.** The bell, the theme
+  switch, the name, the admin badge and a Sign out button sat side by side
+  in the same weight, so nothing said which of them were buttons. Identity
+  and the actions that belong to it are now a single menu; Profile moved
+  into it, since it is the account rather than a place you work. The bell
+  and the theme switch stayed outside: one carries a number that would be
+  invisible inside a menu, the other is a three-state control whose state
+  should be readable at a glance. On a phone the button drops to its icon
+  and the name moves into the menu — at 390px the full name pushed the
+  whole page sideways.
+
+- **Two colours were never applied at all.** `--bg` is not a token in this
+  palette, and two rules asked for it: the notification count (so its text
+  fell back to the bell's own muted colour — sage on sage, which is why the
+  number could not be read) and the box that shows a freshly issued
+  password (so it was drawn transparent). A CSS reference to a token that
+  does not exist is not an error: the declaration is dropped and the
+  element inherits. The stylesheet test now fails on any such reference,
+  and the notification badge has its own token with its contrast measured
+  rather than eyeballed.
 
 - **The pills listing a user's roles are no longer lopsided.** They were
   padded for a remove button on their right — 0.5rem of room on the left,

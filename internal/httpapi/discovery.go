@@ -37,7 +37,6 @@ func (s *Server) registerDiscoveryRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/admin/discovery", admin(s.adminDiscovery))
 	mux.Handle("POST /api/admin/discovery/sources", admin(s.adminCreateDiscoverySource))
 	mux.Handle("POST /api/admin/discovery/test", admin(s.adminTestDiscoverySource))
-	mux.Handle("GET /api/admin/discovery/new", admin(s.adminDiscoveryNewCount))
 	mux.Handle("PUT /api/admin/discovery/sources/{id}", admin(s.adminUpdateDiscoverySource))
 	mux.Handle("DELETE /api/admin/discovery/sources/{id}", admin(s.adminDeleteDiscoverySource))
 	mux.Handle("POST /api/admin/discovery/sources/{id}/run", admin(s.adminRunDiscoverySource))
@@ -248,22 +247,6 @@ func (s *Server) adminTestDiscoverySource(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, p)
 }
 
-/*
- * adminDiscoveryNewCount: GET /api/admin/discovery/new — kaydedilmeyi
- * bekleyen makine sayısı, panelin çanı için.
- *
- * ⚠️ AYRI VE KÜÇÜK BİR UÇ. Rozet dakikada bir soruluyor; bunun için
- * bütün makine listesini çekmek, yüz makinelik bir kurulumda her dakika
- * kilobaytlarca satırı boşuna taşımak olurdu.
- */
-func (s *Server) adminDiscoveryNewCount(w http.ResponseWriter, r *http.Request) {
-	n, err := s.store.NewDiscoveredCount(r.Context())
-	if err != nil {
-		s.storeErr(w, "discovery.new", err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"new": n})
-}
 
 // adminUpdateDiscoverySource: PUT /api/admin/discovery/sources/{id}
 func (s *Server) adminUpdateDiscoverySource(w http.ResponseWriter, r *http.Request) {

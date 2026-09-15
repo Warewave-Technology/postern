@@ -61,6 +61,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	 * oyunundan güvenli.
 	 */
 	s.registerRoleSudoRoutes(mux)
+	s.registerNotificationRoutes(mux)
 	mux.Handle("GET /api/admin/roles/{name}/paths", admin(s.adminListRolePaths))
 	mux.Handle("POST /api/admin/roles/{name}/paths", admin(s.adminSetRolePath))
 	mux.Handle("DELETE /api/admin/roles/{name}/paths", admin(s.adminDeleteRolePath))

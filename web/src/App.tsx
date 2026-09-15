@@ -13,7 +13,8 @@ import Modal from "./admin/Modal";
 import Users from "./admin/Users";
 import Targets from "./admin/Targets";
 import Discovery from "./admin/Discovery";
-import NewMachines from "./NewMachines";
+import Notifications from "./Notifications";
+import UserMenu from "./UserMenu";
 import Roles from "./admin/Roles";
 import { AdminLog, Sessions } from "./admin/Audit";
 import FileHistory from "./admin/FileHistory";
@@ -748,14 +749,12 @@ export default function App() {
   const tops: [Top, string][] = me.admin
     ? [
         ["home", "Home"],
-        ["profile", "Profile"],
-        ...(me.jit_enabled ? [["jit", "Temporary access"] as [Top, string]] : []),
+        ...(me.jit_enabled
+          ? [["jit", "Temporary access"] as [Top, string]]
+          : []),
         ["settings", "Settings"],
       ]
-    : [
-        ["home", "Home"],
-        ["profile", "Profile"],
-      ];
+    : [["home", "Home"]];
 
   return (
     <div className="shell">
@@ -790,19 +789,44 @@ export default function App() {
                 kaydedecek olan o; başkasına sayı göstermek, yapamayacağı
                 bir iş için uyarı olurdu. */}
             {me.admin && (
-              <NewMachines
-                onOpen={() => {
+              <Notifications
+                onGo={(s) => {
+                  /*
+                   * ⚠️ HER BÖLÜM Settings'İN ALTINDA DEĞİL. Geçici erişim
+                   * kendi üst sekmesinde duruyor; bildirimi oraya
+                   * götürmek yerine Settings'e atmak, satırın vaat ettiği
+                   * işi yapamadan bırakmak olurdu.
+                   */
+                  if (s === "jit") {
+                    setTop("jit");
+                    return;
+                  }
                   setTop("settings");
-                  setSection("discovery");
+                  setSection(s as Section);
                 }}
               />
             )}
             <ThemeSwitch mode={mode} onChange={setMode} />
-            <span className="who">{me.name}</span>
-            {me.admin && <span className="badge badge-accent">admin</span>}
-            <form method="post" action="/auth/logout">
-              <button className="btn-quiet">Sign out</button>
-            </form>
+            {/*
+              ⚠️ PROFİL SEKMEDEN MENÜYE TAŞINDI. Sekme çubuğu çalışılan
+              yerleri taşıyor (Home, geçici erişim, Settings); profil ise
+              bir çalışma alanı değil, hesabın kendisi — ve hesaba ait
+              her şeyin (isim, rozet, çıkış) tek düğmede toplandığı yer
+              orası. Sekmede de menüde de durması, aynı yeri iki kapıdan
+              göstermek olurdu.
+            */}
+            <UserMenu
+              name={me.name}
+              admin={me.admin}
+              sections={[
+                {
+                  title: "Account",
+                  items: [
+                    { label: "Profile", onClick: () => setTop("profile") },
+                  ],
+                },
+              ]}
+            />
           </div>
         </div>
       </header>
@@ -939,22 +963,30 @@ export default function App() {
 
       {!me.must_change_password && !me.must_enrol_totp && !needsSetup && (
         <>
-          <nav className="tabs" aria-label="Sections">
-            <div className="tabs-inner">
-              {tops.map(([t, label]) => (
-                <button
-                  key={t}
-                  onClick={() => setTop(t)}
-                  // ⚠️ disabled DEĞİL aria-current. disabled, bulunulan
-                  // sekmeyi sekme sırasından ÇIKARIYOR ve ekran okuyucuya
-                  // "kullanılamaz" dedirtiyordu.
-                  aria-current={top === t ? "page" : undefined}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </nav>
+          {/*
+            ⚠️ TEK SEKMELİ ÇUBUK ÇİZİLMİYOR. Profil menüye taşınınca
+            yönetici olmayan kullanıcıda geriye yalnızca "Home" kalıyor;
+            tek maddelik bir sekme çubuğu seçenek sunmuyor, yalnızca
+            ekranda yer kaplayıp bir seçim varmış gibi duruyor.
+          */}
+          {tops.length > 1 && (
+            <nav className="tabs" aria-label="Sections">
+              <div className="tabs-inner">
+                {tops.map(([t, label]) => (
+                  <button
+                    key={t}
+                    onClick={() => setTop(t)}
+                    // ⚠️ disabled DEĞİL aria-current. disabled, bulunulan
+                    // sekmeyi sekme sırasından ÇIKARIYOR ve ekran okuyucuya
+                    // "kullanılamaz" dedirtiyordu.
+                    aria-current={top === t ? "page" : undefined}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </nav>
+          )}
 
           <main className="app">
             {/*
