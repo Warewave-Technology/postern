@@ -200,3 +200,33 @@ describe("bildirim satırı", () => {
     expect(body).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\)/);
   });
 });
+
+/*
+ * ⚠️ BÖLÜM ETİKETİ OKUNUR KALMAK ZORUNDA. Bu başlıklar (ACCESS, AUDIT,
+ * ACCOUNT) kenar menüsünün iskeleti; okunmazlarsa gruplama da okunmuyor.
+ * Önceki renk (--faint) aydınlık temada 4.29:1 veriyordu — AA'nın altı —
+ * ve bu yüzden değiştirilmişti. Yeni renk aynı sınavdan geçiyor: küçük
+ * ve kalın metin için eşik 4.5:1, ölçüsü kendi zemininde.
+ */
+describe("bölüm etiketi okunurluğu", () => {
+  const lum = (hex: string) => {
+    const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+    const [r, g, b] = c.map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const ratio = (a: string, b: string) => {
+    const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+
+    return (hi + 0.05) / (lo + 0.05);
+  };
+
+  it("iki temada da kendi zemininde 4.5:1 üstünde", () => {
+    for (const marker of [":root", ':root[data-theme="dark"]']) {
+      const t = tokensAfter(marker);
+      // Kenar menüsü ve menü panelleri --surface/--raised üstünde duruyor.
+      expect(ratio(t["--label"], t["--surface"])).toBeGreaterThan(4.5);
+      expect(ratio(t["--label"], t["--raised"])).toBeGreaterThan(4.5);
+    }
+  });
+});

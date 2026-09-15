@@ -95,6 +95,23 @@
   --attention: #af3a03;
   --attention-fg: #fbf1c7;
 
+  /*
+   * Bölüm etiketlerinin rengi — kenar menüsündeki ACCESS/AUDIT, menü
+   * başlıkları, liste başlıkları.
+   *
+   * ⚠️ --accent DEĞİL, VE SEBEBİ SEMANTİK. Vurgu işlevsel bir renk:
+   * düğme, bağlantı, seçili sekme. Bu ise TİPOGRAFİK bir renk, hiçbir
+   * şeye tıklanmıyor. Ayrı tutulmasının bedeli bir jeton; birleştirmenin
+   * bedeli, bir gün vurgu değiştiğinde iskeletin de onunla kayması.
+   *
+   * ⚠️ TURUNCU YALNIZCA BURADA. Aynı turuncuyu düğmelere de vermek,
+   * "vurgu"yu uyarı (--warn, kehribar) ve tehlike (--danger, kırmızı)
+   * ile aynı sıcak aileye sokuyor: aydınlık temada --danger-bg (#f7ddd3)
+   * ile bir turuncu --accent-soft neredeyse ayırt edilemiyor. Üç ayrı
+   * anlamın üç ayrı renk olması, paletin hoşluğundan önce gelir.
+   */
+  --label: #af3a03;
+
   --danger: #7d0005;
   --danger-bg: #f7ddd3;
   --danger-line: #dfae9e;
@@ -181,6 +198,7 @@
     --accent-line: #354a48;
   --attention: #fe8019;
   --attention-fg: #1d2021;
+  --label: #fe8019;
 
     --danger: #ff9a8c;
     --danger-bg: #261311;
@@ -231,6 +249,7 @@
   --accent-line: #354a48;
   --attention: #fe8019;
   --attention-fg: #1d2021;
+  --label: #fe8019;
 
   --danger: #ff9a8c;
   --danger-bg: #261311;
@@ -475,7 +494,7 @@ h4 {
   /* ⚠️ --faint DEĞİL: aydınlık temada 4.29:1 veriyordu, yani AA'nın
      bile altında. Bu başlıklar kenar menüsünün iskeleti — okunmazsa
      gruplama da okunmuyor. */
-  color: var(--muted);
+  color: var(--label);
 }
 .side-nav button {
   appearance: none;
@@ -3976,7 +3995,9 @@ a.tcard-name:focus-visible {
   position: absolute;
   top: calc(100% + 0.4rem);
   right: 0;
-  min-width: 13rem;
+  /* "Signed in as <ad>" + rozet tek satıra sığsın: 13rem'de rozet alt
+     satıra düşüyor ve başlık satırı iki kata çıkıyordu. */
+  min-width: 16rem;
   z-index: 30;
   background: var(--raised);
   border: 1px solid var(--line);
@@ -3995,7 +4016,7 @@ a.tcard-name:focus-visible {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--label);
 }
 .usermenu-panel button {
   display: flex;
@@ -4051,7 +4072,7 @@ a.tcard-name:focus-visible {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--label);
 }
 .notify-panel button {
   display: grid;

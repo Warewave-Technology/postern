@@ -32,6 +32,21 @@ audit rows into a shape it does not understand.
 
 ### Changed
 
+- **Section labels are orange.** The uppercase labels that hold the panel
+  together — ACCESS, INFRASTRUCTURE, AUDIT in the sidebar, ACCOUNT in the
+  user menu — now carry the palette's orange rather than the muted grey
+  they shared with body text. They have their own token: they are
+  typographic, not functional, and the accent that marks buttons, links and
+  the current tab is a different job. Both are measured against their own
+  background rather than eyeballed, since the colour these labels had
+  before this one sat below the readability threshold.
+
+  The accent itself did not move to orange. Orange sits between the amber
+  of a warning and the red of a danger state, and in the light theme a
+  soft orange accent background is nearly the same colour as the one behind
+  a destructive action. Three meanings need three colours more than a
+  palette needs to be pretty.
+
 - **The config file is readable from the panel, and the archive card moved
   there.** What a bastion is running with — where it listens, how long a
   session may idle, where recordings go — lived only in a file on the host,

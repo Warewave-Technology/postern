@@ -523,14 +523,14 @@ const base: Fixtures = {
     path: "/etc/postern/config.yaml",
     groups: [
       {
-        title: "listen",
+        title: "SSH listener",
         entries: [
           { key: "listen.addr", value: ":2222", note: "where the bastion listens for SSH" },
           { key: "listen.handshake_timeout", value: "30s", note: "how long a connection may take to authenticate" },
         ],
       },
       {
-        title: "recording",
+        title: "Recording",
         entries: [
           { key: "recording.dir", value: "/var/lib/postern/recordings", note: "where session recordings are written" },
           { key: "recording.archive.endpoint", value: "(not set)", note: "where recordings are copied off the box" },
