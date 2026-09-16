@@ -28,24 +28,43 @@ audit rows into a shape it does not understand.
   commit after the tag — RELEASING.md says the same thing at the end.
 -->
 
-## Unreleased
+## 1.3.0 — 2026-09-16
 
-### Changed
+### Security
 
-- **Section labels are orange.** The uppercase labels that hold the panel
-  together — ACCESS, INFRASTRUCTURE, AUDIT in the sidebar, ACCOUNT in the
-  user menu — now carry the palette's orange rather than the muted grey
-  they shared with body text. They have their own token: they are
-  typographic, not functional, and the accent that marks buttons, links and
-  the current tab is a different job. Both are measured against their own
-  background rather than eyeballed, since the colour these labels had
-  before this one sat below the readability threshold.
+- **A sudo rule edited through the panel in 1.2.0 could have been silently
+  escalated to root.** The rule editor was a box of lines, and a command that
+  ran as a non-root account carried that account as a `(postgres) ` prefix in
+  front of it. Retyping such a line without the prefix sent the command as
+  **root** — no warning, and in the direction that matters, from the screen
+  whose whole job is to make a grant legible.
 
-  The accent itself did not move to orange. Orange sits between the amber
-  of a warning and the red of a danger state, and in the light theme a
-  soft orange accent background is nearly the same colour as the one behind
-  a destructive action. Three meanings need three colours more than a
-  palette needs to be pretty.
+  **Are you affected:** only if you have a role whose sudo rule names a
+  non-root account, and someone edited that rule in the panel. Check with
+
+  ```bash
+  postern role sudo show --role <role>
+  ```
+
+  and compare the "runs as" column against what you intended. The database is
+  the source of truth; a host that postern has not touched since still has
+  whatever it had.
+
+  Each command is now edited on its own row, with its account as a separate
+  field rather than text inside the command, so there is no prefix left to
+  drop. The bulk editor is gone.
+
+  **The same hole existed in the CLI** and is closed the same way.
+  `postern role sudo set` replaces the whole rule and can only name one
+  account for all of it, so writing from the terminal over a rule that gave
+  a command to `postgres` moved that command to root without a word. It now
+  stops, names the commands that would move and where they run today, and
+  asks for `--run-as` if that really is what you mean — the emergency path
+  stays open, its silence does not. `postern role sudo show` also prints
+  each command's account, which it did not do when accounts became
+  per-command.
+
+### Added
 
 - **The config file is readable from the panel, and the archive card moved
   there.** What a bastion is running with — where it listens, how long a
@@ -73,6 +92,22 @@ audit rows into a shape it does not understand.
   install using local accounts never saw it at all. It is on the
   Configuration screen now, next to the archive destination it belongs to.
 
+- **A bell in the top bar lists everything waiting for an administrator.**
+  Work that nobody is looking at piles up in three different screens:
+  machines discovery found and nobody registered, people who signed in and
+  are waiting for an account, and temporary accounts postern could not
+  remove from a host. The bell carries the total wherever you are, and
+  opening it shows each one with what it is, why it matters and how long it
+  has been waiting — clicking a line goes to the screen that settles it.
+  An earlier version jumped straight to the discovery screen, which made
+  two thirds of the count invisible.
+
+  The list is derived on every request rather than stored, so there is no
+  "mark as read": a line disappears when the work is done. It also survives
+  a broken source — if one of the three queries fails, its failure is one
+  line in the list instead of silently shortening it, because a list that
+  quietly drops a source reads as "nothing is waiting".
+
 - **A role now has its own page, and the list only counts.** Every role's
   targets were drawn in its row, one chip per host, next to a target picker
   and two buttons that opened modals. At a hundred targets that row buries
@@ -93,6 +128,70 @@ audit rows into a shape it does not understand.
   sudo commands are added one at a time or edited in bulk, and removing the
   last one removes the rule, which is what the server does with a rule that
   has no commands left.
+
+- **Each sudo command names the account it runs as.** A rule carried one
+  account for all of its commands, so "test nginx as root, reload postgres
+  as postgres" needed two rules — and on a target a group has one sudoers
+  file, so the two would have had to be merged back into it. sudoers already
+  writes this per command, and postern now does too: the file reads
+  `%dba ALL=(root) NOPASSWD: /usr/sbin/nginx -t, (postgres) NOPASSWD:
+  /usr/bin/pg_ctl reload`, with the commands in the order they were written
+  rather than regrouped. The account is a column in the panel's table, a
+  field beside the command when one is added, and a `(account)` prefix on
+  the line when the rule is edited in bulk. An account that carries sudoers
+  syntax is refused, because that value lands inside the parentheses and
+  could comment out the rest of the file. A rule written before this keeps
+  working: its commands inherit the rule's account.
+
+- **A temporary grant can now name the account each sudo command runs as.**
+  The wizard took commands as free text and the request carried no account
+  field, so the only thing it could hand out was **root** — "reload
+  postgres as postgres" was not expressible on the screen whose whole
+  purpose is a narrow, short-lived grant. It is a table now, the same shape
+  the role's rule uses: one row per command with its own "Runs as", a row
+  that appears as the last one is filled, and a line underneath spelling out
+  what will be granted, including that a blank account means root. The
+  warning listing what the chosen roles already grant reads
+  `command (as postgres)`; copying such a line into the old box sent `(as`
+  and `postgres)` as arguments of a command granted to root, which is
+  neither the command nor the account anyone meant.
+
+### Changed
+
+- **The top right is one control instead of five.** The bell, the theme
+  switch, the name, the admin badge and a Sign out button sat side by side
+  in the same weight, so nothing said which of them were buttons. Identity
+  and the actions that belong to it are now a single menu; Profile moved
+  into it, since it is the account rather than a place you work. The bell
+  and the theme switch stayed outside: one carries a number that would be
+  invisible inside a menu, the other is a three-state control whose state
+  should be readable at a glance. On a phone the button drops to its icon
+  and the name moves into the menu — at 390px the full name pushed the
+  whole page sideways.
+
+- **The acknowledgement for a risky sudo command is only asked when there is
+  something to acknowledge.** The checkbox sat under every sudo form,
+  whether or not the rule held anything risky, and its text talked about
+  opening a root shell — which reads as a statement about running as root,
+  and every command runs as root by default. So the box appeared to ask
+  people to accept the obvious, and a box that always appears is a box
+  nobody reads. It now appears only after the server refuses a rule for a
+  command that can start another program, directly under the reason, and
+  says what is actually being accepted: the role gets that account in full,
+  not just the command written down. A refusal that acknowledging cannot
+  fix — a wildcard, a relative path, ALL — shows no box, and the server
+  says which kind of refusal it is rather than leaving the screen to guess
+  from the wording.
+
+- **The risky command in a sudo rule is marked on its own row.** A rule that
+  had been accepted despite an escape risk carried one line under the table
+  saying a command in it was a way out to a root shell. In a rule with six
+  commands that names none of them, so the reader either suspects all of
+  them or none. The command that can start another program now carries a red
+  exclamation mark beside it, with the reason in its tooltip and in the text
+  a screen reader gets, and the line under the table explains the mark
+  rather than announcing an anonymous risk. Searching the table matches the
+  reason too, so "which commands here are a way out" is one box away.
 
 - **Powered-off machines are counted on the discovery screen, not listed.**
   A machine that is off has no host key to read, so it cannot be
@@ -122,45 +221,22 @@ audit rows into a shape it does not understand.
   of failing at registration. The count under the table says how many labels
   each machine will carry.
 
-- **A temporary grant can now name the account each sudo command runs as.**
-  The wizard took commands as free text and the request carried no account
-  field, so the only thing it could hand out was **root** — "reload
-  postgres as postgres" was not expressible on the screen whose whole
-  purpose is a narrow, short-lived grant. It is a table now, the same shape
-  the role's rule uses: one row per command with its own "Runs as", a row
-  that appears as the last one is filled, and a line underneath spelling out
-  what will be granted, including that a blank account means root. The
-  warning listing what the chosen roles already grant reads
-  `command (as postgres)`; copying such a line into the old box sent `(as`
-  and `postgres)` as arguments of a command granted to root, which is
-  neither the command nor the account anyone meant.
+- **Section labels are orange.** The uppercase labels that hold the panel
+  together — ACCESS, INFRASTRUCTURE, AUDIT in the sidebar, ACCOUNT in the
+  user menu — now carry the palette's orange rather than the muted grey
+  they shared with body text. They have their own token: they are
+  typographic, not functional, and the accent that marks buttons, links and
+  the current tab is a different job. Both are measured against their own
+  background rather than eyeballed, since the colour these labels had
+  before this one sat below the readability threshold.
 
-- **A bell in the top bar lists everything waiting for an administrator.**
-  Work that nobody is looking at piles up in three different screens:
-  machines discovery found and nobody registered, people who signed in and
-  are waiting for an account, and temporary accounts postern could not
-  remove from a host. The bell carries the total wherever you are, and
-  opening it shows each one with what it is, why it matters and how long it
-  has been waiting — clicking a line goes to the screen that settles it.
-  An earlier version jumped straight to the discovery screen, which made
-  two thirds of the count invisible.
+  The accent itself did not move to orange. Orange sits between the amber
+  of a warning and the red of a danger state, and in the light theme a
+  soft orange accent background is nearly the same colour as the one behind
+  a destructive action. Three meanings need three colours more than a
+  palette needs to be pretty.
 
-  The list is derived on every request rather than stored, so there is no
-  "mark as read": a line disappears when the work is done. It also survives
-  a broken source — if one of the three queries fails, its failure is one
-  line in the list instead of silently shortening it, because a list that
-  quietly drops a source reads as "nothing is waiting".
-
-- **The top right is one control instead of five.** The bell, the theme
-  switch, the name, the admin badge and a Sign out button sat side by side
-  in the same weight, so nothing said which of them were buttons. Identity
-  and the actions that belong to it are now a single menu; Profile moved
-  into it, since it is the account rather than a place you work. The bell
-  and the theme switch stayed outside: one carries a number that would be
-  invisible inside a menu, the other is a three-state control whose state
-  should be readable at a glance. On a phone the button drops to its icon
-  and the name moves into the menu — at 390px the full name pushed the
-  whole page sideways.
+### Fixed
 
 - **Two colours were never applied at all.** `--bg` is not a token in this
   palette, and two rules asked for it: the notification count (so its text
@@ -180,54 +256,6 @@ audit rows into a shape it does not understand.
   The padding is even now, the pill's height no longer depends on the line
   height of whatever table it sits in, and the rules for the button that is
   gone went with it.
-
-- **A sudo command is edited on its own row, and the account it runs as is a
-  field rather than a prefix in text.** Editing the whole rule meant editing
-  a box of lines where a non-root account was carried as `(postgres) ` in
-  front of the command. Measured: retyping such a line without the prefix
-  sent the command as **root** — a silent escalation, in the direction that
-  matters, from a screen whose whole job is to make a grant legible. Each
-  row now has Edit, which opens the command and its account as two fields
-  and rewrites only that row; the other commands are not rewritten at all,
-  so there is nothing to lose.
-
-- **The risky command in a sudo rule is marked on its own row.** A rule that
-  had been accepted despite an escape risk carried one line under the table
-  saying a command in it was a way out to a root shell. In a rule with six
-  commands that names none of them, so the reader either suspects all of
-  them or none. The command that can start another program now carries a red
-  exclamation mark beside it, with the reason in its tooltip and in the text
-  a screen reader gets, and the line under the table explains the mark
-  rather than announcing an anonymous risk. Searching the table matches the
-  reason too, so "which commands here are a way out" is one box away.
-
-- **The acknowledgement for a risky sudo command is only asked when there is
-  something to acknowledge.** The checkbox sat under every sudo form,
-  whether or not the rule held anything risky, and its text talked about
-  opening a root shell — which reads as a statement about running as root,
-  and every command runs as root by default. So the box appeared to ask
-  people to accept the obvious, and a box that always appears is a box
-  nobody reads. It now appears only after the server refuses a rule for a
-  command that can start another program, directly under the reason, and
-  says what is actually being accepted: the role gets that account in full,
-  not just the command written down. A refusal that acknowledging cannot
-  fix — a wildcard, a relative path, ALL — shows no box, and the server
-  says which kind of refusal it is rather than leaving the screen to guess
-  from the wording.
-
-- **Each sudo command names the account it runs as.** A rule carried one
-  account for all of its commands, so "test nginx as root, reload postgres
-  as postgres" needed two rules — and on a target a group has one sudoers
-  file, so the two would have had to be merged back into it. sudoers already
-  writes this per command, and postern now does too: the file reads
-  `%dba ALL=(root) NOPASSWD: /usr/sbin/nginx -t, (postgres) NOPASSWD:
-  /usr/bin/pg_ctl reload`, with the commands in the order they were written
-  rather than regrouped. The account is a column in the panel's table, a
-  field beside the command when one is added, and a `(account)` prefix on
-  the line when the rule is edited in bulk. An account that carries sudoers
-  syntax is refused, because that value lands inside the parentheses and
-  could comment out the rest of the file. A rule written before this keeps
-  working: its commands inherit the rule's account.
 
 ## 1.2.0 — 2026-09-14
 

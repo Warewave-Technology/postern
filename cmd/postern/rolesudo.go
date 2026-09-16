@@ -58,7 +58,10 @@ func newRoleSudoSetCmd() *cobra.Command {
 			"      --command '/usr/sbin/nginx -t'\n\n" +
 			"Each --command is one sudoers entry: the first word is the path, the\n" +
 			"rest are the arguments it is allowed to take. --run-as defaults to\n" +
-			"root.",
+			"root and applies to the WHOLE rule: this command cannot give two\n" +
+			"commands two different accounts. If the rule already does, writing\n" +
+			"from here stops rather than moving them to root — the panel edits\n" +
+			"each command on its own row.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(commands) == 0 {
 				return errors.New("--command is required: a rule with no command grants nothing")
@@ -83,6 +86,41 @@ func newRoleSudoSetCmd() *cobra.Command {
 				}
 				rule.Commands = append(rule.Commands,
 					sudoers.Command{Path: fields[0], Args: fields[1:]})
+			}
+
+			/*
+			 * ⚠️ BU KOMUT KOMUT-BAŞINA HESABI İFADE EDEMİYOR, O YÜZDEN
+			 * ÜSTÜNE YAZMADAN ÖNCE SORUYOR.
+			 *
+			 * set, kuralın TAMAMINI değiştiriyor ve buradan yazılan her
+			 * komut kural başına tek bir hesabı (--run-as, varsayılanı
+			 * root) alıyor. Panelde "pg_ctl reload postgres olarak"
+			 * yazılmış bir kuralın üstüne buradan yazmak, o komutu
+			 * SESSİZCE root'a çıkarıyordu — 1.3.0'ın güvenlik satırında
+			 * anlatılan hatanın aynısı, ikinci bir kapıdan.
+			 *
+			 * Reddetmiyoruz, NİYET İSTİYORUZ: --run-as açıkça verilmişse
+			 * operatör "hepsi bu hesapla koşsun" demiş oluyor. Verilmediyse
+			 * hangi komutun nereye taşınacağını söyleyip duruyoruz. Acil
+			 * çıkış yolu kapanmıyor, sessizliği kapanıyor.
+			 */
+			if !cmd.Flags().Changed("run-as") {
+				if prev, perr := db.RoleSudoRule(ctx, role); perr == nil {
+					var moved []string
+					for _, c := range prev.Rule.Commands {
+						if acc := c.RunAsOr(prev.Rule.RunAs); acc != "root" {
+							moved = append(moved, fmt.Sprintf("%s (runs as %s)", c.String(), acc))
+						}
+					}
+					if len(moved) > 0 {
+						return fmt.Errorf(
+							"the rule on role %q gives these to an account other than root:\n  %s\n"+
+								"This command writes one account for the whole rule, so writing from "+
+								"here would move them to root. Pass --run-as to say which account you "+
+								"mean, or edit the rule in the panel where each command keeps its own.",
+							role, strings.Join(moved, "\n  "))
+					}
+				}
 			}
 
 			if err := db.SetRoleSudo(ctx, role, rule, cliActor()); err != nil {
@@ -153,16 +191,21 @@ func newRoleSudoShowCmd() *cobra.Command {
 			}
 
 			out := cmd.OutOrStdout()
-			runAs := rs.Rule.RunAs
-			if runAs == "" {
-				runAs = "root"
-			}
 			fmt.Fprintf(out, "role %s — written by %s on %s\n",
 				rs.Role, rs.UpdatedBy, rs.UpdatedAt.Format("2006-01-02 15:04 MST"))
 			fmt.Fprintf(out, "file on each target: /etc/sudoers.d/postern-%s\n", rs.Role)
-			fmt.Fprintf(out, "runs as: %s\n", runAs)
+			/*
+			 * ⚠️ HESAP KOMUT BAŞINA YAZILIYOR, KURAL BAŞINA DEĞİL.
+			 *
+			 * Önceki hâl tek bir "runs as:" satırı basıp komutları altına
+			 * diziyordu. Kural artık komut başına hesap taşıyor (bkz.
+			 * sudoers.Command.RunAs), yani o satır "pg_ctl reload postgres
+			 * olarak çalışıyor" gerçeğini GİZLİYORDU: okuyan kişi hepsinin
+			 * baştaki hesapla koştuğunu sanıyordu. Yetkinin yarısı hangi
+			 * hesapla çalıştığıdır; komutun yanında durmak zorunda.
+			 */
 			for _, c := range rs.Rule.Commands {
-				fmt.Fprintf(out, "  %s\n", c.String())
+				fmt.Fprintf(out, "  %s  (runs as %s)\n", c.String(), c.RunAsOr(rs.Rule.RunAs))
 			}
 			if rs.Rule.Acknowledged {
 				fmt.Fprintln(out,

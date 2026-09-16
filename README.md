@@ -50,8 +50,8 @@ in. Four are published: `linux_amd64`, `linux_arm64`, `darwin_amd64` and
 `darwin_arm64`.
 
 ```bash
-B=https://github.com/Warewave-Technology/postern/releases/download/v1.2.0
-curl -LO $B/postern_1.2.0_linux_amd64.tar.gz
+B=https://github.com/Warewave-Technology/postern/releases/download/v1.3.0
+curl -LO $B/postern_1.3.0_linux_amd64.tar.gz
 curl -LO $B/checksums.txt
 curl -LO $B/checksums.txt.bundle
 ```
@@ -1100,7 +1100,14 @@ On a target that becomes `%dba ALL=(root) NOPASSWD: ...` in
 `/etc/sudoers.d/postern-dba`, so membership in the role's group is what
 grants it. A temporary grant can still add commands for one account;
 those go into that account's own file and leave when the account does.
-The same rule is on the Roles screen in the panel, in the Sudo column.
+In the panel the rule lives on the role's own page, where each command is
+a row with its own account.
+
+`postern role sudo set` writes **one account for the whole rule**
+(`--run-as`, default root). If the rule already gives a command to another
+account, the command stops and says so rather than moving it to root —
+pass `--run-as` to say what you mean, or edit it in the panel, where each
+command keeps its own.
 
 Two things are worth knowing before you write one. **A role now grants
 sudo as well as reach** — adding somebody to a role gives them more than
