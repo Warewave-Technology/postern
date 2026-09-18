@@ -95,6 +95,26 @@ export default function Overview() {
   // olay beş istek açmasın diye kısa bir gecikmeyle toplanıyor.
   const refreshTimer = useRef<number | null>(null);
 
+  /*
+   * ⚠️ BİLEŞEN KALKTIKTAN SONRA setState YOK — ÖLÇÜLDÜ.
+   *
+   * Bu ekran hem 400 ms'lik bir toplama zamanlayıcısı hem uçuşta istekler
+   * bırakıyor. Zamanlayıcı kalkışta temizleniyor ama UÇUŞTAKİ İSTEK
+   * temizlenemiyor: cevabı geldiğinde bileşen çoktan gitmiş oluyor ve
+   * setState artık var olmayan bir ağaca yazıyor. Görsel tarama
+   * harness'inde bu, test ortamı KAPANDIKTAN sonra çalışan bir geri
+   * çağrıya dönüştü ve CI'da "window is not defined" ile düştü — yerelde
+   * yarışı kazanıyordu, runner'da kaybetti.
+   */
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+
   // Söz DÖNÜYOR: çağıranın tazelemenin bitmesini bekleyebilmesi gerekiyor
   // (bkz. closeSession — bu fonksiyon başarıda hata satırını temizliyor).
   /*
@@ -111,8 +131,12 @@ export default function Overview() {
     () =>
       api
         .storage()
-        .then(setStorage)
-        .catch(() => setStorage(null)),
+        .then((v) => {
+          if (alive.current) setStorage(v);
+        })
+        .catch(() => {
+          if (alive.current) setStorage(null);
+        }),
     [],
   );
 
@@ -121,10 +145,13 @@ export default function Overview() {
       api
         .sessions()
         .then((v) => {
+          if (!alive.current) return;
           setSessions(v);
           setError("");
         })
-        .catch((e: unknown) => setError(toMessage(e))),
+        .catch((e: unknown) => {
+          if (alive.current) setError(toMessage(e));
+        }),
     [],
   );
 
@@ -167,7 +194,7 @@ export default function Overview() {
     if (refreshTimer.current !== null) return;
     refreshTimer.current = window.setTimeout(() => {
       refreshTimer.current = null;
-      loadSessions();
+      if (alive.current) loadSessions();
     }, 400);
   }, [loadSessions]);
 
