@@ -20,6 +20,8 @@ import (
 	"github.com/Warewave-Technology/postern/internal/ca"
 	"github.com/Warewave-Technology/postern/internal/config"
 	"github.com/Warewave-Technology/postern/internal/events"
+	"github.com/Warewave-Technology/postern/internal/hostacct"
+	"github.com/Warewave-Technology/postern/internal/model"
 	"github.com/Warewave-Technology/postern/internal/proxy"
 	"github.com/Warewave-Technology/postern/internal/record"
 	"github.com/Warewave-Technology/postern/internal/store"
@@ -41,6 +43,16 @@ type Server struct {
 	db            *store.Store
 
 	authority *ca.CA
+
+	/*
+	 * ensureAccount, bağlanma anında hedefte hesabı hazırlayan kanca.
+	 * nil ise sıcak yol hiç koşmaz.
+	 *
+	 * ⚠️ Authority ile BİRLİKTE kuruluyor (UseManagement), çünkü hedefe
+	 * yönetim hesabıyla bağlanmadan hesap açılamaz — ikisini ayrı
+	 * anahtarlara bağlamak, birini unutmayı mümkün kılardı.
+	 */
+	ensureAccount func(context.Context, model.User, model.Target) error
 
 	// logins nil değilse keyboard-interactive OOB girişi açık: anahtarı
 	// olmayan insanlar tarayıcıda OIDC ile girer. Public key yolu her
@@ -151,6 +163,17 @@ func (s *Server) ProxyDeps() proxy.Deps {
 		// bir değer yüzünden her bağlantının ayrı ayrı düşmesi yerine
 		// açılışta bir kez hata veriyor (config.MinFreeBytes).
 		RecordMinFree: s.recordMinFree,
+
+		/*
+		 * ⚠️ BURADA KURULUYOR, serve.go'da DEĞİL: iki kapı (SSH kanalı ve
+		 * panelin web terminali) aynı Deps'ten geçiyor. Kancayı çağrı
+		 * yerlerine dağıtmak, birinde unutulduğunda "terminalden girince
+		 * hesap açılıyor, ssh'tan girince açılmıyor" gibi açıklanamaz bir
+		 * fark üretirdi.
+		 *
+		 * Usta anahtar kapalıysa hiç kurulmuyor (spec K9).
+		 */
+		EnsureAccount: s.ensureAccount,
 		Requests: proxy.RequestPolicy{
 			AcceptEnv: s.cfg.Session.AcceptEnv,
 			AllowSFTP: s.cfg.Session.SFTP,
@@ -273,11 +296,23 @@ func New(cfg *config.Config, db *store.Store, logger *slog.Logger) (*Server, err
 		return nil, fmt.Errorf("sshd.New: %w", err)
 	}
 
+	/*
+	 * ⚠️ İKİ ANAHTAR BİRDEN (spec K9). Usta anahtar kapalıyken kanca hiç
+	 * kurulmuyor: yönetemediğimiz bir makinede hesap açmaya kalkmak,
+	 * her oturuma boşuna bir bağlantı denemesi eklemek olurdu.
+	 */
+	var ensure func(context.Context, model.User, model.Target) error
+	if cfg.Manage.Enabled && cfg.Manage.PropagateAccounts {
+		ensure = hostacct.Hook(db, caAuthority, logger)
+		logger.Warn("account propagation is enabled: postern creates and adopts " +
+			"OS accounts on targets as people connect")
+	}
+
 	return &Server{
 		live: proxy.NewLive(),
 		cfg:  cfg, signer: signer, logger: logger,
 		rStore: recStore, recordMinFree: minFree, db: db, authority: caAuthority,
-		groups: auth.ClaimGroups{},
+		groups: auth.ClaimGroups{}, ensureAccount: ensure,
 
 		limiter: newConnLimiter(
 			cfg.Listen.MaxConnsOrDefault(),

@@ -113,6 +113,19 @@ type Deps struct {
 	 */
 	FreshenGroups func(ctx context.Context, username string) error
 
+	/*
+	 * EnsureAccount, hedefte kişinin hesabını istenen duruma getirir.
+	 * nil ise sıcak yol HİÇ koşmaz — kapalı özellik, kapalı yüzey.
+	 *
+	 * ⚠️ DÖNDÜĞÜ HATA OTURUMU KESMİYOR ve kesmemeli (spec K6): postern
+	 * bugünkünden daha sıkı bir kapı olmamalı. Yönetim hesabı kurulmamış
+	 * bir makineye, hesabı başka bir araçla açılmış kişi bugün
+	 * girebiliyor; hazırlamayı ön koşul yapmak postern'i o makineler için
+	 * tek hata noktasına çevirirdi. Sebep dial hatasına ekleniyor, çünkü
+	 * dial düşerse operatörün bakacağı ilk yer orası.
+	 */
+	EnsureAccount func(ctx context.Context, u model.User, t model.Target) error
+
 	// Events, canlı izleme akışı. nil ise olay yayınlanmaz.
 	//
 	// ⚠️ Publish BLOKLAMAZ (bkz. events.Bus): burası bir oturumun açılış
@@ -534,6 +547,22 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 		log.Info("access granted by temporary access, not by a group")
 	}
 
+	/*
+	 * ⚠️ KARARDAN SONRA, DIAL'DEN ÖNCE.
+	 *
+	 * Önce olsaydı reddedilecek bir kişi için hedefte hesap açardık;
+	 * sonra olsaydı hesabı olmayan kişi zaten giremezdi. İkisinin arası,
+	 * "yetkisi var ve şimdi kullanacak" cümlesinin doğru olduğu tek an —
+	 * ve ürünün cümlesi bu: hesap kullanıldığı yerde vardır.
+	 */
+	var provisionNote string
+	if deps.EnsureAccount != nil {
+		if perr := deps.EnsureAccount(ctx, u, target); perr != nil {
+			provisionNote = perr.Error()
+			log.Warn("account provisioning did not finish", "error", perr)
+		}
+	}
+
 	// Buradan sonrası kaynak açıyor. Yedi ayrı hata dalına yedi ayrı
 	// temizlik yazmamak için tek bir geri sarma noktası: opened yalnızca
 	// en sonda true olur, o zamana kadar her erken dönüş buradan geçer.
@@ -595,6 +624,14 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 		OSUser:      d.OSUser,
 	}, deps.Authority)
 	if err != nil {
+		/*
+		 * ⚠️ HAZIRLAMA SEBEBİ BURAYA EKLENİYOR. Hesap açılamadıysa dial
+		 * de büyük ihtimalle bu yüzden düşüyor; iki cümleyi iki ayrı
+		 * yerde aratmak, operatörü hedefin sshd log'unda dolaştırır.
+		 */
+		if provisionNote != "" {
+			err = fmt.Errorf("%w (postern could not prepare the account here: %s)", err, provisionNote)
+		}
 		log.Error("target dial failed", "error", err, "os_user", d.OSUser)
 		// Başarısız denemeyi hedefin üstüne işaretle: paneldeki hedef
 		// sayfasında "en son ne zaman çalıştı" ile "en son neden

@@ -78,6 +78,7 @@ var shownConfig = map[string]string{
 	"target_probe.refresh":                     "how often targets are probed",
 	"target_probe.timeout":                     "how long one probe may take",
 	"manage.enabled":                           "management access to targets (temporary accounts)",
+	"manage.propagate_accounts":                "creating and adopting OS accounts on targets as people connect",
 	"secret_key_file":                          "the key sealed secrets are encrypted with",
 	"recording.dir":                            "where session recordings are written",
 	"recording.record_input":                   "recording what users type, not just what they see",

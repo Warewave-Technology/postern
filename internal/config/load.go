@@ -105,6 +105,21 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("database.dsn is empty (or set %s)", DatabaseDSNEnv)
 	}
 
+	/*
+	 * ⚠️ UYUMSUZ BİLEŞİM BAŞLANGIÇTA REDDEDİLİYOR, BELGEYE BIRAKILMIYOR.
+	 *
+	 * `propagate_accounts: true` ama `manage.enabled: false` yazan bir
+	 * kurulum, hesapların dağıtılacağını sanıp koşmaya devam ederdi ve
+	 * bunu ancak "neden hesap açılmıyor" diye arayınca öğrenirdi. İki
+	 * anahtarın adı da cümlede geçiyor: hangisini açacağını aramak
+	 * zorunda kalmasın.
+	 */
+	if c.Manage.PropagateAccounts && !c.Manage.Enabled {
+		return fmt.Errorf(
+			"manage.propagate_accounts is on but manage.enabled is off: " +
+				"postern cannot create accounts on a target it is not allowed to manage")
+	}
+
 	if c.Recording.Dir == "" {
 		return fmt.Errorf("recording.dir is empty")
 	}

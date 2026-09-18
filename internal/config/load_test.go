@@ -601,3 +601,33 @@ func TestValidateRefusesAnEmptyRecordingDir(t *testing.T) {
 		t.Errorf("dolu recording.dir reddedildi: %v", err)
 	}
 }
+
+/*
+ * ⚠️ AÇIK AMA YÖNETİMSİZ BİR DAĞITIM AYARI, SESSİZ KALMAMALI.
+ *
+ * `propagate_accounts: true` + `manage.enabled: false` yazan operatör
+ * hesapların dağıtılacağını sanır ve bunu ancak "neden açılmıyor" diye
+ * arayınca öğrenir. Bağı belgeye bırakmak, belgeyi okumayan kurulumu
+ * sessiz bırakmaktır.
+ */
+func TestPropagatingAccountsWithoutManagementIsRefusedAtStartup(t *testing.T) {
+	c := validConfig()
+	c.Manage.Enabled = false
+	c.Manage.PropagateAccounts = true
+
+	err := c.Validate()
+	if err == nil {
+		t.Fatal("uyumsuz bileşim kabul edildi")
+	}
+	for _, want := range []string{"manage.propagate_accounts", "manage.enabled"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("cümle %q anahtarını söylemiyor: %v", want, err)
+		}
+	}
+
+	// Usta anahtar açıkken geçiyor.
+	c.Manage.Enabled = true
+	if err := c.Validate(); err != nil {
+		t.Errorf("geçerli bileşim reddedildi: %v", err)
+	}
+}

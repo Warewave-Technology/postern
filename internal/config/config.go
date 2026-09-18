@@ -260,6 +260,22 @@ type TargetProbeConfig struct {
  */
 type ManageConfig struct {
 	Enabled bool `yaml:"enabled"`
+
+	/*
+	 * PropagateAccounts, bağlanma anında hedefte hesap açma/devralma.
+	 *
+	 * ⚠️ VARSAYILAN KAPALI, VE AYRI BİR ANAHTAR OLMASININ SEBEBİ
+	 * YÜKSELTME. `manage.enabled: true` ile bugün koşan bir kurulum,
+	 * yükseltir yükseltmez makinelerinde hesap açmaya başlamamalı; bu,
+	 * okunmadan yapılan bir yükseltmenin üretimde yapabileceği en büyük
+	 * sürpriz olurdu.
+	 *
+	 * ⚠️ Enabled OLMADAN AÇILAMAZ ve bunu config.Validate reddediyor.
+	 * Usta anahtar kapalıyken hedefte hiçbir şey yapılmıyor — JIT de
+	 * dahil; "hesapları burada yönetmek istemiyorum" diyen kurulum,
+	 * geçici erişimin de kapalı olduğunu ürünün kendisinden öğreniyor.
+	 */
+	PropagateAccounts bool `yaml:"propagate_accounts"`
 }
 
 // RefreshOrDefault, yazılmamış Refresh için varsayılan.
