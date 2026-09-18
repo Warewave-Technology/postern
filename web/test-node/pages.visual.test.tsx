@@ -637,7 +637,14 @@ const base: Fixtures = {
   settings: [
     { key: "ldap.url", value: "ldaps://ldap-primary.corp.example.internal:636", secret: false, updated_by: "yigit.basalma" },
     { key: "ldap.bind_dn", value: "CN=svc-postern-readonly,OU=Service Accounts,OU=Infrastructure,DC=corp,DC=example,DC=internal", secret: false, updated_by: "yigit.basalma" },
-    { key: "ldap.bind_password", value: "", secret: true, updated_by: "yigit.basalma" },
+    /*
+     * ⚠️ SAKLANMIŞ SIR "********" DÖNER, BOŞ DİZGE DEĞİL (store.Settings:
+     * "maske boş bırakılmıyor ki arayüz 'değer var' ile 'değer yok'u
+     * ayırt edebilsin"). Fikstür boş verdiği için ekran LDAP'ı
+     * kurulmamış sayıyor ve kurulmuş hâli hiç taranmıyordu — teşhisi de
+     * o yanılttı.
+     */
+    { key: "ldap.bind_password", value: "********", secret: true, updated_by: "yigit.basalma" },
     { key: "ldap.user_base", value: "OU=People,DC=corp,DC=example,DC=internal", secret: false, updated_by: "ops" },
     { key: "ldap.user_filter", value: "(&(objectClass=person)(sAMAccountName=%s)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))", secret: false, updated_by: "ops" },
     { key: "ldap.group_attribute", value: "memberOf", secret: false, updated_by: "ops" },
@@ -1071,6 +1078,22 @@ describe("sayfa düzeyinde görsel çıktı", { timeout: 30_000 }, () => {
     mockAll({ ...base, discovery: { sources: [], machines: [], secrets_available: false, min_interval_seconds: 300 } });
     await openSettings("Discovery");
     page("settings-discovery-empty");
+  });
+
+  /*
+   * ⚠️ KURULMUŞ LDAP AYRI BİR SAYFA. Fikstür sırrı boş dizge verdiği
+   * sürece ekran hep "kurulmamış" sayılıyordu ve operatörün günlük
+   * gördüğü hâl hiç taranmıyordu. Burada grup süzgeci de geçerli: memberOf
+   * kullanan bir kurulumda artakalan, %s taşımayan bir süzgeç kurulumu
+   * bloke ediyor — o hâl de settings-ldap sayfasında duruyor.
+   */
+  it("kurulmuş LDAP", async () => {
+    const settings = base.settings!.map((s) =>
+      s.key === "ldap.group_filter" ? { ...s, value: "(&(objectClass=group)(member=%s))" } : s,
+    );
+    mockAll({ ...base, settings });
+    await openSettings("LDAP");
+    page("settings-ldap-configured");
   });
 
   it("kabuk sayfası", async () => {

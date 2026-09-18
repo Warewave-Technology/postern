@@ -30,6 +30,28 @@ audit rows into a shape it does not understand.
 
 ## Unreleased
 
+### Fixed
+
+- **The LDAP screen could say every step was done and still refuse to use
+  the directory, without saying why.** A configuration that reads groups
+  from `memberOf` and has a leftover group filter is rejected — the filter
+  has no `%s`, so it cannot be run — and postern keeps falling back to
+  whatever the token carries. All four wizard steps showed a tick, the
+  screen stayed in setup mode, and the one sentence explaining it was
+  inside the last step, which nobody had a reason to open. The reason is
+  now stated above the steps, the step holding the broken field is marked,
+  and the wording says what it costs: stored, but not in use yet. Nothing
+  is shown on a fresh install, where "nothing is stored" is the whole
+  story and the first step already says it.
+
+- **The LDAP fields were laid out for prose, not for what they hold.** The
+  form was capped at a comfortable reading width, which is right for
+  sentences and wrong for a bind DN: in a 960-pixel panel the inputs were
+  544 wide, half the panel sat empty, and a real DN ran past the edge of
+  the box. Fields now fill the panel, the short ones share a row, and each
+  field's "stored / Clear" pair moved onto its label line instead of
+  adding a fourth row under every one of the nine fields.
+
 ### Needs action if you call the API or use the CLI
 
 **`role` is now `group` everywhere.** postern's own authorisation object —

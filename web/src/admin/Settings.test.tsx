@@ -286,3 +286,58 @@ describe("senkronizasyon kosu gorunurlugu", () => {
     expect(screen.queryByText(/dry runs/i)).not.toBeInTheDocument();
   });
 });
+
+/*
+ * ⚠️ EKRANIN NEDEN "KURULMADI" DEDİĞİ, İLK BAKIŞTA YAZILI OLMAK ZORUNDA.
+ *
+ * ÖLÇÜLDÜ: memberOf ile çalışan bir kurulumda artakalan bir grup süzgeci
+ * %s taşımıyorsa, dizin kurulu SAYILMIYOR — ama sebep yalnızca dördüncü
+ * adımın ("Review") içinde yazılıydı. Operatör ilk adımda duruyor, üstte
+ * üç onay işareti görüyor ve neyin engellediğini bilmeden ekrandan
+ * çıkıyor. Bitmiş görünen ama bitmeyen bir kurulum, ekranın verebileceği
+ * en kötü cevap.
+ */
+describe("kurulumu engelleyen sebep", () => {
+  // memberOf ile çalışan bir kurulumda ARTAKALAN grup süzgeci: %s yok,
+  // dolayısıyla kullanılamaz — ve bu, kurulumun tamamını bloke ediyor.
+  const blocked: Setting[] = [
+    ...configured,
+    {
+      key: "ldap.group_filter",
+      value: "(objectClass=group)",
+      secret: false,
+      updated_by: "ops",
+    },
+  ];
+
+  it("sebebi adımların ÜSTÜNDE yazıyor ve engelli adımı işaretliyor", async () => {
+    vi.spyOn(api, "settings").mockResolvedValue(blocked);
+    vi.spyOn(api, "syncSettings").mockResolvedValue(sync);
+    render(<Settings />);
+
+    const banner = await screen.findByText(/Stored, but not in use yet/i);
+    expect(banner).toBeTruthy();
+    // Sebep, hangi alan ve neden olduğunu söylüyor.
+    expect(screen.getByText(/Group filter: must contain %s/i)).toBeTruthy();
+
+    // Ve engelli adım işaretli: sebebi okuyan kişi nereye gideceğini de
+    // görmeli.
+    const groupsStep = screen.getByRole("button", { name: /Groups/i });
+    expect(groupsStep.className).toContain("step-blocked");
+  });
+
+  /*
+   * ⚠️ HİÇ BAŞLANMAMIŞ KURULUMDA AFİŞ YOK. Boş bir kurulumda her zorunlu
+   * alan "saklanmadı" diye listelenir; o liste "daha başlamadın"
+   * demekten başka bir şey söylemez ve sihirbazın ilk adımı zaten onu
+   * söylüyor.
+   */
+  it("hiçbir şey saklanmamışken afiş çıkmıyor", async () => {
+    vi.spyOn(api, "settings").mockResolvedValue([]);
+    vi.spyOn(api, "syncSettings").mockResolvedValue(sync);
+    render(<Settings />);
+
+    await screen.findByText(/Nothing stored yet/i);
+    expect(screen.queryByText(/Stored, but not in use yet/i)).toBeNull();
+  });
+})

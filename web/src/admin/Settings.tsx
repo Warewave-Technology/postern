@@ -36,17 +36,21 @@ type Field = {
   hint: string;
   secret?: boolean;
   required?: boolean;
+  /** Uzun tanımlayıcı (DN, URL, süzgeç): ızgarada tam satır kaplar. */
+  wide?: boolean;
 };
 
 const FIELDS: Field[] = [
   {
     key: "ldap.url",
+    wide: true,
     label: "URL",
     hint: "ldaps://ldap.example:636 — plain ldap:// is refused unless it is loopback",
     required: true,
   },
   {
     key: "ldap.bind_dn",
+    wide: true,
     label: "Bind DN",
     hint: "postern's own service account, never a person's",
     required: true,
@@ -60,12 +64,14 @@ const FIELDS: Field[] = [
   },
   {
     key: "ldap.user_base",
+    wide: true,
     label: "User base",
     hint: "ou=people,dc=example,dc=com",
     required: true,
   },
   {
     key: "ldap.user_filter",
+    wide: true,
     label: "User filter",
     hint: "(uid=%s) — %s is replaced with the IdP username",
     required: true,
@@ -80,12 +86,14 @@ const FIELDS: Field[] = [
   // yere grup açabilmek" = "o rolün hedeflerine girebilmek"ti.
   {
     key: "ldap.group_base",
+    wide: true,
     label: "Group base",
     hint: "required — limits which part of the directory may name a postern group",
     required: true,
   },
   {
     key: "ldap.group_filter",
+    wide: true,
     label: "Group filter",
     hint: "(&(objectClass=groupOfNames)(member=%s)) — used when the attribute is empty",
   },
@@ -294,19 +302,28 @@ export default function Settings({ meName }: { meName?: string }) {
   };
 
   // --- kurulu mu? ---
-  const problems: string[] = [];
+  /*
+   * ⚠️ SORUNLAR ANAHTARLA TUTULUYOR, DÜZ LİSTE OLARAK DEĞİL.
+   *
+   * ÖLÇÜLDÜ: liste yalnızca son adımın ("Review") içinde çiziliyordu.
+   * Operatör ilk adımda duruyor, üstte üç ✓ görüyor ve ekran "kurulmamış"
+   * hâlinde kalmaya devam ediyor — NEDEN olduğunu söyleyen tek cümle bir
+   * tık ötede. Anahtar, hangi adımın engellendiğini de söyleyebilmek için
+   * gerekiyor.
+   */
+  const problemByKey: Record<string, string> = {};
   if (!loading && !denied) {
     for (const f of FIELDS) {
       const cur = stored(f.key);
       if (f.required && (cur === undefined || cur.value === "")) {
-        problems.push(`${f.label} is required and nothing is stored`);
+        problemByKey[f.key] = `${f.label} is required and nothing is stored`;
         continue;
       }
       // Sırlar maskeli geliyor: değerini doğrulayamayız, yalnızca
       // varlığını. Maskeyi doğrulamak uydurma bir hata üretirdi.
       if (cur && !cur.secret && !f.secret) {
         const bad = fieldProblem(f.key, cur.value);
-        if (bad) problems.push(`${f.label}: ${bad}`);
+        if (bad) problemByKey[f.key] = `${f.label}: ${bad}`;
       }
     }
     const attr = stored("ldap.group_attribute");
@@ -314,13 +331,20 @@ export default function Settings({ meName }: { meName?: string }) {
     const hasAttr = attr !== undefined && attr.value !== "";
     const hasFilter = filt !== undefined && filt.value !== "";
     if (!hasAttr && !hasFilter && items.length > 0) {
-      problems.push(
-        "Group attribute and Group filter are both empty — set one: memberOf on the user entry, or a filter to search the group tree",
-      );
+      problemByKey["ldap.group_attribute"] =
+        "Group attribute and Group filter are both empty — set one: memberOf on the user entry, or a filter to search the group tree";
     }
   }
+  const problems = Object.values(problemByKey);
   const configured =
     !loading && !denied && items.length > 0 && problems.length === 0;
+
+  // Hangi adımlar engelli: sorunu olan alanın adımı işaretleniyor.
+  const blockedSteps = new Set(
+    Object.keys(problemByKey)
+      .map((k) => STEPS.find((st) => st.keys.includes(k))?.id)
+      .filter((id): id is StepId => id !== undefined),
+  );
 
   // --- düzenleme formu ---
   const editValue = (key: string) => {
@@ -400,11 +424,33 @@ export default function Settings({ meName }: { meName?: string }) {
     const cur = stored(f.key);
     const filled = hasValue(f.key);
     const problem = fieldProblem(f.key, value);
+    const state = (
+      <div className="wfield-state">
+        {cur === undefined ? (
+          <span className="muted">nothing stored</span>
+        ) : cur.value === "" ? (
+          <span className="muted">stored as empty</span>
+        ) : (
+          <>
+            <span className="badge badge-ok">stored</span>
+            <ActionButton
+              variant="danger"
+              onClick={() => clearField(f.key)}
+              confirm={`Clear ${f.key}? The stored value is removed and postern behaves as if it was never set.`}
+              label={`clear ${f.key}`}
+            >
+              Clear
+            </ActionButton>
+          </>
+        )}
+      </div>
+    );
     return (
-      <div className="wfield" key={f.key}>
+      <div className={f.wide ? "wfield wide" : "wfield"} key={f.key}>
         <label className="wfield-label" htmlFor={`f-${f.key}`}>
           {f.label}
           {f.required && <span className="wfield-req">required</span>}
+          {state}
         </label>
         <input
           id={`f-${f.key}`}
@@ -430,25 +476,6 @@ export default function Settings({ meName }: { meName?: string }) {
             {problem}
           </p>
         )}
-        <div className="wfield-state">
-          {cur === undefined ? (
-            <span className="muted">nothing stored</span>
-          ) : cur.value === "" ? (
-            <span className="muted">stored as empty</span>
-          ) : (
-            <>
-              <span className="badge badge-ok">stored</span>
-              <ActionButton
-                variant="danger"
-                onClick={() => clearField(f.key)}
-                confirm={`Clear ${f.key}? The stored value is removed and postern behaves as if it was never set.`}
-                label={`clear ${f.key}`}
-              >
-                Clear
-              </ActionButton>
-            </>
-          )}
-        </div>
       </div>
     );
   };
@@ -773,11 +800,39 @@ export default function Settings({ meName }: { meName?: string }) {
                 </p>
               )}
 
+              {/*
+                ⚠️ ENGELİ BURADA SÖYLÜYORUZ, SON ADIMIN İÇİNDE DEĞİL.
+                ÖLÇÜLDÜ: bütün adımlar ✓ görünürken ekran "kurulmamış"
+                hâlinde kalabiliyor (ör. memberOf kullanan bir kurulumda
+                artakalan bir grup süzgeci %s taşımıyorsa). Sebep yalnızca
+                "Review" adımının içinde yazılıydı; ilk adımda duran
+                operatör üç onay işareti görüp neyin eksik olduğunu
+                bilmiyordu. Yalnızca BİR ŞEY saklanmışken gösteriliyor:
+                bomboş bir kurulumda bu liste "daha başlamadın" demekten
+                başka bir şey söylemez.
+              */}
+              {items.length > 0 && problems.length > 0 && (
+                <div className="msg msg-warn" role="status">
+                  <b>Stored, but not in use yet</b>
+                  <p className="note">
+                    postern is not reading groups from this directory until
+                    these are fixed:
+                  </p>
+                  <ul className="problem-list">
+                    {problems.map((pr) => (
+                      <li key={pr}>{pr}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               <div className="steps">
                 {STEPS.map((s, i) => (
                   <button
                     key={s.id}
-                    className={`step${stepDone(s) ? " step-done" : ""}`}
+                    className={`step${stepDone(s) ? " step-done" : ""}${
+                      blockedSteps.has(s.id) ? " step-blocked" : ""
+                    }`}
                     aria-current={s.id === step ? "step" : undefined}
                     onClick={() => {
                       clearNotices();

@@ -1871,6 +1871,16 @@ label.check input[type="checkbox"] {
   background: var(--ok-bg);
   color: var(--ok);
 }
+/*
+ * ⚠️ ENGELLİ ADIM, TAMAMLANMIŞ ADIMI EZİYOR (kural sonra geliyor).
+ * Ölçülen kusur: bir alanı saklanmış ama değeri kullanılamaz olan adım
+ * "tamam" işaretini taşıyordu; ekran hem ✓ gösterip hem kurulumu
+ * bitirmiyordu ve ikisi arasındaki çelişki hiçbir yerde yazmıyordu.
+ */
+.step-blocked .step-n {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
 
 .wizard-nav {
   display: flex;
@@ -2220,8 +2230,40 @@ label.check input[type="checkbox"] {
  * Form sütunu DAR. Alanlar kartın tamamına yayılıyordu: bir DN ya da
  * URL kısa bir dize ve 1400px'lik bir kutuda ne okunuyor ne taranıyor.
  */
+/*
+ * ⚠️ 34rem'lik OKUMA GENİŞLİĞİ BU İÇERİK İÇİN YANLIŞTI — ölçüldü.
+ *
+ * O sınır düzyazı için doğru: göz uzun satırda satır başını kaybediyor.
+ * Ama buradaki değerler cümle değil, uzun TANIMLAYICILAR — bir bind DN
+ * ("CN=svc-postern-readonly,OU=Service Accounts,OU=Infrastructure,…")
+ * 544 piksellik kutuya sığmıyor ve operatör yazdığı şeyi göremiyor.
+ * 960 piksellik panelin yarısı boş dururken bu, hem dar hem dağınık bir
+ * ekran demekti. Alanlar artık paneli dolduruyor; kısa olanlar (grup
+ * özniteliği, ad kaynağı) yan yana geçiyor.
+ */
 .wizard-form {
-  max-width: 34rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 1rem;
+  align-items: start;
+}
+/* Uzun değerler tam satır: DN, süzgeç ve URL kırpılmamalı. */
+.wizard-form > .wfield.wide {
+  grid-column: 1 / -1;
+}
+/*
+ * ⚠️ ALAN OLMAYAN HER ÇOCUK DA TAM SATIR. Izgaraya çevrilince sınama
+ * düğmesi ve sonuç satırları bir hücreye düşüp son alanın YANINDA
+ * duruyordu: "Test connection", sanki parola alanına ait bir düğme gibi
+ * okunuyordu (ekranda görüldü).
+ */
+.wizard-form > :not(.wfield) {
+  grid-column: 1 / -1;
+}
+@media (max-width: 52rem) {
+  .wizard-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .wfield {
@@ -2267,11 +2309,19 @@ label.check input[type="checkbox"] {
   color: var(--danger);
 }
 
-/* Saklanan değerin durumu AYRI SATIRDA: "bu alan ne" ile "şu an ne
-   yazıyor" aynı cümlede karışıyordu. */
+/*
+ * Saklanan değerin durumu ETİKET SATIRINDA, sağ uçta.
+ *
+ * ⚠️ ÖNCE ALANIN ALTINDAYDI ve her alana dördüncü bir satır ekliyordu:
+ * etiket, kutu, ipucu, sonra "stored"+"Clear". Dokuz alanda bu, aynı iki
+ * kontrolün dokuz kez tekrarı demek ve ekran bu yüzden okunmuyordu.
+ * Etiketle aynı satırda durunca hem yer kaplamıyor hem de "bu alanda ne
+ * yazıyor" sorusunun cevabı adının yanında oluyor.
+ */
 .wfield-state {
   display: flex;
   align-items: center;
+  margin-left: auto;
   gap: 0.5rem;
   margin-top: 0.45rem;
   font-size: 12px;
