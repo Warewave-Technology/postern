@@ -124,3 +124,112 @@ func TestAMissingRowIsNotFound(t *testing.T) {
 		t.Error("olmayan satır hata vermedi")
 	}
 }
+
+/*
+ * ⚠️ İŞ, İŞARET SÜTUNUNDAN DEĞİL DURUMDAN TÜRÜYOR.
+ *
+ * Bir `pending` bayrağı olsaydı, onu yazmayı unutan her yeni yazma yolu
+ * sessiz bir boşluk açardı — ve bu tam olarak "group'u düşen kişi
+ * makinede açık kaldı" boşluğu olurdu. Bu test, group üyeliği
+ * kaldırıldığı anda hiçbir şey işaretlenmeden işin GÖRÜNDÜĞÜNÜ ölçüyor.
+ */
+func TestALockIsOwedAsSoonAsTheLastGroupGoes(t *testing.T) {
+	s, target := hostAcctEnv(t)
+	ctx := t.Context()
+	now := time.Now()
+
+	if _, err := s.CreateGroup(ctx, "dba"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.GrantTarget(ctx, "dba", target); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AssignGroup(ctx, "ayse", "dba", time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveHostAccount(ctx, HostAccount{
+		TargetName: target, Username: "ayse", OSUser: "ayse",
+		Origin: OriginCreated, State: HostAccountActive,
+		FirstSeen: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	owed, err := s.HostAccountsOwedALock(ctx, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(owed) != 0 {
+		t.Fatalf("erişimi duran hesap borçlu göründü: %+v", owed)
+	}
+
+	// Group gidince, HİÇBİR ŞEY İŞARETLENMEDEN iş görünür oluyor.
+	if err := s.RevokeGroup(ctx, "ayse", "dba"); err != nil {
+		t.Fatal(err)
+	}
+	owed, err = s.HostAccountsOwedALock(ctx, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(owed) != 1 || owed[0].Username != "ayse" {
+		t.Errorf("group kaybından sonra borçlu liste: %+v", owed)
+	}
+}
+
+/*
+ * ⚠️ SÜRESİ DOLMUŞ ÜYELİK ERİŞİM DEĞİL. Süreli bir group'un süresi
+ * dolduğunda erişim biter; onu saymak süreyi anlamsız kılardı ve süreli
+ * verilen bir yetki makinede kalıcı olurdu.
+ */
+func TestAnExpiredMembershipDoesNotCountAsAccess(t *testing.T) {
+	s, target := hostAcctEnv(t)
+	ctx := t.Context()
+	now := time.Now()
+
+	if _, err := s.CreateGroup(ctx, "dba"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.GrantTarget(ctx, "dba", target); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AssignGroup(ctx, "ayse", "dba", now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveHostAccount(ctx, HostAccount{
+		TargetName: target, Username: "ayse", OSUser: "ayse",
+		Origin: OriginCreated, State: HostAccountActive,
+		FirstSeen: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	owed, err := s.HostAccountsOwedALock(ctx, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(owed) != 1 {
+		t.Errorf("süresi dolmuş üyelik erişim sayıldı: %+v", owed)
+	}
+}
+
+/* Zaten kilitli satır yeniden kilitlenmiyor. */
+func TestALockedRowIsNotOwedAnotherLock(t *testing.T) {
+	s, target := hostAcctEnv(t)
+	ctx := t.Context()
+	now := time.Now()
+
+	if err := s.SaveHostAccount(ctx, HostAccount{
+		TargetName: target, Username: "ayse", OSUser: "ayse",
+		Origin: OriginCreated, State: HostAccountLocked,
+		FirstSeen: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	owed, err := s.HostAccountsOwedALock(ctx, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(owed) != 0 {
+		t.Errorf("kilitli satır yeniden borçlu: %+v", owed)
+	}
+}

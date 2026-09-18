@@ -77,3 +77,38 @@ type errReason string
 func (e errReason) Error() string { return string(e) }
 
 const errNotSSH = errReason("the management connection is not an SSH runner")
+
+/*
+ * NewLockWorker, push path'in delivery'sini kurar.
+ *
+ * ⚠️ AYNI KABLOLAMA, AYNI YERDE. Hook ile birlikte kuruluyor: hesap
+ * açabilen ama kapatamayan bir kurulum, CyberArk'ın var olma sebebinin
+ * tam tersi olurdu — ve ikisini ayrı anahtarlara bağlamak, birini
+ * unutmayı mümkün kılardı (JIT süpürücüsünün yanındaki aynı gerekçe).
+ */
+func NewLockWorker(db *store.Store, authority *ca.CA, logger *slog.Logger, interval time.Duration) *Worker {
+	return NewWorker(WorkerDeps{
+		Owed:   db.HostAccountsOwedALock,
+		Active: db.ActiveHostAccounts,
+		Target: db.Target,
+		Save:   db.SaveHostAccount,
+		Connect: func(ctx context.Context, t model.Target, reason string) (Runner, error) {
+			return provision.Connect(ctx, t, authority, "system", reason)
+		},
+		Caps: func(ctx context.Context, r Runner) (upstream.ManageCapabilities, error) {
+			sr, ok := r.(*provision.SSHRunner)
+			if !ok {
+				return upstream.ManageCapabilities{}, errNotSSH
+			}
+
+			return sr.Conn().Capabilities(ctx)
+		},
+		Audit: func(ctx context.Context, target, detail string) error {
+			return db.LogAdmin(ctx, store.AdminLogEntry{
+				At: time.Now(), Actor: "system", Via: "sync",
+				Action: "account.lock", Entity: target, Details: detail,
+			})
+		},
+		Logger: logger,
+	}, interval)
+}

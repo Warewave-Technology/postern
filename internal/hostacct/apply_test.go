@@ -23,8 +23,22 @@ func (f *fakeRunner) Exec(_ context.Context, cmd, _ string) (string, error) {
 	if out, ok := f.answers[cmd]; ok {
 		return out, nil
 	}
-	// Bulunamayan: getent gibi "yok" cevabı veren komutlar için 1.
-	return "", errors.New("exit status 1")
+	/*
+	 * Yazma komutları başarılı sayılıyor: taklit hedef, planın ürettiği
+	 * adımları kabul eden bir makine. Okuma komutlarının cevabı
+	 * answers'ta; orada olmayan bir okuma "yok" demek.
+	 */
+	if strings.HasPrefix(cmd, "sudo -n ") {
+		return "", nil
+	}
+	/*
+	 * ⚠️ HEDEFİN "YOK" CEVABI TİPLİ BİR HATA. provision.absent, komutun
+	 * sıfırdan farklı çıkışını upstream.CommandError'a bakarak "yok"
+	 * diye okuyor; düz bir error, gerçek bir arıza sayılıyor. Taklit
+	 * hedefin bunu taklit etmesi şart, yoksa test gerçekte olmayan bir
+	 * arızayı ölçer.
+	 */
+	return "", &upstream.CommandError{Status: 1}
 }
 func (f *fakeRunner) Close() error { return nil }
 

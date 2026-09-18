@@ -54,6 +54,9 @@ type Server struct {
 	 */
 	ensureAccount func(context.Context, model.User, model.Target) error
 
+	// lockWorker, group'u düşen hesapları hedefte kapatan döngü.
+	lockWorker *hostacct.Worker
+
 	// logins nil değilse keyboard-interactive OOB girişi açık: anahtarı
 	// olmayan insanlar tarayıcıda OIDC ile girer. Public key yolu her
 	// durumda çalışmaya devam eder (makineler/otomasyon).
@@ -302,17 +305,26 @@ func New(cfg *config.Config, db *store.Store, logger *slog.Logger) (*Server, err
 	 * her oturuma boşuna bir bağlantı denemesi eklemek olurdu.
 	 */
 	var ensure func(context.Context, model.User, model.Target) error
+	var locker *hostacct.Worker
 	if cfg.Manage.Enabled && cfg.Manage.PropagateAccounts {
 		ensure = hostacct.Hook(db, caAuthority, logger)
+		/*
+		 * ⚠️ AÇMA VE KAPATMA BİRLİKTE KURULUYOR. Hesap açabilen ama
+		 * kapatamayan bir kurulum, bu özelliğin var olma sebebinin tam
+		 * tersi: group'u düşen kişinin hesabı makinede kalır ve kimse
+		 * fark etmez. JIT süpürücüsünün yanındaki gerekçenin aynısı.
+		 */
+		locker = hostacct.NewLockWorker(db, caAuthority, logger, time.Minute)
 		logger.Warn("account propagation is enabled: postern creates and adopts " +
-			"OS accounts on targets as people connect")
+			"OS accounts on targets as people connect, and locks them when the " +
+			"last group that granted the target goes")
 	}
 
 	return &Server{
 		live: proxy.NewLive(),
 		cfg:  cfg, signer: signer, logger: logger,
 		rStore: recStore, recordMinFree: minFree, db: db, authority: caAuthority,
-		groups: auth.ClaimGroups{}, ensureAccount: ensure,
+		groups: auth.ClaimGroups{}, ensureAccount: ensure, lockWorker: locker,
 
 		limiter: newConnLimiter(
 			cfg.Listen.MaxConnsOrDefault(),
@@ -353,6 +365,15 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 func (s *Server) Serve(ctx context.Context, l net.Listener) error {
 	stopped := make(chan struct{})
 	defer close(stopped)
+
+	/*
+	 * ⚠️ DÖNGÜ DİNLEMEYLE BİRLİKTE BAŞLIYOR. Ayrı bir çağrıya bırakmak,
+	 * onu unutan bir kurulumda hesap açan ama hiç kapatmayan bir bastion
+	 * bırakırdı — ve bu, özelliğin var olma sebebinin tersi.
+	 */
+	if s.lockWorker != nil {
+		go s.lockWorker.Run(ctx)
+	}
 
 	go func() {
 		select {

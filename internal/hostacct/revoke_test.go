@@ -70,8 +70,8 @@ func TestLosingAGroupThatNeverReachedThisTargetChangesNothing(t *testing.T) {
  * Kilit geri alınabilir; silme, insanın açıkça istediği ayrı bir yol.
  */
 func TestTheAutomaticPathLocksAndNeverDeletes(t *testing.T) {
-	u := model.User{OSUser: "ayse"}
-	r := RevokeFor(u, model.Target{Name: "db01"}, "/etc/ssh/auth_principals/ayse")
+	facts := provision.AccountFacts{Exists: true, UID: 1001, Home: "/home/ayse"}
+	r := RevokeFor(facts, "ayse", "/etc/ssh/auth_principals/ayse")
 	if r.Mode != provision.ModeLock {
 		t.Errorf("kip = %q, kilit bekleniyordu", r.Mode)
 	}
@@ -88,5 +88,13 @@ func TestTheAutomaticPathLocksAndNeverDeletes(t *testing.T) {
 	}
 	if r.PrincipalsFile == "" {
 		t.Error("principals dosyası verilmemiş — asıl erişim kesici o")
+	}
+	/*
+	 * ⚠️ UID HEDEFTEN GELİYOR. RevokePlan sistem hesaplarına dokunmayı
+	 * UID'ye bakarak reddediyor; numarayı taşımayan bir istek her
+	 * seferinde reddedilir ve kilit hiç inmez — ölçüldü.
+	 */
+	if r.UID != 1001 {
+		t.Errorf("UID taşınmadı: %d", r.UID)
 	}
 }

@@ -76,10 +76,18 @@ func reachCount(u model.User, target string) int {
  * ⚠️ KİP HER ZAMAN ModeLock. Bu yol otomatik ve içinde insan yok (K3);
  * silme, insanın açıkça istediği ayrı bir yol (K2/K8).
  */
-func RevokeFor(u model.User, t model.Target, principalsFile string) provision.Revoke {
+func RevokeFor(facts provision.AccountFacts, osUser, principalsFile string) provision.Revoke {
 	return provision.Revoke{
-		User:           u.OSUser,
-		Mode:           provision.ModeLock,
+		User: osUser,
+		Mode: provision.ModeLock,
+		/*
+		 * ⚠️ UID HEDEFTEN OKUNUYOR, VARSAYILMIYOR. RevokePlan sistem
+		 * hesaplarına dokunmayı reddediyor ve bu reddi UID'ye bakarak
+		 * veriyor; numarayı vermemek, planın her seferinde "bu bir sistem
+		 * hesabı" diye reddetmesi demek — yani kilit hiç inmez.
+		 */
+		UID:            facts.UID,
+		Home:           facts.Home,
 		PrincipalsFile: principalsFile,
 		/*
 		 * Grubun sudo dosyası BURADA DEĞİL: o dosya gruba ait ve grupta

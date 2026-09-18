@@ -203,3 +203,57 @@ func unixOrNow(t time.Time) int64 {
 // Derleyici, translateErr'in sql.ErrNoRows'u ErrNotFound'a çevirdiğini
 // varsayıyor; bu satır o varsayımı görünür kılıyor.
 var _ = errors.Is
+
+/*
+ * HostAccountsOwedALock, hedefe erişimi bitmiş ama hedefte hâlâ açık olan
+ * hesaplar.
+ *
+ * ⚠️ İŞARET SÜTUNU YOK, İŞ DURUMDAN TÜRETİLİYOR. Bir `pending` bayrağı,
+ * onu yazmayı unutan her yeni yazma yolunda sessiz bir boşluk açardı —
+ * ve bu tam olarak "grubu düşen kişi makinede açık kaldı" boşluğu olurdu.
+ * Burada sorulan şey doğrudan gerçeğin kendisi: satır hedefte açık mı, ve
+ * kişi oraya hâlâ bir group üzerinden erişiyor mu?
+ *
+ * ⚠️ SÜRESİ DOLMUŞ ÜYELİK ERİŞİM SAYILMIYOR (expires_at). Süreli bir
+ * group'un süresi dolduğunda erişim biter; onu saymak, süreyi anlamsız
+ * kılardı.
+ *
+ * ⚠️ state='active' ŞARTI: zaten kilitli bir satır yeniden kilitlenmiyor,
+ * ve silinmiş olan hiç dokunulmuyor.
+ */
+func (s *Store) HostAccountsOwedALock(ctx context.Context, now time.Time) ([]HostAccount, error) {
+	const op = "store.HostAccountsOwedALock"
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+hostAccountColumns+` FROM host_accounts ha
+		WHERE ha.state = 'active'
+		  AND (ha.next_attempt_at IS NULL OR ha.next_attempt_at <= $1)
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM users u
+			JOIN user_groups   ug ON ug.user_id = u.id
+			                     AND (ug.expires_at IS NULL OR ug.expires_at > $1)
+			JOIN group_targets gt ON gt.group_id = ug.group_id
+			JOIN targets       t  ON t.id = gt.target_id
+			WHERE u.username = ha.username AND t.name = ha.target_name
+		  )
+		ORDER BY ha.target_name, ha.username;`, now.Unix())
+	if err != nil {
+		return nil, translateErr(op, err)
+	}
+	defer rows.Close()
+
+	return scanHostAccounts(op, rows)
+}
+
+// ActiveHostAccounts, hedefte açık olan hesapların sayısı — blast radius
+// tavanının paydası.
+func (s *Store) ActiveHostAccounts(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT count(*) FROM host_accounts WHERE state = 'active';`).Scan(&n)
+	if err != nil {
+		return 0, translateErr("store.ActiveHostAccounts", err)
+	}
+
+	return n, nil
+}
