@@ -177,9 +177,21 @@ func RevokePlan(caps upstream.ManageCapabilities, r Revoke) ([]Step, error) {
 	if r.Mode == ModeLock {
 		steps = append(steps,
 			Step{
-				Kind:    StepLock,
-				Command: "sudo -n " + caps.ModUser + " -L -s /usr/sbin/nologin " + r.User,
-				Why:     "lock the account without deleting it",
+				Kind: StepLock,
+				/*
+				 * ⚠️ -e 1 (SÜREYİ DOLDUR) ŞART, -L VE nologin YETMİYOR —
+				 * ölçüldü.
+				 *
+				 * -L yalnızca PAROLAYI kilitliyor; sertifikayla giriş
+				 * parolaya bakmıyor. nologin ise oturumu açtırıp hemen
+				 * kapatıyor: kabuk yok, ama kimlik doğrulama BAŞARILI
+				 * oluyor ve port yönlendirme ile SFTP açık kalabiliyor.
+				 * Süresi dolmuş hesabı sshd kimlik doğrulama aşamasında
+				 * reddediyor — kapatan tek şey bu. Geri alınabilir:
+				 * `usermod -e ""`.
+				 */
+				Command: "sudo -n " + caps.ModUser + " -L -e 1 -s /usr/sbin/nologin " + r.User,
+				Why:     "lock the account and expire it, without deleting it",
 			},
 			/*
 			 * ⚠️ KİLİTLENEN HESABIN DOSYALARI SİLİNMİYOR, LİSTELENİYOR.

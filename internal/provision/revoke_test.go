@@ -367,3 +367,40 @@ func TestRevokeDeletesTheGroupsPosternCreatedAfterTheAccount(t *testing.T) {
 		t.Error("kabuk karakterli grup adı kabul edildi")
 	}
 }
+
+/*
+ * ⚠️ KİLİT HESABIN SÜRESİNİ DOLDURUYOR, YALNIZCA PAROLAYI KİLİTLEMİYOR.
+ *
+ * ÖLÇÜLDÜ (gerçek bir container'da): `usermod -L -s /usr/sbin/nologin`
+ * sonrası shadow satırı `acctayse:!*:20714::::::` — parola kilitli ama
+ * expire alanı BOŞ. Sertifikayla giriş parolaya bakmıyor; nologin ise
+ * kimlik doğrulamayı başarılı sayıp oturumu hemen kapatıyor, yani port
+ * yönlendirme ve SFTP açık kalabiliyor. Süresi dolmuş hesabı sshd kimlik
+ * doğrulama aşamasında reddediyor — kapatan tek şey bu.
+ */
+func TestLockingExpiresTheAccountAndNotJustItsPassword(t *testing.T) {
+	steps := revokeSteps(t, Revoke{
+		User: "ayse", Mode: ModeLock, UID: 1001, Home: "/home/ayse",
+	})
+
+	var lock string
+	for _, s := range steps {
+		if s.Kind == StepLock {
+			lock = s.Command
+		}
+	}
+	if lock == "" {
+		t.Fatal("kilit adımı yok")
+	}
+	for _, want := range []string{"-L", "-e 1", "nologin"} {
+		if !strings.Contains(lock, want) {
+			t.Errorf("kilit %q taşımıyor: %q", want, lock)
+		}
+	}
+	// Ve silme DEĞİL: kilit geri alınabilir olmak zorunda.
+	for _, s := range steps {
+		if s.Kind == StepUserDel {
+			t.Errorf("kilit kipinde silme adımı: %q", s.Command)
+		}
+	}
+}
