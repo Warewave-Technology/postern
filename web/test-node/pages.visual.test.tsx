@@ -12,6 +12,7 @@ import {
   type PendingUser,
   type Session,
   type SessionDetail,
+  type Setting,
   type Target,
   type TargetDetail,
   type User,
@@ -1088,8 +1089,12 @@ describe("sayfa düzeyinde görsel çıktı", { timeout: 30_000 }, () => {
    * bloke ediyor — o hâl de settings-ldap sayfasında duruyor.
    */
   it("kurulmuş LDAP", async () => {
-    const settings = base.settings!.map((s) =>
-      s.key === "ldap.group_filter" ? { ...s, value: "(&(objectClass=group)(member=%s))" } : s,
+    // Fixtures gevşek tipli (Record<..., unknown>); burada ne olduğunu
+    // biliyoruz ve okuyucuya da söylüyoruz.
+    const settings = (base.settings as Setting[]).map((s) =>
+      s.key === "ldap.group_filter"
+        ? { ...s, value: "(&(objectClass=group)(member=%s))" }
+        : s,
     );
     mockAll({ ...base, settings });
     await openSettings("LDAP");
