@@ -125,22 +125,32 @@ function SessionFiles({
           actually crossed, not the bytes requested.
         </p>
       </div>
-      {/* Kaydırma sarmalayıcısı: yol sütunu sarıyor ama beş sütun
-          dar bir ekranda yine sığmayabilir; sığmazsa tablo kayar,
-          kart onu kesmez. */}
+      {/* Kaydırma sarmalayıcısı: altı sütun dar bir ekranda yine
+          sığmayabilir; sığmazsa tablo kayar, kart onu kesmez. */}
       <div className="table-wrap">
       <table>
         <thead>
           <tr>
             <th>Time</th>
             <th>Op</th>
-            <th>Path</th>
+            {/* ⚠️ SARIYOR (.wrap), VE SEBEBİ ÖLÇÜLDÜ. Yol boşluksuz tek
+                parça; `td` varsayılanı yalnızca BOŞLUKTAN sarıyor, yani
+                /srv/app/releases/.../structure/ hiçbir yerden kırılmıyor
+                ve sütunu açıyordu. 1280'de (yan menü açıkken içerik
+                958px) Path tek başına 641px istiyor, tablo 1204px'e
+                çıkıyor ve son iki sütun — Wrote ile Result — yatay
+                kaydırmanın ardında kalıyordu: transfer edilen bayt ve
+                ret gerekçesi, yani denetçinin okuduğu iki sütun.
+                `.wrap` overflow-wrap:anywhere veriyor (taban 10rem);
+                yol satır ortasından kırılıyor, tablo 958px'e sığıyor. */}
+            <th className="wrap">Path</th>
             <th>Read</th>
             <th>Wrote</th>
-            {/* ⚠️ SARIYOR: td varsayılanı nowrap ve ret gerekçesi uzun
-                bir cümle ("postern: this path is explicitly denied").
-                Sarmayınca cümlenin sonu kesiliyordu — yani denetçinin
-                okuması gereken tek şey görünmüyordu. */}
+            {/* ⚠️ SARIYOR: ret gerekçesi uzun bir cümle ("postern: this
+                path is explicitly denied") ve içinde kırılamayan tek
+                parçalar geçiyor (yol, `upstream.DialManagement:` gibi).
+                `.wrap` olmadan sütun o parça kadar açılıyor — yani
+                denetçinin okuması gereken tek şey tabloyu taşırıyordu. */}
             <th className="wrap">Result</th>
           </tr>
         </thead>
@@ -151,7 +161,7 @@ function SessionFiles({
                 <Timestamp value={f.at} />
               </td>
               <td>{f.op}</td>
-              <td>
+              <td className="wrap">
                 <code title={f.path}>{f.path}</code>
                 {f.new_path && (
                   <>
