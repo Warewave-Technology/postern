@@ -353,7 +353,7 @@ func Plan(caps upstream.ManageCapabilities, d Desired, o Observed) ([]Step, erro
 		 * hedefin ayarına bağlamak bu ürünün her yerde reddettiği şey.
 		 */
 		// Her hesap için — postern'in açtığı kalıcı hesap da sertifikayla
-		// giriyor ve rolün sözlüğüne bağımlı kalmamalı.
+		// giriyor ve grubun sözlüğüne bağımlı kalmamalı.
 		if d.PrincipalsFile != "" {
 			path, err := PrincipalsPath(d.PrincipalsFile, u.Name)
 			if err != nil {

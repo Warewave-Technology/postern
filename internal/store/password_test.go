@@ -443,7 +443,7 @@ func TestUserProfileReadsTheNullShapes(t *testing.T) {
 /*
  * ⚠️ ANAHTAR SAYILARI TEK SORGUDA VE SIFIRLAR DA GELİYOR.
  *
- * Sıfır, bu sayının EN ÖNEMLİ değeri: anahtarı olmayan hesap, rolü ne
+ * Sıfır, bu sayının EN ÖNEMLİ değeri: anahtarı olmayan hesap, grubu ne
  * olursa olsun hiçbir hedefe SSH ile ulaşamıyor. LEFT JOIN yerine düz
  * bir JOIN yazılsaydı o satırlar haritadan tamamen düşerdi ve liste
  * onları boş gösterirdi — yani cevaplaması gereken tek soruyu

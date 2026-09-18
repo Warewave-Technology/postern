@@ -15,45 +15,45 @@ import (
 	"github.com/Warewave-Technology/postern/internal/sudoers"
 )
 
-// newRoleSudoCmd, rolün sudo kuralının yönetimi.
-func newRoleSudoCmd() *cobra.Command {
+// newGroupSudoCmd, grubun sudo kuralının yönetimi.
+func newGroupSudoCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sudo",
-		Short: "Manage the sudo rule a role carries on the machines it reaches",
-		Long: "A role's rule is written on a target as a group rule:\n\n" +
-			"  %<role> ALL=(root) NOPASSWD: <commands>\n\n" +
-			"in /etc/sudoers.d/postern-<role>. Everyone in the role draws it from\n" +
+		Short: "Manage the sudo rule a group carries on the machines it reaches",
+		Long: "A group's rule is written on a target as a group rule:\n\n" +
+			"  %<group> ALL=(root) NOPASSWD: <commands>\n\n" +
+			"in /etc/sudoers.d/postern-<group>. Everyone in the group draws it from\n" +
 			"membership in that group, so the rule is written once instead of per\n" +
 			"person. What a temporary grant adds on top is written into the\n" +
 			"account's own file and leaves with the account.\n\n" +
-			"A role carries one rule with as many commands as it needs: on the\n" +
+			"A group carries one rule with as many commands as it needs: on the\n" +
 			"target a group has a single sudoers file.\n\n" +
 			"The rule reaches a machine the next time postern works on it — today\n" +
 			"that means when a temporary account is opened there. Writing a rule\n" +
-			"here does not push it to every target the role can reach, and\n" +
+			"here does not push it to every target the group can reach, and\n" +
 			"removing one does not take the file off machines that already have\n" +
 			"it.\n\n" +
 			"A command that can start another program (an editor, a pager,\n" +
 			"find -exec) hands out a root shell. Such a rule is refused unless\n" +
 			"--i-accept-a-root-shell says the risk was understood.",
 	}
-	cmd.AddCommand(newRoleSudoSetCmd())
-	cmd.AddCommand(newRoleSudoShowCmd())
-	cmd.AddCommand(newRoleSudoRemoveCmd())
+	cmd.AddCommand(newGroupSudoSetCmd())
+	cmd.AddCommand(newGroupSudoShowCmd())
+	cmd.AddCommand(newGroupSudoRemoveCmd())
 
 	return cmd
 }
 
-func newRoleSudoSetCmd() *cobra.Command {
-	var configPath, role, runAs string
+func newGroupSudoSetCmd() *cobra.Command {
+	var configPath, group, runAs string
 	var commands []string
 	var accept bool
 
 	cmd := &cobra.Command{
 		Use:   "set",
-		Short: "Write the role's sudo rule",
-		Long: "Replaces the role's rule with the commands given.\n\n" +
-			"  postern role sudo set --role dba \\\n" +
+		Short: "Write the group's sudo rule",
+		Long: "Replaces the group's rule with the commands given.\n\n" +
+			"  postern group sudo set --group dba \\\n" +
 			"      --command '/usr/bin/pg_ctl reload' \\\n" +
 			"      --command '/usr/sbin/nginx -t'\n\n" +
 			"Each --command is one sudoers entry: the first word is the path, the\n" +
@@ -105,7 +105,7 @@ func newRoleSudoSetCmd() *cobra.Command {
 			 * çıkış yolu kapanmıyor, sessizliği kapanıyor.
 			 */
 			if !cmd.Flags().Changed("run-as") {
-				if prev, perr := db.RoleSudoRule(ctx, role); perr == nil {
+				if prev, perr := db.GroupSudoRule(ctx, group); perr == nil {
 					var moved []string
 					for _, c := range prev.Rule.Commands {
 						if acc := c.RunAsOr(prev.Rule.RunAs); acc != "root" {
@@ -114,29 +114,29 @@ func newRoleSudoSetCmd() *cobra.Command {
 					}
 					if len(moved) > 0 {
 						return fmt.Errorf(
-							"the rule on role %q gives these to an account other than root:\n  %s\n"+
+							"the rule on group %q gives these to an account other than root:\n  %s\n"+
 								"This command writes one account for the whole rule, so writing from "+
 								"here would move them to root. Pass --run-as to say which account you "+
 								"mean, or edit the rule in the panel where each command keeps its own.",
-							role, strings.Join(moved, "\n  "))
+							group, strings.Join(moved, "\n  "))
 					}
 				}
 			}
 
-			if err := db.SetRoleSudo(ctx, role, rule, cliActor()); err != nil {
+			if err := db.SetGroupSudo(ctx, group, rule, cliActor()); err != nil {
 				if errors.Is(err, store.ErrNotFound) {
-					return fmt.Errorf("role %q not found — create it with `postern role add`", role)
+					return fmt.Errorf("group %q not found — create it with `postern group add`", group)
 				}
 				return err
 			}
-			if aerr := auditCLI(ctx, db, "role.sudo_set", role, describeCLIRule(rule)); aerr != nil {
+			if aerr := auditCLI(ctx, db, "group.sudo_set", group, describeCLIRule(rule)); aerr != nil {
 				return aerr
 			}
 
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "sudo rule written on role %q\n", role)
+			fmt.Fprintf(out, "sudo rule written on group %q\n", group)
 			/*
-			 * ⚠️ ROLÜN ANLAMI DEĞİŞTİ VE BU SÖYLENİYOR. O ana kadar rol
+			 * ⚠️ ROLÜN ANLAMI DEĞİŞTİ VE BU SÖYLENİYOR. O ana kadar grup
 			 * "şu makinelere erişebilir" demekti; artık "şu komutları root
 			 * olarak çalıştırabilir" de diyor. Rolü birine vermek bundan
 			 * sonra daha fazlasını veriyor.
@@ -144,29 +144,29 @@ func newRoleSudoSetCmd() *cobra.Command {
 			fmt.Fprintf(out,
 				"\nEveryone in %q now gets these commands with sudo on the machines it\n"+
 					"reaches. The rule lands on a machine the next time postern works on\n"+
-					"it; the ones it has not touched yet still carry what they had.\n", role)
+					"it; the ones it has not touched yet still carry what they had.\n", group)
 
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
-	cmd.Flags().StringVar(&role, "role", "", "role that carries the rule (required)")
+	cmd.Flags().StringVar(&group, "group", "", "group that carries the rule (required)")
 	cmd.Flags().StringArrayVar(&commands, "command", nil,
-		"a command the role may run, with its arguments (repeatable)")
+		"a command the group may run, with its arguments (repeatable)")
 	cmd.Flags().StringVar(&runAs, "run-as", "", "user the commands run as (default root)")
 	cmd.Flags().BoolVar(&accept, "i-accept-a-root-shell", false,
 		"write the rule even though a command in it can start another program")
-	_ = cmd.MarkFlagRequired("role")
+	_ = cmd.MarkFlagRequired("group")
 
 	return cmd
 }
 
-func newRoleSudoShowCmd() *cobra.Command {
-	var configPath, role string
+func newGroupSudoShowCmd() *cobra.Command {
+	var configPath, group string
 
 	cmd := &cobra.Command{
 		Use:   "show",
-		Short: "Show the role's sudo rule",
+		Short: "Show the group's sudo rule",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load(configPath)
 			if err != nil {
@@ -179,11 +179,11 @@ func newRoleSudoShowCmd() *cobra.Command {
 			}
 			defer db.Close()
 
-			rs, err := db.RoleSudoRule(ctx, role)
+			rs, err := db.GroupSudoRule(ctx, group)
 			if errors.Is(err, store.ErrNotFound) {
 				fmt.Fprintf(cmd.OutOrStdout(),
-					"role %q carries no sudo rule; its members get whatever the machine\n"+
-						"already gives them and whatever a temporary grant adds.\n", role)
+					"group %q carries no sudo rule; its members get whatever the machine\n"+
+						"already gives them and whatever a temporary grant adds.\n", group)
 				return nil
 			}
 			if err != nil {
@@ -191,9 +191,9 @@ func newRoleSudoShowCmd() *cobra.Command {
 			}
 
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "role %s — written by %s on %s\n",
-				rs.Role, rs.UpdatedBy, rs.UpdatedAt.Format("2006-01-02 15:04 MST"))
-			fmt.Fprintf(out, "file on each target: /etc/sudoers.d/postern-%s\n", rs.Role)
+			fmt.Fprintf(out, "group %s — written by %s on %s\n",
+				rs.Group, rs.UpdatedBy, rs.UpdatedAt.Format("2006-01-02 15:04 MST"))
+			fmt.Fprintf(out, "file on each target: /etc/sudoers.d/postern-%s\n", rs.Group)
 			/*
 			 * ⚠️ HESAP KOMUT BAŞINA YAZILIYOR, KURAL BAŞINA DEĞİL.
 			 *
@@ -217,18 +217,18 @@ func newRoleSudoShowCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
-	cmd.Flags().StringVar(&role, "role", "", "role to show (required)")
-	_ = cmd.MarkFlagRequired("role")
+	cmd.Flags().StringVar(&group, "group", "", "group to show (required)")
+	_ = cmd.MarkFlagRequired("group")
 
 	return cmd
 }
 
-func newRoleSudoRemoveCmd() *cobra.Command {
-	var configPath, role string
+func newGroupSudoRemoveCmd() *cobra.Command {
+	var configPath, group string
 
 	cmd := &cobra.Command{
 		Use:   "remove",
-		Short: "Remove the role's sudo rule",
+		Short: "Remove the group's sudo rule",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load(configPath)
 			if err != nil {
@@ -241,13 +241,13 @@ func newRoleSudoRemoveCmd() *cobra.Command {
 			}
 			defer db.Close()
 
-			if err := db.DeleteRoleSudo(ctx, role); err != nil {
+			if err := db.DeleteGroupSudo(ctx, group); err != nil {
 				if errors.Is(err, store.ErrNotFound) {
-					return fmt.Errorf("role %q carries no sudo rule", role)
+					return fmt.Errorf("group %q carries no sudo rule", group)
 				}
 				return err
 			}
-			if aerr := auditCLI(ctx, db, "role.sudo_delete", role, "rule removed"); aerr != nil {
+			if aerr := auditCLI(ctx, db, "group.sudo_delete", group, "rule removed"); aerr != nil {
 				return aerr
 			}
 
@@ -259,17 +259,17 @@ func newRoleSudoRemoveCmd() *cobra.Command {
 			 * sanır.
 			 */
 			fmt.Fprintf(cmd.OutOrStdout(),
-				"sudo rule removed from role %q in postern.\n\n"+
+				"sudo rule removed from group %q in postern.\n\n"+
 					"Machines that already have /etc/sudoers.d/postern-%s keep it until\n"+
 					"postern next works on them. Take it off a machine now with\n"+
-					"`sudo rm /etc/sudoers.d/postern-%s` there.\n", role, role, role)
+					"`sudo rm /etc/sudoers.d/postern-%s` there.\n", group, group, group)
 
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
-	cmd.Flags().StringVar(&role, "role", "", "role to clear (required)")
-	_ = cmd.MarkFlagRequired("role")
+	cmd.Flags().StringVar(&group, "group", "", "group to clear (required)")
+	_ = cmd.MarkFlagRequired("group")
 
 	return cmd
 }

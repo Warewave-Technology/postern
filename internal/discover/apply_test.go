@@ -80,11 +80,11 @@ func newStoreDSN(t *testing.T) (*store.Store, string) {
 /*
  * ⚠️ KEŞFİN SÖZLEŞMESİ, UÇTAN UCA.
  *
- * Etiketli makine kendi rolüne, etiketsiz makine `unknown`a gidiyor;
- * eksik roller yaratılıyor; hedefler açılıyor ve rollere bağlanıyor.
- * Ve erişim VERİLMİYOR: roller insansız kalıyor.
+ * Etiketli makine kendi grubuna, etiketsiz makine `unknown`a gidiyor;
+ * eksik gruplar yaratılıyor; hedefler açılıyor ve gruplara bağlanıyor.
+ * Ve erişim VERİLMİYOR: gruplar insansız kalıyor.
  */
-func TestRunCreatesRolesAndTargets(t *testing.T) {
+func TestRunCreatesGroupsAndTargets(t *testing.T) {
 	ctx := context.Background()
 	db := newStore(t)
 	host, port := fakeSSH(t)
@@ -108,8 +108,8 @@ func TestRunCreatesRolesAndTargets(t *testing.T) {
 	if tg, _ := db.Targets(ctx); len(tg) != 0 {
 		t.Fatalf("önizleme hedef yazmış: %d", len(tg))
 	}
-	if rs, _ := db.Roles(ctx); len(rs) != 0 {
-		t.Fatalf("önizleme rol yazmış: %d", len(rs))
+	if rs, _ := db.Groups(ctx); len(rs) != 0 {
+		t.Fatalf("önizleme grup yazmış: %d", len(rs))
 	}
 
 	// Şimdi uygula.
@@ -125,29 +125,29 @@ func TestRunCreatesRolesAndTargets(t *testing.T) {
 		byName[o.Machine.Name] = o
 	}
 
-	if byName["web-01"].Role != "ops" || !byName["web-01"].Tagged {
+	if byName["web-01"].Group != "ops" || !byName["web-01"].Tagged {
 		t.Errorf("web-01 = %+v", byName["web-01"])
 	}
 	// ⚠️ Etiketsiz makine DÜŞMÜYOR, unknown'a gidiyor.
-	if byName["eski-01"].Role != UnknownRole || byName["eski-01"].Tagged {
+	if byName["eski-01"].Group != UnknownGroup || byName["eski-01"].Tagged {
 		t.Errorf("etiketsiz makine unknown'a gitmedi: %+v", byName["eski-01"])
 	}
 
-	roles, _ := db.Roles(ctx)
+	groups, _ := db.Groups(ctx)
 	have := map[string]bool{}
-	for _, r := range roles {
+	for _, r := range groups {
 		have[r.Name] = true
 	}
-	for _, want := range []string{"ops", "dba", UnknownRole} {
+	for _, want := range []string{"ops", "dba", UnknownGroup} {
 		if !have[want] {
-			t.Errorf("rol yaratılmamış: %s", want)
+			t.Errorf("grup yaratılmamış: %s", want)
 		}
 	}
 
-	// Hedefler rollere BAĞLI.
-	for _, r := range roles {
+	// Hedefler gruplara BAĞLI.
+	for _, r := range groups {
 		if len(r.Targets) == 0 {
-			t.Errorf("rol %q hiçbir hedefe bağlanmamış", r.Name)
+			t.Errorf("grup %q hiçbir hedefe bağlanmamış", r.Name)
 		}
 	}
 
@@ -163,8 +163,8 @@ func TestRunCreatesRolesAndTargets(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, u := range users {
-		if len(u.Roles) > 0 {
-			t.Fatalf("keşif %q kullanıcısına rol atamış — erişim dağıtmamalı", u.Name)
+		if len(u.Groups) > 0 {
+			t.Fatalf("keşif %q kullanıcısına grup atamış — erişim dağıtmamalı", u.Name)
 		}
 	}
 }
@@ -242,7 +242,7 @@ func TestRunSkipsStoppedMachines(t *testing.T) {
 // Etiketten gelen kabul edilemez bir ad makineyi unknown'a DÜŞÜRMÜYOR,
 // atlıyor: yazım hatasını operatörün bir daha göremeyeceği bir yere
 // süpürmek yerine raporda gösteriyor.
-func TestRunSkipsUnusableRoleNames(t *testing.T) {
+func TestRunSkipsUnusableGroupNames(t *testing.T) {
 	ctx := context.Background()
 	db := newStore(t)
 
@@ -252,10 +252,10 @@ func TestRunSkipsUnusableRoleNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	if res[0].Skipped == "" {
-		t.Fatalf("kullanılamaz rol adı kabul edildi: %+v", res[0])
+		t.Fatalf("kullanılamaz grup adı kabul edildi: %+v", res[0])
 	}
-	if rs, _ := db.Roles(ctx); len(rs) != 0 {
-		t.Fatal("kullanılamaz addan rol yaratılmış")
+	if rs, _ := db.Groups(ctx); len(rs) != 0 {
+		t.Fatal("kullanılamaz addan grup yaratılmış")
 	}
 }
 
@@ -265,7 +265,7 @@ func TestRunSkipsUnusableRoleNames(t *testing.T) {
  * ÖLÇÜLEN ARIZA: tarama hatası makineyi koşulsuz atlıyordu ve atlanan
  * şeylerin arasında GrantTarget da vardı. Oysa grant HİÇ AĞ İSTEMİYOR —
  * rolle hedef arasında yerel bir bağ. Sonucu şuydu: etiketi değişmiş bir
- * makine, o anda ağda bir aksaklık olduğu için yeni rolüne geçmiyor ve
+ * makine, o anda ağda bir aksaklık olduğu için yeni grubuna geçmiyor ve
  * bir sonraki koşuma kadar ESKİ rolünde kalıyordu. apply.go'nun kendi
  * yorumu grant'ın her turda çalışması gerektiğini söylüyor; ağ hatası
  * onu sessizce erteliyordu.
@@ -299,10 +299,10 @@ func TestRunStillGrantsWhenAnExistingTargetIsUnreachable(t *testing.T) {
 	o := res[0]
 
 	if o.Skipped != "" {
-		t.Fatalf("kayıtlı hedef atlandı: %q — rol bağı ağ hatasına takıldı", o.Skipped)
+		t.Fatalf("kayıtlı hedef atlandı: %q — grup bağı ağ hatasına takıldı", o.Skipped)
 	}
 	if !o.Granted {
-		t.Error("rol bağı yenilenmedi; grant ağ istemiyor, ertelenmemeliydi")
+		t.Error("grup bağı yenilenmedi; grant ağ istemiyor, ertelenmemeliydi")
 	}
 	/*
 	 * ⚠️ AMA ANAHTARIN DOĞRULANAMADIĞI SÖYLENMELİ. "Kontrol ettim ve
@@ -315,12 +315,12 @@ func TestRunStillGrantsWhenAnExistingTargetIsUnreachable(t *testing.T) {
 	}
 
 	// Rol gerçekten verilmiş olmalı.
-	roles, rerr := db.Roles(ctx)
+	groups, rerr := db.Groups(ctx)
 	if rerr != nil {
 		t.Fatal(rerr)
 	}
 	var found bool
-	for _, r := range roles {
+	for _, r := range groups {
 		if r.Name != "developer" {
 			continue
 		}
@@ -331,7 +331,7 @@ func TestRunStillGrantsWhenAnExistingTargetIsUnreachable(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("rol hedefe bağlanmamış: %+v", roles)
+		t.Errorf("grup hedefe bağlanmamış: %+v", groups)
 	}
 }
 
@@ -366,8 +366,8 @@ func TestRunStillSkipsUnreachableNewMachines(t *testing.T) {
  * denetleniyordu; erişimi asıl veren GrantTarget denetlenmiyordu.
  *
  * Kaçırdığı durum, grant'ın her turda çalışmasının SEBEBİ olan durum:
- * etiketi değişen bir makine ikinci koşuda yeni rolüne bağlanıyor. Orada
- * ne rol ne hedef yaratılıyor — yani var olan iki denetim satırının
+ * etiketi değişen bir makine ikinci koşuda yeni grubuna bağlanıyor. Orada
+ * ne grup ne hedef yaratılıyor — yani var olan iki denetim satırının
  * ikisi de yazılmıyor ve defter tamamen sessiz kalıyor.
  *
  * Test bu ikinci koşuyu ölçüyor, ilkini değil: ilk koşuda satırın
@@ -380,7 +380,7 @@ func TestRetaggingAMachineWritesTheGrantToTheLedger(t *testing.T) {
 
 	p := Planner{DB: db, TagKey: "role", Port: port, Actor: "yigit"}
 
-	// İlk koşu: hedef ve "ops" rolü doğuyor.
+	// İlk koşu: hedef ve "ops" grubu doğuyor.
 	if _, err := p.Run(ctx, []Machine{
 		{Name: "web-01", Host: host, Tags: []string{"role=ops"}, Running: true, Ref: "qemu/101@n1"},
 	}, true); err != nil {
@@ -389,8 +389,8 @@ func TestRetaggingAMachineWritesTheGrantToTheLedger(t *testing.T) {
 
 	before := grantRows(t, db)
 
-	// İkinci koşu: AYNI makine yeni etiketle. Ne rol ne hedef yaratılıyor
-	// — "dba" rolü yaratılıyor ama hedef zaten var ve asıl olay grant.
+	// İkinci koşu: AYNI makine yeni etiketle. Ne grup ne hedef yaratılıyor
+	// — "dba" grubu yaratılıyor ama hedef zaten var ve asıl olay grant.
 	if _, err := p.Run(ctx, []Machine{
 		{Name: "web-01", Host: host, Tags: []string{"role=dba"}, Running: true, Ref: "qemu/101@n1"},
 	}, true); err != nil {
@@ -399,7 +399,7 @@ func TestRetaggingAMachineWritesTheGrantToTheLedger(t *testing.T) {
 
 	after := grantRows(t, db)
 	if len(after) <= len(before) {
-		t.Fatalf("role.grant satırı %d → %d; keşif erişim verdi ama defterde "+
+		t.Fatalf("group.grant satırı %d → %d; keşif erişim verdi ama defterde "+
 			"iz yok — \"prod erişimini web01'e kim verdi?\" sorusu cevapsız",
 			len(before), len(after))
 	}
@@ -433,7 +433,7 @@ func grantRows(t *testing.T, db *store.Store) []store.AdminLogEntry {
 	}
 	var out []store.AdminLogEntry
 	for _, e := range all {
-		if e.Action == "role.grant" {
+		if e.Action == "group.grant" {
 			out = append(out, e)
 		}
 	}

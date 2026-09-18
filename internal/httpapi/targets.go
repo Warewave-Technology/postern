@@ -119,18 +119,18 @@ func (s *Server) handleMyTargets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Kullanıcının erişebildiği hedefler, rollerinden. İki rol aynı
+	// Kullanıcının erişebildiği hedefler, rollerinden. İki grup aynı
 	// hedefi verebilir; küme tekilleştiriyor.
 	allowed := map[string]struct{}{}
-	for _, role := range u.Roles {
-		for _, t := range role.Targets {
+	for _, group := range u.Groups {
+		for _, t := range group.Targets {
 			allowed[t] = struct{}{}
 		}
 	}
 
 	/*
 	 * Süreli haklar da envantere giriyor. Okunamazsa liste rollerle
-	 * çiziliyor ve log'a düşüyor: rolü olanın kutuları bir defter
+	 * çiziliyor ve log'a düşüyor: grubu olanın kutuları bir defter
 	 * arızasında kaybolmamalı.
 	 */
 	temporary, terr := s.temporaryTargets(r.Context(), u.Name, time.Now())
@@ -157,13 +157,13 @@ func (s *Server) handleMyTargets(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]targetCard, 0, len(allowed)+len(temporary))
 	for _, t := range targets {
-		_, byRole := allowed[t.Name]
+		_, byGroup := allowed[t.Name]
 		grant, byGrant := temporary[t.Name]
-		if !byRole && !byGrant {
+		if !byGroup && !byGrant {
 			continue
 		}
 		card := targetCard{Name: t.Name, Labels: t.Labels}
-		if !byRole {
+		if !byGroup {
 			card.Temporary = cardOf(grant)
 		}
 		if card.Labels == nil {
@@ -188,7 +188,7 @@ func (s *Server) handleMyTargets(w http.ResponseWriter, r *http.Request) {
 // adminTargetDetail, tek bir hedefin TAM sayfası.
 //
 // NEDEN AYRI SAYFA: tablo satırı adres, parmak izi, etiketler, gözlemler
-// ve hangi rollerin eriştiğini birden taşıyamıyor — denendi, satır
+// ve hangi grupların eriştiğini birden taşıyamıyor — denendi, satır
 // okunamaz hâle geliyor ve birincil eylem yatay kaydırmanın ardına
 // düşüyordu.
 func (s *Server) adminTargetDetail(w http.ResponseWriter, r *http.Request) {
@@ -215,19 +215,19 @@ func (s *Server) adminTargetDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Bu hedefe erişim VEREN roller. Kullanıcı listesi değil rol listesi:
-	// erişim yalnızca rol üzerinden veriliyor ve "kimler girebilir"
-	// sorusunun doğru cevabı önce "hangi roller".
-	roles, err := s.store.Roles(r.Context())
+	// Bu hedefe erişim VEREN gruplar. Kullanıcı listesi değil grup listesi:
+	// erişim yalnızca grup üzerinden veriliyor ve "kimler girebilir"
+	// sorusunun doğru cevabı önce "hangi gruplar".
+	groups, err := s.store.Groups(r.Context())
 	if err != nil {
 		s.storeErr(w, "target.detail", err)
 		return
 	}
 	granting := []string{}
-	for _, role := range roles {
-		for _, rt := range role.Targets {
+	for _, group := range groups {
+		for _, rt := range group.Targets {
 			if rt == t.Name {
-				granting = append(granting, role.Name)
+				granting = append(granting, group.Name)
 				break
 			}
 		}
@@ -527,8 +527,8 @@ func (s *Server) handleMyTargetDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var allowed bool
-	for _, role := range u.Roles {
-		for _, t := range role.Targets {
+	for _, group := range u.Groups {
+		for _, t := range group.Targets {
 			if strings.EqualFold(t, name) {
 				allowed = true
 			}

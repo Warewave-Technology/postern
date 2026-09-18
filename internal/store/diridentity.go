@@ -101,7 +101,7 @@ type DirectoryAccount struct {
 /*
  * CreateFromDirectory, dizin kimliğinden hesap açar ve BAĞLAR.
  *
- * ⚠️ ROL EŞLEMESİ KAPIDA. Hiçbir grup bir role eşleşmiyorsa hesap
+ * ⚠️ ROL EŞLEMESİ KAPIDA. Hiçbir grup bir gruba eşleşmiyorsa hesap
  * AÇILMIYOR (ErrAccessDenied). Bu, OIDC yolundaki ProvisionUser'ın
  * aynı sözleşmesi: "IdP'de hesabın olması postern'de hesabın olması
  * demek değil" kuralının otomatik açılıştaki karşılığı. Onsuz users
@@ -129,7 +129,7 @@ func (s *Store) CreateFromDirectory(ctx context.Context, acc DirectoryAccount) (
 				"system account name: %w", acc.Username, ErrAccessDenied)
 	}
 
-	roles, unmapped, err := s.RolesForGroups(ctx, model.ResolvedGroups(acc.Groups))
+	groups, unmapped, err := s.GroupsForDirectoryGroups(ctx, model.ResolvedGroups(acc.Groups))
 	if err != nil {
 		return model.User{}, err
 	}
@@ -138,9 +138,9 @@ func (s *Store) CreateFromDirectory(ctx context.Context, acc DirectoryAccount) (
 			return model.User{}, rerr
 		}
 	}
-	if len(roles) == 0 {
+	if len(groups) == 0 {
 		return model.User{}, fmt.Errorf(
-			"store.CreateFromDirectory[%s]: no group maps to a role: %w",
+			"store.CreateFromDirectory[%s]: no group maps to a group: %w",
 			acc.Username, ErrAccessDenied)
 	}
 
@@ -165,7 +165,7 @@ func (s *Store) CreateFromDirectory(ctx context.Context, acc DirectoryAccount) (
 		return model.User{}, translateErr("store.CreateFromDirectory", err)
 	}
 
-	if serr := s.SyncRoles(ctx, acc.Username, roles); serr != nil {
+	if serr := s.SyncGroups(ctx, acc.Username, groups); serr != nil {
 		return model.User{}, serr
 	}
 	if lerr := s.LogAdmin(ctx, AdminLogEntry{

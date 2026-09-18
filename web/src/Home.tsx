@@ -74,7 +74,7 @@ export default function Home({ me }: { me: Me }) {
       <div className="page-head">
         <h2>Your targets</h2>
         <p className="page-sub">
-          The hosts your roles reach. Every session through them is recorded.
+          The hosts your groups reach. Every session through them is recorded.
         </p>
       </div>
 
@@ -85,7 +85,7 @@ export default function Home({ me }: { me: Me }) {
         denied={denied}
         failed={failed}
         empty={items.length === 0}
-        emptyText="No targets granted. An administrator has to grant your role a target before you can connect."
+        emptyText="No targets granted. An administrator has to grant your group a target before you can connect."
       />
 
       {items.length > 0 && (

@@ -144,7 +144,7 @@ func (s *Store) PendingByID(ctx context.Context, id string) (PendingUser, error)
  *
  * ⚠️ ROL VERMİYOR. Roller kişinin bir sonraki girişinde CANLI kaynaktan
  * çözülüyor; kuyruktaki grup listesi onay ekranında ne görüldüğünü
- * gösteriyor, bir yetki kaydı değil. Bayat bir fotoğrafa göre rol
+ * gösteriyor, bir yetki kaydı değil. Bayat bir fotoğrafa göre grup
  * yazmak, yetkiyi geçmişe bağlamak olurdu.
  *
  * Hesap ve bağ AYNI transaction'da: arada kalan bir hata, kimliği

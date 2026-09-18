@@ -120,7 +120,7 @@ export default function MyKeys({ canAdd = true }: { canAdd?: boolean }) {
         <h3>Your SSH keys</h3>
         <p>
           These are the keys that let you open a session through this bastion.
-          What they can reach is decided by your roles, not by the key.
+          What they can reach is decided by your groups, not by the key.
         </p>
       </div>
 

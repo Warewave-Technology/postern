@@ -398,11 +398,11 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Rollerdeki hedefler tekilleştirilip sıralanır: iki rol aynı hedefi
+	// Rollerdeki hedefler tekilleştirilip sıralanır: iki grup aynı hedefi
 	// verebilir, kullanıcıya "hangi kapılar açık" listesi lazım.
 	set := map[string]struct{}{}
-	for _, role := range u.Roles {
-		for _, t := range role.Targets {
+	for _, group := range u.Groups {
+		for _, t := range group.Targets {
 			set[t] = struct{}{}
 		}
 	}
@@ -763,7 +763,7 @@ func (s *Server) requireSession(next http.Handler) http.Handler {
  *
  * ⚠️ KAPSAM PANELDİR, SSH DEĞİL — ve bu bir eksik değil, bir karar.
  * SSH bu oturumlardan hiç geçmiyor: kimlik orada bir AÇIK ANAHTARLA
- * kanıtlanıyor ve yerel parolanın o kapıda hiçbir rolü yok. Zaten
+ * kanıtlanıyor ve yerel parolanın o kapıda hiçbir grubu yok. Zaten
  * varolan anahtarını, panel parolası yüzünden çalışmaz hâle getirmek,
  * kimsenin istemediği bir kesinti olurdu. Kapatılan şey YENİ anahtar
  * EKLEMEK — yani kalıcılık kurmak — ve o kontrol hem burada hem
@@ -970,7 +970,7 @@ func sessionAccountID(r *http.Request) string {
 // SIRA ÖNEMLİ:
 //
 //  1. Kullanıcı adı varsa JIT sağlama denenir (ProvisionUser): grupları
-//     rollere eşlenir, kullanıcı yoksa oluşturulur, SSO rolleri her
+//     gruplara eşlenir, kullanıcı yoksa oluşturulur, SSO grupları her
 //     girişte yenilenir.
 //  2. Kullanıcı adı yoksa (IdP preferred_username vermiyorsa) eski yola
 //     düşülür: doğrulanmış e-postayla eşleştirme. Bu, JIT'ten önce elle
@@ -993,9 +993,9 @@ func (s *Server) resolveIdentity(ctx context.Context, log *slog.Logger, id auth.
 		}
 
 		// ⚠️ Bkz. sshd tarafındaki aynı not: "bulamadım" yetki kararı
-		// değildir ve roller o hâlde tazelenmez.
+		// değildir ve gruplar o hâlde tazelenmez.
 		if res.Presence != auth.GroupsPresent {
-			log.Warn("directory did not resolve this user; roles left untouched",
+			log.Warn("directory did not resolve this user; groups left untouched",
 				"idp_user", id.Username, "presence", res.Presence.String())
 		}
 
@@ -1112,7 +1112,7 @@ func (s *Server) resolveIdentity(ctx context.Context, log *slog.Logger, id auth.
 				"idp_user", id.Username, "idp_issuer", id.Issuer)
 			return model.User{}, store.ErrAccessDenied
 		case errors.Is(err, store.ErrAccessDenied):
-			// Kimlik geçerli ama hiçbir grubu role eşleşmiyor. Bu bir
+			// Kimlik geçerli ama hiçbir grubu gruba eşleşmiyor. Bu bir
 			// yapılandırma boşluğu olabilir: eşlenmemiş gruplar teşhis
 			// tablosunda, yönetici panelden görecek.
 			log.Warn("login denied",

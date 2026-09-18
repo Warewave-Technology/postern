@@ -37,8 +37,8 @@ func newUserCmd() *cobra.Command {
 	cmd.AddCommand(newUserStateCmd())
 	cmd.AddCommand(newUserUnbindDirectoryCmd())
 	cmd.AddCommand(newUserPurgeCmd())
-	cmd.AddCommand(newUserGrantRoleCmd())
-	cmd.AddCommand(newUserRevokeRoleCmd())
+	cmd.AddCommand(newUserGrantGroupCmd())
+	cmd.AddCommand(newUserRevokeGroupCmd())
 	return cmd
 }
 
@@ -144,16 +144,16 @@ func newUserPurgeCmd() *cobra.Command {
 			// ⚠️ İZ ŞART: kim, ne zaman, neyi serbest bıraktı.
 			if lerr := db.LogAdmin(ctx, store.AdminLogEntry{
 				Actor: cliActor(), Via: "cli", Action: "user.purge", Entity: name,
-				Details: fmt.Sprintf("username released on %s; %d key(s) and %d role(s) "+
+				Details: fmt.Sprintf("username released on %s; %d key(s) and %d group(s) "+
 					"removed; the row is kept so audit entries naming %q stay readable",
-					res.At.Format("2006-01-02"), res.Keys, res.Roles, name),
+					res.At.Format("2006-01-02"), res.Keys, res.Groups, name),
 			}); lerr != nil {
 				return lerr
 			}
 
 			fmt.Fprintf(cmd.OutOrStdout(),
-				"%q is free again — %d key(s) and %d role(s) released\n",
-				name, res.Keys, res.Roles)
+				"%q is free again — %d key(s) and %d group(s) released\n",
+				name, res.Keys, res.Groups)
 			fmt.Fprintln(cmd.OutOrStdout(),
 				"the account row is kept: audit entries naming it stay readable, "+
 					"and `postern log --entity <name>` records when it was released")
@@ -236,31 +236,31 @@ func newUserAllowBindCmd() *cobra.Command {
 	return cmd
 }
 
-// newUserAddCmd, kullanıcıyı TEK komutta erişilir kılar: oluştur + roller +
+// newUserAddCmd, kullanıcıyı TEK komutta erişilir kılar: oluştur + gruplar +
 // anahtarlar.
 //
 //	postern user add --name yigit --os-user yigit \
-//	    --role ops --key ~/.ssh/id_ed25519.pub
+//	    --group ops --key ~/.ssh/id_ed25519.pub
 //
 // KISMİ BAŞARI SORUNU ve buradaki cevabı: bileşik bir komut yarıda
-// kalabilir (kullanıcı oluştu, rol yazım hatalı çıktı). İki önlem birlikte:
+// kalabilir (kullanıcı oluştu, grup yazım hatalı çıktı). İki önlem birlikte:
 //
 //  1. Yazmaya başlamadan önce doğrulanabilecek her şey doğrulanır —
 //     anahtar dosyaları okunup parse edilir. Bozuk dosya, kullanıcı
 //     yaratılmadan ÖNCE hata verir.
 //  2. Komut yeniden çalıştırılabilir: kullanıcı zaten varsa bu bir hata
-//     değil, "bu kullanıcı şu rollere ve anahtarlara sahip OLSUN" isteğinin
-//     devamıdır. AssignRole ve AddPublicKey zaten idempotent; rol yazım
+//     değil, "bu kullanıcı şu gruplara ve anahtarlara sahip OLSUN" isteğinin
+//     devamıdır. AssignGroup ve AddPublicKey zaten idempotent; grup yazım
 //     hatasını düzeltip aynı komutu tekrar çalıştırmak işi tamamlar.
 //     Tek koşul: var olan kullanıcının os_user'ı bayrakla ÇELİŞMEMELİ —
 //     çelişki sessizce eski değeri korumak yerine açık hata verir.
 func newUserAddCmd() *cobra.Command {
 	var configPath, name, osUser, email string
-	var roles, keyFiles []string
+	var groups, keyFiles []string
 
 	cmd := &cobra.Command{
 		Use:   "add",
-		Short: "Create a user with roles and public keys",
+		Short: "Create a user with groups and public keys",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Önlem 1: önce doğrula, sonra dokun.
 			type parsedKey struct {
@@ -329,18 +329,18 @@ func newUserAddCmd() *cobra.Command {
 				fmt.Fprintf(out, "user %q created\n", name)
 			}
 
-			for _, role := range roles {
-				if err := db.AssignRole(ctx, name, role, time.Time{}); err != nil {
+			for _, group := range groups {
+				if err := db.AssignGroup(ctx, name, group, time.Time{}); err != nil {
 					if errors.Is(err, store.ErrNotFound) {
-						return fmt.Errorf("role %q not found — create it with `postern role add`, then re-run this command (already-applied grants are kept)", role)
+						return fmt.Errorf("group %q not found — create it with `postern group add`, then re-run this command (already-applied grants are kept)", group)
 					}
 					return err
 				}
 				if aerr := auditCLI(ctx, db, "user.grant_role", name,
-					"assigned role "+role); aerr != nil {
+					"assigned group "+group); aerr != nil {
 					return aerr
 				}
-				fmt.Fprintf(out, "  role %q assigned\n", role)
+				fmt.Fprintf(out, "  group %q assigned\n", group)
 			}
 
 			for _, k := range keys {
@@ -366,7 +366,7 @@ func newUserAddCmd() *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "postern username (required)")
 	cmd.Flags().StringVar(&osUser, "os-user", "", "account this person lands as on the targets (required)")
 	cmd.Flags().StringVar(&email, "email", "", "email used to match an OIDC identity")
-	cmd.Flags().StringArrayVar(&roles, "role", nil, "verilecek rol (tekrarlanabilir)")
+	cmd.Flags().StringArrayVar(&groups, "group", nil, "verilecek grup (tekrarlanabilir)")
 	cmd.Flags().StringArrayVar(&keyFiles, "key", nil, "public key file (repeatable)")
 	_ = cmd.MarkFlagRequired("name")
 	_ = cmd.MarkFlagRequired("os-user")
@@ -379,7 +379,7 @@ func newUserListCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List users with their roles",
+		Short: "List users with their groups",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load(configPath)
 			if err != nil {
@@ -407,8 +407,8 @@ func newUserListCmd() *cobra.Command {
 			fmt.Fprintln(w, "NAME\tOS USER\tADMIN\tROLES\tKEYS")
 
 			for _, u := range users {
-				roleNames := make([]string, 0, len(u.Roles))
-				for _, r := range u.Roles {
+				roleNames := make([]string, 0, len(u.Groups))
+				for _, r := range u.Groups {
 					roleNames = append(roleNames, r.Name)
 				}
 				rolesCol := "-"
@@ -528,7 +528,7 @@ func newUserModifyCmd() *cobra.Command {
 				}
 				fmt.Fprintf(out, "user %q: sso-only set to %v", name, ssoOnly)
 				if ssoOnly {
-					fmt.Fprint(out, " (public key login disabled; directory sync may revoke roles)")
+					fmt.Fprint(out, " (public key login disabled; directory sync may revoke groups)")
 				}
 				fmt.Fprintln(out)
 			}

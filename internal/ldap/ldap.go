@@ -82,9 +82,9 @@ type Config struct {
 	 *
 	 * LDAP'ta benzersizlik EBEVEYN BAŞINA. Yani cn=sysadmins zaten
 	 * varken, bir alt-OU'da aynı adla ikinci bir grup açılabiliyor ve
-	 * postern ikisini de aynı role çözüyordu. Grup açma yetkisi
+	 * postern ikisini de aynı gruba çözüyordu. Grup açma yetkisi
 	 * devredilmiş her kurumda (self-servis portal, departman OU'su,
-	 * yüklenici alt ağacı) bu, "istediğim rolü kendime basarım"
+	 * yüklenici alt ağacı) bu, "istediğim grubu kendime basarım"
 	 * demekti.
 	 *
 	 * "direct" bunu kapatır: grup, taban DN'in DOĞRUDAN çocuğu olmak
@@ -126,14 +126,14 @@ func New(cfg Config) (*Source, error) {
 	// BİR YERİNDEKİ grubu alıp CN'ine indiriyordu. Yani dizinde bir yere
 	// grup açabilen (self-servis grup oluşturma, devredilmiş bir OU,
 	// yüklenici alt ağacı, ormandaki başka bir alan) herkes, adını
-	// eşlenmiş bir role denk getirerek O ROLÜ alabiliyordu — "grup
-	// açabilirim"den "o rolün hedeflerine SSH'layabilirim"e.
+	// eşlenmiş bir gruba denk getirerek O ROLÜ alabiliyordu — "grup
+	// açabilirim"den "o grubun hedeflerine SSH'layabilirim"e.
 	//
 	// Kapsamı zorunlu kılmak yapılandırmayı bir satır uzatıyor;
 	// alternatifi, grup kimliğinin dizinin tamamına açık olması.
 	if cfg.GroupBase == "" {
 		return nil, fmt.Errorf("ldap.New: group_base is required — it scopes which " +
-			"part of the directory may name a postern role")
+			"part of the directory may name a postern group")
 	}
 	if !strings.Contains(cfg.UserFilter, "%s") {
 		return nil, fmt.Errorf("ldap.New: user_filter must contain %%s for the username")
@@ -166,7 +166,7 @@ func New(cfg Config) (*Source, error) {
 	 * Bu ikisi birlikte, grup adını DN'in ilk bileşeninden okuyup onu
 	 * dizinin herhangi bir derinliğinden kabul etmek demek. LDAP'ta
 	 * benzersizlik ebeveyn başına olduğu için, alt-OU'ya açılan
-	 * cn=sysadmins gerçek olanla aynı role çözülür. Ölçüldü.
+	 * cn=sysadmins gerçek olanla aynı gruba çözülür. Ölçüldü.
 	 *
 	 * "dn" ile subtree güvenli: eşleme anahtarı tam DN, çakışma yok.
 	 */
@@ -174,7 +174,7 @@ func New(cfg Config) (*Source, error) {
 		return nil, fmt.Errorf(
 			"ldap.New: group_scope %q needs group_name_from \"dn\"; with %q the group name "+
 				"is only the first DN component, and a group of the same name in any sub-OU "+
-				"would resolve to the same role",
+				"would resolve to the same group",
 			ScopeSubtree, cfg.GroupNameFrom)
 	}
 
@@ -427,7 +427,7 @@ func (s *Source) findBy(conn *goldap.Conn, filter, what string) (userEntry, erro
 		 * ⚠️ REFERRAL "YOK" DEĞİLDİR, "BURADA DEĞİL" DEMEKTİR.
 		 *
 		 * Boş sonuç, çağıranda PresenceAbsent'a çevriliyor ve o da
-		 * "kullanıcı dizinden silinmiş" demek — groupsync onu görüp rol
+		 * "kullanıcı dizinden silinmiş" demek — groupsync onu görüp grup
 		 * iptaline gidiyor. Ama Active Directory, aranan şey başka bir
 		 * alan adındaysa SIFIR giriş ve BİR REFERRAL döndürüyor: kişi
 		 * duruyor, yalnızca bu sunucuda değil.
@@ -470,7 +470,7 @@ func (s *Source) findBy(conn *goldap.Conn, filter, what string) (userEntry, erro
 		 * sunucu özniteliği "ou" adıyla döndürüyor ve harfe duyarlı
 		 * arama SIFIR değer buluyor. Sonuç sessiz ve ağır: dizin
 		 * "present" diyor, panel yeşil kalıyor, ama kullanıcının bütün
-		 * grupları — dolayısıyla bütün rolleri — yok oluyor. Panelin
+		 * grupları — dolayısıyla bütün grupları — yok oluyor. Panelin
 		 * kendi ipucu "memberOf" yazıyor; "memberof" yazan operatör tam
 		 * bu tuzağa düşüyordu.
 		 */
@@ -629,7 +629,7 @@ func (s *Source) normalize(value string) string {
  *
  * Oysa o giriş dc=corp'un çocuğu ve ou=groups'un altında DEĞİL. Yani
  * dizinde dc=corp altına tek bir giriş açabilen biri, adını istediği
- * role denk getirip o rolü alabiliyordu — bu fonksiyonun var olma
+ * gruba denk getirip o grubu alabiliyordu — bu fonksiyonun var olma
  * sebebi olan yetki yükseltmesinin ta kendisi.
  *
  * ParseDN kaçışları, çok değerli RDN'leri ve tırnaklamayı doğru

@@ -5,7 +5,7 @@ import {
   GrantRequest,
   GrantResult,
   GrantStep,
-  Role,
+  Group,
   Target,
   TargetGroups,
   User,
@@ -428,11 +428,17 @@ export function commonGroups(inventories: TargetGroups[]): {
 function NewGrant({ onChanged, onClose }: { onChanged: () => Promise<unknown>; onClose: () => void }) {
   const users = useList<User>(api.users);
   const targets = useList<Target>(api.targets);
-  const roles = useList<Role>(api.roles);
+  const groups = useList<Group>(api.groups);
 
   const [username, setUsername] = useState("");
   const [hosts, setHosts] = useState<string[]>([]);
-  const [groups, setGroups] = useState<string[]>([]);
+  /*
+   * ⚠️ BU LİSTE HEDEFİN GRUPLARI, postern'in grupları DEĞİL. Sihirbaz
+   * hesabı makinedeki var olan gruplara alıyor; postern'in kendi
+   * nesnesiyle aynı kelimeyi taşımaları, hangisinin yetki verdiğini
+   * okunmaz yapardı.
+   */
+  const [hostGroups, setHostGroups] = useState<string[]>([]);
   const [inventory, setInventory] = useState<Record<string, TargetGroups | { error: string }>>({});
   const [duration, setDuration] = useState<string>("4h");
   /*
@@ -473,14 +479,14 @@ function NewGrant({ onChanged, onClose }: { onChanged: () => Promise<unknown>; o
   const inventoryErrors = Object.entries(inventory).filter(
     (e): e is [string, { error: string }] => "error" in e[1],
   );
-  const roleNames = roles.items.map((r) => r.name).sort((a, b) => a.localeCompare(b));
+  const groupNames = groups.items.map((r) => r.name).sort((a, b) => a.localeCompare(b));
   // Rol adıyla çakışan hedef grubu bir kez listelenir — rol öbeğinde.
-  const hostOnly = common.names.filter((n) => !roleNames.includes(n));
+  const hostOnly = common.names.filter((n) => !groupNames.includes(n));
 
   // Seçilen grupların kurallı olanları: rolün sudo'su üyelikten geliyor.
-  const groupRules = groups
-    .map((g) => roles.items.find((r) => r.name === g))
-    .filter((r): r is Role => !!r?.sudo)
+  const groupRules = hostGroups
+    .map((g) => groups.items.find((r) => r.name === g))
+    .filter((r): r is Group => !!r?.sudo)
     .map((r) => ({
       name: r.name,
       // Hesap komut başına: "pg_ctl reload (as postgres)".
@@ -490,7 +496,7 @@ function NewGrant({ onChanged, onClose }: { onChanged: () => Promise<unknown>; o
     }));
 
   const request = (): GrantRequest => {
-    const g: GrantRequest = { username, groups, duration, cleanup_groups: cleanupGroups };
+    const g: GrantRequest = { username, groups: hostGroups, duration, cleanup_groups: cleanupGroups };
     const rows = commands.filter((c) => c.command.trim() !== "");
     if (rows.length > 0) {
       g.sudo = {
@@ -605,11 +611,18 @@ function NewGrant({ onChanged, onClose }: { onChanged: () => Promise<unknown>; o
           </div>
 
           <div className="field-row">
+            {/*
+              ⚠️ "Host groups": bu seçici HEDEFTEKİ grupları veriyor, ve
+              içlerinden bazılarının adı postern'in gruplarıyla aynı
+              olabiliyor (öbek başlıkları bu yüzden var). Etiket yalnızca
+              "Groups" deseydi, aynı ekrandaki üç ayrı grup kavramından
+              hangisi olduğu okunmazdı.
+            */}
             <MultiSelect
-              label="Groups"
-              placeholder="Search groups…"
+              label="Host groups"
+              placeholder="Search groups on the hosts…"
               options={[
-                ...roleNames.map((r) => ({ value: r, label: r, group: "Roles on postern" })),
+                ...groupNames.map((r) => ({ value: r, label: r, group: "Groups on postern" })),
                 ...hostOnly.map((g) => ({
                   value: g,
                   label: g,
@@ -619,11 +632,11 @@ function NewGrant({ onChanged, onClose }: { onChanged: () => Promise<unknown>; o
                       : `Common to ${common.hosts.join(", ")}`,
                 })),
               ]}
-              value={groups}
-              onChange={setGroups}
+              value={hostGroups}
+              onChange={setHostGroups}
               note={
                 common.hosts.length === 0
-                  ? "A role's name becomes a group on the host; postern creates it if it is missing."
+                  ? "A group's name becomes a group on the host; postern creates it if it is missing."
                   : common.hosts.length === 1
                     ? `${common.names.length} group(s) on ${common.hosts[0]}${
                         common.hidden
@@ -642,7 +655,7 @@ function NewGrant({ onChanged, onClose }: { onChanged: () => Promise<unknown>; o
             <ErrorLine key={host} msg={`${host}: ${v.error}`} />
           ))}
           <p className="muted small">
-            Will join: {groups.length ? groups.join(", ") : "no group besides postern-jit"}.
+            Will join: {hostGroups.length ? hostGroups.join(", ") : "no group besides postern-jit"}.
           </p>
           {/*
             ⚠️ GRUP SİLME ONAYI: postern'in bu hak için AÇTIĞI grup, hak
@@ -670,8 +683,8 @@ function NewGrant({ onChanged, onClose }: { onChanged: () => Promise<unknown>; o
           {groupRules.length > 0 && (
             <p className="msg msg-warn" role="status">
               {groupRules.length === 1
-                ? `The role ${groupRules[0].name} already lets its members run: `
-                : `These roles already let their members run: `}
+                ? `The group ${groupRules[0].name} already lets its members run: `
+                : `These groups already let their members run: `}
               {groupRules
                 .map((r) => `${r.name} — ${r.commands.join(", ")}`)
                 .join("; ")}

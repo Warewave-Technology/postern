@@ -1059,7 +1059,7 @@ textarea {
  *
  *   1. YÜKSEKLİK TUTMUYORDU. Yerleşik açılır liste 35px, yanındaki
  *      düğme 31px çiziliyordu; ikisi aynı satırda duruyor ("Add a
- *      role" + "Assign") ve 4px'lik fark, satırı hizasız gösteriyordu.
+ *      group" + "Assign") ve 4px'lik fark, satırı hizasız gösteriyordu.
  *      Tarayıcının kendi iç dolgusunu appearance ile kapatıp yüksekliği
  *      düğmelerle aynı kurala bağlıyoruz.
  *
@@ -3264,7 +3264,7 @@ a.tcard-name:focus-visible {
  * sayı gösterip silmek için anahtar metnini isteyen eski hâl,
  * yöneticiye kör bir tıklama yaptırıyordu.
  */
-.role-list,
+.group-list,
 .key-list-admin {
   list-style: none;
   margin: 0;
@@ -3274,7 +3274,7 @@ a.tcard-name:focus-visible {
   gap: 6px;
   font-size: 13px;
 }
-.role-list li,
+.group-list li,
 .key-list-admin li {
   display: flex;
   align-items: center;
@@ -3285,7 +3285,7 @@ a.tcard-name:focus-visible {
   border-radius: var(--radius);
   background: var(--sunken);
 }
-.role-list li > div,
+.group-list li > div,
 .key-list-admin li > div {
   min-width: 0;
   /* Hedef adları tek parça; sarmayınca 1024'te "…02.internal.example.com"

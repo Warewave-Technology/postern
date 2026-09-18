@@ -29,7 +29,7 @@ describe("kuralsız rol", () => {
    */
   it("kısıtsız olduğunu açıkça yazıyor", async () => {
     vi.spyOn(api, "rolePaths").mockResolvedValue([]);
-    render(<PathRules role="ops" />);
+    render(<PathRules group="ops" />);
 
     await waitFor(() =>
       expect(screen.getByRole("status").textContent).toMatch(/unrestricted/),
@@ -45,7 +45,7 @@ describe("kural listesi", () => {
       rule({ prefix: "/home/dev/.ssh", allow: false }),
       rule({ prefix: "/var/log" }),
     ]);
-    render(<PathRules role="dev" />);
+    render(<PathRules group="dev" />);
 
     await waitFor(() => expect(screen.getByRole("table")).toBeTruthy());
     const rows = screen.getAllByRole("row").slice(1);
@@ -63,7 +63,7 @@ describe("kural listesi", () => {
   it("son kuralı silerken kısıtın kalkacağını söylüyor", async () => {
     vi.spyOn(api, "rolePaths").mockResolvedValue([rule()]);
     const del = vi.spyOn(api, "deleteRolePath").mockResolvedValue(undefined);
-    render(<PathRules role="ops" />);
+    render(<PathRules group="ops" />);
 
     await waitFor(() => expect(screen.getByRole("table")).toBeTruthy());
     await userEvent.click(screen.getByRole("button", { name: /remove rule/ }));
@@ -80,12 +80,12 @@ describe("kural listesi", () => {
       rule({ prefix: "/tmp" }),
     ]);
     vi.spyOn(api, "deleteRolePath").mockResolvedValue(undefined);
-    render(<PathRules role="ops" />);
+    render(<PathRules group="ops" />);
 
     await waitFor(() => expect(screen.getByRole("table")).toBeTruthy());
     await userEvent.click(
       screen.getByRole("button", {
-        name: "remove rule /var/log from role ops",
+        name: "remove rule /var/log from group ops",
       }),
     );
 
@@ -99,7 +99,7 @@ describe("kural ekleme", () => {
   it("erişim seçimini doğru alanlara çeviriyor", async () => {
     vi.spyOn(api, "rolePaths").mockResolvedValue([]);
     const set = vi.spyOn(api, "setRolePath").mockResolvedValue(undefined);
-    render(<PathRules role="ops" />);
+    render(<PathRules group="ops" />);
     await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
 
     /*
@@ -127,7 +127,7 @@ describe("kural ekleme", () => {
   it("ret seçildiğinde yazma göndermiyor", async () => {
     vi.spyOn(api, "rolePaths").mockResolvedValue([]);
     const set = vi.spyOn(api, "setRolePath").mockResolvedValue(undefined);
-    render(<PathRules role="ops" />);
+    render(<PathRules group="ops" />);
     await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
 
     /*
@@ -150,7 +150,7 @@ describe("kural ekleme", () => {
   it("baştaki ve sondaki boşluğu kırpıyor", async () => {
     vi.spyOn(api, "rolePaths").mockResolvedValue([]);
     const set = vi.spyOn(api, "setRolePath").mockResolvedValue(undefined);
-    render(<PathRules role="ops" />);
+    render(<PathRules group="ops" />);
     await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
 
     // Gözle görünmeyen bir boşluk, hiçbir zaman eşleşmeyen bir kural
@@ -174,7 +174,7 @@ describe("kural ekleme", () => {
         "prefix must be absolute: postern cannot resolve a relative path",
       ),
     );
-    render(<PathRules role="ops" />);
+    render(<PathRules group="ops" />);
     await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
 
     /*

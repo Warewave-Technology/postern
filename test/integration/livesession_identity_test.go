@@ -142,8 +142,8 @@ func TestReleasedUsernameDoesNotHandTheConnectionToTheNewHolder(t *testing.T) {
 	if _, err := db.CreateUser(ctx, "yigit", "yeni@warewave.io", "deploy"); err != nil {
 		t.Fatalf("yeni kullanıcı: %v", err)
 	}
-	if err := db.SyncRoles(ctx, "yigit", []string{"ops"}); err != nil {
-		t.Fatalf("SyncRoles: %v", err)
+	if err := db.SyncGroups(ctx, "yigit", []string{"ops"}); err != nil {
+		t.Fatalf("SyncGroups: %v", err)
 	}
 	before := sessionCountFor(t, db)
 

@@ -6,10 +6,10 @@ import "time"
  * TemporaryAccess, bir kişinin bir hedefte SÜRELİ hesabı — politikanın
  * gördüğü hâli (jit_grants satırının yetkiye dair kısmı).
  *
- * ⚠️ ROL DEĞİL, AYRI BİR YETKİ KAYNAĞI. Rol, rolü taşıyan herkese kalıcı
+ * ⚠️ ROL DEĞİL, AYRI BİR YETKİ KAYNAĞI. Rol, grubu taşıyan herkese kalıcı
  * erişim; bu ise tek kişiye, tek hedefte, bir vadeye kadar. İkisini aynı
- * yapıya sıkıştırmak — geçici hakkı bir role çevirmek — süresi dolunca
- * silinmesi gereken şeyi rol tablosuna sızdırırdı.
+ * yapıya sıkıştırmak — geçici hakkı bir gruba çevirmek — süresi dolunca
+ * silinmesi gereken şeyi grup tablosuna sızdırırdı.
  */
 type TemporaryAccess struct {
 	Target string

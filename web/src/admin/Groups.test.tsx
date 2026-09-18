@@ -1,9 +1,9 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { api, Role, Target } from "../api";
-import Roles from "./Roles";
+import { api, Group, Target } from "../api";
+import Groups from "./Groups";
 
-const roles: Role[] = [
+const groups: Group[] = [
   {
     name: "sre",
     // Yüz hedefli rol: listenin bunu SAYMASI gerekiyor, saymazsa tablo
@@ -28,7 +28,7 @@ const targets: Target[] = [
 ];
 
 beforeEach(() => {
-  vi.spyOn(api, "roles").mockResolvedValue(roles);
+  vi.spyOn(api, "groups").mockResolvedValue(groups);
   vi.spyOn(api, "targets").mockResolvedValue(targets);
   vi.spyOn(api, "rolePaths").mockResolvedValue([]);
 });
@@ -42,7 +42,7 @@ afterEach(() => vi.restoreAllMocks());
  * görünmese de "db-01'e hangi rol eriyor" sorulabilmeli.
  */
 it("rolleri sayılarıyla listeliyor ve aramayı hedef adına açıyor", async () => {
-  render(<Roles />);
+  render(<Groups />);
   const row = (await screen.findByRole("button", { name: "sre" })).closest("tr")!;
 
   expect(within(row).getByText("100 hosts")).toBeTruthy();
@@ -54,7 +54,7 @@ it("rolleri sayılarıyla listeliyor ve aramayı hedef adına açıyor", async (
   expect(within(kuralsiz).getByText("no targets")).toBeTruthy();
   expect(within(kuralsiz).getByText("no rule")).toBeTruthy();
 
-  fireEvent.change(screen.getByPlaceholderText("Search roles…"), {
+  fireEvent.change(screen.getByPlaceholderText("Search groups…"), {
     target: { value: "host-042" },
   });
   expect(screen.getByRole("button", { name: "sre" })).toBeTruthy();
@@ -67,7 +67,7 @@ it("rolleri sayılarıyla listeliyor ve aramayı hedef adına açıyor", async (
  * tabloyu bozuyordu.
  */
 it("ada tıklayınca rolün sayfasını açıyor", async () => {
-  render(<Roles />);
+  render(<Groups />);
   fireEvent.click(await screen.findByRole("button", { name: "sre" }));
 
   expect(await screen.findByRole("heading", { name: "sre" })).toBeTruthy();
@@ -78,10 +78,10 @@ it("ada tıklayınca rolün sayfasını açıyor", async () => {
   expect(screen.getByText("/usr/sbin/nginx -t")).toBeTruthy();
   expect(screen.getByPlaceholderText(/search commands/i)).toBeTruthy();
   // Rolü silmek de sayfada: liste satırında düğme kalabalığı yapıyordu.
-  expect(screen.getByRole("button", { name: /delete role sre/i })).toBeTruthy();
+  expect(screen.getByRole("button", { name: /delete group sre/i })).toBeTruthy();
 
-  fireEvent.click(screen.getByRole("button", { name: /all roles/i }));
-  expect(await screen.findByRole("heading", { name: "Roles" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: /all groups/i }));
+  expect(await screen.findByRole("heading", { name: "Groups" })).toBeTruthy();
 });
 
 /*
@@ -94,7 +94,7 @@ it("sayfadan hedef veriyor ve geri alıyor", async () => {
   const revoke = vi.spyOn(api, "revokeTarget").mockResolvedValue(undefined);
   vi.stubGlobal("confirm", vi.fn(() => true));
 
-  render(<Roles />);
+  render(<Groups />);
   fireEvent.click(await screen.findByRole("button", { name: "sre" }));
 
   /*
@@ -109,6 +109,6 @@ it("sayfadan hedef veriyor ve geri alıyor", async () => {
   fireEvent.click(screen.getByRole("button", { name: /grant 1 target/i }));
   await waitFor(() => expect(grant).toHaveBeenCalledWith("sre", "db-01"));
 
-  fireEvent.click(screen.getAllByRole("button", { name: /revoke host-000 from role sre/i })[0]);
+  fireEvent.click(screen.getAllByRole("button", { name: /revoke host-000 from group sre/i })[0]);
   await waitFor(() => expect(revoke).toHaveBeenCalledWith("sre", "host-000"));
 });

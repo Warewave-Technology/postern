@@ -81,7 +81,7 @@ const FIELDS: Field[] = [
   {
     key: "ldap.group_base",
     label: "Group base",
-    hint: "required — limits which part of the directory may name a postern role",
+    hint: "required — limits which part of the directory may name a postern group",
     required: true,
   },
   {
@@ -589,7 +589,7 @@ export default function Settings({ meName }: { meName?: string }) {
                       <b>{testUser}</b>. postern looks the name up with the
                       stored user filter, so a directory whose accounts are
                       named differently from the identity provider will grant no
-                      groups at all — and no roles with them.
+                      groups at all — and no groups with them.
                     </p>
                   )}
 
@@ -610,7 +610,7 @@ export default function Settings({ meName }: { meName?: string }) {
                       postern reads the group name from the first component of
                       the DN, and LDAP only guarantees that name is unique under
                       one parent — so a group of the same name in any sub-OU
-                      would resolve to the same role. Only direct children of
+                      would resolve to the same group. Only direct children of
                       the group base count. Not counted:{" "}
                       <code>{test.out_of_scope.join(", ")}</code>
                     </p>
@@ -620,8 +620,8 @@ export default function Settings({ meName }: { meName?: string }) {
                     <dl className="kv">
                       <dt>groups</dt>
                       <dd>{test.groups?.join(", ") || "none"}</dd>
-                      <dt>mapped to roles</dt>
-                      <dd>{test.roles?.join(", ") || "none"}</dd>
+                      <dt>mapped to groups</dt>
+                      <dd>{test.groups?.join(", ") || "none"}</dd>
                       <dt>unmapped</dt>
                       <dd>{test.unmapped?.join(", ") || "none"}</dd>
                       {/*
@@ -724,8 +724,8 @@ export default function Settings({ meName }: { meName?: string }) {
                   <dl className="kv">
                     <dt>groups</dt>
                     <dd>{verified.result.groups.join(", ") || "—"}</dd>
-                    <dt>mapped to roles</dt>
-                    <dd>{verified.result.roles?.join(", ") || "—"}</dd>
+                    <dt>mapped to groups</dt>
+                    <dd>{verified.result.groups?.join(", ") || "—"}</dd>
                     <dt>unmapped</dt>
                     <dd>{verified.result.unmapped?.join(", ") || "—"}</dd>
                   </dl>

@@ -159,14 +159,14 @@ func (s *Server) adminPurgeUser(w http.ResponseWriter, r *http.Request) {
 
 	// ⚠️ İZ ŞART: kim, ne zaman, neyi serbest bıraktı.
 	s.audit(r, "user.purge", name, fmt.Sprintf(
-		"username released on %s; %d key(s), %d role(s) and %d panel session(s) "+
+		"username released on %s; %d key(s), %d group(s) and %d panel session(s) "+
 			"removed; the row is kept so audit entries naming %q stay readable",
-		res.At.Format("2006-01-02"), res.Keys, res.Roles, dropped, name))
+		res.At.Format("2006-01-02"), res.Keys, res.Groups, dropped, name))
 	s.logger.Warn("account purged", "actor", sessionUser(r), "user", name,
-		"keys", res.Keys, "roles", res.Roles, "sessions", dropped)
+		"keys", res.Keys, "groups", res.Groups, "sessions", dropped)
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok": true, "keys_released": res.Keys, "roles_released": res.Roles,
+		"ok": true, "keys_released": res.Keys, "roles_released": res.Groups,
 		"note": "the name is free again; the account row is kept so audit " +
 			"entries naming it stay readable",
 	})

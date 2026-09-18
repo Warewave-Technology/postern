@@ -47,7 +47,7 @@ func newUserUnbindDirectoryCmd() *cobra.Command {
 		Long: "Use this when someone was deleted and re-created in the directory,\n" +
 			"so their stable identity changed and they can no longer sign in.\n" +
 			"The next successful directory sign-in binds the account to the new\n" +
-			"identity. Roles, keys and history are untouched.",
+			"identity. Groups, keys and history are untouched.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, ctx, err := openStore(configPath)
@@ -103,7 +103,7 @@ func newUserUnbindDirectoryCmd() *cobra.Command {
 
 			fmt.Fprintf(out, "\n%q is detached. Their next directory sign-in binds "+
 				"the account to the identity it comes from.\n", name)
-			fmt.Fprintln(out, "roles, keys and session history were not touched")
+			fmt.Fprintln(out, "groups, keys and session history were not touched")
 			return nil
 		},
 	}

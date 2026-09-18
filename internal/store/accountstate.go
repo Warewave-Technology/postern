@@ -86,12 +86,12 @@ func (s *Store) SetAccountState(ctx context.Context, username, state string) err
 
 // StaleAccount, süresi dolmuş bir hesabın özeti.
 type StaleAccount struct {
-	Username    string
-	State       string
-	Confirmed   time.Time
-	SSOOnly     bool
-	DirBound    bool
-	ManualRoles int
+	Username     string
+	State        string
+	Confirmed    time.Time
+	SSOOnly      bool
+	DirBound     bool
+	ManualGroups int
 }
 
 /*
@@ -109,9 +109,9 @@ func (s *Store) StaleAccounts(ctx context.Context, olderThan time.Time, state st
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT u.username, u.state, u.last_confirmed_at, u.sso_only,
 		       (u.dir_subject IS NOT NULL) AS dir_bound,
-		       COUNT(*) FILTER (WHERE ur.source = 'manual') AS manual_roles
+		       COUNT(*) FILTER (WHERE ur.source = 'manual') AS manual_groups
 		FROM users u
-		LEFT JOIN user_roles ur ON ur.user_id = u.id
+		LEFT JOIN user_groups ur ON ur.user_id = u.id
 		WHERE u.state = $1
 		  AND (u.sso_only = TRUE OR u.dir_subject IS NOT NULL)
 		  AND u.last_confirmed_at IS NOT NULL
@@ -128,7 +128,7 @@ func (s *Store) StaleAccounts(ctx context.Context, olderThan time.Time, state st
 		var a StaleAccount
 		var at sql.NullInt64
 		if err := rows.Scan(&a.Username, &a.State, &at, &a.SSOOnly,
-			&a.DirBound, &a.ManualRoles); err != nil {
+			&a.DirBound, &a.ManualGroups); err != nil {
 			return nil, translateErr("store.StaleAccounts", err)
 		}
 		if at.Valid {
@@ -224,7 +224,7 @@ func (s *Store) RefuseIfDeletedByID(ctx context.Context, id string) error {
 type PurgeResult struct {
 	FormerUsername string
 	Keys           int
-	Roles          int
+	Groups         int
 	At             time.Time
 }
 
@@ -243,7 +243,7 @@ type PurgeResult struct {
  * kullanıyorken kimliğini elinden almak olurdu.
  *
  * Serbest bırakılanlar: kullanıcı adı, e-posta, iki kimlik bağı,
- * anahtarlar ve roller. Hepsi benzersizlik taşıyor ya da erişim
+ * anahtarlar ve gruplar. Hepsi benzersizlik taşıyor ya da erişim
  * veriyor; biri kalırsa geri dönen kişi kendi hesabını açamaz.
  */
 func (s *Store) PurgeAccount(ctx context.Context, username string, at time.Time) (PurgeResult, error) {
@@ -300,12 +300,12 @@ func (s *Store) PurgeAccount(ctx context.Context, username string, at time.Time)
 		res.Keys = int(n)
 	}
 
-	rr, err := tx.ExecContext(ctx, `DELETE FROM user_roles WHERE user_id = $1;`, id)
+	rr, err := tx.ExecContext(ctx, `DELETE FROM user_groups WHERE user_id = $1;`, id)
 	if err != nil {
 		return res, translateErr("store.PurgeAccount", err)
 	}
 	if n, _ := rr.RowsAffected(); n > 0 {
-		res.Roles = int(n)
+		res.Groups = int(n)
 	}
 
 	/*

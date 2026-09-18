@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { IssuedCredential, api, Role, User, toMessage } from "../api";
+import { IssuedCredential, api, Group, User, toMessage } from "../api";
 import {
   ActionButton,
   ErrorLine,
@@ -44,7 +44,7 @@ export default function Users({
     useList<User>(api.users);
   // Roller ayrıca çekiliyor — burada yalnızca "hiç rol yok" uyarısı
   // için. Atama detay sayfasında.
-  const roles = useList<Role>(api.roles);
+  const groups = useList<Group>(api.groups);
 
   const [selected, setSelected] = useState<string | null>(null);
 
@@ -99,7 +99,7 @@ export default function Users({
           setNotice(
             res?.credential_error
               ? `${created} created, but ${res.credential_error}`
-              : `${created} created — open it to give it a role and a key, or it reaches nothing.`,
+              : `${created} created — open it to give it a group and a key, or it reaches nothing.`,
           );
         }
         return refresh().then(() => true);
@@ -142,7 +142,7 @@ export default function Users({
        * evet/hayır; hücre onu cevaplamalı.
        *
        * true/false DEĞİL: bu paneldeki her hücre düz İngilizce konuşuyor
-       * ("active", "never", "no roles"). Tek bir yerde makine dilinden
+       * ("active", "never", "no groups"). Tek bir yerde makine dilinden
        * bir değişmez göstermek, o hücreyi ürünün geri kalanından
        * koparırdı.
        *
@@ -203,16 +203,16 @@ export default function Users({
        * bir karar, kimin üzerinde çalıştığını gördüğün sayfada
        * verilmeli.
        */
-      key: "roles",
-      header: "Roles",
+      key: "groups",
+      header: "Groups",
       className: "wrap",
-      value: (u) => u.roles.join(" "),
+      value: (u) => u.groups.join(" "),
       render: (u) =>
-        u.roles.length === 0 ? (
-          <span className="muted">no roles</span>
+        u.groups.length === 0 ? (
+          <span className="muted">no groups</span>
         ) : (
           <span className="chips">
-            {u.roles.map((r) => (
+            {u.groups.map((r) => (
               <span key={r} className="chip">
                 <code>{r}</code>
               </span>
@@ -264,7 +264,7 @@ export default function Users({
         <ActionButton
           variant="danger"
           onClick={() => remove(u.name)}
-          confirm={`Delete the user "${u.name}"? Their SSH keys and role assignments go with them. If ${u.name} has recorded sessions the server refuses this outright — revoking their keys and roles is how access is cut without losing the audit trail.`}
+          confirm={`Delete the user "${u.name}"? Their SSH keys and group assignments go with them. If ${u.name} has recorded sessions the server refuses this outright — revoking their keys and groups is how access is cut without losing the audit trail.`}
           label={`delete user ${u.name}`}
         >
           Delete
@@ -314,7 +314,7 @@ export default function Users({
         <div className="page-head">
           <h2>Users</h2>
           <p className="page-sub">
-            Accounts postern knows. Open one to give it a role, manage its keys
+            Accounts postern knows. Open one to give it a group, manage its keys
             or reset how it signs in. The admin flag is read-only everywhere in
             the panel: it comes from the bastion&apos;s own CLI, or from the
             directory group set on the Sign-in screen.
@@ -331,12 +331,12 @@ export default function Users({
           sebebini söylemezsek operatör hiç rol tanımlı olmadığını sanar. */}
       <WarnLine
         msg={
-          roles.error &&
-          `Roles could not be loaded (${roles.error}) — nothing can be assigned until that list comes back.`
+          groups.error &&
+          `Groups could not be loaded (${groups.error}) — nothing can be assigned until that list comes back.`
         }
       />
-      {!roles.loading && !roles.error && roles.items.length === 0 && (
-        <WarnLine msg="No roles exist yet — create one on the Roles tab, otherwise every user here reaches nothing." />
+      {!groups.loading && !groups.error && groups.items.length === 0 && (
+        <WarnLine msg="No groups exist yet — create one on the Groups tab, otherwise every user here reaches nothing." />
       )}
 
       <ListState
@@ -344,7 +344,7 @@ export default function Users({
         denied={denied}
         failed={failed}
         empty={items.length === 0}
-        emptyText="No users yet. A user created here still needs a role and an SSH key before anyone can connect as them."
+        emptyText="No users yet. A user created here still needs a group and an SSH key before anyone can connect as them."
       />
 
       {items.length > 0 && (
@@ -354,8 +354,8 @@ export default function Users({
           rowKey={(u) => u.name}
           initialSort={{ key: "name", dir: "asc" }}
           noun="user"
-          searchLabel="search users by name, OS user or role"
-          searchPlaceholder="Search users, or a role like sysadmin…"
+          searchLabel="search users by name, OS user or group"
+          searchPlaceholder="Search users, or a group like sysadmin…"
         />
       )}
 

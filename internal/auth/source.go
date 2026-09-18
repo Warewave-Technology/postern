@@ -110,7 +110,7 @@ func ActiveLoginSource(ctx context.Context, db *store.Store, oidcConfigured bool
  * gelebiliyor ve iki kaynağın paylaştığı bir kavramı birinin paketine
  * koymak, diğerini o pakete bağımlı kılıyordu.
  *
- * ⚠️ Bu grubu ele geçiren yalnızca rol almıyor: panele giriyor, yani
+ * ⚠️ Bu grubu ele geçiren yalnızca grup almıyor: panele giriyor, yani
  * DENETİM GÜNLÜĞÜNÜ ve OTURUM KAYITLARINI da okuyor. Rol almaktan
  * farklı bir şey — geçmişe erişim.
  */

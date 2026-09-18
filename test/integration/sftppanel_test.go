@@ -244,8 +244,8 @@ func dialFileBrowser(t *testing.T, client *http.Client, apiURL, target string) (
  * TestFileBrowserIsClosedWithoutPathRules — bu yüzeyin ERTELEMESİNİ
  * kaldıran gerekçenin testi.
  *
- * ⚠️ NİYE ÖNEMLİ: kuralsız bir rol kısıtsızdır (policy.SFTPDecider) ve
- * taze kurulumda hiçbir rolün kuralı yok. "Yol politikası riski sınırlar"
+ * ⚠️ NİYE ÖNEMLİ: kuralsız bir grup kısıtsızdır (policy.SFTPDecider) ve
+ * taze kurulumda hiçbir grubun kuralı yok. "Yol politikası riski sınırlar"
  * diyerek açtığımız bir özelliğin, politikanın hiç kurulmadığı yerde
  * kendiliğinden AÇIK olması, gerekçeyi tam tersine çevirirdi.
  */
@@ -288,8 +288,8 @@ func TestFileBrowserBrowsesAndRefusesWrites(t *testing.T) {
 	apiURL, db := browserBastionWithFileBrowser(t)
 
 	ctx := context.Background()
-	if err := db.SetRolePath(ctx, "ops", "/tmp", true, true); err != nil {
-		t.Fatalf("SetRolePath: %v", err)
+	if err := db.SetGroupPath(ctx, "ops", "/tmp", true, true); err != nil {
+		t.Fatalf("SetGroupPath: %v", err)
 	}
 
 	jar, _ := cookiejar.New(nil)
@@ -362,14 +362,14 @@ func TestFileBrowserBrowsesAndRefusesWrites(t *testing.T) {
  * kanıtı.
  *
  * ⚠️ NİYE BU TEST VAR. Dosya tarayıcısı, yol kuralı olmayan bir hesapta
- * kendini kapatıyor ve kullanıcıya "bir yöneticiden `postern role path
+ * kendini kapatıyor ve kullanıcıya "bir yöneticiden `postern gruba path
  * set` çalıştırmasını isteyin" diyor. Kuralları yalnızca CLI yazabildiği
  * sürece panel, kendi içinde çözülemeyen bir duvara götürüyordu:
  * yöneticinin panelden çıkıp bir kabuk bulması gerekiyordu.
  *
  * Ölçülen şey, kuralın panelin KENDİ ucundan yazılabildiği ve yazıldığı
  * anda tarayıcının açıldığı. İkisini ayrı ayrı bilmek yetmiyordu —
- * arada duran şey (kuralın rolün adına doğru bağlanması) tam olarak
+ * arada duran şey (kuralın grubun adına doğru bağlanması) tam olarak
  * sessizce yanlış olabilecek yer.
  */
 func TestPathRulesWrittenFromThePanelOpenTheBrowser(t *testing.T) {
@@ -397,13 +397,13 @@ func TestPathRulesWrittenFromThePanelOpenTheBrowser(t *testing.T) {
 
 	// Panelin ucundan kuralı yaz.
 	if code, body := adminReq(t, client, "POST",
-		apiURL+"/api/admin/roles/ops/paths",
+		apiURL+"/api/admin/groups/ops/paths",
 		`{"prefix":"/tmp","allow":true,"can_write":false}`); code != http.StatusOK {
 		t.Fatalf("kural yazılamadı: %d %s", code, body)
 	}
 
 	// Uç, yazdığını geri veriyor.
-	code, body := adminReq(t, client, "GET", apiURL+"/api/admin/roles/ops/paths", "")
+	code, body := adminReq(t, client, "GET", apiURL+"/api/admin/groups/ops/paths", "")
 	if code != http.StatusOK {
 		t.Fatalf("kurallar okunamadı: %d %s", code, body)
 	}
@@ -432,7 +432,7 @@ func TestPathRulesWrittenFromThePanelOpenTheBrowser(t *testing.T) {
 	 * kişiye ne yapması gerektiğini söylemiyor.
 	 */
 	if code, body := adminReq(t, client, "POST",
-		apiURL+"/api/admin/roles/ops/paths",
+		apiURL+"/api/admin/groups/ops/paths",
 		`{"prefix":"var/log","allow":true}`); code != http.StatusBadRequest {
 		t.Errorf("göreli önek kabul edildi: %d %s", code, body)
 	} else if !strings.Contains(body, "absolute") {
@@ -442,10 +442,10 @@ func TestPathRulesWrittenFromThePanelOpenTheBrowser(t *testing.T) {
 	// Silme önekı GÖVDEDEN alıyor: adres parçasına kaçırılmış bir yol,
 	// araya giren vekillerce normalleştirilip başkasını silebilirdi.
 	if code, body := adminReq(t, client, "DELETE",
-		apiURL+"/api/admin/roles/ops/paths", `{"prefix":"/tmp"}`); code != http.StatusOK {
+		apiURL+"/api/admin/groups/ops/paths", `{"prefix":"/tmp"}`); code != http.StatusOK {
 		t.Fatalf("kural silinemedi: %d %s", code, body)
 	}
-	if left, err := db.RolePaths(ctx, "ops"); err != nil || len(left) != 0 {
+	if left, err := db.GroupPaths(ctx, "ops"); err != nil || len(left) != 0 {
 		t.Fatalf("kural silinmedi: %v %v", left, err)
 	}
 }
@@ -476,8 +476,8 @@ func TestBrowsingCostsOneRowPerDirectory(t *testing.T) {
 	apiURL, db := browserBastionWithFileBrowser(t)
 
 	ctx := context.Background()
-	if err := db.SetRolePath(ctx, "ops", "/tmp", true, true); err != nil {
-		t.Fatalf("SetRolePath: %v", err)
+	if err := db.SetGroupPath(ctx, "ops", "/tmp", true, true); err != nil {
+		t.Fatalf("SetGroupPath: %v", err)
 	}
 
 	jar, _ := cookiejar.New(nil)
@@ -611,8 +611,8 @@ func TestFetchingAFolderCostsOneRowPerDirectoryAndTwoPerFile(t *testing.T) {
 	apiURL, db := browserBastionWithUploads(t)
 	ctx := context.Background()
 
-	if err := db.SetRolePath(ctx, "ops", "/tmp", true, true); err != nil {
-		t.Fatalf("SetRolePath: %v", err)
+	if err := db.SetGroupPath(ctx, "ops", "/tmp", true, true); err != nil {
+		t.Fatalf("SetGroupPath: %v", err)
 	}
 
 	jar, _ := cookiejar.New(nil)
@@ -801,8 +801,8 @@ func TestBrowsingSessionIsSealed(t *testing.T) {
 	apiURL, db := browserBastionWithFileBrowser(t)
 
 	ctx := context.Background()
-	if err := db.SetRolePath(ctx, "ops", "/tmp", true, false); err != nil {
-		t.Fatalf("SetRolePath: %v", err)
+	if err := db.SetGroupPath(ctx, "ops", "/tmp", true, false); err != nil {
+		t.Fatalf("SetGroupPath: %v", err)
 	}
 
 	jar, _ := cookiejar.New(nil)
@@ -939,7 +939,7 @@ func panelClient(t *testing.T, apiURL string) (*sftp.Client, *wsPipe) {
  * kanıtı.
  *
  * ⚠️ İKİ KOŞUL BİRDEN gerekiyor ve bu ayrım özelliğin tamamı:
- * session.sftp_panel_write kanalın salt-okunur kilidini açıyor, rolün
+ * session.sftp_panel_write kanalın salt-okunur kilidini açıyor, grubun
  * can_write kuralı ise HANGİ yola yazılabileceğini söylüyor. Birini
  * diğerinin yerine geçirmek, "yüklemeyi açtım" diyen bir operatöre
  * hedefin tamamını vermek olurdu.
@@ -948,8 +948,8 @@ func TestUploadWorksWhenTheFlagAndTheRuleBothAllowIt(t *testing.T) {
 	apiURL, db := browserBastionWithUploads(t)
 
 	ctx := context.Background()
-	if err := db.SetRolePath(ctx, "ops", "/tmp", true, true); err != nil {
-		t.Fatalf("SetRolePath: %v", err)
+	if err := db.SetGroupPath(ctx, "ops", "/tmp", true, true); err != nil {
+		t.Fatalf("SetGroupPath: %v", err)
 	}
 
 	cli, pipe := panelClient(t, apiURL)
@@ -993,8 +993,8 @@ func TestUploadIsRefusedWhenTheFlagIsOff(t *testing.T) {
 
 	ctx := context.Background()
 	// Yol kuralı yazmaya İZİNLİ: reddin tek sebebi bayrak olabilir.
-	if err := db.SetRolePath(ctx, "ops", "/tmp", true, true); err != nil {
-		t.Fatalf("SetRolePath: %v", err)
+	if err := db.SetGroupPath(ctx, "ops", "/tmp", true, true); err != nil {
+		t.Fatalf("SetGroupPath: %v", err)
 	}
 
 	cli, pipe := panelClient(t, apiURL)
@@ -1026,8 +1026,8 @@ func TestUploadIsRefusedWhenTheRuleIsReadOnly(t *testing.T) {
 
 	ctx := context.Background()
 	// Okumaya izinli, YAZMAYA değil.
-	if err := db.SetRolePath(ctx, "ops", "/tmp", true, false); err != nil {
-		t.Fatalf("SetRolePath: %v", err)
+	if err := db.SetGroupPath(ctx, "ops", "/tmp", true, false); err != nil {
+		t.Fatalf("SetGroupPath: %v", err)
 	}
 
 	cli, pipe := panelClient(t, apiURL)
@@ -1083,8 +1083,8 @@ func TestWriteOnAReadHandleIsRefusedEndToEnd(t *testing.T) {
 	 * dizin açmak hedefin kendi hatasını üretir ve postern'i hiç
 	 * konuşturmaz.
 	 */
-	if err := db.SetRolePath(ctx, "ops", "/", true, false); err != nil {
-		t.Fatalf("SetRolePath: %v", err)
+	if err := db.SetGroupPath(ctx, "ops", "/", true, false); err != nil {
+		t.Fatalf("SetGroupPath: %v", err)
 	}
 
 	cli, pipe := panelClient(t, apiURL)

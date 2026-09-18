@@ -14,7 +14,7 @@ import (
 )
 
 /*
- * Keşfin postern tarafı: makineleri hedeflere, etiketleri rollere
+ * Keşfin postern tarafı: makineleri hedeflere, etiketleri gruplara
  * çevirmek.
  *
  * ⚠️ ÖNİZLEME VE UYGULAMA AYNI KODU KULLANIYOR. İki ayrı yol yazmak,
@@ -26,7 +26,7 @@ import (
 // Planner, keşfi postern'e uygular.
 type Planner struct {
 	DB *store.Store
-	// TagKey, rol adını taşıyan etiket anahtarı ("role").
+	// TagKey, grup adını taşıyan etiket anahtarı ("role").
 	TagKey string
 	// Port, hedeflerin SSH portu.
 	Port int
@@ -52,19 +52,19 @@ func (p Planner) Run(ctx context.Context, machines []Machine, apply bool) ([]Out
 		byName[t.Name] = t
 	}
 
-	roles, err := p.DB.Roles(ctx)
+	groups, err := p.DB.Groups(ctx)
 	if err != nil {
 		return nil, err
 	}
-	haveRole := make(map[string]bool, len(roles))
-	// haveGrant, KOŞU BAŞLARKEN var olan (rol, hedef) bağları. Denetim
+	haveGroup := make(map[string]bool, len(groups))
+	// haveGrant, KOŞU BAŞLARKEN var olan (grup, hedef) bağları. Denetim
 	// satırının yalnızca YENİ bir erişim doğduğunda yazılması için:
 	// GrantTarget ON CONFLICT DO NOTHING kullanıyor ve "zaten vardı"yı
 	// çağırana söylemiyor, o yüzden fark buradan okunuyor. Ek sorgu yok
-	// — roller zaten hedefleriyle geldi.
+	// — gruplar zaten hedefleriyle geldi.
 	haveGrant := map[string]bool{}
-	for _, r := range roles {
-		haveRole[r.Name] = true
+	for _, r := range groups {
+		haveGroup[r.Name] = true
 		for _, tn := range r.Targets {
 			haveGrant[grantKey(r.Name, tn)] = true
 		}
@@ -73,14 +73,14 @@ func (p Planner) Run(ctx context.Context, machines []Machine, apply bool) ([]Out
 	out := make([]Outcome, 0, len(machines))
 	for _, m := range machines {
 		o := Outcome{Machine: m}
-		o.Role, o.Tagged = RoleFromTags(m.Tags, p.TagKey)
+		o.Group, o.Tagged = GroupFromTags(m.Tags, p.TagKey)
 
-		if err := ValidRoleName(o.Role); err != nil {
+		if err := ValidGroupName(o.Group); err != nil {
 			// ⚠️ Etiket güvenilmeyen girdi: kabul edilemeyen bir ad
 			// makineyi unknown'a düşürmüyor, ATLIYOR. Sessizce
 			// unknown'a koymak, operatörün yazım hatasını bir daha
 			// göremeyeceği bir yere süpürürdü.
-			o.Skipped = fmt.Sprintf("tag names an unusable role (%v)", err)
+			o.Skipped = fmt.Sprintf("tag names an unusable group (%v)", err)
 			out = append(out, o)
 			continue
 		}
@@ -117,7 +117,7 @@ func (p Planner) Run(ctx context.Context, machines []Machine, apply bool) ([]Out
 			 * atlıyordu — ve atlanan şeylerin arasında GrantTarget da
 			 * vardı. Oysa grant HİÇ AĞ İSTEMİYOR: rolle hedef arasında
 			 * yerel bir bağ. Sonuç: etiketi değişmiş bir makine, o an
-			 * ağda bir aksaklık olduğu için yeni rolüne geçmiyordu ve
+			 * ağda bir aksaklık olduğu için yeni grubuna geçmiyordu ve
 			 * bir sonraki koşuma kadar eski rolünde kalıyordu — bu
 			 * dosyanın kendi yorumu (aşağıda) grant'ın her turda
 			 * çalışması gerektiğini söylüyor.
@@ -162,14 +162,14 @@ func (p Planner) Run(ctx context.Context, machines []Machine, apply bool) ([]Out
 		}
 
 		if apply {
-			if !haveRole[o.Role] {
-				if _, cerr := p.DB.CreateRole(ctx, o.Role); cerr != nil &&
+			if !haveGroup[o.Group] {
+				if _, cerr := p.DB.CreateGroup(ctx, o.Group); cerr != nil &&
 					!errors.Is(cerr, store.ErrConflict) {
-					return out, fmt.Errorf("create role %q: %w", o.Role, cerr)
+					return out, fmt.Errorf("create group %q: %w", o.Group, cerr)
 				}
-				haveRole[o.Role] = true
-				o.CreatedRole = true
-				if aerr := p.audit(ctx, "discover.role_created", o.Role,
+				haveGroup[o.Group] = true
+				o.CreatedGroup = true
+				if aerr := p.audit(ctx, "discover.role_created", o.Group,
 					"created from tag "+p.TagKey); aerr != nil {
 					return out, aerr
 				}
@@ -191,7 +191,7 @@ func (p Planner) Run(ctx context.Context, machines []Machine, apply bool) ([]Out
 			/*
 			 * ⚠️ GRANT HER TURDA ÇALIŞIYOR, yalnızca yeni hedeflerde
 			 * değil. Etiketi değişen bir makine ikinci koşuda yeni
-			 * rolüne bağlanmalı; "zaten vardı" diye atlamak, keşfi bir
+			 * grubuna bağlanmalı; "zaten vardı" diye atlamak, keşfi bir
 			 * kerelik bir işlem yapardı.
 			 *
 			 * ESKİ ROLDEN DÜŞÜRMÜYOR: erişim kaldırmak bilinçli bir
@@ -200,10 +200,10 @@ func (p Planner) Run(ctx context.Context, machines []Machine, apply bool) ([]Out
 			/*
 			 * ⚠️ VE DEFTERE YAZILIYOR — YAZILMADIĞI HÂLİ ÖLÇÜLDÜ.
 			 *
-			 * Yukarıdaki iki yazma (rol ve hedef oluşturma) denetleniyor,
+			 * Yukarıdaki iki yazma (grup ve hedef oluşturma) denetleniyor,
 			 * bu denetlenmiyordu. Kaçırdığı durum tam da yorumun bir üstte
 			 * anlattığı durum: etiketi değişen bir makine ikinci koşuda
-			 * yeni rolüne bağlanıyor — ne rol ne hedef yaratılıyor, yani
+			 * yeni grubuna bağlanıyor — ne grup ne hedef yaratılıyor, yani
 			 * iki satırın ikisi de yazılmıyor ve `postern discover
 			 * --apply`, hedefe erişim dağıtan TEK yol olarak defterde hiç
 			 * iz bırakmıyordu. "prod erişimini web01'e kim verdi?"
@@ -217,13 +217,13 @@ func (p Planner) Run(ctx context.Context, machines []Machine, apply bool) ([]Out
 			 * bir erişim doğmadı ve deftere her koşuda aynı satırı
 			 * eklemek defteri gürültüye boğardı.
 			 */
-			if gerr := p.DB.GrantTarget(ctx, o.Role, m.Name); gerr != nil &&
+			if gerr := p.DB.GrantTarget(ctx, o.Group, m.Name); gerr != nil &&
 				!errors.Is(gerr, store.ErrConflict) {
-				return out, fmt.Errorf("grant %q to %q: %w", m.Name, o.Role, gerr)
+				return out, fmt.Errorf("grant %q to %q: %w", m.Name, o.Group, gerr)
 			}
-			if k := grantKey(o.Role, m.Name); !haveGrant[k] {
+			if k := grantKey(o.Group, m.Name); !haveGrant[k] {
 				haveGrant[k] = true
-				if aerr := p.audit(ctx, "role.grant", o.Role,
+				if aerr := p.audit(ctx, "group.grant", o.Group,
 					"target "+m.Name+" (from tag "+p.TagKey+")"); aerr != nil {
 					return out, aerr
 				}
@@ -238,10 +238,10 @@ func (p Planner) Run(ctx context.Context, machines []Machine, apply bool) ([]Out
 	return out, nil
 }
 
-// grantKey, (rol, hedef) çiftinin anahtarı. Hedef adları harf duyarsız
+// grantKey, (grup, hedef) çiftinin anahtarı. Hedef adları harf duyarsız
 // tekil (ciColumns), o yüzden karşılaştırma da öyle.
-func grantKey(role, target string) string {
-	return strings.ToLower(role) + "\x00" + strings.ToLower(target)
+func grantKey(group, target string) string {
+	return strings.ToLower(group) + "\x00" + strings.ToLower(target)
 }
 
 /*
@@ -252,7 +252,7 @@ func grantKey(role, target string) string {
  *
  * Eski gerekçe "denetim satırı yazılamadı diye yarım kalmış bir keşif
  * bırakmak, kaydı olmayan bir keşiften daha kötü" idi. O tartışma,
- * yazılan satırlar yalnızca "rol yaratıldı"/"hedef yaratıldı" iken
+ * yazılan satırlar yalnızca "grup yaratıldı"/"hedef yaratıldı" iken
  * savunulabilirdi. Artık ERİŞİM VEREN satır da buradan geçiyor: yutmak,
  * "hedefe erişim verildi ve defterde izi yok" demek — az önce
  * kapatılan deliğin aynısı, başka bir sebeple.
@@ -262,7 +262,7 @@ func grantKey(role, target string) string {
  * kötü". Bir ikilide iki denetim politikası olamaz.
  *
  * ⚠️ YARIM KALMA ENDİŞESİ GEÇERSİZ: bu döngüdeki her yazma
- * yeniden-çalıştırılabilir (CreateRole/CreateTarget ErrConflict'i
+ * yeniden-çalıştırılabilir (CreateGroup/CreateTarget ErrConflict'i
  * tolere ediyor, GrantTarget ON CONFLICT DO NOTHING). Yani duran bir
  * koşum yeniden koşularak tamamlanıyor. Üstelik LogAdmin düşüyorsa
  * veritabanının kendisi arızalı — kaydedemeyen bir veritabanına karşı

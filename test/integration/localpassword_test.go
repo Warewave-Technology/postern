@@ -230,7 +230,7 @@ func TestPanelCannotIssueCredentialForAnAdmin(t *testing.T) {
 	_, apiURL, _, db := oobBastionFresh(t)
 	ctx := context.Background()
 
-	seedRole(t, db)
+	seedGroup(t, db)
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
 	browserSignIn(t, client, apiURL)
@@ -270,10 +270,10 @@ func TestPanelCannotIssueCredentialForAnAdmin(t *testing.T) {
 	_ = store.Credential{}
 }
 
-func seedRole(t *testing.T, db *store.Store) {
+func seedGroup(t *testing.T, db *store.Store) {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := db.CreateRole(ctx, "ops"); err != nil {
+	if _, err := db.CreateGroup(ctx, "ops"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.AddGroupMapping(ctx, "sysadmins", "ops", "test"); err != nil {
@@ -294,7 +294,7 @@ func TestCreatingAUserIssuesAWorkingSignInValue(t *testing.T) {
 	_, apiURL, _, db := oobBastionFresh(t)
 	ctx := context.Background()
 
-	seedRole(t, db)
+	seedGroup(t, db)
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
 	browserSignIn(t, client, apiURL)
@@ -353,7 +353,7 @@ func TestCreatingAUserIssuesNothingWhenTheLocalDoorIsClosed(t *testing.T) {
 	_, apiURL, _, db := oobBastionFresh(t)
 	ctx := context.Background()
 
-	seedRole(t, db)
+	seedGroup(t, db)
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
 	browserSignIn(t, client, apiURL)
@@ -399,7 +399,7 @@ func TestRemovingAKeyByFingerprintHitsOnlyThatKey(t *testing.T) {
 	_, apiURL, _, db := oobBastionFresh(t)
 	ctx := context.Background()
 
-	seedRole(t, db)
+	seedGroup(t, db)
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
 	browserSignIn(t, client, apiURL)

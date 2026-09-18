@@ -53,7 +53,7 @@ type ProxmoxConfig struct {
 	 * kendi imzaladığı sertifikayla geliyor, dolayısıyla bunu tamamen
 	 * yasaklamak özelliği kullanılamaz yapardı. Ama açık olduğunda
 	 * araya giren biri hipervizörün cevabını — yani hangi makinenin
-	 * hangi role gideceğini — yazabilir. Bu yüzden açan kişi bunu
+	 * hangi gruba gideceğini — yazabilir. Bu yüzden açan kişi bunu
 	 * komut satırında yazmak zorunda ve denetim kaydına düşüyor.
 	 * Doğru yol CAFile.
 	 */

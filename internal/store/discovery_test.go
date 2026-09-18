@@ -14,7 +14,7 @@ import (
 func aSource(name string) DiscoverySource {
 	return DiscoverySource{
 		Name: name, Kind: "proxmox", URL: "https://pve.example:8006", Username: "postern@pve!keşif",
-		TagKey: "role", Port: 22, IntervalSeconds: 3600, Enabled: true, CreatedBy: "ops",
+		TagKey: "group", Port: 22, IntervalSeconds: 3600, Enabled: true, CreatedBy: "ops",
 	}
 }
 
@@ -115,7 +115,7 @@ func TestDiscoveredMachinesKeepHumanDecisionsAcrossRuns(t *testing.T) {
 	t0 := time.Now().Add(-time.Hour).Truncate(time.Second)
 	m := DiscoveredMachine{
 		SourceID: sid, Ref: "qemu/101", Name: "web-01", Host: "10.0.0.5", Tags: []string{"role_ops"},
-		Running: true, Role: "ops", Tagged: true, HostKey: "ssh-ed25519 AAAA test", LastSeen: t0,
+		Running: true, Group: "ops", Tagged: true, HostKey: "ssh-ed25519 AAAA test", LastSeen: t0,
 	}
 	if err := s.SaveDiscoveredMachine(ctx, m); err != nil {
 		t.Fatal(err)

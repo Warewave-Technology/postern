@@ -90,7 +90,7 @@ func FuzzAuthorizeContract(f *testing.F) {
 	f.Fuzz(func(t *testing.T, osUser, requested, targetName, roleTarget string) {
 		u := model.User{
 			OSUser: osUser,
-			Roles:  []model.Role{{Targets: []string{roleTarget}}},
+			Groups: []model.Group{{Targets: []string{roleTarget}}},
 		}
 		target := model.Target{Name: targetName}
 
@@ -98,7 +98,7 @@ func FuzzAuthorizeContract(f *testing.F) {
 
 		// --- karar fonksiyonunun tamamı, elle modellenmiş ---
 		//
-		// Tek rol, tek hedef: eşleşme roleTarget == targetName demek.
+		// Tek grup, tek hedef: eşleşme roleTarget == targetName demek.
 		/*
 		 * ⚠️ YÖNETİM ADLARI MODELE ELLE YAZILIYOR, model.IsManagementName
 		 * ÇAĞRILMIYOR. Referans model uygulamadan bağımsız olmalı:
@@ -143,7 +143,7 @@ func FuzzAuthorizeContract(f *testing.F) {
 			t.Fatalf("yönetim hesabına bir kişi için izin verildi: %q", d.OSUser)
 		}
 		if roleTarget != targetName {
-			t.Fatalf("rolün kapsamadığı hedefe izin: rol %q, hedef %q", roleTarget, targetName)
+			t.Fatalf("grubun kapsamadığı hedefe izin: grup %q, hedef %q", roleTarget, targetName)
 		}
 		if requested != "" && requested != d.OSUser {
 			t.Fatalf("başkasının hesabı istendi ama izin verildi: requested=%q, OSUser=%q", requested, d.OSUser)
@@ -169,12 +169,12 @@ func FuzzAuthorizeContract(f *testing.F) {
 	})
 }
 
-// FuzzAuthorizeRolelessNeverAllowed pins the default-deny half separately.
+// FuzzAuthorizeGrouplessNeverAllowed pins the default-deny half separately.
 //
 // Rolsüz kullanıcı ayrı bir hedefte çünkü yukarıdaki hedef her zaman TEK
-// rollü bir kullanıcı kuruyor: rolü hiç olmayan durum orada hiç denenmiyor
+// rollü bir kullanıcı kuruyor: grubu hiç olmayan durum orada hiç denenmiyor
 // ve "varsayılan deny" kolu fuzz'ın kör noktasında kalıyordu.
-func FuzzAuthorizeRolelessNeverAllowed(f *testing.F) {
+func FuzzAuthorizeGrouplessNeverAllowed(f *testing.F) {
 	f.Add("yigit", "", "web01")
 	f.Add("yigit", "yigit", "web01")
 	f.Add("", "", "")

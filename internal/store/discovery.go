@@ -76,7 +76,7 @@ type DiscoveredMachine struct {
 	Host     string
 	Tags     []string
 	Running  bool
-	Role     string
+	Group    string
 	Tagged   bool
 	HostKey  string
 	Problem  string
@@ -364,7 +364,7 @@ func (s *Store) LatestDiscoveryRuns(ctx context.Context) (map[string]DiscoveryRu
 }
 
 const discoveredMachineSelect = `
-	SELECT m.source_id, s.name, m.ref, m.name, m.host, m.tags, m.running, m.role, m.tagged,
+	SELECT m.source_id, s.name, m.ref, m.name, m.host, m.tags, m.running, m.group_name, m.tagged,
 	       m.host_key, m.problem, COALESCE(m.target_id, ''), COALESCE(t.name, ''),
 	       COALESCE(t.host_key, ''), m.ignored, m.first_seen, m.last_seen, m.missing_since
 	FROM discovered_machines m
@@ -376,7 +376,7 @@ func scanDiscoveredMachine(sc rowScanner) (DiscoveredMachine, error) {
 	var tags string
 	var first, last int64
 	var missing sql.NullInt64
-	err := sc.Scan(&m.SourceID, &m.Source, &m.Ref, &m.Name, &m.Host, &tags, &m.Running, &m.Role,
+	err := sc.Scan(&m.SourceID, &m.Source, &m.Ref, &m.Name, &m.Host, &tags, &m.Running, &m.Group,
 		&m.Tagged, &m.HostKey, &m.Problem, &m.TargetID, &m.Target, &m.TargetHostKey, &m.Ignored,
 		&first, &last, &missing)
 	if err != nil {
@@ -442,16 +442,16 @@ func (s *Store) SaveDiscoveredMachine(ctx context.Context, m DiscoveredMachine) 
 		return fmt.Errorf("store.SaveDiscoveredMachine: %w", err)
 	}
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO discovered_machines (source_id, ref, name, host, tags, running, role, tagged,
+		INSERT INTO discovered_machines (source_id, ref, name, host, tags, running, group_name, tagged,
 			host_key, problem, target_id, ignored, first_seen, last_seen, missing_since)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULLIF($11, ''), FALSE, $12, $12, NULL)
 		ON CONFLICT (source_id, ref) DO UPDATE SET
 			name = excluded.name, host = excluded.host, tags = excluded.tags,
-			running = excluded.running, role = excluded.role, tagged = excluded.tagged,
+			running = excluded.running, group_name = excluded.group_name, tagged = excluded.tagged,
 			host_key = excluded.host_key, problem = excluded.problem,
 			target_id = COALESCE(excluded.target_id, discovered_machines.target_id),
 			last_seen = excluded.last_seen, missing_since = NULL;`,
-		m.SourceID, m.Ref, m.Name, m.Host, string(tagJSON), m.Running, m.Role, m.Tagged,
+		m.SourceID, m.Ref, m.Name, m.Host, string(tagJSON), m.Running, m.Group, m.Tagged,
 		m.HostKey, m.Problem, m.TargetID, m.LastSeen.Unix())
 	return translateErr("store.SaveDiscoveredMachine", err)
 }

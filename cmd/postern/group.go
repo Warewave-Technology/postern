@@ -11,36 +11,36 @@ import (
 	"github.com/Warewave-Technology/postern/internal/store"
 )
 
-// newRoleCmd, rol yönetimi. Yetki modeli için user.go'daki nota bak.
-func newRoleCmd() *cobra.Command {
+// newGroupCmd, grup yönetimi. Yetki modeli için user.go'daki nota bak.
+func newGroupCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "role",
-		Short: "Manage roles",
+		Use:   "group",
+		Short: "Manage groups",
 	}
-	cmd.AddCommand(newRoleAddCmd())
-	cmd.AddCommand(newRoleListCmd())
-	cmd.AddCommand(newRoleRevokeTargetCmd())
-	cmd.AddCommand(newRolePathCmd())
-	cmd.AddCommand(newRoleSudoCmd())
+	cmd.AddCommand(newGroupAddCmd())
+	cmd.AddCommand(newGroupListCmd())
+	cmd.AddCommand(newGroupRevokeTargetCmd())
+	cmd.AddCommand(newGroupPathCmd())
+	cmd.AddCommand(newGroupSudoCmd())
 	return cmd
 }
 
-// newRoleAddCmd, rolü tek komutta tanımlar ve istenirse hedeflere bağlar:
+// newGroupAddCmd, grubu tek komutta tanımlar ve istenirse hedeflere bağlar:
 //
-//	postern role add --name ops --target web01 --target db01
+//	postern group add --name ops --target web01 --target db01
 //
-// Kısmi başarı stratejisi user/target add ile aynı: rol zaten varsa komut
-// grant'lerle devam eder (GrantTarget idempotent) — rolün user'daki
+// Kısmi başarı stratejisi user/target add ile aynı: grup zaten varsa komut
+// grant'lerle devam eder (GrantTarget idempotent) — grubun user'daki
 // os_user gibi çelişebilecek bir kimlik alanı olmadığı için karşılaştırma
 // da gerekmiyor. Hedef yoksa açık hata: "yoksa oluştur" davranışı yazım
 // hatasını sessizce yeni bir hedefe çevirirdi.
-func newRoleAddCmd() *cobra.Command {
+func newGroupAddCmd() *cobra.Command {
 	var configPath, name string
 	var targets []string
 
 	cmd := &cobra.Command{
 		Use:   "add",
-		Short: "Create a role and optionally grant targets",
+		Short: "Create a group and optionally grant targets",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load(configPath)
 			if err != nil {
@@ -57,17 +57,17 @@ func newRoleAddCmd() *cobra.Command {
 
 			out := cmd.OutOrStdout()
 
-			_, err = db.CreateRole(ctx, name)
+			_, err = db.CreateGroup(ctx, name)
 			switch {
 			case errors.Is(err, store.ErrConflict):
-				fmt.Fprintf(out, "role %q already exists, updating grants\n", name)
+				fmt.Fprintf(out, "group %q already exists, updating grants\n", name)
 			case err != nil:
 				return err
 			default:
-				if aerr := auditCLI(ctx, db, "role.create", name, ""); aerr != nil {
+				if aerr := auditCLI(ctx, db, "group.create", name, ""); aerr != nil {
 					return aerr
 				}
-				fmt.Fprintf(out, "role %q created\n", name)
+				fmt.Fprintf(out, "group %q created\n", name)
 			}
 
 			for _, target := range targets {
@@ -77,7 +77,7 @@ func newRoleAddCmd() *cobra.Command {
 					}
 					return err
 				}
-				if aerr := auditCLI(ctx, db, "role.grant", name,
+				if aerr := auditCLI(ctx, db, "group.grant", name,
 					"granted target "+target); aerr != nil {
 					return aerr
 				}
@@ -89,7 +89,7 @@ func newRoleAddCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
-	cmd.Flags().StringVar(&name, "name", "", "role name (required)")
+	cmd.Flags().StringVar(&name, "name", "", "group name (required)")
 	cmd.Flags().StringArrayVar(&targets, "target", nil, "target to grant (repeatable)")
 	_ = cmd.MarkFlagRequired("name")
 	return cmd

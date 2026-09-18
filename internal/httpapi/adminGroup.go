@@ -22,7 +22,7 @@ import (
  *
  * Gerekçe: kurum, kurulumdan sonra postern'in çalıştığı sunucuya girmek
  * zorunda kalmasın. Ve tutarlılık: dizin zaten kimin production'a
- * erişeceğine karar veriyor, roller ondan geliyor — admin bayrağını
+ * erişeceğine karar veriyor, gruplar ondan geliyor — admin bayrağını
  * kutsal saymak tutarsızdı. Sorumluluk dizini yönetene geçiyor.
  */
 

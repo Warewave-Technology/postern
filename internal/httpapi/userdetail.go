@@ -14,7 +14,7 @@ import (
  * Kullanıcı detay ekranı.
  *
  * ⚠️ NEDEN VAR: liste dokuz sütuna çıkmıştı ve her satırda üç ayrı
- * eylem taşıyordu — rol atama kutusu, aktifleştirme, anahtar paneli,
+ * eylem taşıyordu — grup atama kutusu, aktifleştirme, anahtar paneli,
  * sıfırlama, silme. Bir liste "kimler var ve durumları ne" sorusunu
  * cevaplamalı; tek bir kişi üzerinde yapılacak işler o kişinin
  * sayfasına ait. Hedef ekranında aynı karar zaten verilmişti
@@ -53,9 +53,9 @@ func (s *Server) adminUserDetail(w http.ResponseWriter, r *http.Request) {
 		Name    string   `json:"name"`
 		Targets []string `json:"targets"`
 	}
-	roles := make([]roleRow, 0, len(u.Roles))
-	for _, ro := range u.Roles {
-		roles = append(roles, roleRow{Name: ro.Name, Targets: ro.Targets})
+	groups := make([]roleRow, 0, len(u.Groups))
+	for _, ro := range u.Groups {
+		groups = append(groups, roleRow{Name: ro.Name, Targets: ro.Targets})
 	}
 
 	/*
@@ -135,7 +135,7 @@ func (s *Server) adminUserDetail(w http.ResponseWriter, r *http.Request) {
 		"state":     p.State,
 		"sso_only":  u.SSOOnly,
 		"dir_bound": u.DirBound,
-		"roles":     roles,
+		"groups":    groups,
 		"keys":      keyRows,
 		"sessions":  sessRows,
 	}

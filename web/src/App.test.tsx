@@ -152,7 +152,7 @@ describe("App gezinmesi", () => {
     // Bölümlerin tamamı burada; üst sekmelerde değil.
     for (const label of [
       "Users",
-      "Roles",
+      "Groups",
       "Mappings",
       "Targets",
       "LDAP",

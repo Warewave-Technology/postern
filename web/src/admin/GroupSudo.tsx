@@ -1,15 +1,15 @@
 import { useState } from "react";
-import { api, ApiError, RoleSudoCommand, RoleSudoRule, toMessage } from "../api";
+import { api, ApiError, GroupSudoCommand, GroupSudoRule, toMessage } from "../api";
 import { ActionButton, ErrorLine } from "./common";
 import DataTable, { Column } from "./DataTable";
 import Modal from "./Modal";
 
 /**
- * RoleSudo — bir rolün sudo kuralı: komutlar tablo, düzenleme modalda.
+ * GroupSudo — bir rolün sudo kuralı: komutlar tablo, düzenleme modalda.
  *
  * ⚠️ BU EKRAN ROLÜN NE ANLAMA GELDİĞİNİ DEĞİŞTİRİYOR ve bunu yazıyor.
  * Kuralsız bir rol yalnızca "şu makinelere erişebilir" demek; kurallı bir
- * rol "şu komutları root olarak çalıştırabilir" de demek. Role birini
+ * rol "şu komutları root olarak çalıştırabilir" de demek. Group birini
  * eklemek artık daha fazlasını veriyor.
  *
  * ⚠️ KOMUTLAR TABLO, YAZIM KUTUSU DEĞİL. İlk hâl tek bir textarea'ydı:
@@ -21,13 +21,13 @@ import Modal from "./Modal";
  * yazılıyor (bugün: orada geçici bir hesap açıldığında). Kaydetmek
  * "bütün makinelerde etkili oldu" demek değil.
  */
-export default function RoleSudo({
-  role,
+export default function GroupSudo({
+  group,
   rule,
   onChanged,
 }: {
-  role: string;
-  rule?: RoleSudoRule;
+  group: string;
+  rule?: GroupSudoRule;
   onChanged: () => Promise<unknown>;
 }) {
   const [error, setError] = useState("");
@@ -42,9 +42,9 @@ export default function RoleSudo({
    * root'a çeviriyordu — yani yanlış yöne, ve hiçbir uyarı olmadan.
    * Hesap artık kendi alanında; kaybolabileceği bir yer yok.
    */
-  const [editing, setEditing] = useState<RoleSudoCommand | null>(null);
+  const [editing, setEditing] = useState<GroupSudoCommand | null>(null);
 
-  const commands: RoleSudoCommand[] = rule?.commands ?? [];
+  const commands: GroupSudoCommand[] = rule?.commands ?? [];
 
   const savedNote =
     "Saved. A host gets this rule the next time postern works on it; the ones it has not touched yet still carry what they had.";
@@ -54,18 +54,18 @@ export default function RoleSudo({
    * ve silmek de buradan geçiyor, böylece "listede gördüğün şey kuralın
    * kendisi" kuralı bozulmuyor.
    */
-  const write = async (next: RoleSudoCommand[], ack: boolean) => {
+  const write = async (next: GroupSudoCommand[], ack: boolean) => {
     setError("");
     setNote("");
     // Komutsuz kural hiçbir şey vermiyor ve sunucu da reddediyor: son
     // komutu silmek kuralı kaldırmak demek.
     if (next.length === 0) {
-      await api.deleteRoleSudo(role);
+      await api.deleteRoleSudo(group);
       setNote("The last command went, so the rule is gone from postern.");
       await onChanged();
       return;
     }
-    await api.setRoleSudo(role, {
+    await api.setRoleSudo(group, {
       commands: next.map((c) => {
         const [path, ...args] = c.command.trim().split(/\s+/);
         return { path, args, run_as: c.run_as };
@@ -76,7 +76,7 @@ export default function RoleSudo({
     await onChanged();
   };
 
-  const removeCommand = async (c: RoleSudoCommand) => {
+  const removeCommand = async (c: GroupSudoCommand) => {
     try {
       await write(
         commands.filter((x) => !(x.command === c.command && x.run_as === c.run_as)),
@@ -91,7 +91,7 @@ export default function RoleSudo({
     setError("");
     setNote("");
     try {
-      const r = await api.deleteRoleSudo(role);
+      const r = await api.deleteRoleSudo(group);
       setNote(r.note ?? "The rule is gone from postern.");
       await onChanged();
     } catch (e: unknown) {
@@ -99,7 +99,7 @@ export default function RoleSudo({
     }
   };
 
-  const columns: Column<RoleSudoCommand>[] = [
+  const columns: Column<GroupSudoCommand>[] = [
     {
       key: "command",
       header: "Command",
@@ -153,7 +153,7 @@ export default function RoleSudo({
         <>
         <ActionButton
           onClick={() => setEditing(c)}
-          label={`edit command ${c.command} of role ${role}`}
+          label={`edit command ${c.command} of group ${group}`}
         >
           Edit
         </ActionButton>
@@ -162,10 +162,10 @@ export default function RoleSudo({
           onClick={() => removeCommand(c)}
           confirm={
             commands.length === 1
-              ? `Remove "${c.command}"? It is the only command in the rule, so the rule itself goes and the role stops granting sudo.`
-              : `Remove "${c.command}" (as ${c.run_as}) from the sudo rule of "${role}"? Everyone in the role loses it.`
+              ? `Remove "${c.command}"? It is the only command in the rule, so the rule itself goes and the group stops granting sudo.`
+              : `Remove "${c.command}" (as ${c.run_as}) from the sudo rule of "${group}"? Everyone in the group loses it.`
           }
-          label={`remove command ${c.command} from role ${role}`}
+          label={`remove command ${c.command} from group ${group}`}
         >
           Remove
         </ActionButton>
@@ -177,8 +177,8 @@ export default function RoleSudo({
   return (
     <>
       <p className="muted small">
-        Written on each host as <code>%{role}</code> in{" "}
-        <code>/etc/sudoers.d/postern-{role}</code>. Everyone in this role draws
+        Written on each host as <code>%{group}</code> in{" "}
+        <code>/etc/sudoers.d/postern-{group}</code>. Everyone in this group draws
         it from the group; what a temporary grant adds on top stays with that
         account and leaves with it. Each command names the account it runs as —
         <code>root</code> unless you say otherwise.
@@ -193,7 +193,7 @@ export default function RoleSudo({
 
       {commands.length === 0 ? (
         <p className="state">
-          No rule — this role grants no sudo of its own. A temporary grant can
+          No rule — this group grants no sudo of its own. A temporary grant can
           still give one account commands of its own.
         </p>
       ) : (
@@ -203,13 +203,13 @@ export default function RoleSudo({
           rowKey={(c) => `${c.run_as} ${c.command}`}
           initialSort={{ key: "command", dir: "asc" }}
           noun="command"
-          searchLabel={`search the sudo commands of ${role}`}
+          searchLabel={`search the sudo commands of ${group}`}
           searchPlaceholder="Search commands…"
           foot={
             commands.some((c) => c.escape) ? (
               <span className="muted small">
                 A command marked <span className="risk">!</span> can start
-                another program, so the role really gets{" "}
+                another program, so the group really gets{" "}
                 {commands.length === 1 ? "that account" : "those accounts"} in
                 full. Somebody accepted that when the rule was written.
               </span>
@@ -227,8 +227,8 @@ export default function RoleSudo({
             <ActionButton
               variant="danger"
               onClick={removeRule}
-              confirm={`Remove the sudo rule from the role "${role}"? Hosts that already have the file keep it until postern next works on them.`}
-              label={`remove the sudo rule from role ${role}`}
+              confirm={`Remove the sudo rule from the group "${group}"? Hosts that already have the file keep it until postern next works on them.`}
+              label={`remove the sudo rule from group ${group}`}
             >
               Remove rule
             </ActionButton>
@@ -240,12 +240,12 @@ export default function RoleSudo({
         open={adding}
         onClose={() => setAdding(false)}
         narrow
-        title={`Add a sudo command to "${role}"`}
+        title={`Add a sudo command to "${group}"`}
         description="One command, with the arguments it is allowed to take. The first word is the path; the account it runs as is a separate field."
       >
         {adding && (
           <RuleForm
-            role={role}
+            group={group}
             initial=""
             initialRunAs="root"
             submitLabel="Add command"
@@ -261,12 +261,12 @@ export default function RoleSudo({
         open={editing !== null}
         onClose={() => setEditing(null)}
         narrow
-        title={`Edit a sudo command of "${role}"`}
+        title={`Edit a sudo command of "${group}"`}
         description="The command and the account it runs as. Everything else in the rule stays as it is."
       >
         {editing && (
           <RuleForm
-            role={role}
+            group={group}
             initial={editing.command}
             initialRunAs={editing.run_as}
             submitLabel="Save command"
@@ -287,17 +287,17 @@ export default function RoleSudo({
 }
 
 function RuleForm({
-  role,
+  group,
   initial,
   initialRunAs,
   submitLabel,
   onSave,
 }: {
-  role: string;
+  group: string;
   initial: string;
   initialRunAs: string;
   submitLabel: string;
-  onSave: (command: RoleSudoCommand, acknowledged: boolean) => Promise<void>;
+  onSave: (command: GroupSudoCommand, acknowledged: boolean) => Promise<void>;
 }) {
   const [text, setText] = useState(initial);
   const [runAs, setRunAs] = useState(initialRunAs);
@@ -325,7 +325,7 @@ function RuleForm({
    * ("(postgres) /usr/bin/pg_ctl") elle düzenlenirken düşürülebiliyor ve
    * düştüğünde komut sessizce root'a çıkıyordu — ölçüldü.
    */
-  const command: RoleSudoCommand = {
+  const command: GroupSudoCommand = {
     command: text.trim(),
     run_as: runAs.trim() || "root",
   };
@@ -372,7 +372,7 @@ function RuleForm({
             checked={acknowledged}
             onChange={(e) => setAcknowledged(e.target.checked)}
           />
-          I understand this command can start another program, so what the role
+          I understand this command can start another program, so what the group
           really gets is that account in full — not just the command written
           here. Write it anyway.
         </label>
@@ -385,7 +385,7 @@ function RuleForm({
         <span className="muted small">
           {command.command === ""
             ? "Nothing to save yet."
-            : `${command.command} as ${command.run_as}, for everyone in ${role}.`}
+            : `${command.command} as ${command.run_as}, for everyone in ${group}.`}
         </span>
       </div>
     </>

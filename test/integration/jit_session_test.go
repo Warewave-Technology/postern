@@ -14,7 +14,7 @@ import (
 
 /*
  * ⚠️ SÜRELİ HAKLA AÇILAN OTURUM KAYITTA ÖYLE YAZIYOR — rolle açılan
- * yazmıyor. yigit'in jit-host'ta rolü yok; onu içeri alan tek şey
+ * yazmıyor. yigit'in jit-host'ta grubu yok; onu içeri alan tek şey
  * uygulanmış, süresi dolmamış bir hak. Denetçi bunu satırda görmeli;
  * hak geri alındıktan sonra jit_grants'a bakıp "o saatte açık mıydı"
  * diye türetmek, denetim kaydını başka bir tablonun sonraki hâline
@@ -28,7 +28,7 @@ func TestASessionOpenedThroughAGrantIsMarkedTemporary(t *testing.T) {
 	addr, hostPub, signer, db := testServerWithDB(t, caKeyPath, roleHost)
 
 	ctx := context.Background()
-	// Aynı konteyner, ikinci ad: bu ada hiçbir rol gitmiyor.
+	// Aynı konteyner, ikinci ad: bu ada hiçbir grup gitmiyor.
 	jitHost := tgt.target()
 	jitHost.Name = "jit-host"
 	if _, err := db.CreateTarget(ctx, jitHost); err != nil {

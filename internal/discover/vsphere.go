@@ -34,7 +34,7 @@ import (
  * anahtar/değer: KATEGORİ anahtar, ETİKET değer. Proxmox'ta anahtarı
  * etiketin içinde aramak zorundaydık; burada platformun kendi modeli.
  * Yine de aynı biçimde ("kategori=etiket") dışarı veriliyor ki
- * RoleFromTags tek bir kural uygulasın — iki kaynak için iki ayrı rol
+ * GroupFromTags tek bir kural uygulasın — iki kaynak için iki ayrı grup
  * çıkarma mantığı, ikisinin zamanla ayrışması demekti.
  */
 
@@ -253,7 +253,7 @@ func (v *VSphere) Machines(ctx context.Context) ([]Machine, error) {
 		 *
 		 * Etiketleme servisi ayrı bir yetki istiyor ve okuma yetkisi
 		 * dar tutulmuş bir hesapta kapalı olabiliyor. Bütün keşfi
-		 * düşürmek yerine makineler `unknown` rolüne gidiyor — ve
+		 * düşürmek yerine makineler `unknown` grubuna gidiyor — ve
 		 * sebep çağırana bildiriliyor, sessizce "hiç etiket yok"
 		 * denmiyor.
 		 */
@@ -352,7 +352,7 @@ func (v *VSphere) tagsByVM(ctx context.Context, vms []struct {
 				continue
 			}
 			// ⚠️ "kategori=etiket": Proxmox'la AYNI biçim, dolayısıyla
-			// rol çıkarma mantığı tek ve ortak.
+			// grup çıkarma mantığı tek ve ortak.
 			cat := cats[ti.CategoryID]
 			if cat == "" {
 				continue

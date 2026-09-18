@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { api, Role, Target, toMessage } from "../api";
+import { api, Group, Target, toMessage } from "../api";
 import { ErrorLine, ListState, WarnLine, useList } from "./common";
 import DataTable, { Column } from "./DataTable";
 import Modal from "./Modal";
-import RoleDetail from "./RoleDetail";
+import GroupDetail from "./GroupDetail";
 
 /**
- * Roles — rollerin listesi.
+ * Groups — rollerin listesi.
  *
  * ⚠️ LİSTE SAYIYOR, SAYFA GÖSTERİYOR. Önceki hâlde her satır rolün bütün
  * hedeflerini rozet rozet çiziyor, ayrıca bir hedef seçme kutusu, bir
@@ -18,11 +18,11 @@ import RoleDetail from "./RoleDetail";
  *
  * ⚠️ SAYILAR ROLÜN NE VERDİĞİNİ SÖYLÜYOR. Yalnızca ad gösteren bir liste,
  * hangi rolün ağır olduğunu gizler: hedef sayısı ve sudo komutu sayısı,
- * birini bir role eklemeden önce bakılacak iki sayı.
+ * birini bir group eklemeden önce bakılacak iki sayı.
  */
-export default function Roles() {
+export default function Groups() {
   const { items, error, denied, loading, failed, refresh, setError } =
-    useList<Role>(api.roles);
+    useList<Group>(api.groups);
   // Hedefler ayrıca çekiliyor: detay sayfasındaki kutu yalnızca gerçekten
   // kayıtlı hedefleri sunsun, adı elle yazdırmak "target not found" veren
   // bir grant demekti.
@@ -50,7 +50,7 @@ export default function Roles() {
         return false;
       });
 
-  const columns: Column<Role>[] = [
+  const columns: Column<Group>[] = [
     {
       key: "name",
       header: "Name",
@@ -80,7 +80,7 @@ export default function Roles() {
     {
       /*
        * ⚠️ SUDO SÜTUNU SAYIYOR, YAZMIYOR. Rol artık erişimin yanında
-       * yetki de veriyor ve bunu listede hiç göstermemek, birini role
+       * yetki de veriyor ve bunu listede hiç göstermemek, birini group
        * eklerken ne verdiğini görmemek demek. Komutların kendisi
        * sayfada: iki yüz komutu bir hücreye sığdırmak da aynı tabloyu
        * bozardı.
@@ -106,11 +106,11 @@ export default function Roles() {
   ];
 
   if (selected) {
-    const role = items.find((r) => r.name === selected);
-    if (role) {
+    const group = items.find((r) => r.name === selected);
+    if (group) {
       return (
-        <RoleDetail
-          role={role}
+        <GroupDetail
+          group={group}
           targets={targets.items}
           onBack={() => setSelected(null)}
           onChanged={refresh}
@@ -129,15 +129,15 @@ export default function Roles() {
     <section>
       <div className="page-bar">
         <div className="page-head">
-          <h2>Roles</h2>
+          <h2>Groups</h2>
           <p className="page-sub">
-            Access is granted only through a role: a role holds targets, and a
-            user holds roles. Open one to see what it reaches and what it may
+            Access is granted only through a group: a group holds targets, and a
+            user holds groups. Open one to see what it reaches and what it may
             run there.
           </p>
         </div>
         <button className="btn-primary" onClick={() => setAdding(true)}>
-          New role
+          New group
         </button>
       </div>
       <ErrorLine msg={error} />
@@ -147,11 +147,11 @@ export default function Roles() {
       <WarnLine
         msg={
           targets.error &&
-          `Targets could not be loaded (${targets.error}) — you can still open a role, but nothing can be granted until that list comes back.`
+          `Targets could not be loaded (${targets.error}) — you can still open a group, but nothing can be granted until that list comes back.`
         }
       />
       {!targets.loading && !targets.error && targets.items.length === 0 && (
-        <WarnLine msg="No targets are registered yet, so every role here grants nothing." />
+        <WarnLine msg="No targets are registered yet, so every group here grants nothing." />
       )}
 
       <ListState
@@ -159,7 +159,7 @@ export default function Roles() {
         denied={denied}
         failed={failed}
         empty={items.length === 0}
-        emptyText="No roles yet — access is granted only through a role, so nobody can reach a target until one exists."
+        emptyText="No groups yet — access is granted only through a group, so nobody can reach a target until one exists."
       />
 
       {items.length > 0 && (
@@ -168,17 +168,17 @@ export default function Roles() {
           columns={columns}
           rowKey={(r) => r.name}
           initialSort={{ key: "name", dir: "asc" }}
-          noun="role"
-          searchLabel="search roles by name, granted target or sudo command"
-          searchPlaceholder="Search roles…"
+          noun="group"
+          searchLabel="search groups by name, granted target or sudo command"
+          searchPlaceholder="Search groups…"
         />
       )}
 
       <Modal
         open={adding}
         onClose={() => setAdding(false)}
-        title="New role"
-        description="A role starts empty and grants nothing until you open it and give it a target."
+        title="New group"
+        description="A group starts empty and grants nothing until you open it and give it a target."
       >
         <div className="field-row">
           <label>
@@ -193,7 +193,7 @@ export default function Roles() {
             onClick={() => create().then((ok) => ok && setAdding(false))}
             disabled={!name.trim()}
           >
-            Create role
+            Create group
           </button>
         </div>
       </Modal>

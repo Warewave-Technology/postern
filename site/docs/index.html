@@ -217,7 +217,7 @@
     <a href="#labels">Labels</a>
 
     <h4>Access control</h4>
-    <a href="#roles">Users and roles</a>
+    <a href="#groups">Users and groups</a>
     <a href="#sources">Where identities come from</a>
     <a href="#mappings">Group mappings</a>
     <a href="#sync">Directory sync</a>
@@ -251,7 +251,7 @@
 
     <div class="cards">
       <div class="card"><h4><a href="#install">Install</a></h4><p>CA, database, first start. Fifteen minutes.</p></div>
-      <div class="card"><h4><a href="#trust">Trust the CA</a></h4><p>The one line each target needs — and the Ansible role that installs it safely.</p></div>
+      <div class="card"><h4><a href="#trust">Trust the CA</a></h4><p>The one line each target needs — and the Ansible group that installs it safely.</p></div>
       <div class="card"><h4><a href="#checklist">Go live</a></h4><p>What to check before real people connect.</p></div>
     </div>
 
@@ -269,7 +269,7 @@
  |                          |-- who are you?             |
  |                          |   (local / LDAP / OIDC)    |
  |                          |-- may you reach web-01?    |
- |                          |   (roles, resolved now)    |
+ |                          |   (groups, resolved now)    |
  |                          |-- mint cert, principal <span class="g">yigit</span>|
  |                          |   valid minutes, in memory |
  |                          |---- ssh with cert -------&gt;|
@@ -426,11 +426,11 @@ sign-in password: <span class="y">XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XX</span>   <spa
       <ol>
         <li>Have an authenticator app to hand, then open the panel and sign in with the bootstrap password. The first thing you see is the enrolment screen, not the setup wizard &mdash; a local account reaches nothing until it has a second factor, and enrolment asks for that same bootstrap password again to prove it is you. First-run setup comes straight after, and an unconfigured bastion shows nothing else until it is done.</li>
         <li>Register a target (<a href="#targets">§ Targets</a>) and trust the CA on it (<a href="#trust">§ Trusting the CA</a>).</li>
-        <li>Create a role, grant it the target, give it to a user.</li>
+        <li>Create a group, grant it the target, give it to a user.</li>
         <li>Add your public key under <b>Profile → SSH keys</b>, then connect.</li>
       </ol>
-<pre>$ postern role add --name ops --target web-01 --config postern.yaml
-$ postern user add --name yigit --os-user yigit --role ops \
+<pre>$ postern group add --name ops --target web-01 --config postern.yaml
+$ postern user add --name yigit --os-user yigit --group ops \
       --key ~/.ssh/id_ed25519.pub --config postern.yaml
 $ ssh yigit:web-01@bastion -p 2222
 </pre>
@@ -441,7 +441,7 @@ $ ssh yigit:web-01@bastion -p 2222
       <p>
         The panel is served by the same binary — no second service. Users see
         their own targets, their own sessions, and their own profile;
-        administrators additionally see users, roles, targets, mappings, sync
+        administrators additionally see users, groups, targets, mappings, sync
         and every session.
       </p>
 <pre>http:
@@ -508,7 +508,7 @@ $ ssh yigit:web-01@bastion -p 2222
       <h2>Registering a target</h2>
 <pre>$ ssh-keyscan -p 22 10.0.0.11 &gt; web-01.pub    <span class="c"># look at it before trusting it</span>
 $ postern target add --name web-01 --host 10.0.0.11 --port 22 \
-      --host-key-file web-01.pub --grant-role ops --config postern.yaml
+      --host-key-file web-01.pub --grant-group ops --config postern.yaml
 $ postern target list --config postern.yaml
 </pre>
       <p>
@@ -545,7 +545,7 @@ yigit
 </pre>
       <h3>Across a fleet</h3>
       <p>
-        <code>deploy/ansible/</code> does it. The role validates the resulting
+        <code>deploy/ansible/</code> does it. The group validates the resulting
         configuration with <code>sshd -t</code> <i>before</i> installing it, and
         reloads rather than restarts.
       </p>
@@ -565,14 +565,14 @@ $ journalctl -u ssh -n 50
       <h2>Discovery</h2>
       <p>
         If your machines live on Proxmox or vSphere, postern can read them from
-        the hypervisor and turn a tag into a role grant. Without
+        the hypervisor and turn a tag into a group grant. Without
         <code>--apply</code> it only prints what it would do.
       </p>
 <pre>$ postern discover proxmox \
     --url https://pve.example.com:8006 \
     --token-id 'postern@pve!discovery' \
     --token-secret "$PVE_TOKEN" \
-    --tag-key role \
+    --tag-key group \
     --config postern.yaml
 </pre>
       <p>
@@ -583,10 +583,10 @@ $ journalctl -u ssh -n 50
         <code>role_os-admins</code>.
       </p>
       <table>
-        <tr><th>Tag</th><th>With <code>--tag-key role</code></th></tr>
-        <tr><td><code>role_os-admins</code></td><td>grants to role <code>os-admins</code></td></tr>
-        <tr><td><code>role=ops</code></td><td>grants to role <code>ops</code> (vSphere, where <code>=</code> is legal)</td></tr>
-        <tr><td><code>production</code></td><td>no key, so it names no role — the machine lands in <code>unknown</code></td></tr>
+        <tr><th>Tag</th><th>With <code>--tag-key group</code></th></tr>
+        <tr><td><code>role_os-admins</code></td><td>grants to group <code>os-admins</code></td></tr>
+        <tr><td><code>group=ops</code></td><td>grants to group <code>ops</code> (vSphere, where <code>=</code> is legal)</td></tr>
+        <tr><td><code>production</code></td><td>no key, so it names no group — the machine lands in <code>unknown</code></td></tr>
       </table>
       <p>
         vSphere carries real tag categories, so <code>--tag-key</code> names the
@@ -594,10 +594,10 @@ $ journalctl -u ssh -n 50
       </p>
 <pre>$ postern discover vsphere --url https://vcenter.example.com \
     --username 'discovery@vsphere.local' --password "$VC_PASS" \
-    --tag-key role --config postern.yaml
+    --tag-key group --config postern.yaml
 </pre>
       <div class="note"><b>Read-only, and dry by default</b><p>Use a credential with read permission only, and nothing is written without <code>--apply</code>.</p>
-      <p><b>The exit code answers a narrower question than you might expect.</b> An <code>--apply</code> exits non-zero only when machines were found and <em>nothing at all</em> was written — no target, no role, no grant. It does not key on your <code>--tag-key</code> matching: a run where most machines carry no role tag still creates targets, puts them in <code>unknown</code>, and exits zero. A discovery that finds no machines at all also exits zero. So a typo in <code>--tag-key</code> is visible in the summary — every machine in <code>unknown</code> — rather than in the exit status.</p></div>
+      <p><b>The exit code answers a narrower question than you might expect.</b> An <code>--apply</code> exits non-zero only when machines were found and <em>nothing at all</em> was written — no target, no group, no grant. It does not key on your <code>--tag-key</code> matching: a run where most machines carry no group tag still creates targets, puts them in <code>unknown</code>, and exits zero. A discovery that finds no machines at all also exits zero. So a typo in <code>--tag-key</code> is visible in the summary — every machine in <code>unknown</code> — rather than in the exit status.</p></div>
     </section>
 
     <section id="labels">
@@ -609,37 +609,37 @@ $ journalctl -u ssh -n 50
 <pre>$ postern target label set --target web-01 --key env --value prod --config postern.yaml
 $ postern target label remove --target web-01 --key env --config postern.yaml
 </pre>
-      <p>Labels describe; they do not grant. Access comes only from roles.</p>
+      <p>Labels describe; they do not grant. Access comes only from groups.</p>
     </section>
 
-    <section id="roles">
-      <h2>Users and roles</h2>
+    <section id="groups">
+      <h2>Users and groups</h2>
       <p>
-        A role is a named set of targets. A user's access is the union of their
-        roles, resolved at connect time — so revoking a role takes effect on the
+        A group is a named set of targets. A user's access is the union of their
+        groups, resolved at connect time — so revoking a group takes effect on the
         next connection, not at the end of the working day.
       </p>
-<pre>$ postern role add --name ops --target web-01 --target web-02 --config postern.yaml
-$ postern user add --name suleyman --os-user suleyman --role ops --config postern.yaml
+<pre>$ postern group add --name ops --target web-01 --target web-02 --config postern.yaml
+$ postern user add --name suleyman --os-user suleyman --group ops --config postern.yaml
 $ postern user list --config postern.yaml
 $ postern user modify --name suleyman --os-user deploy --config postern.yaml
 </pre>
-      <h3>Changing someone's roles</h3>
-<pre>$ postern role list --config postern.yaml
-$ postern user grant-role  --name suleyman --role ops --config postern.yaml
-$ postern user revoke-role --name suleyman --role ops --config postern.yaml
-$ postern role revoke-target --name ops --target web-01 --config postern.yaml
+      <h3>Changing someone's groups</h3>
+<pre>$ postern group list --config postern.yaml
+$ postern user grant-group  --name suleyman --group ops --config postern.yaml
+$ postern user revoke-group --name suleyman --group ops --config postern.yaml
+$ postern group revoke-target --name ops --target web-01 --config postern.yaml
 </pre>
       <p>
         Three things these say out loud, because each is a way you would
         otherwise be misled:
       </p>
       <ul>
-        <li>Revoking a role the user never held reports <i>held no active grant</i>, not <i>revoked</i> — a mistyped role name should not read as success.</li>
-        <li>Revoking a role that came from a directory group lasts until that person's next sign-in; removing the group mapping is what makes it stick.</li>
-        <li>Granting a role they <b>already have from a directory group</b> turns it into a manual grant that synchronisation can no longer take away — so it survives them leaving the group. Not blocked, but said.</li>
+        <li>Revoking a group the user never held reports <i>held no active grant</i>, not <i>revoked</i> — a mistyped group name should not read as success.</li>
+        <li>Revoking a group that came from a directory group lasts until that person's next sign-in; removing the group mapping is what makes it stick.</li>
+        <li>Granting a group they <b>already have from a directory group</b> turns it into a manual grant that synchronisation can no longer take away — so it survives them leaving the group. Not blocked, but said.</li>
       </ul>
-      <div class="note"><b>Break-glass never blocks</b><p>Granting a role to a deleted account is allowed — restoring roles before reactivating is a legitimate order — and the command tells you the account cannot sign in yet. The CLI is the path that has to work when the panel does not; refusing a legitimate ordering is how that promise gets broken.</p></div>
+      <div class="note"><b>Break-glass never blocks</b><p>Granting a group to a deleted account is allowed — restoring groups before reactivating is a legitimate order — and the command tells you the account cannot sign in yet. The CLI is the path that has to work when the panel does not; refusing a legitimate ordering is how that promise gets broken.</p></div>
 
       <h3>Leaving</h3>
       <p>
@@ -663,8 +663,8 @@ $ postern user purge --name suleyman --config postern.yaml   <span class="c"># f
       <table>
         <tr><th>Source</th><th>Use</th></tr>
         <tr><td>local</td><td>Small teams and the break-glass administrator. Host-issued secrets, argon2id, and a <a href="#totp">mandatory authenticator</a>.</td></tr>
-        <tr><td>LDAP / AD</td><td>Users and groups read from the directory; group membership becomes roles.</td></tr>
-        <tr><td>OIDC</td><td>Sign-in at your IdP; groups from a claim become roles.</td></tr>
+        <tr><td>LDAP / AD</td><td>Users and groups read from the directory; group membership becomes groups.</td></tr>
+        <tr><td>OIDC</td><td>Sign-in at your IdP; groups from a claim become groups.</td></tr>
       </table>
       <p>Configure through first-run setup in the panel, or with the CLI:</p>
 <pre>$ postern settings set --key auth.source --value ldap --config postern.yaml
@@ -691,7 +691,7 @@ $ postern settings list --config postern.yaml          <span class="c"># secrets
 
       <h3>Just-in-time accounts</h3>
       <p>
-        With <code>auth.auto_create</code> on, a user whose group maps to a role
+        With <code>auth.auto_create</code> on, a user whose group maps to a group
         gets an account on first sign-in. With it off, they are written to a
         pending queue for an administrator to approve — keyed by their stable
         identity, so renaming does not let anyone apply twice. Either way, a user
@@ -701,10 +701,10 @@ $ postern settings list --config postern.yaml          <span class="c"># secrets
 
     <section id="mappings">
       <h2>Group mappings</h2>
-<pre>$ postern mapping add --group sysadmins --role ops --config postern.yaml
+<pre>$ postern mapping add --directory-group sysadmins --group ops --config postern.yaml
 $ postern mapping list --config postern.yaml
 $ postern mapping unmapped --config postern.yaml   <span class="c"># groups seen at login</span>
-                                                   <span class="c"># with no role behind them</span>
+                                                   <span class="c"># with no group behind them</span>
 </pre>
       <p>
         <code>unmapped</code> is the diagnostic to reach for when somebody says
@@ -731,7 +731,7 @@ $ postern sync status --config postern.yaml
         <tr><td><code>sync.min_zero_floor</code></td><td>3</td><td>the same, on small installations</td></tr>
         <tr><td><code>sync.max_unknown_fraction</code></td><td>0.25</td><td>a run where too much could not be resolved</td></tr>
         <tr><td><code>sync.max_revoke_per_run</code></td><td>25</td><td>a run that would revoke a fleet's worth of access at once</td></tr>
-        <tr><td><code>sync.grace</code></td><td>—</td><td>how long a user missing from the directory waits before their <em>directory roles</em> are revoked. It does not deactivate accounts: that is a separate loop with its own timer (<code>auth.confirm_ttl</code>), and it leaves roles alone and closes the door instead.</td></tr>
+        <tr><td><code>sync.grace</code></td><td>—</td><td>how long a user missing from the directory waits before their <em>directory groups</em> are revoked. It does not deactivate accounts: that is a separate loop with its own timer (<code>auth.confirm_ttl</code>), and it leaves groups alone and closes the door instead.</td></tr>
         <tr><td><code>sync.dry_run</code></td><td>false</td><td>everything; reports what it would do</td></tr>
       </table>
       <div class="note"><b>Turn it on dry first</b><p>Run with <code>sync.dry_run</code> for a cycle and read <code>sync status</code>. A directory filter that is subtly wrong looks identical to a directory that lost people.</p></div>
@@ -880,7 +880,7 @@ $ curl -fsS http://127.0.0.1:8088/readyz    <span class="c"># it can do work</sp
         anything is closed: if that write fails, nothing is closed and you are
         told so.
       </p>
-      <div class="warn"><b>Closing is not revoking</b><p>The person can reconnect immediately. Access is decided at connect time from roles and account state; closing a session touches neither. If you need them out, remove what grants the access — and remember that on a directory-backed install the directory is the source, so the change has to hold there too.</p></div>
+      <div class="warn"><b>Closing is not revoking</b><p>The person can reconnect immediately. Access is decided at connect time from groups and account state; closing a session touches neither. If you need them out, remove what grants the access — and remember that on a directory-backed install the directory is the source, so the change has to hold there too.</p></div>
       <p>
         A row can be open without running: <code>ended_at</code> is empty
         means "we never recorded an end", which is also what a crash leaves
@@ -1021,7 +1021,7 @@ session:
       <h2>Config reference</h2>
       <p>
         The file holds <b>infrastructure only</b> — addresses, paths, limits.
-        Identity, users, roles and targets live in the database, so a config file
+        Identity, users, groups and targets live in the database, so a config file
         can be copied between hosts without carrying access with it.
       </p>
 <pre>listen:
@@ -1072,7 +1072,7 @@ target_probe:
 
 manage:
   # Default false. When true, panel administrators can sign in as the
-  # management account (passwordless sudo) on targets whose Ansible role
+  # management account (passwordless sudo) on targets whose Ansible group
   # ran with postern_manage_host: true. Every connection is written to
   # the admin log first, and postern logs a warning at every startup.
   enabled: false
@@ -1109,7 +1109,7 @@ sync:
         <li><b>A second way into new targets</b> until you have proved certificate login works on each.</li>
         <li><b>Decide <code>record_input</code> deliberately</b> and tell the people it applies to.</li>
         <li><b>Restrict who reaches the SSH port.</b> postern is the door; it is not a firewall.</li>
-        <li><b>Practise the recovery</b>: revoke your own admin role in a test install and get back in with the CLI. Find out now, not during an incident.</li>
+        <li><b>Practise the recovery</b>: revoke your own admin group in a test install and get back in with the CLI. Find out now, not during an incident.</li>
       </ul>
     </section>
 
@@ -1132,7 +1132,7 @@ sync:
         <tr><td>CA private key</td><td>Lose it and every target must be re-trusted by hand.</td></tr>
         <tr><td>Secret key</td><td>Seals stored LDAP/OIDC credentials <b>and every enrolled authenticator secret</b>. Lose it and the credentials must be re-entered &mdash; and no local account can sign in, because its second factor cannot be unsealed. Each one needs <code>postern admin reset-totp</code> and a fresh enrolment.</td></tr>
         <tr><td>Host key</td><td>Lose it and every user gets a host-key warning — indistinguishable from an attack.</td></tr>
-        <tr><td>Database</td><td>Users, roles, targets, mappings, the audit trail.</td></tr>
+        <tr><td>Database</td><td>Users, groups, targets, mappings, the audit trail.</td></tr>
         <tr><td>Recordings</td><td>Only if your retention obligation outlives the disk.</td></tr>
       </table>
       <p>Restore is: put the keys back, restore the database, start. Nothing on the targets changes as long as the CA key is the same one.</p>
@@ -1247,7 +1247,7 @@ postern v1.1.0
       </p>
       <p>
         Detach the old binding on the bastion host. The next directory sign-in
-        binds the account again, and roles, keys and session history are
+        binds the account again, and groups, keys and session history are
         untouched:
       </p>
 <pre>$ postern user unbind-directory --name ayse --config postern.yaml
@@ -1437,7 +1437,7 @@ $ postern admin issue  --name admin --config postern.yaml
       <p>
         The largest gap between postern and a tool an auditor is happy with.
         Today every session is recorded; none is constrained. 1.2 adds a
-        command policy attached to a role, and it is deliberately built around
+        command policy attached to a group, and it is deliberately built around
         what SSH lets a proxy actually enforce.
       </p>
       <ul>
@@ -1451,7 +1451,7 @@ $ postern admin issue  --name admin --config postern.yaml
           it defaults to deny and parses payloads today.
         </li>
         <li>
-          <b>Interactive shells become a separate permission.</b> A role can be
+          <b>Interactive shells become a separate permission.</b> A group can be
           marked exec-only, and then <code>shell</code> is refused outright.
           This is the enforceable half of command control, and it is the half
           that matters: if a person has an interactive shell, they have a shell.
@@ -1504,7 +1504,7 @@ $ postern admin issue  --name admin --config postern.yaml
 
       <h3>1.5 — Access that expires on its own</h3>
       <ul>
-        <li><b>Time-boxed grants.</b> A role on a person, or a target on a role,
+        <li><b>Time-boxed grants.</b> A group on a person, or a target on a group,
           with an end time — so "for this incident" does not quietly become
           permanent. Today revocation is a decision somebody has to remember to
           make.</li>

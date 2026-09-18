@@ -10,7 +10,7 @@ import "testing"
  * kabul: ikisi de yaygın ve hangisinin kullanıldığını keşif sırasında
  * öğrenmek, kurulumu yeniden etiketlemekten ucuz.
  */
-func TestRoleFromTags(t *testing.T) {
+func TestGroupFromTags(t *testing.T) {
 	cases := []struct {
 		name   string
 		tags   []string
@@ -26,16 +26,16 @@ func TestRoleFromTags(t *testing.T) {
 		// ⚠️ ETİKETSİZ MAKİNE DÜŞMÜYOR, unknown'a gidiyor: bilmediğimiz
 		// makineyi sessizce envanterden çıkarmak, onu gözden kaçırmak
 		// demek.
-		{"etiket yok", nil, "role", UnknownRole, false},
-		{"baska anahtar", []string{"env=prod"}, "role", UnknownRole, false},
-		{"anahtar var deger yok", []string{"role="}, "role", UnknownRole, false},
+		{"etiket yok", nil, "role", UnknownGroup, false},
+		{"baska anahtar", []string{"env=prod"}, "role", UnknownGroup, false},
+		{"anahtar var deger yok", []string{"role="}, "role", UnknownGroup, false},
 
-		// Anahtar verilmezse hiçbir etiket rol sayılmıyor.
-		{"anahtar bos", []string{"role=ops"}, "", UnknownRole, false},
+		// Anahtar verilmezse hiçbir etiket grup sayılmıyor.
+		{"anahtar bos", []string{"role=ops"}, "", UnknownGroup, false},
 	}
 
 	for _, c := range cases {
-		got, tagged := RoleFromTags(c.tags, c.key)
+		got, tagged := GroupFromTags(c.tags, c.key)
 		if got != c.want || tagged != c.tagged {
 			t.Errorf("%s: (%q,%v), beklenen (%q,%v)", c.name, got, tagged, c.want, c.tagged)
 		}
@@ -50,22 +50,22 @@ func TestRoleFromTags(t *testing.T) {
  * Boşluk ya da virgül taşıyan bir ad, liste ayrıştıran her yerde
  * belirsizlik üretir.
  */
-func TestValidRoleName(t *testing.T) {
+func TestValidGroupName(t *testing.T) {
 	for _, ok := range []string{"ops", "db-team", "web_01", "a.b", "ROLE1"} {
-		if err := ValidRoleName(ok); err != nil {
+		if err := ValidGroupName(ok); err != nil {
 			t.Errorf("%q reddedildi: %v", ok, err)
 		}
 	}
 	for _, bad := range []string{"", "iki kelime", "a,b", "a/b", "role;drop", "a\nb"} {
-		if err := ValidRoleName(bad); err == nil {
-			t.Errorf("%q kabul edildi — etiketten gelen bir ad rol adına dönüşüyor", bad)
+		if err := ValidGroupName(bad); err == nil {
+			t.Errorf("%q kabul edildi — etiketten gelen bir ad grup adına dönüşüyor", bad)
 		}
 	}
 	long := ""
 	for i := 0; i < 65; i++ {
 		long += "a"
 	}
-	if err := ValidRoleName(long); err == nil {
+	if err := ValidGroupName(long); err == nil {
 		t.Error("65 karakterlik ad kabul edildi")
 	}
 }
@@ -108,9 +108,9 @@ func TestUsableIP(t *testing.T) {
 // onlar; başarılı yüz satırın altına gömülen bir atlama görülmez.
 func TestSortOutcomesPutsSkippedFirst(t *testing.T) {
 	in := []Outcome{
-		{Machine: Machine{Name: "b"}, Role: "ops"},
-		{Machine: Machine{Name: "a"}, Role: "ops", Skipped: "no host key"},
-		{Machine: Machine{Name: "c"}, Role: "dba"},
+		{Machine: Machine{Name: "b"}, Group: "ops"},
+		{Machine: Machine{Name: "a"}, Group: "ops", Skipped: "no host key"},
+		{Machine: Machine{Name: "c"}, Group: "dba"},
 	}
 	SortOutcomes(in)
 	if in[0].Machine.Name != "a" {
@@ -124,8 +124,8 @@ func TestSortOutcomesPutsSkippedFirst(t *testing.T) {
  * ÖLÇÜLEN ARIZA: Proxmox etiket karakter kümesi [a-z0-9_.+-] ile sınırlı
  * (pve-common'daki `pve-tag` biçimi), yani `=` ve `:` bir etikete hiç
  * yazılamıyor. Yalnızca o ikisini tanıyan eski kod, gerçek bir Proxmox
- * kurulumunda HER makineyi sessizce `unknown` rolüne düşürüyordu —
- * hata yok, uyarı yok, sadece hiçbir makinenin rolü yok. Kullanıcının
+ * kurulumunda HER makineyi sessizce `unknown` grubuna düşürüyordu —
+ * hata yok, uyarı yok, sadece hiçbir makinenin grubu yok. Kullanıcının
  * bildirdiği durum tam olarak buydu.
  */
 func TestProxmoxStyleUnderscoreTags(t *testing.T) {
@@ -200,15 +200,15 @@ func TestProxmoxStyleUnderscoreTags(t *testing.T) {
 			name:   "anahtar önekmiş gibi görünen başka etiket",
 			tags:   []string{"roles_web"},
 			key:    "role",
-			want:   UnknownRole,
+			want:   UnknownGroup,
 			tagged: false,
 		},
 		{
-			// Değeri boş etiket rol değildir.
+			// Değeri boş etiket grup değildir.
 			name:   "değer yok",
 			tags:   []string{"role_"},
 			key:    "role",
-			want:   UnknownRole,
+			want:   UnknownGroup,
 			tagged: false,
 		},
 		{
@@ -216,7 +216,7 @@ func TestProxmoxStyleUnderscoreTags(t *testing.T) {
 			name:   "ilgisiz etiketler",
 			tags:   []string{"production", "linux", "backup_daily"},
 			key:    "role",
-			want:   UnknownRole,
+			want:   UnknownGroup,
 			tagged: false,
 		},
 		{
@@ -231,21 +231,21 @@ func TestProxmoxStyleUnderscoreTags(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, tagged := RoleFromTags(c.tags, c.key)
+			got, tagged := GroupFromTags(c.tags, c.key)
 			if got != c.want || tagged != c.tagged {
-				t.Errorf("RoleFromTags(%q, %q) = (%q, %v), beklenen (%q, %v)",
+				t.Errorf("GroupFromTags(%q, %q) = (%q, %v), beklenen (%q, %v)",
 					c.tags, c.key, got, tagged, c.want, c.tagged)
 			}
 		})
 	}
 }
 
-// Etiketten gelen değer rol adı kuralına uymalı: alt çizgili ve tireli
+// Etiketten gelen değer grup adı kuralına uymalı: alt çizgili ve tireli
 // adlar geçerli, yoksa düzeltme işe yaramaz.
-func TestUnderscoreRoleNamesAreValid(t *testing.T) {
+func TestUnderscoreGroupNamesAreValid(t *testing.T) {
 	for _, name := range []string{"os-admins", "web_prod", "db.replica"} {
-		if err := ValidRoleName(name); err != nil {
-			t.Errorf("ValidRoleName(%q) = %v — etiketten gelen ad reddediliyor", name, err)
+		if err := ValidGroupName(name); err != nil {
+			t.Errorf("ValidGroupName(%q) = %v — etiketten gelen ad reddediliyor", name, err)
 		}
 	}
 }

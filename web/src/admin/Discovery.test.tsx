@@ -14,7 +14,7 @@ const source = (over: Partial<DiscoverySource> = {}): DiscoverySource => ({
   ca_pem: "",
   insecure: false,
   node: "",
-  tag_key: "role",
+  tag_key: "group",
   name_pattern: "",
   port: 22,
   interval_seconds: 3600,
@@ -48,7 +48,7 @@ const machine = (over: Partial<DiscoveredMachine> = {}): DiscoveredMachine => ({
   host: "10.0.0.5",
   tags: ["role_web", "env_prod"],
   running: true,
-  role: "web",
+  group: "web",
   fingerprint: "SHA256:abc",
   ignored: false,
   first_seen: "2026-09-13T10:00:00Z",
@@ -72,7 +72,7 @@ const overview: DiscoveryOverview = {
 
 beforeEach(() => {
   vi.restoreAllMocks();
-  vi.spyOn(api, "roles").mockResolvedValue([
+  vi.spyOn(api, "groups").mockResolvedValue([
     { name: "ops", targets: [], paths: [] } as never,
   ]);
 });
@@ -129,7 +129,7 @@ it("kaynakları son koşularıyla, makineleri durumlarıyla listeliyor", async (
 it("seçili yeni makineleri roller ve etiketlerle kaydediyor", async () => {
   vi.spyOn(api, "discovery").mockResolvedValue(overview);
   const register = vi.spyOn(api, "registerDiscovered").mockResolvedValue({
-    results: [{ source_id: "s1", ref: "qemu/101", name: "web-01", target: "web-01", roles: ["web"], created_roles: ["web"] }],
+    results: [{ source_id: "s1", ref: "qemu/101", name: "web-01", target: "web-01", groups: ["web"], created_roles: ["web"] }],
   });
   render(<Discovery />);
   await screen.findByText("web-01");
@@ -162,7 +162,7 @@ it("seçili yeni makineleri roller ve etiketlerle kaydediyor", async () => {
   await waitFor(() =>
     expect(register).toHaveBeenCalledWith({
       machines: [{ source_id: "s1", ref: "qemu/101" }],
-      roles: [],
+      groups: [],
       tag_roles: true,
       labels: { env: "prod" },
     }),
@@ -197,8 +197,8 @@ it("kaynak formu sırrı yalnızca yazıldığında gönderiyor", async () => {
   const update = vi.spyOn(api, "updateDiscoverySource").mockResolvedValue({ ok: true });
   const test = vi
     .spyOn(api, "testDiscoverySource")
-    .mockResolvedValueOnce({ machines: 3, running: 2, with_address: 1, matching: 3, tagged: 2, roles: ["ops", "dba"], tags: ["role_ops"], took_ms: 40 })
-    .mockResolvedValueOnce({ machines: 3, running: 2, with_address: 1, matching: 3, tagged: 0, roles: [], tags: ["rol_ops", "env_prod"], took_ms: 40 });
+    .mockResolvedValueOnce({ machines: 3, running: 2, with_address: 1, matching: 3, tagged: 2, groups: ["ops", "dba"], tags: ["role_ops"], took_ms: 40 })
+    .mockResolvedValueOnce({ machines: 3, running: 2, with_address: 1, matching: 3, tagged: 0, groups: [], tags: ["rol_ops", "env_prod"], took_ms: 40 });
   render(<Discovery />);
   await screen.findByText("Every hour");
 
@@ -213,7 +213,7 @@ it("kaynak formu sırrı yalnızca yazıldığında gönderiyor", async () => {
   await waitFor(() => expect(test).toHaveBeenCalledTimes(1));
   expect(test.mock.calls[0][0]).toMatchObject({ url: "https://pve.prod:8006", secret: "gizli", id: undefined });
   const first = await screen.findByText(/reached proxmox/i);
-  expect(first.textContent).toMatch(/3 machine\(s\), 2 running, 1 with an address\. 2 carry a "role" tag \(roles: ops, dba\)/);
+  expect(first.textContent).toMatch(/3 machine\(s\), 2 running, 1 with an address\. 2 carry a "group" tag \(groups: ops, dba\)/);
   expect(first.className).toContain("msg-ok");
   expect(create).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: /test connection/i }));
@@ -228,7 +228,7 @@ it("kaynak formu sırrı yalnızca yazıldığında gönderiyor", async () => {
     url: "https://pve.prod:8006",
     username: "postern@pve!prod",
     secret: "gizli",
-    tag_key: "role",
+    tag_key: "group",
     port: 22,
     interval_seconds: 3600,
     enabled: true,
@@ -240,7 +240,7 @@ it("kaynak formu sırrı yalnızca yazıldığında gönderiyor", async () => {
   expect(kind.disabled).toBe(true);
   expect((screen.getByLabelText(/api token secret/i) as HTMLInputElement).placeholder).toMatch(/unchanged/);
   // Düzenlemede test kayıtlı sırla: id gidiyor, sır boş.
-  test.mockResolvedValueOnce({ machines: 1, running: 1, with_address: 1, matching: 1, tagged: 1, roles: ["web"], tags: ["role_web"], took_ms: 5 });
+  test.mockResolvedValueOnce({ machines: 1, running: 1, with_address: 1, matching: 1, tagged: 1, groups: ["web"], tags: ["role_web"], took_ms: 5 });
   fireEvent.click(screen.getByRole("button", { name: /test connection/i }));
   await waitFor(() => expect(test).toHaveBeenCalledTimes(3));
   expect(test.mock.calls[2][0]).toMatchObject({ id: "s1", secret: "" });
@@ -295,7 +295,7 @@ it("kapalı makineleri listelemiyor ama sayıyor", async () => {
  */
 it("etiket rolünü seçili getiriyor ve özette tekrar etmiyor", async () => {
   vi.spyOn(api, "discovery").mockResolvedValue(overview);
-  vi.spyOn(api, "roles").mockResolvedValue([
+  vi.spyOn(api, "groups").mockResolvedValue([
     { name: "web", targets: [] },
     { name: "dba", targets: [] },
   ]);

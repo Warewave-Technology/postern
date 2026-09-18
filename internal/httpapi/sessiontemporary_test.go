@@ -11,7 +11,7 @@ import (
 	"github.com/Warewave-Technology/postern/internal/store"
 )
 
-// Liste ve ayrıntı, oturumu rolün değil süreli hakkın açtığını söylüyor;
+// Liste ve ayrıntı, oturumu grubun değil süreli hakkın açtığını söylüyor;
 // rolle açılanda alan hiç yok (omitempty) — "false" çizmek yerine.
 func TestSessionListAndDetailSayWhenAccessWasTemporary(t *testing.T) {
 	s, db := dbServer(t)
@@ -25,7 +25,7 @@ func TestSessionListAndDetailSayWhenAccessWasTemporary(t *testing.T) {
 	for _, c := range []struct {
 		id   string
 		temp bool
-	}{{"sess-temp", true}, {"sess-role", false}} {
+	}{{"sess-temp", true}, {"sess-group", false}} {
 		f, path, err := rs.Create(c.id)
 		if err != nil {
 			t.Fatal(err)
@@ -42,8 +42,8 @@ func TestSessionListAndDetailSayWhenAccessWasTemporary(t *testing.T) {
 	if v := rowOf(t, rows, "sess-temp")["temporary"]; v != true {
 		t.Errorf("hakla açılan oturum listede işaretsiz: %v", rowOf(t, rows, "sess-temp"))
 	}
-	if _, ok := rowOf(t, rows, "sess-role")["temporary"]; ok {
-		t.Errorf("rolle açılan oturumda alan var: %v", rowOf(t, rows, "sess-role"))
+	if _, ok := rowOf(t, rows, "sess-group")["temporary"]; ok {
+		t.Errorf("rolle açılan oturumda alan var: %v", rowOf(t, rows, "sess-group"))
 	}
 	rec := callSessionDetail(t, s, "sess-temp")
 	var body map[string]any

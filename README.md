@@ -101,7 +101,7 @@ written before the code existed, is kept for history in
   and never written to disk. Users land on targets as *themselves* — real
   `loginuid`, clean audit trail — and no target holds a static key in
   `authorized_keys`
-- Decides access from roles and refuses by default, recording the reason
+- Decides access from groups and refuses by default, recording the reason
 - Pins every target's host key; `InsecureIgnoreHostKey` appears nowhere
 - Relays only the session requests it can account for, and logs the rest
 - Audits **file transfer per file** when SFTP is enabled: who opened what, how
@@ -176,7 +176,7 @@ An OIDC identity is joined to a postern account by `(iss, sub)`, not by
 stable and never reassigned, while `preferred_username` is editable by
 the user themselves in Keycloak, Auth0 and most brokered setups. Joining
 on the name meant anyone who could set their username to `yigit.basalma`
-inherited that account — its roles, its `os_user`, and its `is_admin`
+inherited that account — its groups, its `os_user`, and its `is_admin`
 flag, routing straight around the rule that only the host CLI grants
 admin. It also happened with no attacker at all, the first time an
 organisation recycled a departed employee's login name.
@@ -235,7 +235,7 @@ configured is refused at startup: that combination locks everybody out.
 ### Keeping authorization fresh
 
 Group membership was resolved only at login, so a user deleted in the
-directory kept their roles until they next tried to sign in — which,
+directory kept their groups until they next tried to sign in — which,
 having been deleted, they never would. `sync.enabled` turns on a
 background pass that re-resolves them.
 
@@ -256,11 +256,11 @@ LDAP outage, revoke everyone in the company. So:
   a company where everyone left.
 - A **blast-radius ceiling** aborts the whole run rather than applying
   it. Users who are absent and users who are present but suddenly map to
-  no roles are counted *together*, because a half-restored directory
+  no groups are counted *together*, because a half-restored directory
   produces the second, not the first — a guard watching only absences
   would happily empty the company.
 - A **grace window** means a user must be missing across runs, not once.
-- Manually granted roles survive, and the report lists those users
+- Manually granted groups survive, and the report lists those users
   separately: reading "revoked" and assuming access is gone would be the
   easy mistake.
 
@@ -367,7 +367,7 @@ If that write fails, nothing is closed and the operator is told — an
 administrator who can end sessions without leaving a trace is not an
 administrator this design allows.
 
-**Closing is not revoking.** Roles and account state are read at connect
+**Closing is not revoking.** Groups and account state are read at connect
 time; closing touches neither, so the person can reconnect immediately.
 The card says so, and the confirmation deliberately names no remedy:
 deactivating an account does not reliably help either, because all four
@@ -383,33 +383,33 @@ crosses processes: a second postern on the same database is not asked,
 and the endpoint answers "not running on this instance" rather than
 claiming success.
 
-### Changing someone's roles
+### Changing someone's groups
 
 ```bash
-postern role list --config postern.yaml
-postern user grant-role  --name suleyman --role ops --config postern.yaml
-postern user revoke-role --name suleyman --role ops --config postern.yaml
-postern role revoke-target --name ops --target web-01 --config postern.yaml
+postern group list --config postern.yaml
+postern user grant-group  --name suleyman --group ops --config postern.yaml
+postern user revoke-group --name suleyman --group ops --config postern.yaml
+postern group revoke-target --name ops --target web-01 --config postern.yaml
 ```
 
 These exist because the CLI is the path that has to work when the panel
-does not, and until now it could only set roles while creating an
+does not, and until now it could only set groups while creating an
 account.
 
 Three things the commands say out loud, because each is a way an
 operator would otherwise be misled:
 
-- Revoking a role the user never held reports *held no active grant*,
-  not *revoked*. A mistyped role name should not read as success.
-- Revoking a role that came from a directory group lasts until that
+- Revoking a group the user never held reports *held no active grant*,
+  not *revoked*. A mistyped group name should not read as success.
+- Revoking a group that came from a directory group lasts until that
   person's next sign-in — `SyncRoles` rewrites the IdP's list on every
   SSO login. Removing the group mapping is what makes it stick.
-- Granting a role they **already have from a directory group** converts
+- Granting a group they **already have from a directory group** converts
   it to a manual grant, and synchronisation can no longer take it away:
-  the role survives them leaving the group. The command is not blocked —
+  the group survives them leaving the group. The command is not blocked —
   break-glass must never lock you out — but it says so.
 
-Granting a role to a deleted account is allowed: restoring roles before
+Granting a group to a deleted account is allowed: restoring groups before
 reactivating is a legitimate order, and `postern user state` exists so no
 state is a dead end. The command says the account cannot sign in yet.
 
@@ -483,7 +483,7 @@ so it is always clear which answers cost a command and which did not.
 
 Under **Settings → Discovery** an administrator adds a *source*: a
 Proxmox cluster or a vCenter, with a read-only API token or account,
-the tag key that names the role (`role_ops` on Proxmox, whose tags
+the tag key that names the group (`role_ops` on Proxmox, whose tags
 cannot contain `=` or `:`; a tag category on vSphere), an optional name
 pattern, the SSH port, and a schedule. postern reads the source on that
 schedule, or when you press **Run now**, reads the host key of every
@@ -492,20 +492,20 @@ the way of registering each one. The credentials are sealed with the
 bastion's secret key and never shown again. **Test connection** in the
 form signs in with what you typed and counts what the platform reports —
 machines, running ones, those matching the name pattern, those carrying
-the tag key and the roles their tags name — without saving anything, so
+the tag key and the groups their tags name — without saving anything, so
 a wrong tag key is caught before the source exists.
 
 Nothing becomes a target by itself. A discovered machine is a row until
-an administrator ticks it and walks through three steps — the roles to
+an administrator ticks it and walks through three steps — the groups to
 grant (existing ones, and optionally the one the tag names, created if
 it is missing), labels, and a summary showing each machine's host key
 fingerprint — and only the last step writes. The target is created with
-exactly the key shown, granted to those roles, labelled, and each step
+exactly the key shown, granted to those groups, labelled, and each step
 is written to the admin log. This is the difference from
 `postern discover --apply`, which writes directly because the operator
 running it has just read the preview: a schedule has no reader, and
 someone who can create a VM with the right tag on the hypervisor must
-not be able to create a host that a role's members can sign in to.
+not be able to create a host that a group's members can sign in to.
 
 A run never changes a registered target's host key — a machine
 answering with a different key is a finding on its row, counted on the
@@ -520,10 +520,10 @@ permissions were narrowed answers with an empty list, not an error.
 The next step crosses that line on purpose, and it takes two separate
 decisions to do it.
 
-On the target, the `postern_target` Ansible role with
+On the target, the `postern_target` Ansible group with
 `postern_manage_host: true` creates a `postern` account with passwordless
 sudo. It holds no key: the only way in is a certificate from postern's own
-CA carrying the principal `postern-manage`, and the role asks sshd itself
+CA carrying the principal `postern-manage`, and the group asks sshd itself
 that both the CA and the principals file are in effect. The broad sudo
 grant is written once; every narrowing happens in postern, so changing what
 postern does never needs another run across the fleet.
@@ -572,7 +572,7 @@ With management on, administrators get a **Temporary access** tab. One
 dialog picks a postern user, one or more hosts, the groups the account
 should join, optionally a sudo rule for that account alone, and a duration
 between five minutes and thirty days. Groups are chosen from a list:
-postern's roles are always offered (a role's name becomes a group on the
+postern's groups are always offered (a group's name becomes a group on the
 host, created if missing), and one button reads the groups of the
 selected hosts — only those present on every selected host, and never a
 group below GID 1000, because `docker`, `wheel`, `shadow` and the other
@@ -587,7 +587,7 @@ everything else. The tab lists every grant on every host.
 
 The person sees the host on their home screen for as long as the grant
 lasts, marked *temporary until …*; the grant alone lets them through the
-bastion to that host, no role required, and the host leaves their list
+bastion to that host, no group required, and the host leaves their list
 when it ends.
 
 When the grant ends, or when an administrator ends it early, the same
@@ -610,7 +610,7 @@ with `useradd -e` set to the day after the grant ends.
 A group postern had to create for the grant goes with it when nothing
 else uses it — a box in the dialog keeps such groups instead — and a
 group that existed before the grant is never removed. In the session
-list, a session that came in through a grant rather than a role is
+list, a session that came in through a grant rather than a group is
 marked *temporary*, and the session's header says so.
 
 ### Sending recordings off the bastion
@@ -799,7 +799,7 @@ instead is the decoded narrative:
 postern: subsystem sftp
 postern sftp: opendir /home/dev
 postern sftp: get rapor.pdf (1.2 MiB)
-postern sftp: denied opendir /etc — path is not allowed by your role
+postern sftp: denied opendir /etc — path is not allowed by your group
 postern sftp: 4 events, digest sha256:…
 ```
 
@@ -947,7 +947,7 @@ of 6; the fix on the client side is `IdentitiesOnly=yes`.
 identity collapses to a bare CN matched across the whole directory:
 anyone who can create a group anywhere the bind account can see —
 self-service group creation, a delegated OU, a contractor subtree,
-another domain in the forest — could name it after a mapped role and
+another domain in the forest — could name it after a mapped group and
 receive it. Plain `ldap://` is refused off loopback, and the check is a
 scheme allowlist: it used to match the lowercase prefix only, so
 `LDAP://` sent the bind password over the wire in cleartext.
@@ -973,7 +973,7 @@ hour-long `make -j` that prints nothing gets killed mid-build. It is also
 not crash detection; TCP keepalive already notices a dead peer in about
 two and a half minutes. Its real justification is the root shell someone
 forgot on a production box. `max_lifetime` exists because time-limited
-role grants are never re-checked mid-session, so a session opened a
+group grants are never re-checked mid-session, so a session opened a
 minute before a grant expires currently outlives its own authorization.
 
 This was not a theoretical gap. Before the filter existed, `sftp` worked
@@ -1044,10 +1044,10 @@ Three things are refused before the websocket is upgraded, so the reason
 reaches the person rather than a bare disconnect:
 
 - The flag being off.
-- **A session whose roles carry no path rules.** A role without rules is
+- **A session whose groups carry no path rules.** A group without rules is
   unrestricted, and a fresh install has none. Opening a file browser
   there would invert the argument that made it defensible — so it stays
-  shut until an administrator runs `postern role path set`.
+  shut until an administrator runs `postern group path set`.
 - Nothing at all, if the account cannot open the target in the first
   place; that check is the one SSH already does.
 
@@ -1057,68 +1057,68 @@ one: a stolen session can write the packet by hand. `FXP_WRITE` carries a
 handle and no path, so the path policy never sees it — read-only had to
 be a property of the session, checked on the way in.
 
-Rules themselves are written from the panel (**Roles → Paths**) or from
+Rules themselves are written from the panel (**Groups → Paths**) or from
 the CLI:
 
 ```bash
-postern role path set --role dev --prefix /home/dev --write
-postern role path set --role dev --prefix /home/dev/.ssh --deny
+postern group path set --group dev --prefix /home/dev --write
+postern group path set --group dev --prefix /home/dev/.ssh --deny
 ```
 
-The rules of every role a user holds are pooled and the longest matching
+The rules of every group a user holds are pooled and the longest matching
 prefix decides, so the second line above carves `.ssh` out of an
 otherwise writable home. At equal length a denial beats an allow — including
-one written on a different role — so a refusal cannot be reopened by a
-second role granting the same prefix. A *longer* allow still wins, which
+one written on a different group — so a refusal cannot be reopened by a
+second group granting the same prefix. A *longer* allow still wins, which
 is what makes the carve-out possible in the first place; write the denial
 at or below the depth you mean.
 
-**One thing does reopen it, and it is the surprise worth knowing.** A role
+**One thing does reopen it, and it is the surprise worth knowing.** A group
 carrying no rules at all is unrestricted, and if a user holds *any* such
-role, no policy is installed for that session — every rule written on
-their other roles stops applying, denials included. That is consistent
-with what a rule means here (writing rules restricts a *role*, not a
-person), but it means the sentence above holds only among roles that
-carry rules. `postern role path list` per role is how you check, and the
+group, no policy is installed for that session — every rule written on
+their other groups stops applying, denials included. That is consistent
+with what a rule means here (writing rules restricts a *group*, not a
+person), but it means the sentence above holds only among groups that
+carry rules. `postern group path list` per group is how you check, and the
 panel says the same thing on the Paths screen. The file browser refuses
 to open in exactly this situation, which is the one place postern makes
 the condition visible on its own.
 
-### What a role may run with sudo
+### What a group may run with sudo
 
-A role can carry one sudo rule, and the people in it draw it from the
+A group can carry one sudo rule, and the people in it draw it from the
 group rather than each getting a copy:
 
 ```bash
-postern role sudo set --role dba \
+postern group sudo set --group dba \
     --command '/usr/bin/pg_ctl reload' \
     --command '/usr/sbin/nginx -t'
-postern role sudo show --role dba
+postern group sudo show --group dba
 ```
 
 On a target that becomes `%dba ALL=(root) NOPASSWD: ...` in
-`/etc/sudoers.d/postern-dba`, so membership in the role's group is what
+`/etc/sudoers.d/postern-dba`, so membership in the group's group is what
 grants it. A temporary grant can still add commands for one account;
 those go into that account's own file and leave when the account does.
-In the panel the rule lives on the role's own page, where each command is
+In the panel the rule lives on the group's own page, where each command is
 a row with its own account.
 
-`postern role sudo set` writes **one account for the whole rule**
+`postern group sudo set` writes **one account for the whole rule**
 (`--run-as`, default root). If the rule already gives a command to another
 account, the command stops and says so rather than moving it to root —
 pass `--run-as` to say what you mean, or edit it in the panel, where each
 command keeps its own.
 
-Two things are worth knowing before you write one. **A role now grants
-sudo as well as reach** — adding somebody to a role gives them more than
+Two things are worth knowing before you write one. **A group now grants
+sudo as well as reach** — adding somebody to a group gives them more than
 it used to. And **the rule lands on a machine when postern next works on
 it**, which today means when a temporary account is opened there; writing
-a rule does not push it to every target the role can reach, and removing
+a rule does not push it to every target the group can reach, and removing
 one does not take the file off machines that already have it.
 
 A command that can start another program — an editor, a pager,
 `find -exec` — hands out a root shell, and this rule hands it to everyone
-in the role. postern refuses such a rule and names the command; writing it
+in the group. postern refuses such a rule and names the command; writing it
 anyway takes `--i-accept-a-root-shell` on the command line, or the
 matching checkbox in the panel.
 
@@ -1192,7 +1192,7 @@ session:
 ```
 
 Turning it on lifts the channel's read-only lock and nothing more. Where a
-file may be written is still the role's path rules, decided in postern:
+file may be written is still the group's path rules, decided in postern:
 every write is checked against the path behind the handle, so `can_write`
 is not a promise kept by the target's file permissions.
 
@@ -1377,8 +1377,8 @@ a configuration `sshd -t` rejects — an invalid `sshd_config` takes the host
 away at its next restart, and you cannot SSH in to fix it.
 [`deploy/systemd/`](deploy/) runs the bastion itself.
 
-postern keeps users, roles, targets and the session audit trail in
-PostgreSQL. Create a database and a role for it:
+postern keeps users, groups, targets and the session audit trail in
+PostgreSQL. Create a database and a group for it:
 
 ```sql
 CREATE ROLE postern LOGIN PASSWORD 'choose-one';

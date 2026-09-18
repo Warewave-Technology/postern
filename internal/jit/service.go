@@ -32,7 +32,7 @@ const (
 	 * ⚠️ ALT SINIR SÜPÜRÜCÜNÜN TURUNDAN UZUN. Süpürücü dakikada bir
 	 * bakıyor; bir dakikalık hak, daha uygulanmadan geri alınmaya
 	 * başlayabilirdi. ÜST SINIR "geçici"nin anlamını koruyor: otuz günden
-	 * uzun bir hak kalıcı erişimdir ve o rol/hedef bağıyla verilmeli.
+	 * uzun bir hak kalıcı erişimdir ve o grup/hedef bağıyla verilmeli.
 	 */
 	MinDuration = 5 * time.Minute
 	MaxDuration = 30 * 24 * time.Hour
@@ -124,9 +124,9 @@ func (s *Service) Grant(ctx context.Context, req Request, actor string) (Outcome
 	/*
 	 * ⚠️ ROLÜN SUDO KURALI GRUBUN DOSYASINA, HAKKINKİ HESABINKİNE.
 	 *
-	 * Seçilen grupların bir kısmı postern rolü ve rolün bir sudo kuralı
-	 * olabiliyor (göç 046). O kural `%rol` satırı olarak grubun dosyasına
-	 * yazılıyor; kişi onu ÜYELİKTEN çekiyor, yani aynı roldeki herkes aynı
+	 * Seçilen grupların bir kısmı postern grubu ve grubun bir sudo kuralı
+	 * olabiliyor (göç 046). O kural `%grup` satırı olarak grubun dosyasına
+	 * yazılıyor; kişi onu ÜYELİKTEN çekiyor, yani aynı gruptaki herkes aynı
 	 * kuralı alıyor ve kural tek yerde duruyor. Hak sırasında verilen ek
 	 * kural (req.Sudo) hesabın kendi dosyasında kalıyor ve hesapla birlikte
 	 * gidiyor.
@@ -136,19 +136,19 @@ func (s *Service) Grant(ctx context.Context, req Request, actor string) (Outcome
 	 * verilen yetkiyi hepsine verirdi. Roller ayrı gruplar, bu yüzden bu
 	 * yol güvenli.
 	 */
-	rules, err := s.store.RoleSudoRules(ctx)
+	rules, err := s.store.GroupSudoRules(ctx)
 	if err != nil {
 		return Outcome{}, s.failed(ctx, actor, "jit.grant", target.Name,
-			"could not read the roles' sudo rules", err)
+			"could not read the groups' sudo rules", err)
 	}
-	byRole := make(map[string]store.RoleSudo, len(rules))
+	byGroup := make(map[string]store.GroupSudo, len(rules))
 	for name, r := range rules {
-		byRole[strings.ToLower(name)] = r
+		byGroup[strings.ToLower(name)] = r
 	}
 	var withRule []string
 	for _, g := range req.Groups {
 		group := provision.Group{Name: g}
-		if r, ok := byRole[strings.ToLower(g)]; ok {
+		if r, ok := byGroup[strings.ToLower(g)]; ok {
 			group.Sudo = r.Rule
 			withRule = append(withRule, g)
 		}
@@ -163,7 +163,7 @@ func (s *Service) Grant(ctx context.Context, req Request, actor string) (Outcome
 	// Rolün kuralı da deftere: hedefte grubun dosyasına yazılan yetki,
 	// hakkı veren satırdan okunabilmeli.
 	if len(withRule) > 0 {
-		details += "; role sudo rules applied for " + strings.Join(withRule, ", ")
+		details += "; group sudo rules applied for " + strings.Join(withRule, ", ")
 	}
 	if err := s.audit(ctx, actor, "jit.grant", target.Name, details); err != nil {
 		return Outcome{}, err

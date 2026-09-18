@@ -4,7 +4,7 @@ package httpapi
  * Panelden yönetim erişimi denetimi (manage.go).
  *
  * ⚠️ UÇTAN UCA DENETİM SÜREÇ İÇİ BİR SSH SUNUCUSUYLA ÖLÇÜLÜYOR. Sunucu,
- * rolün kurduğu hedefin principal kuralını taklit ediyor: "postern" hesabı
+ * grubun kurduğu hedefin principal kuralını taklit ediyor: "postern" hesabı
  * yalnızca "postern-manage" principal'ıyla açılıyor. Gerçek OpenSSH, sudo
  * ve visudo üzerindeki karşılığı test/integration/manage_test.go'da.
  */

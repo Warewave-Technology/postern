@@ -39,7 +39,7 @@ type Decision struct {
 /*
  * AuthorizeWithTemporary, Authorize'ın süreli hakları da tanıyan hâli.
  *
- * ⚠️ ROL ÖNCE. Rolü olan kişi için hak fazladan bir şey söylemiyor; rolü
+ * ⚠️ ROL ÖNCE. Rolü olan kişi için hak fazladan bir şey söylemiyor; grubu
  * OLMAYAN kişi için hak, hedefe giden TEK yol. Hak ancak hedefte
  * uygulanmış (hesap açılmış), vadesi dolmamış ve kişinin bugünkü
  * os_user'ıyla aynı hesaba verilmişse sayılıyor: sertifikanın principal'ı
@@ -83,8 +83,8 @@ func AuthorizeWithTemporary(u model.User, t model.Target, requested string,
 
 // Authorize decides whether u may open a session on t, and as which OS user.
 func Authorize(u model.User, t model.Target, requested string) Decision {
-	for _, role := range u.Roles {
-		if slices.Contains(role.Targets, t.Name) {
+	for _, group := range u.Groups {
+		if slices.Contains(group.Targets, t.Name) {
 			if !validateOSUserName(u.OSUser) {
 				return Decision{Allowed: false, Reason: "policy.Authorize: OSUser name violation"}
 			}

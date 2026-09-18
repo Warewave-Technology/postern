@@ -7,7 +7,7 @@ import {
   DiscoverySourceInput,
   MachineRef,
   Registered,
-  Role,
+  Group,
   api,
   toMessage,
 } from "../api";
@@ -226,13 +226,13 @@ export default function Discovery() {
       ),
     },
     {
-      key: "role",
-      header: "Tag role",
+      key: "group",
+      header: "Tag group",
       className: "wrap",
-      value: (m) => m.role ?? "",
+      value: (m) => m.group ?? "",
       render: (m) =>
-        m.role ? (
-          m.role
+        m.group ? (
+          m.group
         ) : (
           <span className="muted">{m.tags.length ? `untagged (${m.tags.join(", ")})` : "untagged"}</span>
         ),
@@ -483,7 +483,7 @@ export default function Discovery() {
       <Modal
         open={registering}
         title={`Register ${registrable.length} machine(s)`}
-        description="Each becomes a target with the host key discovery read, joins the roles you pick, and carries the labels you add. Nothing is written until the last step."
+        description="Each becomes a target with the host key discovery read, joins the groups you pick, and carries the labels you add. Nothing is written until the last step."
         onClose={() => setRegistering(false)}
         wide
       >
@@ -551,7 +551,7 @@ function SourceForm({
   const [url, setUrl] = useState(source?.url ?? "");
   const [username, setUsername] = useState(source?.username ?? "");
   const [secret, setSecret] = useState("");
-  const [tagKey, setTagKey] = useState(source?.tag_key ?? "role");
+  const [tagKey, setTagKey] = useState(source?.tag_key ?? "group");
   const [namePattern, setNamePattern] = useState(source?.name_pattern ?? "");
   const [port, setPort] = useState(String(source?.port ?? 22));
   const [node, setNode] = useState(source?.node ?? "");
@@ -601,7 +601,7 @@ function SourceForm({
     }
   };
 
-  const key = tagKey.trim() || "role";
+  const key = tagKey.trim() || "group";
   const platform = proxmox ? "Proxmox" : "vCenter";
 
   return (
@@ -706,8 +706,8 @@ function SourceForm({
         </div>
         <p className="muted small">
           {proxmox
-            ? `Proxmox tags cannot contain = or :, so a machine's role is written as ${key}_<role>, e.g. ${key}_ops. A machine without that tag is listed as untagged.`
-            : `The tag key names a tag category in vCenter; the tag in that category is the role. A machine without one is listed as untagged.`}
+            ? `Proxmox tags cannot contain = or :, so a machine's group is written as ${key}_<group>, e.g. ${key}_ops. A machine without that tag is listed as untagged.`
+            : `The tag key names a tag category in vCenter; the tag in that category is the group. A machine without one is listed as untagged.`}
         </p>
       </div>
 
@@ -768,7 +768,7 @@ function ProbeResult({
     <p className={untagged ? "msg msg-warn" : "msg msg-ok"} role="status">
       Reached {platform}: {probe.machines} machine(s), {probe.running} running, {probe.with_address} with an
       address{pattern ? `, ${probe.matching} matching "${pattern}"` : ""}. {probe.tagged} carry a "{tagKey}" tag
-      {probe.roles.length ? ` (roles: ${probe.roles.join(", ")})` : ""}.
+      {probe.groups.length ? ` (groups: ${probe.groups.join(", ")})` : ""}.
       {untagged && probe.tags.length > 0
         ? ` Not one machine carries that key — the tags actually seen were ${probe.tags.join(", ")}.`
         : untagged
@@ -820,7 +820,7 @@ function RegisterWizard({
   onDone: () => Promise<void>;
   onClose: () => void;
 }) {
-  const roles = useList<Role>(api.roles);
+  const groups = useList<Group>(api.groups);
   const [step, setStep] = useState(0);
   /*
    * ⚠️ MAKİNENİN ETİKETİNDEKİ ROL SEÇİLİ GELİYOR. Platformda "role_web"
@@ -841,24 +841,24 @@ function RegisterWizard({
   const [error, setError] = useState("");
 
   const parsed = labelsOf(labelRows);
-  const tagRoleNames = Array.from(new Set(machines.map((m) => m.role).filter((r): r is string => !!r)));
-  const missingRoles = tagRoleNames.filter((r) => !roles.items.some((x) => x.name === r));
+  const tagRoleNames = Array.from(new Set(machines.map((m) => m.group).filter((r): r is string => !!r)));
+  const missingRoles = tagRoleNames.filter((r) => !groups.items.some((x) => x.name === r));
 
   // Roller yüklendiğinde bir KEZ: etiketin söylediği ve postern'de var
   // olan roller seçili gelsin. Sonraki seçimler kullanıcının.
   useEffect(() => {
-    if (preselected || roles.items.length === 0) return;
+    if (preselected || groups.items.length === 0) return;
     setPreselected(true);
-    const known = tagRoleNames.filter((r) => roles.items.some((x) => x.name === r));
+    const known = tagRoleNames.filter((r) => groups.items.some((x) => x.name === r));
     if (known.length > 0) setChosenRoles(known);
-  }, [preselected, roles.items, tagRoleNames]);
+  }, [preselected, groups.items, tagRoleNames]);
 
   const register = async () => {
     setError("");
     try {
       const r = await api.registerDiscovered({
         machines: machines.map((m) => ({ source_id: m.source_id, ref: m.ref })),
-        roles: chosenRoles,
+        groups: chosenRoles,
         tag_roles: tagRoles,
         labels: parsed.labels,
       });
@@ -881,7 +881,7 @@ function RegisterWizard({
               ) : (
                 <p className="small">
                   registered as <code>{r.target}</code>
-                  {r.roles?.length ? `, granted to ${r.roles.join(", ")}` : ", granted to no role"}
+                  {r.groups?.length ? `, granted to ${r.groups.join(", ")}` : ", granted to no group"}
                   {r.created_roles?.length ? ` (created ${r.created_roles.join(", ")})` : ""}
                 </p>
               )}
@@ -903,21 +903,21 @@ function RegisterWizard({
         <>
           <div className="field-row">
             <MultiSelect
-              label="Roles"
-              placeholder="Search roles…"
-              options={roles.items.map((r) => ({ value: r.name, label: r.name }))}
+              label="Groups"
+              placeholder="Search groups…"
+              options={groups.items.map((r) => ({ value: r.name, label: r.name }))}
               value={chosenRoles}
               onChange={setChosenRoles}
-              note="Every registered machine is granted to these roles. Access comes from the people assigned to a role, which this does not change."
+              note="Every registered machine is granted to these groups. Access comes from the people assigned to a group, which this does not change."
             />
-            <ErrorLine msg={roles.error} />
+            <ErrorLine msg={groups.error} />
           </div>
           <label className="check">
             <input type="checkbox" checked={tagRoles} onChange={(e) => setTagRoles(e.target.checked)} />
-            Also grant each machine to the role its tag names
+            Also grant each machine to the group its tag names
             {tagRoleNames.length
               ? ` (${tagRoleNames.join(", ")}${missingRoles.length ? `; ${missingRoles.join(", ")} would be created` : ""})`
-              : " (none of the selected machines carries a role tag)"}
+              : " (none of the selected machines carries a group tag)"}
           </label>
         </>
       )}
@@ -944,7 +944,7 @@ function RegisterWizard({
                   <th>Address</th>
                   <th>Tags</th>
                   <th>Host key</th>
-                  <th>Roles</th>
+                  <th>Groups</th>
                 </tr>
               </thead>
               <tbody>
@@ -977,7 +977,7 @@ function RegisterWizard({
                           rol aynı olduğunda özet "developer, developer" yazıyordu.
                           Sunucu zaten tek kez veriyor; yanlış olan ekrandı. */}
                       {Array.from(
-                        new Set([...chosenRoles, ...(tagRoles && m.role ? [m.role] : [])]),
+                        new Set([...chosenRoles, ...(tagRoles && m.group ? [m.group] : [])]),
                       ).join(", ") || (
                         <span className="muted">none</span>
                       )}

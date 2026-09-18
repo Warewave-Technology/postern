@@ -179,7 +179,7 @@ func TestLDAPGroupsByUserAttribute(t *testing.T) {
 	cfg := ldapConfig(url)
 	// GroupFilter kalkıyor (arama yolu kullanılmıyor) ama GroupBase
 	// DURUYOR: memberOf yolunda da grup kimliğini kapsamak için zorunlu
-	// — dizinin herhangi bir yerindeki bir grup rol veremesin.
+	// — dizinin herhangi bir yerindeki bir grup grup veremesin.
 	cfg.GroupFilter = ""
 	cfg.GroupAttribute = "ou"
 
@@ -212,7 +212,7 @@ func TestLDAPGroupsByUserAttribute(t *testing.T) {
  * sunucudan gelen "ou" özniteliğini GÖREMİYORDU.
  *
  * Sonucu sessiz ve ağır: dizin "present" diyor, teşhis ekranı yeşil
- * kalıyor, ama kullanıcının bütün grupları — dolayısıyla bütün rolleri —
+ * kalıyor, ama kullanıcının bütün grupları — dolayısıyla bütün grupları —
  * yok oluyor. Panelin kendi ipucunda yazan "memberOf"u "memberof" diye
  * yazan operatör tam bu tuzağa düşüyordu.
  */
@@ -563,7 +563,7 @@ func TestLDAPGroupsDriveProvisioning(t *testing.T) {
 	ctx := context.Background()
 
 	// Rol + hedef + eşleme var; kullanıcı YOK.
-	if _, err := db.CreateRole(ctx, "ops"); err != nil {
+	if _, err := db.CreateGroup(ctx, "ops"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.GrantTarget(ctx, "ops", "web01"); err != nil {
@@ -606,11 +606,11 @@ func TestLDAPGroupsDriveProvisioning(t *testing.T) {
 	if u.Name != ldapUser || u.OSUser != ldapUser {
 		t.Errorf("kullanıcı = %+v — os_user IdP kullanıcı adı olmalı", u)
 	}
-	if len(u.Roles) != 1 || u.Roles[0].Name != "ops" {
-		t.Fatalf("roller = %+v, beklenen [ops] — LDAP grubu role dönüşmemiş", u.Roles)
+	if len(u.Groups) != 1 || u.Groups[0].Name != "ops" {
+		t.Fatalf("gruplar = %+v, beklenen [ops] — LDAP grubu group dönüşmemiş", u.Groups)
 	}
-	if len(u.Roles[0].Targets) != 1 || u.Roles[0].Targets[0] != "web01" {
-		t.Errorf("hedefler = %v", u.Roles[0].Targets)
+	if len(u.Groups[0].Targets) != 1 || u.Groups[0].Targets[0] != "web01" {
+		t.Errorf("hedefler = %v", u.Groups[0].Targets)
 	}
 	if !u.SSOOnly {
 		t.Error("JIT kullanıcı sso_only doğmamış")

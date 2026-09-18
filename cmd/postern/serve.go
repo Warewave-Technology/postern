@@ -245,10 +245,10 @@ func newServeCmd() *cobra.Command {
 					logger.Info("group source: oidc claim")
 				} else {
 					// ⚠️ Ne dizin ne kimlik sağlayıcı: kimsenin grubu
-					// yok, dolayısıyla kimseye rol türetilemez. Sessiz
+					// yok, dolayısıyla kimseye grup türetilemez. Sessiz
 					// kalmak, "hedef listem neden boş" sorusunu
 					// cevapsız bırakırdı.
-					logger.Warn("no group source: configure ldap, or nobody will be granted a role")
+					logger.Warn("no group source: configure ldap, or nobody will be granted a group")
 				}
 			default:
 				// Yapılandırma VAR ama bozuk: sessizce claim'e
@@ -264,9 +264,9 @@ func newServeCmd() *cobra.Command {
 			 * hem SSH kanalına hem web terminaline gidiyor.
 			 *
 			 * Üç cevap, üç ayrı karar:
-			 *   present + açık  → roller tazelenir
-			 *   present + KAPALI → oturum reddedilir (rol silinmez)
-			 *   absent           → oturum reddedilir (rol silinmez)
+			 *   present + açık  → gruplar tazelenir
+			 *   present + KAPALI → oturum reddedilir (grup silinmez)
+			 *   absent           → oturum reddedilir (grup silinmez)
 			 *   unknown          → hiçbir şey; saklanan rollerle devam
 			 *
 			 * Kapalı hesabın reddedilmesi, eski "SSO kullanıcısı
@@ -308,7 +308,7 @@ func newServeCmd() *cobra.Command {
 				/*
 				 * ⚠️ ÖNBELLEK BİR YÜK KORUMASI. Tazeleme
 				 * policy.Authorize'dan ÖNCE çalışıyor, yani kimliği
-				 * doğrulanmış HERHANGİ bir anahtar sahibi — hiç rolü
+				 * doğrulanmış HERHANGİ bir anahtar sahibi — hiç grubu
 				 * olmayan biri bile — var olan bir hedefin adını
 				 * yazarak dizine tam bir TCP+TLS+bind maliyeti
 				 * çıkartabiliyor (ldap.connect'te havuz yok). Kanal
@@ -371,21 +371,21 @@ func newServeCmd() *cobra.Command {
 						"user", username)
 					return verdict(fmt.Errorf("%w: not in the directory", proxy.ErrDirectoryRefused))
 				default:
-					logger.Warn("session: directory could not answer; using stored roles",
+					logger.Warn("session: directory could not answer; using stored groups",
 						"user", username)
 					return verdict(nil)
 				}
 
-				roles, _, rerr := db.RolesForGroups(c, model.ResolvedGroups(res.Groups))
+				groups, _, rerr := db.GroupsForDirectoryGroups(c, model.ResolvedGroups(res.Groups))
 				if rerr != nil {
 					return rerr
 				}
-				if serr := db.SyncRoles(c, username, roles); serr != nil {
+				if serr := db.SyncGroups(c, username, groups); serr != nil {
 					return serr
 				}
 				return verdict(nil)
 			}
-			s.UseRoleRefresher(freshen)
+			s.UseGroupRefresher(freshen)
 
 			/*
 			 * ⚠️ SENKRONİZASYON DÖNGÜSÜ PANELE BAĞLI DEĞİL.
@@ -395,7 +395,7 @@ func newServeCmd() *cobra.Command {
 			 * http bölümü olmayan bir kurulumda — yani tam olarak
 			 * desteklediğimiz "SSH bastion + dizin" kurulumunda —
 			 * HİÇBİR ŞEY iptal etmiyordu. Oturum açılışındaki kontrol
-			 * bir oturumu reddeder ama rolleri temizlemez; temizleyen
+			 * bir oturumu reddeder ama grupları temizlemez; temizleyen
 			 * tek şey bu döngü.
 			 */
 			syncFallback := groupsync.Settings{
@@ -710,7 +710,7 @@ func newServeCmd() *cobra.Command {
 
 				/*
 				 * ⚠️ YÖNETİM YALNIZCA AÇIKÇA İSTENDİĞİNDE — uç bile
-				 * kurulmuyor. Açıkken panelin yönetici oturumu, rolü
+				 * kurulmuyor. Açıkken panelin yönetici oturumu, grubu
 				 * postern_manage_host ile koşmuş her makinede parolasız
 				 * root; bu bir yapılandırma satırının yan etkisi olmamalı.
 				 */

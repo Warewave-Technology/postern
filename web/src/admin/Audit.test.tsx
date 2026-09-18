@@ -453,7 +453,7 @@ describe("kanıt sütunu", () => {
 
     await waitFor(() => expect(screen.getByText("temporary")).toBeTruthy());
     await userEvent.click(await screen.findByRole("button", { name: /watch/i }));
-    await waitFor(() => expect(screen.getByText(/temporary access, not a role/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/temporary access, not a group/)).toBeTruthy());
   });
 
   /*

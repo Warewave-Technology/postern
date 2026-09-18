@@ -110,7 +110,7 @@ describe("yönetim kartı görsel çıktısı", () => {
       family: undefined,
       tools: undefined,
       reason:
-        "the target refused postern's management certificate. Either it does not trust this bastion's CA (compare the fingerprint below with the target's /etc/ssh/postern_ca.pub), or it has no management account — run the postern_target role with postern_manage_host: true",
+        "the target refused postern's management certificate. Either it does not trust this bastion's CA (compare the fingerprint below with the target's /etc/ssh/postern_ca.pub), or it has no management account — run the postern_target group with postern_manage_host: true",
       detail:
         "upstream.DialManagement: target demo-a: upstream: target refused our certificate: ssh: handshake failed: ssh: unable to authenticate, attempted methods [none publickey], no supported methods remain",
     });
@@ -152,8 +152,8 @@ describe("geçici erişim kartı görsel çıktısı", () => {
       applied_at: "2026-09-13T10:00:05Z", revoke_attempts: 0, ...over,
     });
     vi.spyOn(api, "users").mockResolvedValue([
-      { name: "ayse", os_user: "ayse", admin: false, roles: [], keys: 1 } as never,
-      { name: "veli", os_user: "veli", admin: true, roles: [], keys: 0 } as never,
+      { name: "ayse", os_user: "ayse", admin: false, groups: [], keys: 1 } as never,
+      { name: "veli", os_user: "veli", admin: true, groups: [], keys: 0 } as never,
     ]);
     vi.spyOn(api, "allGrants").mockResolvedValue({
       now: "2026-09-13T12:00:00Z",

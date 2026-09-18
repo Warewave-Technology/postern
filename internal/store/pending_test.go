@@ -98,9 +98,9 @@ func TestApprovePendingCreatesAndBinds(t *testing.T) {
 		t.Fatalf("bağlanan kimlik = %q", got)
 	}
 
-	// ⚠️ ROL VERİLMEMELİ: roller bir sonraki girişte canlı kaynaktan.
-	if len(u.Roles) != 0 {
-		t.Fatalf("onay rol yazdı: %v — yetki bayat bir fotoğrafa bağlanmış", u.Roles)
+	// ⚠️ ROL VERİLMEMELİ: gruplar bir sonraki girişte canlı kaynaktan.
+	if len(u.Groups) != 0 {
+		t.Fatalf("onay grup yazdı: %v — yetki bayat bir fotoğrafa bağlanmış", u.Groups)
 	}
 
 	// Kuyruktan düşmeli: iki doğruluk kaynağı olmasın.

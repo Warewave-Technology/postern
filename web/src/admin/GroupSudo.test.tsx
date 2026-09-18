@@ -1,12 +1,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api, ApiError, RoleSudoRule } from "../api";
-import RoleSudo from "./RoleSudo";
+import { api, ApiError, GroupSudoRule } from "../api";
+import GroupSudo from "./GroupSudo";
 
 afterEach(() => vi.restoreAllMocks());
 
-const rule: RoleSudoRule = {
+const rule: GroupSudoRule = {
   commands: [
     { command: "/usr/sbin/nginx -t", run_as: "root" },
     // ⚠️ İKİNCİ KOMUT BAŞKA HESAPLA: sütunun ve kaydetmenin hesabı komut
@@ -18,14 +18,14 @@ const rule: RoleSudoRule = {
   updated_at: "2026-09-14T10:00:00Z",
 };
 
-describe("RoleSudo", () => {
+describe("GroupSudo", () => {
   /*
    * ⚠️ KOMUTLAR TABLODA VE ARANABİLİR. İlk hâl tek bir yazım kutusuydu:
    * iki yüz komutlu bir kuralda aradığın satırı bulmanın yolu yoktu
    * (kullanıcı söyledi).
    */
   it("komutları aranabilir tabloda listeliyor", async () => {
-    render(<RoleSudo role="dba" rule={rule} onChanged={vi.fn()} />);
+    render(<GroupSudo group="dba" rule={rule} onChanged={vi.fn()} />);
 
     expect(screen.getByText("/usr/sbin/nginx -t")).toBeTruthy();
     expect(screen.getByText("/usr/bin/pg_ctl reload")).toBeTruthy();
@@ -45,7 +45,7 @@ describe("RoleSudo", () => {
   it("komut ekleyince var olanları koruyor", async () => {
     const set = vi.spyOn(api, "setRoleSudo").mockResolvedValue({ ok: true });
     const onChanged = vi.fn().mockResolvedValue(undefined);
-    render(<RoleSudo role="dba" rule={rule} onChanged={onChanged} />);
+    render(<GroupSudo group="dba" rule={rule} onChanged={onChanged} />);
 
     fireEvent.click(screen.getByRole("button", { name: /add command/i }));
     await userEvent.type(await screen.findByLabelText(/^command$/i), "/bin/systemctl reload nginx");
@@ -75,15 +75,15 @@ describe("RoleSudo", () => {
     const confirmSpy = vi.fn((_msg?: string) => true);
     vi.stubGlobal("confirm", confirmSpy);
     render(
-      <RoleSudo
-        role="dba"
+      <GroupSudo
+        group="dba"
         rule={{ ...rule, commands: [{ command: "/usr/sbin/nginx -t", run_as: "root" }] }}
         onChanged={vi.fn().mockResolvedValue(undefined)}
       />,
     );
 
     fireEvent.click(
-      screen.getByRole("button", { name: /remove command \/usr\/sbin\/nginx -t from role dba/i }),
+      screen.getByRole("button", { name: /remove command \/usr\/sbin\/nginx -t from group dba/i }),
     );
     await waitFor(() => expect(del).toHaveBeenCalledWith("dba"));
     expect(confirmSpy.mock.calls[0][0]).toMatch(/only command in the rule/i);
@@ -110,7 +110,7 @@ describe("RoleSudo", () => {
       .spyOn(api, "setRoleSudo")
       .mockRejectedValueOnce(new ApiError(422, "/usr/bin/vim escapes to a shell", true));
 
-    render(<RoleSudo role="ops" onChanged={vi.fn()} />);
+    render(<GroupSudo group="ops" onChanged={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: /add command/i }));
     const box = await screen.findByLabelText(/^command$/i);
     expect(screen.queryByLabelText(ackLabel)).toBeNull();
@@ -129,7 +129,7 @@ describe("RoleSudo", () => {
     vi.spyOn(api, "setRoleSudo").mockRejectedValue(
       new ApiError(422, "/usr/bin/* is a wildcard: it matches commands nobody listed", false),
     );
-    render(<RoleSudo role="ops" onChanged={vi.fn()} />);
+    render(<GroupSudo group="ops" onChanged={vi.fn()} />);
 
     fireEvent.click(screen.getByRole("button", { name: /add command/i }));
     await userEvent.type(await screen.findByLabelText(/^command$/i), "/usr/bin/*");
@@ -154,10 +154,10 @@ describe("RoleSudo", () => {
    */
   it("bir satırı düzenlerken öbür komutların hesabını bozmuyor", async () => {
     const set = vi.spyOn(api, "setRoleSudo").mockResolvedValue({ ok: true });
-    render(<RoleSudo role="dba" rule={rule} onChanged={vi.fn().mockResolvedValue(undefined)} />);
+    render(<GroupSudo group="dba" rule={rule} onChanged={vi.fn().mockResolvedValue(undefined)} />);
 
     fireEvent.click(
-      screen.getByRole("button", { name: /edit command \/usr\/sbin\/nginx -t of role dba/i }),
+      screen.getByRole("button", { name: /edit command \/usr\/sbin\/nginx -t of group dba/i }),
     );
     const box = await screen.findByLabelText(/^command$/i);
     expect((box as HTMLInputElement).value).toBe("/usr/sbin/nginx -t");
@@ -178,10 +178,10 @@ describe("RoleSudo", () => {
   // Satırın hesabı da düzenlenebiliyor, kendi alanından.
   it("bir satırın hesabını değiştirebiliyor", async () => {
     const set = vi.spyOn(api, "setRoleSudo").mockResolvedValue({ ok: true });
-    render(<RoleSudo role="dba" rule={rule} onChanged={vi.fn().mockResolvedValue(undefined)} />);
+    render(<GroupSudo group="dba" rule={rule} onChanged={vi.fn().mockResolvedValue(undefined)} />);
 
     fireEvent.click(
-      screen.getByRole("button", { name: /edit command \/usr\/bin\/pg_ctl reload of role dba/i }),
+      screen.getByRole("button", { name: /edit command \/usr\/bin\/pg_ctl reload of group dba/i }),
     );
     const runAs = await screen.findByRole("textbox", { name: /runs as/i });
     expect((runAs as HTMLInputElement).value).toBe("postgres");
@@ -208,9 +208,9 @@ describe("RoleSudo", () => {
       note: "On hosts that already have /etc/sudoers.d/postern-ops, the file stays until postern next works on them.",
     });
     vi.stubGlobal("confirm", vi.fn(() => true));
-    render(<RoleSudo role="ops" rule={rule} onChanged={vi.fn().mockResolvedValue(undefined)} />);
+    render(<GroupSudo group="ops" rule={rule} onChanged={vi.fn().mockResolvedValue(undefined)} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /remove the sudo rule from role ops/i }));
+    fireEvent.click(screen.getByRole("button", { name: /remove the sudo rule from group ops/i }));
 
     await waitFor(() => expect(del).toHaveBeenCalledWith("ops"));
     expect((await screen.findByText(/the file stays until postern/i)).textContent).toBeTruthy();
@@ -224,8 +224,8 @@ describe("RoleSudo", () => {
    */
   it("kaçış yolu olan komutu satırında işaretliyor", () => {
     render(
-      <RoleSudo
-        role="ops"
+      <GroupSudo
+        group="ops"
         rule={{
           ...rule,
           acknowledged: true,

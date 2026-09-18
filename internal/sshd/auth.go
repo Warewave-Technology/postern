@@ -34,12 +34,12 @@ func (s *Server) publicKeyCallback(conn ssh.ConnMetadata, key ssh.PublicKey) (*s
 	 * girebilir.
 	 *
 	 * Eskiden koşulsuz reddediliyordu ve gerekçesi doğruydu: anahtar
-	 * kapısı kimlik sağlayıcıya bakmıyor, roller yalnızca SSO girişinde
+	 * kapısı kimlik sağlayıcıya bakmıyor, gruplar yalnızca SSO girişinde
 	 * senkronize ediliyordu, yani anahtar bayat bir yetkiyi süresiz
 	 * taşıyabilirdi.
 	 *
 	 * Artık tazelik oturum AÇILIRKEN sağlanıyor (proxy.Open,
-	 * FreshenRoles): kimlik doğrulanmış, kanal sayısı sınırlı, ve iki
+	 * FreshenGroups): kimlik doğrulanmış, kanal sayısı sınırlı, ve iki
 	 * kapı da aynı fonksiyondan geçiyor. O yüzden reddetmeye gerek
 	 * kalmadı — SSH'ın anahtara sabitlendiği bir üründe bu reddetme
 	 * dizin kullanıcılarının SSH'ını tamamen kapatırdı.
@@ -110,11 +110,11 @@ func (s *Server) publicKeyCallback(conn ssh.ConnMetadata, key ssh.PublicKey) (*s
 	}
 
 	if u.SSOOnly && !auth.CanResolveByUsername(s.groups) {
-		s.logger.Warn("public key rejected: sso-only user and roles cannot be refreshed without a token",
+		s.logger.Warn("public key rejected: sso-only user and groups cannot be refreshed without a token",
 			"user", u.Name, "remote", conn.RemoteAddr().String())
 		return nil, fmt.Errorf(
 			"auth.publicKeyCallback[%s]: user %s is governed by the identity provider "+
-				"and their roles cannot be refreshed from a key session: access denied",
+				"and their groups cannot be refreshed from a key session: access denied",
 			conn.RemoteAddr(), u.Name)
 	}
 
@@ -350,7 +350,7 @@ func (s *Server) keyboardInteractive(nConn deadlineSetter, conn ssh.ConnMetadata
 // resolveIdentity, doğrulanmış OIDC kimliğini postern kullanıcısına
 // çevirir — httpapi'deki aynı adlı yardımcının SSH tarafındaki eşi.
 //
-// Sıra: kullanıcı adı varsa JIT sağlama (gruplar → roller, gerekirse
+// Sıra: kullanıcı adı varsa JIT sağlama (gruplar → gruplar, gerekirse
 // kullanıcıyı oluştur), yoksa doğrulanmış e-postayla eşleştirme.
 func (s *Server) resolveIdentity(ctx context.Context, id auth.Identity) (model.User, error) {
 	if id.Username != "" {
@@ -363,12 +363,12 @@ func (s *Server) resolveIdentity(ctx context.Context, id auth.Identity) (model.U
 		}
 
 		// ⚠️ "BULAMADIM" BİR YETKİ KARARI DEĞİL. Kaynak kullanıcıyı
-		// tanımıyorsa roller olduğu gibi bırakılıyor; sessizce silmek,
+		// tanımıyorsa gruplar olduğu gibi bırakılıyor; sessizce silmek,
 		// dizindeki bir ad uyuşmazlığını toplu yetki kaybına
 		// çeviriyordu. Operatörün bunu görmesi şart, yoksa yalnızca
 		// "hiçbir hedefe erişimin yok" ekranı kalıyor.
 		if res.Presence != auth.GroupsPresent {
-			s.logger.Warn("directory did not resolve this user; roles left untouched",
+			s.logger.Warn("directory did not resolve this user; groups left untouched",
 				"idp_user", id.Username, "presence", res.Presence.String())
 		}
 
@@ -450,7 +450,7 @@ func (s *Server) resolveIdentity(ctx context.Context, id auth.Identity) (model.U
 			return model.User{}, fmt.Errorf("access denied")
 		}
 		if errors.Is(err, store.ErrAccessDenied) {
-			// İki ayrı sebep, iki ayrı mesaj: "grubu role eşleşmiyor"
+			// İki ayrı sebep, iki ayrı mesaj: "grubu gruba eşleşmiyor"
 			// ile "dizin bu kullanıcıyı hiç tanımıyor" farklı şeyler ve
 			// ikincisinde eşleme tablosuna bakan yönetici hiçbir şey
 			// bulamaz.

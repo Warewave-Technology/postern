@@ -149,7 +149,7 @@ func (s *Server) adminCreateGrant(w http.ResponseWriter, r *http.Request) {
 		 */
 		if findings := sudoers.Validate(rule); sudoers.Refuses(findings, rule.Acknowledged) {
 			// Onay kutusunun görünüp görünmeyeceğini ekran buradan öğreniyor
-			// (bkz. adminSetRoleSudo'daki aynı ayrım).
+			// (bkz. adminSetGroupSudo'daki aynı ayrım).
 			writeJSON(w, http.StatusBadRequest, map[string]any{
 				"error":           "sudo rule refused: " + sudoers.Describe(findings),
 				"acknowledgeable": !sudoers.Refuses(findings, true),

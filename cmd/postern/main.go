@@ -39,7 +39,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newAdminCmd())
 	root.AddCommand(newTargetCmd())
 	root.AddCommand(newDiscoverCmd())
-	root.AddCommand(newRoleCmd())
+	root.AddCommand(newGroupCmd())
 	root.AddCommand(newMappingCmd())
 	root.AddCommand(newSecretCmd())
 	root.AddCommand(newSettingsCmd())

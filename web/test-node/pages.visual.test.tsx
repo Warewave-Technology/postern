@@ -221,7 +221,7 @@ function page(name: string) {
     );
   }
   const controls = Array.from(
-    document.querySelectorAll("button, a, [role=menuitem], input, select, textarea, summary"),
+    document.querySelectorAll("button, a, [group=menuitem], input, select, textarea, summary"),
   ).map((el) => {
     const tag = el.tagName.toLowerCase();
     const label =
@@ -359,7 +359,7 @@ const myTargets = [
   { name: "demo-b", labels: { env: "demo" }, server_version: "SSH-2.0-OpenSSH_9.9" },
 ];
 
-const roles = [
+const groups = [
   { name: "sre", targets: ["web-01", LONG_HOST, "db-primary", "cache-03", "build-runner-linux-amd64-07"] },
   {
     name: "dba",
@@ -387,14 +387,14 @@ const roles = [
 ];
 
 const users: User[] = [
-  { name: "yigit.basalma", os_user: "ybasalma", admin: true, roles: ["sre", "dba", "web", "ci", "demo", "readonly-auditors-emea"], keys: 3, state: "active", last_confirmed: T(9) },
-  { name: "ayse.yilmaz-demirtas", os_user: "ayse", admin: false, roles: ["dba"], keys: 1, state: "active", last_confirmed: T(8) },
-  { name: "veli", os_user: "veli", admin: false, roles: [], keys: 0, state: "active" },
-  { name: "mehmet.kaya", os_user: "mkaya", admin: false, roles: ["web", "ci"], keys: 2, state: "inactive", last_confirmed: "2026-07-01T10:00:00Z" },
-  { name: "svc-backup-nightly-runner", os_user: "svcbackup", admin: false, roles: ["sre"], keys: 1, state: "active", last_confirmed: T(1) },
-  { name: "deleted.person", os_user: "dperson", admin: false, roles: [], keys: 0, state: "deleted" },
-  { name: "ops", os_user: "ops", admin: true, roles: ["sre"], keys: 1, state: "active", last_confirmed: T(9, 30) },
-  { name: "auditor.external.kpmg", os_user: "auditor", admin: false, roles: ["readonly-auditors-emea"], keys: 1, state: "active", last_confirmed: T(2) },
+  { name: "yigit.basalma", os_user: "ybasalma", admin: true, groups: ["sre", "dba", "web", "ci", "demo", "readonly-auditors-emea"], keys: 3, state: "active", last_confirmed: T(9) },
+  { name: "ayse.yilmaz-demirtas", os_user: "ayse", admin: false, groups: ["dba"], keys: 1, state: "active", last_confirmed: T(8) },
+  { name: "veli", os_user: "veli", admin: false, groups: [], keys: 0, state: "active" },
+  { name: "mehmet.kaya", os_user: "mkaya", admin: false, groups: ["web", "ci"], keys: 2, state: "inactive", last_confirmed: "2026-07-01T10:00:00Z" },
+  { name: "svc-backup-nightly-runner", os_user: "svcbackup", admin: false, groups: ["sre"], keys: 1, state: "active", last_confirmed: T(1) },
+  { name: "deleted.person", os_user: "dperson", admin: false, groups: [], keys: 0, state: "deleted" },
+  { name: "ops", os_user: "ops", admin: true, groups: ["sre"], keys: 1, state: "active", last_confirmed: T(9, 30) },
+  { name: "auditor.external.kpmg", os_user: "auditor", admin: false, groups: ["readonly-auditors-emea"], keys: 1, state: "active", last_confirmed: T(2) },
 ];
 
 const targets: Target[] = [
@@ -427,7 +427,7 @@ const sessionDetail = (id: string): SessionDetail => ({
   },
   files: [
     { id: "f1", at: T(8, 41), op: "open", path: "/var/log/nginx/access.log", read: 1048576, wrote: 0, ok: true, in_recording: true },
-    { id: "f2", at: T(8, 42), op: "denied.remove", path: "/etc/shadow", read: 0, wrote: 0, ok: false, detail: "role dba: /etc is not allowed", in_recording: true },
+    { id: "f2", at: T(8, 42), op: "denied.remove", path: "/etc/shadow", read: 0, wrote: 0, ok: false, detail: "group dba: /etc is not allowed", in_recording: true },
     { id: "f3", at: T(8, 44), op: "rename", path: "/srv/app/releases/2026-09-13-1/config.yaml", new_path: "/srv/app/releases/2026-09-13-1/config.yaml.bak", read: 0, wrote: 0, ok: true, in_recording: true },
     { id: "f4", at: T(8, 50), op: "open", path: "/srv/app/releases/2026-09-13-1/very/deeply/nested/directory/structure/that/keeps/going/for/a/while/artifact-linux-amd64.tar.gz", flags: "w", read: 0, wrote: 73400320, ok: true, in_recording: true },
   ],
@@ -446,7 +446,7 @@ const userDetail = (name: string): UserDetail => {
     last_confirmed: u.last_confirmed,
     sso_only: false,
     dir_bound: true,
-    roles: roles.filter((r) => u.roles.includes(r.name)),
+    groups: groups.filter((r) => u.groups.includes(r.name)),
     keys: [
       { fingerprint: "SHA256:I3mJ5osOLjwSlMDq4UpW+nBcTtBCjux2CiFcN0Mudns", comment: "yigit@macbook-pro-16-2025 work laptop (ed25519)", added_at: "2026-08-01T10:00:00Z" },
       { fingerprint: "SHA256:aB3cD4eF5gH6iJ7kL8mN9oP0qR1sT2uV3wX4yZ5aB6c", comment: "", added_at: "2026-08-20T10:00:00Z" },
@@ -594,7 +594,7 @@ const base: Fixtures = {
   myTarget: (name: string) => Promise.resolve({ ...(myTargets.find((t) => t.name === name) ?? myTargets[1]), temporary: { until: T(21), granted_by: "ops", groups: ["dba", "developer"] }, sessions: sessions.slice(0, 6).map((s) => ({ id: s.id, started: s.started_at, ended: s.ended_at ?? undefined, os_user: s.os_user })), sessions_partial: true, sessions_scanned: 200 }),
   users,
   userDetail: (name: string) => Promise.resolve(userDetail(name)),
-  roles,
+  groups,
   rolePaths: [
     { prefix: "/var/log", allow: true, can_write: false },
     { prefix: "/etc", allow: false, can_write: false },
@@ -622,11 +622,11 @@ const base: Fixtures = {
     checked_at: T(10, 41),
   },
   mappings: [
-    { group: "CN=SRE,OU=Groups,DC=example,DC=com", role: "sre", created_by: "yigit.basalma" },
-    { group: "CN=Database Administrators EMEA,OU=Groups,DC=example,DC=com", role: "dba", created_by: "ops" },
-    { group: "web-developers", role: "web", created_by: "ops" },
-    { group: "ci-runners", role: "ci", created_by: "yigit.basalma" },
-    { group: "external-auditors", role: "readonly-auditors-emea", created_by: "ops" },
+    { directory_group: "CN=SRE,OU=Groups,DC=example,DC=com", group: "sre", created_by: "yigit.basalma" },
+    { directory_group: "CN=Database Administrators EMEA,OU=Groups,DC=example,DC=com", group: "dba", created_by: "ops" },
+    { directory_group: "web-developers", group: "web", created_by: "ops" },
+    { directory_group: "ci-runners", group: "ci", created_by: "yigit.basalma" },
+    { directory_group: "external-auditors", group: "readonly-auditors-emea", created_by: "ops" },
   ],
   unmappedGroups: [
     { name: "CN=Platform Engineering EMEA,OU=Groups,DC=example,DC=com", seen_count: 41, last_seen: T(9, 55) },
@@ -652,7 +652,7 @@ const base: Fixtures = {
   oidcSettings: {
     issuer_url: "https://login.microsoftonline.com/9f8e7d6c-5b4a-3210-fedc-ba9876543210/v2.0",
     client_id: "3c7a1f4e-9b2d-4e8f-a1c6-5d2e8f9a0b1c",
-    client_secret_set: true, groups_claim: "roles", scopes: "openid email profile groups", managed_in_db: true, configured: true, live: false,
+    client_secret_set: true, groups_claim: "groups", scopes: "openid email profile groups", managed_in_db: true, configured: true, live: false,
   },
   syncSettings: { enabled: true, dry_run: false, interval: "15m", grace: "72h", max_zero_fraction: 0.2, min_zero_floor: 3, max_unknown_fraction: 0.1, max_revoke_per_run: 20, overridden: ["sync.interval"] },
   syncRuns: [
@@ -857,7 +857,7 @@ describe("sayfa düzeyinde görsel çıktı", { timeout: 30_000 }, () => {
     const sections: [string, string | RegExp][] = [
       ["overview", "Overview"],
       ["users", "Users"],
-      ["roles", "Roles"],
+      ["groups", "Groups"],
       ["mappings", "Mappings"],
       ["pending", "Pending"],
       ["targets", "Targets"],
@@ -899,8 +899,8 @@ describe("sayfa düzeyinde görsel çıktı", { timeout: 30_000 }, () => {
     vi.restoreAllMocks();
 
     mockAll(base);
-    await openSettings("Roles");
-    page("settings-roles");
+    await openSettings("Groups");
+    page("settings-groups");
     cleanup();
     vi.restoreAllMocks();
 
@@ -910,10 +910,10 @@ describe("sayfa düzeyinde görsel çıktı", { timeout: 30_000 }, () => {
      * ölçülmesi gereken yer burası.
      */
     mockAll(base);
-    await openSettings("Roles");
+    await openSettings("Groups");
     if (tryClick(/^dba$/i)) {
       await settle();
-      page("settings-roles-detail");
+      page("settings-groups-detail");
     }
     cleanup();
     vi.restoreAllMocks();
@@ -947,14 +947,14 @@ describe("sayfa düzeyinde görsel çıktı", { timeout: 30_000 }, () => {
     vi.restoreAllMocks();
 
     // Hata hâli: listeler çekilemedi.
-    mockAll({ ...base, users: () => Promise.reject(new ApiError(500, "pq: canceling statement due to statement timeout")), roles: () => Promise.reject(new ApiError(403, "forbidden")) });
+    mockAll({ ...base, users: () => Promise.reject(new ApiError(500, "pq: canceling statement due to statement timeout")), groups: () => Promise.reject(new ApiError(403, "forbidden")) });
     await openSettings("Users");
     page("settings-users-error");
     cleanup();
     vi.restoreAllMocks();
 
     // Boş hâller.
-    mockAll({ ...base, users: [], targets: [], roles: [], mappings: [], unmappedGroups: [], pending: [], sessions: [], adminLog: [] });
+    mockAll({ ...base, users: [], targets: [], groups: [], mappings: [], unmappedGroups: [], pending: [], sessions: [], adminLog: [] });
     await openSettings("Users");
     page("settings-users-empty");
     click("Targets");
@@ -989,7 +989,7 @@ describe("sayfa düzeyinde görsel çıktı", { timeout: 30_000 }, () => {
     click(/load groups from the selected hosts/i);
     await settle();
     // Grup listesi AÇIK kalıyor: görüntüde liste de görünsün.
-    fireEvent.focus(screen.getByRole("combobox", { name: "Groups" }));
+    fireEvent.focus(screen.getByRole("combobox", { name: "Host groups" }));
     fireEvent.click(screen.getByRole("option", { name: "dba" }));
     fireEvent.click(screen.getByRole("option", { name: "sre" }));
     // Sudo komutları tablo: bir satır dolu, hesabı yazılmış; ikincisi
@@ -1022,18 +1022,18 @@ describe("sayfa düzeyinde görsel çıktı", { timeout: 30_000 }, () => {
     };
     const src = {
       id: "s1", name: "lab cluster", kind: "proxmox", url: "https://pve.example:8006", username: "postern@pve!d",
-      secret_set: true, ca_pem: "", insecure: false, node: "", tag_key: "role", name_pattern: "web-*, db-*", port: 22,
+      secret_set: true, ca_pem: "", insecure: false, node: "", tag_key: "group", name_pattern: "web-*, db-*", port: 22,
       interval_seconds: 3600, enabled: true, created_by: "ops", created_at: T(10), updated_at: T(10), last_run: run, running: false,
     };
     const m = (ref: string, name: string, over: Record<string, unknown> = {}) => ({
       source_id: "s1", source: "lab cluster", ref, name, host: "10.0.0.5", tags: ["role_web", "env_prod"], running: true,
-      role: "web", fingerprint: "SHA256:8eQzq1pRZo9hZ3ZC6uYb3f0mI2c9c7Ck4v3n2a1b0cd", ignored: false,
+      group: "web", fingerprint: "SHA256:8eQzq1pRZo9hZ3ZC6uYb3f0mI2c9c7Ck4v3n2a1b0cd", ignored: false,
       first_seen: T(10), last_seen: T(11), ...over,
     });
     const discovery = {
       sources: [src, { ...src, id: "s2", name: "vcenter", kind: "vsphere", url: "https://vcenter.example", insecure: true, last_run: undefined, running: true, interval_seconds: 0 }],
       machines: [
-        m("qemu/101", "web-01"), m("qemu/102", "db-01", { target: "db-01", role: "dba" }),
+        m("qemu/101", "web-01"), m("qemu/102", "db-01", { target: "db-01", group: "dba" }),
         m("lxc/200", "old-01", { missing_since: T(11) }),
         m("qemu/104", "bad-01", { fingerprint: undefined, problem: "no host key from 10.0.0.9:22 (dial tcp 10.0.0.9:22: i/o timeout)" }),
         m("qemu/105", "ign-01", { ignored: true }),
@@ -1084,7 +1084,7 @@ describe("sayfa düzeyinde görsel çıktı", { timeout: 30_000 }, () => {
   });
 
   it("ekleme pencereleri", async () => {
-    for (const [name, label] of [["users", "Users"], ["targets", "Targets"], ["roles", "Roles"], ["mappings", "Mappings"]] as const) {
+    for (const [name, label] of [["users", "Users"], ["targets", "Targets"], ["groups", "Groups"], ["mappings", "Mappings"]] as const) {
       mockAll(base);
       await openSettings(label);
       if (tryClick(/^(add|new|create|map)\b/i)) {

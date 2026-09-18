@@ -131,7 +131,7 @@ func TestTerminalRejectsForeignOrigin(t *testing.T) {
 func TestTerminalDeniesUngrantedTarget(t *testing.T) {
 	_, apiURL, _, db := oobBastionWithTerminal(t)
 
-	// Yetkisiz bir hedef ekle (role bağlanmıyor).
+	// Yetkisiz bir hedef ekle (gruba bağlanmıyor).
 	if _, err := db.CreateTarget(context.Background(), yasakTarget()); err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +245,7 @@ func TestTerminalRouteAbsentWhenDisabled(t *testing.T) {
 	}
 }
 
-// yasakTarget, hiçbir role bağlanmayan hedef: policy reddetmeli.
+// yasakTarget, hiçbir gruba bağlanmayan hedef: policy reddetmeli.
 func yasakTarget() model.Target {
 	return model.Target{
 		Name: "yasak01", Host: "127.0.0.1", Port: 2298,

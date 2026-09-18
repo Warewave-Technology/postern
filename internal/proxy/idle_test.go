@@ -111,7 +111,7 @@ func TestBoundWithNoLimitsDoesNotCancel(t *testing.T) {
 // Ömür sınırı, boşta kalma sınırıyla birlikte de çalışmalı: trafik akmaya
 // devam etse bile mutlak ömür dolunca oturum kapanır.
 //
-// Gerekçesi somut: süreli rol atamaları oturum ORTASINDA yeniden
+// Gerekçesi somut: süreli grup atamaları oturum ORTASINDA yeniden
 // denetlenmiyor. Aktif bir oturum, kendi yetkisinden uzun yaşamamalı.
 func TestMaxLifetimeFiresDespiteActivity(t *testing.T) {
 	ctx, guard, stop := bound(context.Background(), time.Hour, 200*time.Millisecond)

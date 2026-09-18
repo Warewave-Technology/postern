@@ -97,7 +97,7 @@ func TestWouldLeaveNoAdmin(t *testing.T) {
 		{"kaynaksız eski kayıt da sayılır", legacy, nil, false},
 
 		{"yalnızca grup yöneticisi varken boşaltmak son yöneticiyi siler", grp, nil, true},
-		{"yalnızca grup yöneticisi varken hesapsız gruba geçmek de siler", grp, []string{}, true},
+		{"yalnızca grup yöneticisi varken hesapsız group geçmek de siler", grp, []string{}, true},
 
 		// Yeni grupta hesabı OLAN biri varsa yönetici kalıyor demektir.
 		{"yeni grupta hesaplı üye varsa sorun yok", grp, []string{"mehmet"}, false},

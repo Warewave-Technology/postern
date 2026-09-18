@@ -396,7 +396,7 @@ export function Sessions({ theme }: { theme: Resolved }) {
           {s.temporary && (
             <>
               {" "}
-              <span className="badge badge-warn" title="admitted by a temporary access grant, not by a role">
+              <span className="badge badge-warn" title="admitted by a temporary access grant, not by a group">
                 temporary
               </span>
             </>
@@ -530,7 +530,7 @@ export function Sessions({ theme }: { theme: Resolved }) {
               {opened.temporary && (
                 <div>
                   <dt>Access</dt>
-                  <dd>temporary access, not a role</dd>
+                  <dd>temporary access, not a group</dd>
                 </div>
               )}
               <div>

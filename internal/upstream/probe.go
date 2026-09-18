@@ -44,7 +44,7 @@ const maxProbeOutput = 8 << 10
  *
  * ⚠️ KOMUTLAR KULLANICININ BAĞLANTISINDA ÇALIŞIR. Bu yorum önceden
  * "postern'in kullanıcılardan bağımsız bir erişimi yok" diyordu; yönetim
- * hesabıyla (manage.go) artık var — ama yalnızca rolü
+ * hesabıyla (manage.go) artık var — ama yalnızca grubu
  * postern_manage_host ile koşmuş hedeflerde, ve bilinçli olarak burada
  * KULLANILMIYOR. Tanımayı ona taşımak iki şeyi bozardı: yönetim hesabı
  * olmayan hedeflerde tanıma tamamen kapanırdı, ve `uname` okumak için

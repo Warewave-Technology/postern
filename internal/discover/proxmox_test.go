@@ -107,8 +107,8 @@ func TestProxmoxMachines(t *testing.T) {
 		t.Errorf("kapalı makine = %+v", by["kapali"])
 	}
 
-	if role, tagged := RoleFromTags(by["web-01"].Tags, "role"); role != "ops" || !tagged {
-		t.Errorf("etiketten rol = %q %v", role, tagged)
+	if group, tagged := GroupFromTags(by["web-01"].Tags, "role"); group != "ops" || !tagged {
+		t.Errorf("etiketten grup = %q %v", group, tagged)
 	}
 
 	// ⚠️ JETON BAŞLIĞI PROXMOX'UN BEKLEDİĞİ BİÇİMDE.
@@ -151,7 +151,7 @@ func TestProxmoxRequiresToken(t *testing.T) {
  *
  * Kendi imzaladığı sertifikaya --ca-file ya da --insecure olmadan
  * bağlanmak BAŞARISIZ olmalı: sessizce kabul etmek, araya giren birine
- * hangi makinenin hangi role gideceğini yazdırırdı.
+ * hangi makinenin hangi group gideceğini yazdırırdı.
  */
 func TestProxmoxVerifiesTLSByDefault(t *testing.T) {
 	srv := fakePVE(t, nil)

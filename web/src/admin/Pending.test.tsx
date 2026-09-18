@@ -37,7 +37,7 @@ describe("onay kuyrugu", () => {
     vi.spyOn(api, "pending").mockResolvedValue([row()]);
     render(<Pending />);
     await waitFor(() =>
-      expect(screen.getByText(/grants no roles/i)).toBeInTheDocument(),
+      expect(screen.getByText(/grants no groups/i)).toBeInTheDocument(),
     );
   });
 

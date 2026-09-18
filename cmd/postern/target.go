@@ -30,10 +30,10 @@ func newTargetCmd() *cobra.Command {
 	return cmd
 }
 
-// newTargetAddCmd, hedefi tek komutta tanımlar ve istenirse rollere bağlar:
+// newTargetAddCmd, hedefi tek komutta tanımlar ve istenirse gruplara bağlar:
 //
 //	postern target add --name web01 --host 192.168.1.30 --port 22 \
-//	    --host-key-file web01.pub --grant-role ops
+//	    --host-key-file web01.pub --grant-group ops
 //
 // Kısmi başarı stratejisi user add ile aynı: host key dosyası yazmadan
 // önce parse edilir; hedef zaten varsa ve tanımı bayraklarla AYNIYSA
@@ -42,11 +42,11 @@ func newTargetCmd() *cobra.Command {
 func newTargetAddCmd() *cobra.Command {
 	var configPath, name, host, hostKeyFile string
 	var port int
-	var grantRoles []string
+	var grantGroups []string
 
 	cmd := &cobra.Command{
 		Use:   "add",
-		Short: "Register a target and optionally grant it to roles",
+		Short: "Register a target and optionally grant it to groups",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Önce doğrula: bozuk host key, hedef yaratılmadan yakalanmalı.
 			// İlk bağlantıda "handshake failed" kovalamak pahalı.
@@ -139,20 +139,20 @@ func newTargetAddCmd() *cobra.Command {
 					pub.Type(), ssh.FingerprintSHA256(pub))
 			}
 
-			for _, role := range grantRoles {
+			for _, group := range grantGroups {
 				// Rol yoksa oluşturMUYORUZ: yazım hatası sessizce yeni bir
-				// role dönüşmemeli. Rol yaratmak ayrı, bilinçli bir iş.
-				if err := db.GrantTarget(ctx, role, name); err != nil {
+				// group dönüşmemeli. Rol yaratmak ayrı, bilinçli bir iş.
+				if err := db.GrantTarget(ctx, group, name); err != nil {
 					if errors.Is(err, store.ErrNotFound) {
-						return fmt.Errorf("role %q not found — create it with `postern role add`, then re-run this command (already-applied grants are kept)", role)
+						return fmt.Errorf("group %q not found — create it with `postern group add`, then re-run this command (already-applied grants are kept)", group)
 					}
 					return err
 				}
-				if aerr := auditCLI(ctx, db, "role.grant", role,
+				if aerr := auditCLI(ctx, db, "group.grant", group,
 					"granted target "+name); aerr != nil {
 					return aerr
 				}
-				fmt.Fprintf(out, "  granted to role %q\n", role)
+				fmt.Fprintf(out, "  granted to group %q\n", group)
 			}
 
 			return nil
@@ -164,7 +164,7 @@ func newTargetAddCmd() *cobra.Command {
 	cmd.Flags().StringVar(&host, "host", "", "address (required)")
 	cmd.Flags().IntVar(&port, "port", 22, "SSH port")
 	cmd.Flags().StringVar(&hostKeyFile, "host-key-file", "", "file holding the target's host public key (required)")
-	cmd.Flags().StringArrayVar(&grantRoles, "grant-role", nil, "grant this target to a role (repeatable)")
+	cmd.Flags().StringArrayVar(&grantGroups, "grant-group", nil, "grant this target to a group (repeatable)")
 	_ = cmd.MarkFlagRequired("name")
 	_ = cmd.MarkFlagRequired("host")
 	_ = cmd.MarkFlagRequired("host-key-file")

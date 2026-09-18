@@ -173,7 +173,7 @@ function IdentityCard({ me, source }: { me: Me; source?: string }) {
           <dd className="prose">{signsInWith}</dd>
           {me.admin && (
             <>
-              <dt>Role</dt>
+              <dt>Group</dt>
               <dd className="prose">administrator</dd>
             </>
           )}

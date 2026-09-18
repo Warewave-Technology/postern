@@ -13,22 +13,22 @@ var now = time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
 // long, Grace süresini kesin aşan bir geçmiş an.
 func long() time.Time { return now.Add(-24 * time.Hour) }
 
-// ⚠️ Yardımcılar SSORoles=1 kuruyor: bu testlerin hepsi "şu an rolü OLAN
+// ⚠️ Yardımcılar SSOGroups=1 kuruyor: bu testlerin hepsi "şu an grubu OLAN
 // bir kullanıcı" senaryosunu anlatıyor. Sıfır rolle gelen kullanıcının
 // kaybedecek bir şeyi yoktur ve tavanlarda yer tutmamalıdır — onun için
 // ayrı yardımcı var (alumnus).
-func present(name string, roles ...string) Observation {
+func present(name string, groups ...string) Observation {
 	return Observation{Username: name, Presence: ldap.PresencePresent,
-		MappedRoles: roles, SSORoles: 1}
+		MappedGroups: groups, SSOGroups: 1}
 }
 
 func absent(name string, since time.Time) Observation {
 	return Observation{Username: name, Presence: ldap.PresenceAbsent,
-		MissingSince: since, SSORoles: 1}
+		MissingSince: since, SSOGroups: 1}
 }
 
 func unknown(name string) Observation {
-	return Observation{Username: name, Presence: ldap.PresenceUnknown, SSORoles: 1}
+	return Observation{Username: name, Presence: ldap.PresenceUnknown, SSOGroups: 1}
 }
 
 // alumnus, çoktan iptal edilmiş ve dizinden çıkmış kullanıcı: users
@@ -36,7 +36,7 @@ func unknown(name string) Observation {
 // temizlenmiyor, yani her koşuda yeniden gözlemleniyor.
 func alumnus(name string) Observation {
 	return Observation{Username: name, Presence: ldap.PresenceAbsent,
-		MissingSince: long(), SSORoles: 0}
+		MissingSince: long(), SSOGroups: 0}
 }
 
 // EN ÖNEMLİ TEST: dizin cevap veremiyorsa KİMSENİN yetkisi iptal
@@ -77,7 +77,7 @@ func TestHalfRestoredDirectoryAborts(t *testing.T) {
 	plan := BuildPlan(now, obs, DefaultLimits())
 
 	if plan.Abort == "" {
-		t.Fatal("herkes sıfır role düşerken koşu iptal edilmedi — " +
+		t.Fatal("herkes sıfır group düşerken koşu iptal edilmedi — " +
 			"kişi bazında bakan mantık bunu meşru iptal sanardı")
 	}
 	if len(plan.Apply) != 0 {
@@ -152,23 +152,23 @@ func TestGraceWindowHolds(t *testing.T) {
 	})
 }
 
-// Elle verilmiş roller iptalden SONRA da duruyor ve rapor bunu ayrıca
+// Elle verilmiş gruplar iptalden SONRA da duruyor ve rapor bunu ayrıca
 // söylemeli — yoksa operatör "iptal edildi" okuyup erişimin tamamen
 // bittiğini sanar.
-func TestManualRolesAreReportedSeparately(t *testing.T) {
+func TestManualGroupsAreReportedSeparately(t *testing.T) {
 	obs := []Observation{
 		{Username: "x", Presence: ldap.PresenceAbsent, MissingSince: long(),
-			ManualRoles: 2, SSORoles: 1},
+			ManualGroups: 2, SSOGroups: 1},
 	}
 	plan := BuildPlan(now, obs, DefaultLimits())
 
 	if len(plan.Apply) != 1 {
 		t.Fatalf("Apply = %+v", plan.Apply)
 	}
-	if plan.Apply[0].ManualRoles != 2 {
-		t.Errorf("ManualRoles = %d, 2 bekleniyordu — rapor elle verilen "+
-			"rollerin durduğunu söylemezse erişim bitti sanılır",
-			plan.Apply[0].ManualRoles)
+	if plan.Apply[0].ManualGroups != 2 {
+		t.Errorf("ManualGroups = %d, 2 bekleniyordu — rapor elle verilen "+
+			"grupların durduğunu söylemezse erişim bitti sanılır",
+			plan.Apply[0].ManualGroups)
 	}
 }
 
@@ -197,7 +197,7 @@ func TestMaxRevokePerRunCaps(t *testing.T) {
 	}
 }
 
-// Normal koşu: roller değişen kullanıcılar uygulanır, cevaplanamayanlara
+// Normal koşu: gruplar değişen kullanıcılar uygulanır, cevaplanamayanlara
 // DOKUNULMAZ.
 func TestNormalRunAppliesAndSkipsUnknown(t *testing.T) {
 	// Cevaplanamayan oran tavanın ALTINDA olmalı, yoksa koşu (doğru
@@ -295,7 +295,7 @@ func TestAlumniDoNotLatchTheCeiling(t *testing.T) {
 	for i := range 14 {
 		obs = append(obs, alumnus("mezun"+string(rune('a'+i))))
 	}
-	// Ve aralarında GERÇEK bir ayrılan: rolü var, dizinden çıkmış.
+	// Ve aralarında GERÇEK bir ayrılan: grubu var, dizinden çıkmış.
 	obs = append(obs, absent("ayrilan", long()))
 
 	plan := BuildPlan(now, obs, DefaultLimits())
@@ -335,7 +335,7 @@ func TestAlumniDoNotMaskARealOutage(t *testing.T) {
 	plan := BuildPlan(now, obs, DefaultLimits())
 
 	if plan.Abort == "" {
-		t.Fatal("rolü olan herkes sıfıra düşerken koşu iptal edilmedi")
+		t.Fatal("grubu olan herkes sıfıra düşerken koşu iptal edilmedi")
 	}
 	t.Logf("iptal sebebi: %s", plan.Abort)
 }

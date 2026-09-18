@@ -16,9 +16,9 @@ import { KeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "reac
  * çoklu seçim ve süzgeçsiz bir liste kullanılmıyor (kullanıcı söyledi);
  * seçilenlerin bir etiket olarak görünmesi, listede kaybolmalarından iyi.
  *
- * Erişilebilirlik: arama kutusu role=combobox ve başlıkla etiketli
- * (aria-labelledby); liste role=listbox, seçenekler role=option ve
- * aria-selected; öbekler role=group. Testler bu rollerle konuşuyor.
+ * Erişilebilirlik: arama kutusu group=combobox ve başlıkla etiketli
+ * (aria-labelledby); liste group=listbox, seçenekler group=option ve
+ * aria-selected; öbekler group=group. Testler bu rollerle konuşuyor.
  */
 
 export type MultiSelectOption = {

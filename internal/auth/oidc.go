@@ -55,7 +55,7 @@ type OIDCConfig struct {
 	// "warpgate_roles" adı, insanların gruplarını "groups" claim'ine
 	// koyup hiçbir eşleşme görmemesinin ve sebebini bulamamasının
 	// kaynağı (issue #1283). Her IdP farklı ad kullanır: Keycloak
-	// "groups", Entra "roles", bazı kurulumlar "memberOf".
+	// "groups", Entra "groups", bazı kurulumlar "memberOf".
 	GroupsClaim string
 
 	/*
@@ -359,7 +359,7 @@ type GroupSource interface {
  * Birincisi gerçek bir cevap ve yetkinin bitmesi demek. İkincisi çoğu
  * zaman bir yapılandırma hatası: IdP kullanıcıyı "yigit" biliyor, dizinde
  * kayıt "yigit.basalma". Ölçüldü — ikisi aynı yola düşünce giriş anında
- * ProvisionUser → SyncRoles bütün SSO rollerini siliyordu; ne bekleme
+ * ProvisionUser → SyncGroups bütün SSO rollerini siliyordu; ne bekleme
  * süresi, ne tavan, ne uyarı. Senkronizasyon döngüsündeki patlama
  * yarıçapı korumalarının hiçbiri bu yolda yok.
  */

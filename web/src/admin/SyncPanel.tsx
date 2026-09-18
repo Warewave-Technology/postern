@@ -48,7 +48,7 @@ const LIMITS: Field[] = [
   {
     key: "sync.grace",
     label: "Grace",
-    hint: "how long someone may be missing from the directory before their access is revoked. A short replication lag or a maintenance window must not cost anyone their roles.",
+    hint: "how long someone may be missing from the directory before their access is revoked. A short replication lag or a maintenance window must not cost anyone their groups.",
     get: (s) => s.grace,
   },
 ];
@@ -104,7 +104,7 @@ export default function SyncPanel({ ldapReady }: { ldapReady: boolean }) {
         <h3>Directory sync</h3>
         <p>
           Re-reads every user&apos;s groups on a timer and applies the result —
-          including taking roles away from people the directory no longer places
+          including taking groups away from people the directory no longer places
           in them.
         </p>
       </div>
@@ -202,7 +202,7 @@ export default function SyncPanel({ ldapReady }: { ldapReady: boolean }) {
 
         {s.enabled && !s.dry_run && (
           <p className="msg msg-warn" role="status">
-            Live: the next run can revoke roles.
+            Live: the next run can revoke groups.
           </p>
         )}
 

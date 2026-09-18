@@ -20,7 +20,7 @@ const webSessionTTL = 12 * time.Hour
 // webSession, tek bir tarayıcı oturumu.
 //
 // Kullanıcının ADI saklanır, model.User'ın kendisi değil: oturum 12 saat
-// yaşıyor ve bu sürede admin bayrağı ya da roller değişebilir. Kaydı
+// yaşıyor ve bu sürede admin bayrağı ya da gruplar değişebilir. Kaydı
 // burada dondurmak, yetki değişikliğini oturum bitene kadar görünmez
 // yapardı. Adı saklayıp her istekte store'dan okumak yetkiyi anında
 // geçerli kılar — middleware zaten her istekte çalışıyor.

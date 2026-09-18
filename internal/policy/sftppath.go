@@ -18,16 +18,16 @@ import (
  * tutma, fazladan gecikme yok. Kısıtlama kural yazıldığında başlıyor.
  *
  * ⚠️ BİRLEŞİM. Rollerden HERHANGİ BİRİ izin veriyorsa erişim var. Kesişim
- * seçseydik kısıtlı bir rol eklemek, kullanıcının mevcut erişimini
- * SESSİZCE daraltırdı. Birleşimde rol eklemek yalnızca genişletiyor.
+ * seçseydik kısıtlı bir grup eklemek, kullanıcının mevcut erişimini
+ * SESSİZCE daraltırdı. Birleşimde grup eklemek yalnızca genişletiyor.
  *
- * Sonucu: kuralsız BİR rol, kurallı diğerlerini etkisiz kılıyor. Sezgiye
+ * Sonucu: kuralsız BİR grup, kurallı diğerlerini etkisiz kılıyor. Sezgiye
  * aykırı görünüyor ama tutarlı — kural yazmak bir ROLÜ kısıtlamak demek,
  * kullanıcıyı değil. Belge bunu böyle anlatıyor.
  */
-func SFTPDecider(roles []model.Role) sftpaudit.Decider {
-	var active []model.Role
-	for _, r := range roles {
+func SFTPDecider(groups []model.Group) sftpaudit.Decider {
+	var active []model.Group
+	for _, r := range groups {
 		if len(r.Paths) > 0 {
 			active = append(active, r)
 		}
@@ -36,18 +36,18 @@ func SFTPDecider(roles []model.Role) sftpaudit.Decider {
 		return nil
 	}
 
-	// Kuralsız bir rol her şeye izin veriyor: politika kurmanın anlamı
+	// Kuralsız bir grup her şeye izin veriyor: politika kurmanın anlamı
 	// kalmıyor ve veri yolunu boş yere yavaşlatmıyoruz.
-	if len(active) != len(roles) {
+	if len(active) != len(groups) {
 		return nil
 	}
 
 	/*
 	 * ⚠️ KURALLAR TEK KÜMEDE TOPLANIYOR, ROL ROL DEĞERLENDİRİLMİYOR.
 	 *
-	 * ÖLÇÜLEN ARIZA: rol rol değerlendirip "herhangi biri izin veriyorsa
+	 * ÖLÇÜLEN ARIZA: grup grup değerlendirip "herhangi biri izin veriyorsa
 	 * evet" dediğimizde AÇIK RETLER HAYATTA KALMIYORDU. Demoda görüldü:
-	 * bir rolde /home/u/.ssh reddedilmişti, başka bir rol /home/u'ya izin
+	 * bir grupta /home/u/.ssh reddedilmişti, başka bir grup /home/u'ya izin
 	 * veriyordu ve .ssh açık kaldı. Yönetici bir dalı kestiğini sanıyor,
 	 * kesmemiş oluyor — sessizce fazla erişim, kural yazmanın en kötü
 	 * sonucu.

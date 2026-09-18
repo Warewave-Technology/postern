@@ -14,43 +14,43 @@ import (
 )
 
 /*
- * Var olan bir kullanıcıya rol verme ve alma.
+ * Var olan bir kullanıcıya grup verme ve alma.
  *
- * ⚠️ NEDEN VAR: `user add --role` yalnızca hesabı AÇARKEN rol
+ * ⚠️ NEDEN VAR: `user add --group` yalnızca hesabı AÇARKEN grup
  * verebiliyordu; `user modify` e-posta, os-user, admin ve sso-only ile
- * sınırlı. Var olan birine rol eklemenin ya da almanın CLI karşılığı
+ * sınırlı. Var olan birine grup eklemenin ya da almanın CLI karşılığı
  * YOKTU — panelde vardı.
  *
  * Bu, eksik bir kolaylık değil: CLI tam olarak PANELİN ÇALIŞMADIĞI AN
  * için var. Kilitlendiğinde ya da IdP düştüğünde host'a giriyorsun ve
  * orada kimseye erişim veremiyordun. Demo kurulurken de aynı duvara
- * toslandı; çare, kullanıcının zaten sahip olduğu role hedef eklemek
+ * toslandı; çare, kullanıcının zaten sahip olduğu group hedef eklemek
  * oldu — doğru çözüm değil, dolambaç.
  *
- * ⚠️ AD ALANI "user", "role" DEĞİL. Atama kullanıcıya ait bir gerçek ve
- * depo bunu her yerde öyle adlandırıyor: `user add --role`, `user list`
- * ROLES sütunu, panel rotaları /api/admin/users/{name}/roles, ve
- * denetim satırının entity'si kullanıcı adı. role.go'da user_roles'a
+ * ⚠️ AD ALANI "user", "group" DEĞİL. Atama kullanıcıya ait bir gerçek ve
+ * depo bunu her yerde öyle adlandırıyor: `user add --group`, `user list`
+ * ROLES sütunu, panel rotaları /api/admin/users/{name}/groups, ve
+ * denetim satırının entity'si kullanıcı adı. group.go'da user_groups'a
  * dokunan hiçbir şey yok; ikinci bir sahip yaratmak, aynı ilişkiyi iki
  * yerden yönetmek olurdu.
  *
  * ⚠️ ADLARDA "add" YOK. Bu CLI'da `add` SATIR YARATAN komutların sözü
- * (user add, role add, target add, mapping add) ve hepsi "created" /
- * "registered" basıyor. Atama satır yaratmıyor; `grant-role` /
- * `revoke-role` hem işi doğru adlandırıyor hem `admin revoke` ile aynı
+ * (user add, group add, target add, mapping add) ve hepsi "created" /
+ * "registered" basıyor. Atama satır yaratmıyor; `grant-group` /
+ * `revoke-group` hem işi doğru adlandırıyor hem `admin revoke` ile aynı
  * fiili aynı anlamda kullanıyor.
  */
 
-func newUserGrantRoleCmd() *cobra.Command {
+func newUserGrantGroupCmd() *cobra.Command {
 	var configPath, name string
-	var roles []string
+	var groups []string
 
 	cmd := &cobra.Command{
-		Use:   "grant-role",
-		Short: "Give an existing user a role",
-		Long: "Grants one or more roles to an account that already exists.\n" +
+		Use:   "grant-group",
+		Short: "Give an existing user a group",
+		Long: "Grants one or more groups to an account that already exists.\n" +
 			"The grant is manual: directory synchronisation replaces only the\n" +
-			"roles it owns and leaves this one alone.",
+			"groups it owns and leaves this one alone.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load(configPath)
@@ -68,11 +68,11 @@ func newUserGrantRoleCmd() *cobra.Command {
 			 * ⚠️ SİLİNMİŞ HESABA ROL VERMEK REDDEDİLMİYOR — UYARILIYOR.
 			 *
 			 * İlk hâli reddediyordu ve gerekçesi makuldü: silinmiş hesap
-			 * hiçbir kapıdan giremediği için rol ona hiçbir şey vermez,
+			 * hiçbir kapıdan giremediği için grup ona hiçbir şey vermez,
 			 * komut da boşuna başarılı görünür.
 			 *
 			 * Ama bu CLI ACİL ÇIKIŞ YOLU ve onun ilk kuralı kimseyi
-			 * kilitlememek. "Önce rolleri geri ver, sonra hesabı aç"
+			 * kilitlememek. "Önce grupları geri ver, sonra hesabı aç"
 			 * meşru bir sıra; `postern user state` tam da hiçbir durumun
 			 * çıkmaz sokak olmaması için var. Reddetmek, operatöre
 			 * sırasını bize göre yapmayı dayatırdı.
@@ -89,16 +89,16 @@ func newUserGrantRoleCmd() *cobra.Command {
 			}
 
 			out := cmd.OutOrStdout()
-			for _, role := range roles {
+			for _, group := range groups {
 				/*
 				 * ⚠️ DİZİNDEN GELEN BİR ROLÜ ELLE VERMEK, ONU
 				 * SENKRONİZASYONUN ERİŞEMEYECEĞİ YERE TAŞIR.
 				 *
-				 * AssignRole'un ON CONFLICT dalı source'u koşulsuz
-				 * 'manual' yapıyor; SyncRoles ise yalnızca source='sso'
+				 * AssignGroup'un ON CONFLICT dalı source'u koşulsuz
+				 * 'manual' yapıyor; SyncGroups ise yalnızca source='sso'
 				 * satırlarını siliyor. Yani zaten IdP grubundan gelen
-				 * bir rolü "yeniden vermek", kişi gruptan çıkarıldığında
-				 * rolün ÜZERİNDE KALMASI demek — ve hiçbir otomatik yol
+				 * bir grubu "yeniden vermek", kişi gruptan çıkarıldığında
+				 * grubun ÜZERİNDE KALMASI demek — ve hiçbir otomatik yol
 				 * onu geri alamaz. Sessizce kalıcı yetki üretmek, bu
 				 * komutun yapabileceği en kötü şey.
 				 *
@@ -106,34 +106,34 @@ func newUserGrantRoleCmd() *cobra.Command {
 				 * SÖYLÜYORUZ. Okuma yazmadan ÖNCE: sonrasında kaynak
 				 * zaten 'manual' olmuş olurdu.
 				 */
-				priorSource, hadGrant, perr := db.RoleGrantSource(ctx, name, role)
+				priorSource, hadGrant, perr := db.GroupGrantSource(ctx, name, group)
 				if perr != nil {
-					return roleErr(perr, role)
+					return roleErr(perr, group)
 				}
 
 				// ⚠️ SÜRESİZ. expires_at şemada var ve OKUNUYOR ama onu
-				// yazan bir yüzey eklemiyoruz: AssignRole'un ON CONFLICT
+				// yazan bir yüzey eklemiyoruz: AssignGroup'un ON CONFLICT
 				// dalı expires_at'i koşulsuz yazıyor, yani bayraksız
 				// ikinci bir grant süreyi SESSİZCE siler. Okuması da
 				// yok — `user list` süreyi gösteremiyor. Yazması olup
 				// okuması olmayan bir alan, erişimin kimsenin
 				// bakamayacağı bir saatte kaybolması demek.
-				if err := db.AssignRole(ctx, name, role, time.Time{}); err != nil {
-					return roleErr(err, role)
+				if err := db.AssignGroup(ctx, name, group, time.Time{}); err != nil {
+					return roleErr(err, group)
 				}
 
 				// ⚠️ Denetim hatası YUTULMUYOR (audit.go sözleşmesi):
 				// izsiz bir yetki değişikliği, yapılmamış olandan kötü.
-				if err := auditCLI(ctx, db, "user.grant_role", name, "role "+role); err != nil {
+				if err := auditCLI(ctx, db, "user.grant_role", name, "group "+group); err != nil {
 					return err
 				}
-				fmt.Fprintf(out, "user %q: role %q granted\n", name, role)
+				fmt.Fprintf(out, "user %q: group %q granted\n", name, group)
 
 				if hadGrant && priorSource == "sso" {
-					fmt.Fprintf(out, "  ⚠ %q already had this role from a directory group; "+
+					fmt.Fprintf(out, "  ⚠ %q already had this group from a directory group; "+
 						"it is now a manual grant\n"+
 						"    and directory synchronisation will no longer take it away. "+
-						"Use `postern user revoke-role` to remove it.\n", name)
+						"Use `postern user revoke-group` to remove it.\n", name)
 				}
 			}
 
@@ -151,20 +151,20 @@ func newUserGrantRoleCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
 	cmd.Flags().StringVar(&name, "name", "", "postern username (required)")
-	cmd.Flags().StringArrayVar(&roles, "role", nil, "verilecek rol (tekrarlanabilir, zorunlu)")
+	cmd.Flags().StringArrayVar(&groups, "group", nil, "verilecek grup (tekrarlanabilir, zorunlu)")
 	_ = cmd.MarkFlagRequired("name")
-	_ = cmd.MarkFlagRequired("role")
+	_ = cmd.MarkFlagRequired("group")
 	return cmd
 }
 
-func newUserRevokeRoleCmd() *cobra.Command {
+func newUserRevokeGroupCmd() *cobra.Command {
 	var configPath, name string
-	var roles []string
+	var groups []string
 
 	cmd := &cobra.Command{
-		Use:   "revoke-role",
-		Short: "Take a role away from a user",
-		Long: "Removes a role from an account. A role that came from a\n" +
+		Use:   "revoke-group",
+		Short: "Take a group away from a user",
+		Long: "Removes a group from an account. A group that came from a\n" +
 			"directory group is restored at the user's next sign-in — remove\n" +
 			"the group mapping to stop that.",
 		Args: cobra.NoArgs,
@@ -184,8 +184,8 @@ func newUserRevokeRoleCmd() *cobra.Command {
 			 * ⚠️ KULLANICIYI DÖNGÜDEN ÖNCE, BİR KEZ OKU.
 			 *
 			 * ÖLÇÜLEN ARIZA: okuma döngünün içindeydi ve olmayan bir
-			 * KULLANICI adı `no role "developer"` diye raporlanıyordu —
-			 * yani operatör, doğru yazdığı rol adını düzeltmeye
+			 * KULLANICI adı `no group "developer"` diye raporlanıyordu —
+			 * yani operatör, doğru yazdığı grup adını düzeltmeye
 			 * gönderiliyordu. Panelin çalışmadığı gün en son isteyeceğin
 			 * şey, seni yanlış ipucuna göndermesi.
 			 *
@@ -203,54 +203,54 @@ func newUserRevokeRoleCmd() *cobra.Command {
 			out := cmd.OutOrStdout()
 			var revokedAny bool
 
-			for _, role := range roles {
+			for _, group := range groups {
 				/*
 				 * ⚠️ "ZATEN YOKTU" İLE "ALDIM" AYRI CÜMLELER.
 				 *
-				 * RevokeRole bağ yoksa sessiz no-op ve bu doğru
+				 * RevokeGroup bağ yoksa sessiz no-op ve bu doğru
 				 * davranış — ama komutun "alındı" demesi yanlış olurdu:
-				 * var olan ama hiç verilmemiş bir rol adını yazan
+				 * var olan ama hiç verilmemiş bir grup adını yazan
 				 * operatör (ops yerine ops-admin) işini bitirdiğini
-				 * sanırdı. Kullanıcının ya da rolün HİÇ OLMAMASI zaten
+				 * sanırdı. Kullanıcının ya da grubun HİÇ OLMAMASI zaten
 				 * ayrı bir hata; bu, ayırt ettiğimiz üçüncü durum.
 				 *
 				 * "aktif atama" diyoruz, "satır" değil: User()'ın JOIN'i
 				 * süresi dolmuş atamaları süzüyor, yani silinen satır
 				 * burada zaten yok sayılmış olabilir.
 				 */
-				had := holdsRole(u, role)
+				had := holdsGroup(u, group)
 
-				if err := db.RevokeRole(ctx, name, role); err != nil {
-					return roleErr(err, role)
+				if err := db.RevokeGroup(ctx, name, group); err != nil {
+					return roleErr(err, group)
 				}
-				if err := auditCLI(ctx, db, "user.revoke_role", name, "role "+role); err != nil {
+				if err := auditCLI(ctx, db, "user.revoke_role", name, "group "+group); err != nil {
 					return err
 				}
 
 				if had {
 					revokedAny = true
-					fmt.Fprintf(out, "user %q: role %q revoked\n", name, role)
+					fmt.Fprintf(out, "user %q: group %q revoked\n", name, group)
 				} else {
-					fmt.Fprintf(out, "user %q held no active grant for role %q; nothing changed\n",
-						name, role)
+					fmt.Fprintf(out, "user %q held no active grant for group %q; nothing changed\n",
+						name, group)
 				}
 			}
 
 			/*
 			 * ⚠️ BU UYARI OLMADAN KOMUT YALAN SÖYLER.
 			 *
-			 * RevokeRole kaynak süzmeden siliyor (store.go), SyncRoles
+			 * RevokeGroup kaynak süzmeden siliyor (store.go), SyncGroups
 			 * ise HER SSO GİRİŞİNDE IdP'nin listesini yeniden yazıyor.
-			 * Yani dizinden gelen bir rolü almak, kişinin bir sonraki
+			 * Yani dizinden gelen bir grubu almak, kişinin bir sonraki
 			 * girişine kadar süren geçici bir işlem — ve komut bunu
 			 * söylemezse "erişimi kestim" diye okunur. Panelin çalışmadığı
 			 * gün çalıştırılan komutun tam olarak yanlış anlaşılmaması
 			 * gereken yeri burası.
 			 */
 			if revokedAny {
-				fmt.Fprintf(out, "\nif that role comes from a directory group it returns at "+
+				fmt.Fprintf(out, "\nif that group comes from a directory group it returns at "+
 					"the next sign-in;\nremove the mapping with `postern mapping remove "+
-					"--group <group> --role <role>`\n")
+					"--group <group> --group <group>`\n")
 			}
 			return nil
 		},
@@ -258,28 +258,28 @@ func newUserRevokeRoleCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
 	cmd.Flags().StringVar(&name, "name", "", "postern username (required)")
-	cmd.Flags().StringArrayVar(&roles, "role", nil, "role to remove (repeatable, required)")
+	cmd.Flags().StringArrayVar(&groups, "group", nil, "group to remove (repeatable, required)")
 	_ = cmd.MarkFlagRequired("name")
-	_ = cmd.MarkFlagRequired("role")
+	_ = cmd.MarkFlagRequired("group")
 	return cmd
 }
 
 /*
- * holdsRole, okunmuş kullanıcının o role AKTİF olarak sahip olup
+ * holdsGroup, okunmuş kullanıcının o group AKTİF olarak sahip olup
  * olmadığını söyler.
  *
- * store.User süresi dolmuş atamaları süzüyor: süresi geçmiş bir rol
+ * store.User süresi dolmuş atamaları süzüyor: süresi geçmiş bir grup
  * "yok" sayılır ve doğrusu bu — erişim vermiyordu. Çıktıda da "aktif
  * atama" diyoruz, "satır" değil.
  *
  * ⚠️ Bu, silmeden ÖNCE alınmış bir gözlem. İki operatör aynı anda
  * çalışırsa cümle yanlış olabilir; veri değil. Alternatifi
- * RevokeRole'un RowsAffected döndürmesiydi — paneli de etkileyen bir
+ * RevokeGroup'un RowsAffected döndürmesiydi — paneli de etkileyen bir
  * imza değişikliği, tek bir mesaj nüansı için.
  */
-func holdsRole(u model.User, role string) bool {
-	for _, r := range u.Roles {
-		if r.Name == role {
+func holdsGroup(u model.User, group string) bool {
+	for _, r := range u.Groups {
+		if r.Name == group {
 			return true
 		}
 	}
@@ -290,20 +290,20 @@ func holdsRole(u model.User, role string) bool {
  * roleErr, store hatalarını operatörün okuyabileceği cümlelere çevirir.
  *
  * ⚠️ HANGİ ADIN YANLIŞ OLDUĞUNU SÖYLÜYOR. store.ErrNotFound "kullanıcı
- * mı rol mü" ayrımını yapmıyor, ama ÇAĞIRAN yapabiliyor: iki komut da
+ * mı grup mü" ayrımını yapmıyor, ama ÇAĞIRAN yapabiliyor: iki komut da
  * kullanıcıyı önce doğruluyor (grant'ta RefuseIfDeleted, revoke'ta
  * User), dolayısıyla buraya düşen bir not-found ROL adına dair.
  * "ikisinden biri yanlış" demek, operatörü doğru adı iki kez kontrol
  * etmeye gönderirdi.
  *
- * ⚠️ İÇ ZİNCİR GÖVDEYE GİTMİYOR. "store.AssignRole: store: not found:
+ * ⚠️ İÇ ZİNCİR GÖVDEYE GİTMİYOR. "store.AssignGroup: store: not found:
  * sql: no rows in result set" operatöre hiçbir şey anlatmıyor; httpapi
  * tarafındaki storeErr de aynı sebeple zinciri log'a yazıp çağırana
  * olayın adını veriyor.
  */
-func roleErr(err error, role string) error {
+func roleErr(err error, group string) error {
 	if !errors.Is(err, store.ErrNotFound) {
 		return err
 	}
-	return fmt.Errorf("no role %q — see `postern role list`", role)
+	return fmt.Errorf("no group %q — see `postern group list`", group)
 }

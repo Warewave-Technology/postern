@@ -386,7 +386,7 @@ function AccountPolicyBox() {
                 <h3>Somebody signs in with no postern account</h3>
                 <p>
                   {autoCreate
-                    ? "An account is created for them if one of their groups maps to a role."
+                    ? "An account is created for them if one of their groups maps to a group."
                     : "They are put in a queue and an administrator decides. Until then they cannot get in."}
                 </p>
                 {/*
@@ -410,7 +410,7 @@ function AccountPolicyBox() {
                   confirm={
                     autoCreate
                       ? "Stop creating accounts automatically? People the source knows but postern does not will be queued for approval instead."
-                      : "Create accounts automatically? Anyone the source vouches for, whose group maps to a role, gets an account without an administrator looking."
+                      : "Create accounts automatically? Anyone the source vouches for, whose group maps to a group, gets an account without an administrator looking."
                   }
                   label={
                     autoCreate

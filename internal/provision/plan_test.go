@@ -284,7 +284,7 @@ func TestGroupWithoutSudoWritesNoFile(t *testing.T) {
 	}
 	for _, s := range steps {
 		if strings.HasPrefix(string(s.Kind), "sudo.") {
-			t.Errorf("sudosuz gruba dosya yazıldı: %v", kinds(steps))
+			t.Errorf("sudosuz group dosya yazıldı: %v", kinds(steps))
 		}
 	}
 }

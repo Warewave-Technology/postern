@@ -37,19 +37,19 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/admin/users", admin(s.adminCreateUser))
 	mux.Handle("PATCH /api/admin/users/{name}", admin(s.adminPatchUser))
 	mux.Handle("DELETE /api/admin/users/{name}", admin(s.adminDeleteUser))
-	mux.Handle("POST /api/admin/users/{name}/roles", admin(s.adminAssignRole))
-	mux.Handle("DELETE /api/admin/users/{name}/roles/{role}", admin(s.adminRevokeRole))
+	mux.Handle("POST /api/admin/users/{name}/groups", admin(s.adminAssignGroup))
+	mux.Handle("DELETE /api/admin/users/{name}/groups/{group}", admin(s.adminRevokeGroup))
 	// ⚠️ Yalnızca YÖNETİCİ OLMAYAN hesaplar için — gerekçe handler'da.
 	mux.Handle("POST /api/admin/users/{name}/credential", admin(s.adminIssueCredential))
 	mux.Handle("POST /api/admin/users/{name}/totp/reset", admin(s.adminResetTOTP))
 	mux.Handle("POST /api/admin/users/{name}/keys", admin(s.adminAddKey))
 	mux.Handle("POST /api/admin/users/{name}/keys/remove", admin(s.adminRemoveKey))
 
-	mux.Handle("GET /api/admin/roles", admin(s.adminListRoles))
-	mux.Handle("POST /api/admin/roles", admin(s.adminCreateRole))
-	mux.Handle("DELETE /api/admin/roles/{name}", admin(s.adminDeleteRole))
-	mux.Handle("POST /api/admin/roles/{name}/targets", admin(s.adminGrantTarget))
-	mux.Handle("DELETE /api/admin/roles/{name}/targets/{target}", admin(s.adminRevokeTarget))
+	mux.Handle("GET /api/admin/groups", admin(s.adminListGroups))
+	mux.Handle("POST /api/admin/groups", admin(s.adminCreateGroup))
+	mux.Handle("DELETE /api/admin/groups/{name}", admin(s.adminDeleteGroup))
+	mux.Handle("POST /api/admin/groups/{name}/targets", admin(s.adminGrantTarget))
+	mux.Handle("DELETE /api/admin/groups/{name}/targets/{target}", admin(s.adminRevokeTarget))
 	/*
 	 * SFTP yol kuralları.
 	 *
@@ -60,12 +60,12 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	 * okuyor ve DELETE bir gövde taşıyor — alışılmadık ama kaçırma
 	 * oyunundan güvenli.
 	 */
-	s.registerRoleSudoRoutes(mux)
+	s.registerGroupSudoRoutes(mux)
 	s.registerNotificationRoutes(mux)
 	s.registerConfigRoutes(mux)
-	mux.Handle("GET /api/admin/roles/{name}/paths", admin(s.adminListRolePaths))
-	mux.Handle("POST /api/admin/roles/{name}/paths", admin(s.adminSetRolePath))
-	mux.Handle("DELETE /api/admin/roles/{name}/paths", admin(s.adminDeleteRolePath))
+	mux.Handle("GET /api/admin/groups/{name}/paths", admin(s.adminListGroupPaths))
+	mux.Handle("POST /api/admin/groups/{name}/paths", admin(s.adminSetGroupPath))
+	mux.Handle("DELETE /api/admin/groups/{name}/paths", admin(s.adminDeleteGroupPath))
 	mux.Handle("GET /api/admin/targets", admin(s.adminListTargets))
 	mux.Handle("POST /api/admin/targets", admin(s.adminCreateTarget))
 	mux.Handle("DELETE /api/admin/targets/{name}", admin(s.adminDeleteTarget))
@@ -84,7 +84,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	// düşürürdü. Oturumu kesmenin kaydı okumakla ilgisi yok.
 	//
 	// ⚠️ DELETE DEĞİL POST. Bu API'de DELETE her yerde SATIR SİLİYOR
-	// (users, roles, targets, labels) ve oturum satırı asla silinmez —
+	// (users, groups, targets, labels) ve oturum satırı asla silinmez —
 	// denetim izi o. Kesme, kaydı değil AKIŞI durduruyor; fiili adıyla
 	// anmak, birinin ileride "silme" beklentisiyle okumasını engelliyor.
 	//
@@ -151,7 +151,7 @@ func (s *Server) sameOrigin(next http.Handler) http.Handler {
 
 // noStore, cevabın önbelleğe ALINMAMASINI söyler.
 //
-// ⚠️ NEDEN: admin cevapları kullanıcı listesini, rolleri, hedefleri ve
+// ⚠️ NEDEN: admin cevapları kullanıcı listesini, grupları, hedefleri ve
 // denetim kaydını taşıyor. Hiçbir önbellek yönergesi yokken bir ara
 // vekil ya da tarayıcı önbelleği bunları saklayabiliyor; paylaşılan bir
 // makinede "geri" tuşu ya da bir vekilin diskinde kalan kopya, oturumu
@@ -178,7 +178,7 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 }
 
 // readJSON, gövdeyi sınırla okur ve bilinmeyen alanları REDDEDER:
-// "role" yerine "rol" yazan istemci sessizce boş istek göndermesin.
+// "gruba" yerine "grup" yazan istemci sessizce boş istek göndermesin.
 func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
 	dec.DisallowUnknownFields()
@@ -299,7 +299,7 @@ func (s *Server) adminListUsers(w http.ResponseWriter, r *http.Request) {
 		Name   string   `json:"name"`
 		OSUser string   `json:"os_user"`
 		Admin  bool     `json:"admin"`
-		Roles  []string `json:"roles"`
+		Groups []string `json:"groups"`
 		// Sayı, liste ekranındaki "kim hiç bağlanamıyor" sorusunun
 		// cevabı. Anahtarların KENDİSİ burada dönmüyor: listede
 		// gösterilmiyor ve dönen her bayt saklanmasına gerek olmayan
@@ -318,9 +318,9 @@ func (s *Server) adminListUsers(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]row, 0, len(users))
 	for _, u := range users {
-		roles := make([]string, 0, len(u.Roles))
-		for _, ro := range u.Roles {
-			roles = append(roles, ro.Name)
+		groups := make([]string, 0, len(u.Groups))
+		for _, ro := range u.Groups {
+			groups = append(groups, ro.Name)
 		}
 		state, confirmed, serr := s.store.AccountState(r.Context(), u.Name)
 		if serr != nil {
@@ -328,7 +328,7 @@ func (s *Server) adminListUsers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		r := row{Name: u.Name, OSUser: u.OSUser, Admin: u.Admin,
-			Roles: roles, Keys: keyCounts[u.Name], State: state}
+			Groups: groups, Keys: keyCounts[u.Name], State: state}
 		if !confirmed.IsZero() {
 			r.Confirmed = confirmed.Format(time.RFC3339)
 		}
@@ -342,7 +342,7 @@ func (s *Server) adminCreateUser(w http.ResponseWriter, r *http.Request) {
 		Name   string   `json:"name"`
 		OSUser string   `json:"os_user"`
 		Email  string   `json:"email"`
-		Roles  []string `json:"roles"`
+		Groups []string `json:"groups"`
 	}
 	if !readJSON(w, r, &in) {
 		return
@@ -358,20 +358,20 @@ func (s *Server) adminCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, "user.create", in.Name, "os_user "+in.OSUser)
 
-	for _, role := range in.Roles {
-		if err := s.store.AssignRole(r.Context(), in.Name, role, time.Time{}); err != nil {
-			// Kullanıcı oluştu, rol atanamadı: kısmi durum. Gövde bunu
+	for _, group := range in.Groups {
+		if err := s.store.AssignGroup(r.Context(), in.Name, group, time.Time{}); err != nil {
+			// Kullanıcı oluştu, grup atanamadı: kısmi durum. Gövde bunu
 			// söyler; CLI'daki "düzelt ve yeniden dene" sözleşmesinin aynısı
-			// burada geçerli değil (create tekrar 409 verir), o yüzden rol
+			// burada geçerli değil (create tekrar 409 verir), o yüzden grup
 			// ataması ayrı uçtan tamamlanabilir.
 			if errors.Is(err, store.ErrNotFound) {
-				writeErr(w, http.StatusNotFound, "user created but role "+role+" not found; assign it separately")
+				writeErr(w, http.StatusNotFound, "user created but group "+group+" not found; assign it separately")
 				return
 			}
 			s.storeErr(w, "user.create", err)
 			return
 		}
-		s.audit(r, "user.grant_role", in.Name, "role "+role)
+		s.audit(r, "user.grant_role", in.Name, "group "+group)
 	}
 
 	/*
@@ -485,7 +485,7 @@ func (s *Server) adminDeleteUser(w http.ResponseWriter, r *http.Request) {
 			// Denetim kaydı olan varlık silinmez: sebebini açıkça söyle,
 			// yoksa "already exists" kullanıcıyı yanlış yere bakmaya iter.
 			s.logger.Warn("admin delete refused", "entity", name, "error", err)
-			writeErr(w, http.StatusConflict, "user has recorded sessions and cannot be deleted; revoke keys and roles instead")
+			writeErr(w, http.StatusConflict, "user has recorded sessions and cannot be deleted; revoke keys and groups instead")
 			return
 		}
 		s.storeErr(w, "user.delete", err)
@@ -498,32 +498,32 @@ func (s *Server) adminDeleteUser(w http.ResponseWriter, r *http.Request) {
 	ok(w)
 }
 
-func (s *Server) adminAssignRole(w http.ResponseWriter, r *http.Request) {
+func (s *Server) adminAssignGroup(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	var in struct {
-		Role string `json:"role"`
+		Group string `json:"group"`
 	}
-	if !readJSON(w, r, &in) || in.Role == "" {
-		if in.Role == "" {
-			writeErr(w, http.StatusBadRequest, "role is required")
+	if !readJSON(w, r, &in) || in.Group == "" {
+		if in.Group == "" {
+			writeErr(w, http.StatusBadRequest, "group is required")
 		}
 		return
 	}
-	if err := s.store.AssignRole(r.Context(), name, in.Role, time.Time{}); err != nil {
+	if err := s.store.AssignGroup(r.Context(), name, in.Group, time.Time{}); err != nil {
 		s.storeErr(w, "user.grant_role", err)
 		return
 	}
-	s.audit(r, "user.grant_role", name, "role "+in.Role)
+	s.audit(r, "user.grant_role", name, "group "+in.Group)
 	ok(w)
 }
 
-func (s *Server) adminRevokeRole(w http.ResponseWriter, r *http.Request) {
-	name, role := r.PathValue("name"), r.PathValue("role")
-	if err := s.store.RevokeRole(r.Context(), name, role); err != nil {
+func (s *Server) adminRevokeGroup(w http.ResponseWriter, r *http.Request) {
+	name, group := r.PathValue("name"), r.PathValue("group")
+	if err := s.store.RevokeGroup(r.Context(), name, group); err != nil {
 		s.storeErr(w, "user.revoke_role", err)
 		return
 	}
-	s.audit(r, "user.revoke_role", name, "role "+role)
+	s.audit(r, "user.revoke_role", name, "group "+group)
 	ok(w)
 }
 
@@ -596,12 +596,12 @@ func (s *Server) adminRemoveKey(w http.ResponseWriter, r *http.Request) {
 	ok(w)
 }
 
-// --- roller ---
+// --- gruplar ---
 
-func (s *Server) adminListRoles(w http.ResponseWriter, r *http.Request) {
-	roles, err := s.store.Roles(r.Context())
+func (s *Server) adminListGroups(w http.ResponseWriter, r *http.Request) {
+	groups, err := s.store.Groups(r.Context())
 	if err != nil {
-		s.storeErr(w, "roles.list", err)
+		s.storeErr(w, "groups.list", err)
 		return
 	}
 	/*
@@ -609,9 +609,9 @@ func (s *Server) adminListRoles(w http.ResponseWriter, r *http.Request) {
 	 * yirmi rollü bir kurulumda yirmi istek demekti; ve ekranın cevabı
 	 * geciken sütunu boş çizmesi "kural yok" diye okunurdu.
 	 */
-	rules, err := s.store.RoleSudoRules(r.Context())
+	rules, err := s.store.GroupSudoRules(r.Context())
 	if err != nil {
-		s.storeErr(w, "roles.list", err)
+		s.storeErr(w, "groups.list", err)
 		return
 	}
 	type row struct {
@@ -619,8 +619,8 @@ func (s *Server) adminListRoles(w http.ResponseWriter, r *http.Request) {
 		Targets []string      `json:"targets"`
 		Sudo    *sudoRuleView `json:"sudo,omitempty"`
 	}
-	out := make([]row, 0, len(roles))
-	for _, ro := range roles {
+	out := make([]row, 0, len(groups))
+	for _, ro := range groups {
 		one := row{Name: ro.Name, Targets: ro.Targets}
 		if rs, okRule := rules[ro.Name]; okRule {
 			v := sudoView(rs)
@@ -631,7 +631,7 @@ func (s *Server) adminListRoles(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-func (s *Server) adminCreateRole(w http.ResponseWriter, r *http.Request) {
+func (s *Server) adminCreateGroup(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Name    string   `json:"name"`
 		Targets []string `json:"targets"`
@@ -643,40 +643,40 @@ func (s *Server) adminCreateRole(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if _, err := s.store.CreateRole(r.Context(), in.Name); err != nil {
-		s.storeErr(w, "role.create", err)
+	if _, err := s.store.CreateGroup(r.Context(), in.Name); err != nil {
+		s.storeErr(w, "group.create", err)
 		return
 	}
-	s.audit(r, "role.create", in.Name, "")
+	s.audit(r, "group.create", in.Name, "")
 
 	for _, tgt := range in.Targets {
 		if err := s.store.GrantTarget(r.Context(), in.Name, tgt); err != nil {
 			if errors.Is(err, store.ErrNotFound) {
-				writeErr(w, http.StatusNotFound, "role created but target "+tgt+" not found; grant it separately")
+				writeErr(w, http.StatusNotFound, "group created but target "+tgt+" not found; grant it separately")
 				return
 			}
-			s.storeErr(w, "role.create", err)
+			s.storeErr(w, "group.create", err)
 			return
 		}
-		s.audit(r, "role.grant", in.Name, "target "+tgt)
+		s.audit(r, "group.grant", in.Name, "target "+tgt)
 	}
 	ok(w)
 }
 
-func (s *Server) adminDeleteRole(w http.ResponseWriter, r *http.Request) {
+func (s *Server) adminDeleteGroup(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	if err := s.store.DeleteRole(r.Context(), name); err != nil {
+	if err := s.store.DeleteGroup(r.Context(), name); err != nil {
 		if errors.Is(err, store.ErrConflict) {
 			// Denetim kaydı olan varlık silinmez: sebebini açıkça söyle,
 			// yoksa "already exists" kullanıcıyı yanlış yere bakmaya iter.
 			s.logger.Warn("admin delete refused", "entity", name, "error", err)
-			writeErr(w, http.StatusConflict, "role is still referenced and cannot be deleted")
+			writeErr(w, http.StatusConflict, "group is still referenced and cannot be deleted")
 			return
 		}
-		s.storeErr(w, "role.delete", err)
+		s.storeErr(w, "group.delete", err)
 		return
 	}
-	s.audit(r, "role.delete", name, "")
+	s.audit(r, "group.delete", name, "")
 	ok(w)
 }
 
@@ -693,20 +693,20 @@ func (s *Server) adminGrantTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.store.GrantTarget(r.Context(), name, in.Target); err != nil {
-		s.storeErr(w, "role.grant", err)
+		s.storeErr(w, "group.grant", err)
 		return
 	}
-	s.audit(r, "role.grant", name, "target "+in.Target)
+	s.audit(r, "group.grant", name, "target "+in.Target)
 	ok(w)
 }
 
 func (s *Server) adminRevokeTarget(w http.ResponseWriter, r *http.Request) {
 	name, target := r.PathValue("name"), r.PathValue("target")
 	if err := s.store.RevokeTarget(r.Context(), name, target); err != nil {
-		s.storeErr(w, "role.revoke", err)
+		s.storeErr(w, "group.revoke", err)
 		return
 	}
-	s.audit(r, "role.revoke", name, "target "+target)
+	s.audit(r, "group.revoke", name, "target "+target)
 	ok(w)
 }
 
@@ -714,14 +714,14 @@ func (s *Server) adminRevokeTarget(w http.ResponseWriter, r *http.Request) {
 
 /*
  * ⚠️ KURALSIZ ROL KISITSIZ ve bu uç onu GİZLEMİYOR: boş liste dönüyor
- * ve panel "no rules — this role is unrestricted" yazıyor. Boş listeyi
+ * ve panel "no rules — this gruba is unrestricted" yazıyor. Boş listeyi
  * "erişim yok" diye çizmek, yöneticiye koymadığı bir korumayı koymuş
  * gibi gösterirdi.
  */
-func (s *Server) adminListRolePaths(w http.ResponseWriter, r *http.Request) {
-	rules, err := s.store.RolePaths(r.Context(), r.PathValue("name"))
+func (s *Server) adminListGroupPaths(w http.ResponseWriter, r *http.Request) {
+	rules, err := s.store.GroupPaths(r.Context(), r.PathValue("name"))
 	if err != nil {
-		s.storeErr(w, "role.paths.list", err)
+		s.storeErr(w, "group.paths.list", err)
 		return
 	}
 
@@ -737,7 +737,7 @@ func (s *Server) adminListRolePaths(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-func (s *Server) adminSetRolePath(w http.ResponseWriter, r *http.Request) {
+func (s *Server) adminSetGroupPath(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	var in struct {
 		Prefix   string `json:"prefix"`
@@ -776,16 +776,16 @@ func (s *Server) adminSetRolePath(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.store.SetRolePath(r.Context(), name, in.Prefix, in.Allow, in.CanWrite); err != nil {
-		s.storeErr(w, "role.paths.set", err)
+	if err := s.store.SetGroupPath(r.Context(), name, in.Prefix, in.Allow, in.CanWrite); err != nil {
+		s.storeErr(w, "group.paths.set", err)
 		return
 	}
 
-	s.audit(r, "role.paths.set", name, rulePhrase(in.Prefix, in.Allow, in.CanWrite))
+	s.audit(r, "group.paths.set", name, rulePhrase(in.Prefix, in.Allow, in.CanWrite))
 	ok(w)
 }
 
-func (s *Server) adminDeleteRolePath(w http.ResponseWriter, r *http.Request) {
+func (s *Server) adminDeleteGroupPath(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	var in struct {
 		Prefix string `json:"prefix"`
@@ -798,8 +798,8 @@ func (s *Server) adminDeleteRolePath(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.store.DeleteRolePath(r.Context(), name, in.Prefix); err != nil {
-		s.storeErr(w, "role.paths.delete", err)
+	if err := s.store.DeleteGroupPath(r.Context(), name, in.Prefix); err != nil {
+		s.storeErr(w, "group.paths.delete", err)
 		return
 	}
 
@@ -810,10 +810,10 @@ func (s *Server) adminDeleteRolePath(w http.ResponseWriter, r *http.Request) {
 	 * olduğunu söylemiyor.
 	 */
 	detail := "removed " + in.Prefix
-	if left, err := s.store.RolePaths(r.Context(), name); err == nil && len(left) == 0 {
-		detail += " (last rule: role is now unrestricted)"
+	if left, err := s.store.GroupPaths(r.Context(), name); err == nil && len(left) == 0 {
+		detail += " (last rule: group is now unrestricted)"
 	}
-	s.audit(r, "role.paths.delete", name, detail)
+	s.audit(r, "group.paths.delete", name, detail)
 	ok(w)
 }
 
@@ -1056,7 +1056,7 @@ func (s *Server) adminListSessions(w http.ResponseWriter, r *http.Request) {
 		Started string  `json:"started_at"`
 		Ended   *string `json:"ended_at"`
 		Running bool    `json:"running"`
-		// Temporary, oturumu rol değil süreli hak açtı; yoksa alan da yok.
+		// Temporary, oturumu grup değil süreli hak açtı; yoksa alan da yok.
 		Temporary bool `json:"temporary,omitempty"`
 		// Denied, postern'in reddettiği istek sayısı; sayılmadıysa yok.
 		Denied *int64 `json:"denied,omitempty"`

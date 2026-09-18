@@ -195,7 +195,7 @@ $ ssh <span class="g">yigit:web-01</span>@bastion
 </pre>
     <ul class="plain">
       <li><strong>Who are you.</strong> A local credential, your directory, or your identity provider. An OIDC identity is bound by <code>(iss, sub)</code> — never by a username somebody can edit.</li>
-      <li><strong>What may you reach.</strong> Roles, read from the database at connect time rather than from a cache, so a revoked grant stops the next attempt immediately. A session already running is not cut by the revocation — an administrator closes it from the panel. No role, no answer.</li>
+      <li><strong>What may you reach.</strong> Groups, read from the database at connect time rather than from a cache, so a revoked grant stops the next attempt immediately. A session already running is not cut by the revocation — an administrator closes it from the panel. No group, no answer.</li>
       <li><strong>How do you get in.</strong> A fresh ed25519 key is generated for this one session, signed by postern's CA for a single principal, and valid for five minutes — long enough to finish a handshake, not long enough to be worth stealing. It never touches disk, it carries <code>permit-pty</code> and nothing else, and the target never holds a key of yours.</li>
       <li><strong>What happened.</strong> The session is recorded as asciicast v2 and replays in the panel or with <code>asciinema play</code>. If the recording cannot be written, the session is refused.</li>
     </ul>
@@ -271,7 +271,7 @@ $ ssh <span class="g">yigit:web-01</span>@bastion
     <table>
       <tr><th>Piece</th><th>What it is</th></tr>
       <tr><td>The bastion</td><td>One Go binary. The panel is compiled into it; there is no second service to run.</td></tr>
-      <tr><td>State</td><td>PostgreSQL. Users, roles, targets, sessions, audit — all of it, in schema you can read.</td></tr>
+      <tr><td>State</td><td>PostgreSQL. Users, groups, targets, sessions, audit — all of it, in schema you can read.</td></tr>
       <tr><td>Recordings</td><td>Plain asciicast files on disk, one per session, pruned on a retention you set — and, if you point postern at a bucket, copied there before anything local is deleted.</td></tr>
       <tr><td>On each target</td><td>One line of <code>sshd_config</code> trusting postern's CA. No daemon, no package.</td></tr>
     </table>
@@ -297,7 +297,7 @@ $ ssh <span class="g">you:web-01</span>@bastion
 </pre>
     <p>
       Step 3 is the only thing that touches your servers, and
-      <a href="docs/index.html#targets">an Ansible role</a> does it: it validates with
+      <a href="docs/index.html#targets">an Ansible group</a> does it: it validates with
       <code>sshd -t</code> before installing and reloads rather than restarts,
       so nobody's session dies for it.
     </p>

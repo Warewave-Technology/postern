@@ -15,24 +15,24 @@ import (
  * ölçüm gerektiriyor — yazılıp okunmadığı fark edilmezse politika hep
  * boş kurallarla çalışır ve sessizce hiçbir şeyi kısıtlamaz.
  */
-func TestRolePathsRoundTripThroughUser(t *testing.T) {
+func TestGroupPathsRoundTripThroughUser(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
 	if _, err := s.CreateUser(ctx, "yigit", "yigit@warewave.io", "yigit"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateRole(ctx, "dev"); err != nil {
+	if _, err := s.CreateGroup(ctx, "dev"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AssignRole(ctx, "yigit", "dev", time.Time{}); err != nil {
+	if err := s.AssignGroup(ctx, "yigit", "dev", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := s.SetRolePath(ctx, "dev", "/home/yigit", true, true); err != nil {
+	if err := s.SetGroupPath(ctx, "dev", "/home/yigit", true, true); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetRolePath(ctx, "dev", "/home/yigit/.ssh", false, false); err != nil {
+	if err := s.SetGroupPath(ctx, "dev", "/home/yigit/.ssh", false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -40,10 +40,10 @@ func TestRolePathsRoundTripThroughUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(u.Roles) != 1 {
-		t.Fatalf("rol sayısı %d", len(u.Roles))
+	if len(u.Groups) != 1 {
+		t.Fatalf("grup sayısı %d", len(u.Groups))
 	}
-	rules := u.Roles[0].Paths
+	rules := u.Groups[0].Paths
 	if len(rules) != 2 {
 		t.Fatalf("KURALLAR KULLANICIYLA BİRLİKTE GELMEDİ: %+v", rules)
 	}
@@ -59,21 +59,21 @@ func TestRolePathsRoundTripThroughUser(t *testing.T) {
 }
 
 // Aynı önek yeniden yazılınca güncelleniyor, ikinci satır oluşmuyor.
-func TestSetRolePathUpdatesInPlace(t *testing.T) {
+func TestSetGroupPathUpdatesInPlace(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
-	if _, err := s.CreateRole(ctx, "dev"); err != nil {
+	if _, err := s.CreateGroup(ctx, "dev"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetRolePath(ctx, "dev", "/srv", true, false); err != nil {
+	if err := s.SetGroupPath(ctx, "dev", "/srv", true, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetRolePath(ctx, "dev", "/srv", true, true); err != nil {
+	if err := s.SetGroupPath(ctx, "dev", "/srv", true, true); err != nil {
 		t.Fatal(err)
 	}
 
-	rules, err := s.RolePaths(ctx, "dev")
+	rules, err := s.GroupPaths(ctx, "dev")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,20 +96,20 @@ func TestRelativePrefixIsRefused(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
-	if _, err := s.CreateRole(ctx, "dev"); err != nil {
+	if _, err := s.CreateGroup(ctx, "dev"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetRolePath(ctx, "dev", "home/yigit", true, false); err == nil {
+	if err := s.SetGroupPath(ctx, "dev", "home/yigit", true, false); err == nil {
 		t.Fatal("göreli önek kabul edildi")
 	}
 }
 
-// Olmayan role kural yazmak sessizce başarılı olmamalı.
-func TestSetRolePathOnAMissingRoleFails(t *testing.T) {
+// Olmayan gruba kural yazmak sessizce başarılı olmamalı.
+func TestSetGroupPathOnAMissingGroupFails(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
-	err := s.SetRolePath(ctx, "yok", "/srv", true, false)
+	err := s.SetGroupPath(ctx, "yok", "/srv", true, false)
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("hata = %v, ErrNotFound bekleniyordu", err)
 	}

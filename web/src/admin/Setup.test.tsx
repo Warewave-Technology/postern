@@ -35,7 +35,7 @@ beforeEach(() => {
   vi.spyOn(api, "settings").mockResolvedValue(settings());
   vi.spyOn(api, "mappings").mockResolvedValue([]);
   vi.spyOn(api, "unmappedGroups").mockResolvedValue([]);
-  vi.spyOn(api, "roles").mockResolvedValue([]);
+  vi.spyOn(api, "groups").mockResolvedValue([]);
   // OIDC ayarları artık veritabanında ve sihirbaz onları okuyor.
   vi.spyOn(api, "oidcSettings").mockResolvedValue({
     issuer_url: "",
@@ -188,7 +188,7 @@ describe("kurulum sihirbazi", () => {
       screen.getByRole("radio", { name: /Directory \(LDAP\)/i }),
     );
     await userEvent.click(
-      screen.getByRole("button", { name: /Groups and roles/i }),
+      screen.getByRole("button", { name: /Groups and groups/i }),
     );
 
     expect(
@@ -215,7 +215,7 @@ describe("kurulum sihirbazi", () => {
       screen.getByRole("radio", { name: /postern's own credentials/i }),
     );
     await userEvent.click(
-      screen.getByRole("button", { name: /Groups and roles/i }),
+      screen.getByRole("button", { name: /Groups and groups/i }),
     );
 
     expect(screen.queryByText(/Do accounts open on their own/i)).toBeNull();

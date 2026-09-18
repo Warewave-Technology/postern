@@ -303,14 +303,14 @@ describe("SFTPClient", () => {
         FXP.STATUS,
         ...u32(readIDAt(t.body(0), 1)),
         ...u32(FX.PERMISSION_DENIED),
-        ...str("path /etc is not allowed by your role"),
+        ...str("path /etc is not allowed by your group"),
       ),
     );
 
     await expect(p).rejects.toBeInstanceOf(SFTPError);
     await p.catch((e: SFTPError) => {
       expect(e.code).toBe(FX.PERMISSION_DENIED);
-      expect(e.message).toContain("not allowed by your role");
+      expect(e.message).toContain("not allowed by your group");
     });
   });
 

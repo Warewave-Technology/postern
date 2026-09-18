@@ -89,7 +89,7 @@ func TestLoad(t *testing.T) {
 // bir hataya çevirir. Alanları şemaya geri ekleyen biri de önce bu testi
 // silmek zorunda kalır — ki tam olarak istenen sürtünme bu.
 func TestLoadRejectsIdentityData(t *testing.T) {
-	for _, field := range []string{"targets", "roles", "users"} {
+	for _, field := range []string{"targets", "groups", "users"} {
 		t.Run(field, func(t *testing.T) {
 			content := "listen:\n  addr: \":2222\"\n" + field + ": []\n"
 			path := filepath.Join(t.TempDir(), "old.yaml")

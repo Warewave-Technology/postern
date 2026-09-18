@@ -8,7 +8,7 @@
 //
 // ⚠️ KEŞİF ERİŞİM VERMEZ, HEDEF VE ROL YARATIR. Bir makinenin
 // postern'de hedef olması, kimsenin oraya girebildiği anlamına gelmiyor:
-// erişim yalnızca rolden geliyor ve rolü insanlara bağlamak ayrı,
+// erişim yalnızca rolden geliyor ve grubu insanlara bağlamak ayrı,
 // bilinçli bir adım. Keşif o adımı yapmıyor.
 package discover
 
@@ -71,7 +71,7 @@ type Source interface {
 }
 
 /*
- * RoleFromTags, etiketlerden rol adını çıkarır.
+ * GroupFromTags, etiketlerden grup adını çıkarır.
  *
  * ⚠️ ANAHTAR ETİKETİN İÇİNDE, ayrı bir alan değil. Proxmox etiketleri
  * anahtar/değer çifti DEĞİL, düz dizeler ("prod", "role=ops"). Bu
@@ -83,7 +83,7 @@ type Source interface {
  * etiketlemekten ucuz.
  *
  * ⚠️ ANAHTARSIZ MAKİNE HATA DEĞİL. Etiketi olmayan ya da anahtarı
- * taşımayan makine `unknown` rolüne düşüyor — kaynağın hiçbir grup
+ * taşımayan makine `unknown` grubuna düşüyor — kaynağın hiçbir grup
  * söylemediği kullanıcının düştüğü yerin aynısı (model.UnknownGroup).
  * Sebebi aynı: "bilmiyorum" ile "hiçbiri" ayrı şeyler ve bilmediğimiz
  * makineyi sessizce dışarıda bırakmak, onu envanterden düşürürdü.
@@ -101,10 +101,10 @@ type Source interface {
  * kalan her şey değerdir ("role_web_prod" + anahtar "role" =
  * "web_prod").
  */
-func RoleFromTags(tags []string, key string) (role string, tagged bool) {
+func GroupFromTags(tags []string, key string) (group string, tagged bool) {
 	key = strings.TrimSpace(key)
 	if key == "" {
-		return UnknownRole, false
+		return UnknownGroup, false
 	}
 	for _, t := range tags {
 		t = strings.TrimSpace(t)
@@ -116,7 +116,7 @@ func RoleFromTags(tags []string, key string) (role string, tagged bool) {
 		if rest == "" || !isTagSeparator(rest[0]) {
 			// Ayırıcı yoksa bu etiket bizim anahtarımız DEĞİL, yalnızca
 			// onunla başlıyor: "role" anahtarı "roles_web" etiketini
-			// yakalamamalı, yoksa makine yanlış role girer.
+			// yakalamamalı, yoksa makine yanlış gruba girer.
 			continue
 		}
 		v := strings.TrimSpace(rest[1:])
@@ -125,7 +125,7 @@ func RoleFromTags(tags []string, key string) (role string, tagged bool) {
 		}
 		return v, true
 	}
-	return UnknownRole, false
+	return UnknownGroup, false
 }
 
 /*
@@ -139,8 +139,8 @@ func RoleFromTags(tags []string, key string) (role string, tagged bool) {
  * [a-z0-9_.+-] (pve-common'daki `pve-tag` biçimi). Yani `=` de `:` de
  * bir Proxmox etiketine HİÇ yazılamıyor. Yalnızca o ikisini tanıyan
  * eski kod, gerçek bir Proxmox kurulumunda her makineyi sessizce
- * `unknown` rolüne düşürüyordu: hata yok, uyarı yok, sadece hiçbir
- * makinenin rolü yok.
+ * `unknown` grubuna düşürüyordu: hata yok, uyarı yok, sadece hiçbir
+ * makinenin grubu yok.
  *
  * `=` ve `:` duruyor çünkü vSphere onları yazabiliyor ve keşif orada
  * "kategori=etiket" üretiyor (vsphere.go).
@@ -150,17 +150,17 @@ func isTagSeparator(c byte) bool {
 }
 
 /*
- * UnknownRole, rol etiketi olmayan makinelerin düştüğü rol.
+ * UnknownGroup, grup etiketi olmayan makinelerin düştüğü grup.
  *
  * ⚠️ model.UnknownGroup ile AYNI KELİME ve bu kasıtlı: operatör aynı
  * anlamı iki farklı adla öğrenmek zorunda kalmasın. Orada "kaynak
- * cevap verdi ama grup söylemedi", burada "makine var ama rolü
+ * cevap verdi ama grup söylemedi", burada "makine var ama grubu
  * söylenmemiş" — ikisi de "bilmiyoruz, ama sakladık" demek.
  */
-const UnknownRole = "unknown"
+const UnknownGroup = "unknown"
 
 /*
- * ValidRoleName, etiketten gelen değerin rol adı olarak kullanılabilir
+ * ValidGroupName, etiketten gelen değerin grup adı olarak kullanılabilir
  * olduğu.
  *
  * ⚠️ ETİKET GÜVENİLMEYEN GİRDİ. Hipervizöre makine ekleyebilen herkes
@@ -169,19 +169,19 @@ const UnknownRole = "unknown"
  * ayracı taşıyan bir ad, sonradan liste ayrıştıran her yerde
  * belirsizlik üretir.
  */
-func ValidRoleName(name string) error {
+func ValidGroupName(name string) error {
 	if name == "" {
-		return fmt.Errorf("role name is empty")
+		return fmt.Errorf("group name is empty")
 	}
 	if len(name) > 64 {
-		return fmt.Errorf("role name is longer than 64 characters")
+		return fmt.Errorf("group name is longer than 64 characters")
 	}
 	for _, r := range name {
 		switch {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z',
 			r >= '0' && r <= '9', r == '-', r == '_', r == '.':
 		default:
-			return fmt.Errorf("role name contains %q; letters, digits, - _ . only", r)
+			return fmt.Errorf("group name contains %q; letters, digits, - _ . only", r)
 		}
 	}
 	return nil
@@ -190,8 +190,8 @@ func ValidRoleName(name string) error {
 // Outcome, tek bir makine için keşfin sonucu.
 type Outcome struct {
 	Machine Machine
-	Role    string
-	// Tagged: rol etiketten mi geldi (yoksa unknown'a mı düştü).
+	Group   string
+	// Tagged: grup etiketten mi geldi (yoksa unknown'a mı düştü).
 	Tagged bool
 
 	// Skipped doluysa makine için hiçbir şey yazılmadı ve sebebi bu.
@@ -208,7 +208,7 @@ type Outcome struct {
 	KeyUnchecked string
 
 	// Aşağıdakiler yalnızca uygulama (apply) turunda dolar.
-	CreatedRole   bool
+	CreatedGroup  bool
 	CreatedTarget bool
 	Granted       bool
 	// Existing: hedef zaten vardı ve DOKUNULMADI.
@@ -216,15 +216,15 @@ type Outcome struct {
 }
 
 // SortOutcomes, raporu okunur bir sıraya koyar: önce atlananlar (asıl
-// bakılacak olan onlar), sonra rol, sonra ad.
+// bakılacak olan onlar), sonra grup, sonra ad.
 func SortOutcomes(out []Outcome) {
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i], out[j]
 		if (a.Skipped != "") != (b.Skipped != "") {
 			return a.Skipped != ""
 		}
-		if a.Role != b.Role {
-			return a.Role < b.Role
+		if a.Group != b.Group {
+			return a.Group < b.Group
 		}
 		return a.Machine.Name < b.Machine.Name
 	})

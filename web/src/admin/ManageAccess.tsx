@@ -58,7 +58,7 @@ export default function ManageAccess({
           <p className="no-match">
             Management is switched off on this bastion. Turn on{" "}
             <code>manage.enabled</code> in <code>postern.yaml</code> to check
-            hosts where the <code>postern_target</code> role created the
+            hosts where the <code>postern_target</code> group created the
             management account.
           </p>
         ) : (

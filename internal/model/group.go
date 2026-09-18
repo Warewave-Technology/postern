@@ -1,43 +1,34 @@
 package model
 
-/*
- * Grup adları arasında ÜRÜNÜN kendi adı.
- *
- * ⚠️ NEDEN model'de: hem ayarları okuyan taraf (internal/auth) hem de
- * grupları role çeviren taraf (internal/store) buna bakıyor ve auth
- * zaten store'u kullanıyor — sabiti ikisinden birine koymak, diğerinin
- * onu kopyalaması ya da bir bağımlılık döngüsü demekti.
- */
+// Group, bir hedef kümesine erişim yetkisi.
+//
+// S3 şemasında groups + group_targets tablolarının karşılığı.
+type Group struct {
+	Name string
 
-/*
- * UnknownGroup, kaynağın CEVAP VERDİĞİ ama hiçbir grup söylemediği
- * kullanıcıların düştüğü grup.
- *
- * ⚠️ ÇÖZÜLDÜ AMA BOŞ ≠ ÇÖZÜLEMEDİ. Bu grup YALNIZCA kaynak "bu kişiyi
- * tanıyorum ve hiçbir grupta değil" dediğinde uygulanır. Dizin cevap
- * veremediğinde ya da kullanıcıyı hiç bulamadığında uygulanmaz — o iki
- * hâlde hiçbir şey bilinmiyor demektir ve bir arızayı yetkiye çevirmek,
- * default-deny'ın tam tersi olurdu.
- *
- * Var olma sebebi somut: grup claim'i göndermeyen bir IdP'de hiç kimse
- * hiçbir role eşleşmiyor, ProvisionUser hesabı AÇMIYOR ve kullanıcı
- * kapıda kalıyor — yöneticinin elinde onu düzeltecek bir tutamak bile
- * olmadan. Bu grup o tutamağı veriyor: yönetici `unknown`'ı bir role
- * eşler, kullanıcı içeri girer ve doğru grubuna elle atanır.
- */
-const UnknownGroup = "unknown"
+	// Targets, bu grubun erişebildiği hedef adları.
+	Targets []string
 
-/*
- * ResolvedGroups, çözülmüş bir grup listesini role çevrilmeye hazırlar.
- *
- * ⚠️ YALNIZCA PRESENCE=PRESENT olan çağrı noktalarından çağrılmalı.
- * İmzası bunu zorlayamıyor (bir []string alıyor), o yüzden kural her
- * çağrı yerinde yazılı: "kaynak cevap verdi" bilgisi orada duruyor,
- * burada değil.
- */
-func ResolvedGroups(groups []string) []string {
-	if len(groups) > 0 {
-		return groups
-	}
-	return []string{UnknownGroup}
+	/*
+	 * Paths, bu grubun SFTP yol kuralları.
+	 *
+	 * ⚠️ BOŞ LİSTE "HİÇBİR ŞEY" DEĞİL, "KISIT YOK" DEMEK. Kuralı olmayan
+	 * bir grup bugünkü gibi her yola erişiyor; kısıtlama kural
+	 * EKLENDİĞİNDE başlıyor. Aksi hâli, yükseltmenin ertesi sabahı her
+	 * kurulumun SFTP'sini kırmak olurdu.
+	 */
+	Paths []PathRule
+}
+
+// PathRule, bir yol öneği üzerindeki karar.
+type PathRule struct {
+	// Prefix, mutlak yol öneki. Eşleşme DİZİN SINIRINDA yapılıyor.
+	Prefix string
+
+	// Allow false ise açık ret: izinli bir ağacın içinden dal kesmeye
+	// yarıyor. En uzun eşleşen önek kazandığı için çalışıyor.
+	Allow bool
+
+	// CanWrite, iznin yazmayı da kapsayıp kapsamadığı.
+	CanWrite bool
 }

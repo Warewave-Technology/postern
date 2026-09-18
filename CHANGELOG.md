@@ -28,6 +28,43 @@ audit rows into a shape it does not understand.
   commit after the tag — RELEASING.md says the same thing at the end.
 -->
 
+## Unreleased
+
+### Needs action if you call the API or use the CLI
+
+**`role` is now `group` everywhere.** postern's own authorisation object —
+the thing that holds targets and carries a sudo rule — is called a group,
+because that is what it already is at both ends of the chain: a directory
+group maps to it, and it becomes a Unix group on the host. Calling the
+middle one a role gave the same thing three names.
+
+What changed:
+
+- `/api/admin/roles` → `/api/admin/groups`, including `/targets`, `/paths`
+  and `/sudo` under it.
+- The `roles` field on `/api/me` and on a user object → `groups`.
+- The mapping endpoints now take `directory_group` and `group`, where they
+  took `group` and `role`. That pair was the reason the rename could not
+  be mechanical: both ends were already called a group in some places.
+- The `role` command group is now `postern group …`. Under `postern user`,
+  the `grant-role` and `revoke-role` subcommands are `grant-group` and
+  `revoke-group`. The `--role` flag is `--group` everywhere, and
+  `postern mapping add` takes `--directory-group X --group Y` where it took
+  a `--group` and a `--role`.
+- Audit actions are named `group.*` where they were `role.*`. Rows already
+  in the ledger keep the action name they were written with — a filter on
+  `role.grant` still finds the old ones, and nothing rewrites history.
+
+Run `postern db migrate` before starting this version: the schema renames
+the tables that carried the old word. **Nothing changes on a managed
+host** — the sudoers file is named after the group's own name
+(`/etc/sudoers.d/postern-dba`), never after the word for its type.
+
+Three different things are now called a group, and the screens say which
+is which: a **directory group** is what your IdP or LDAP sends, a
+**group** is postern's object, and a **host group** is a Unix group that
+already exists on a target.
+
 ## 1.3.0 — 2026-09-16
 
 ### Security

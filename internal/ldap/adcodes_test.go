@@ -53,7 +53,7 @@ func TestADSubCode(t *testing.T) {
  * ⚠️ REFERRAL "YOK" DEĞİL "BURADA DEĞİL" DEMEK.
  *
  * Boş sonuç PresenceAbsent'a çevriliyor ve o da "kullanıcı silinmiş"
- * demek — groupsync onu görüp rol iptaline gidiyor. Ama AD, aranan şey
+ * demek — groupsync onu görüp grup iptaline gidiyor. Ama AD, aranan şey
  * başka bir alan adındaysa SIFIR giriş ve BİR REFERRAL döndürüyor:
  * kişi duruyor, yalnızca bu sunucuda değil.
  *

@@ -19,28 +19,28 @@ func restartRule() sudoers.Rule {
 
 /*
  * ⚠️ KURAL ROLE AİT VE ROL ADIYLA OKUNUYOR. Hak verme akışı grupların
- * hangisinin rol olduğunu bu haritadan öğreniyor; rol adları harf
+ * hangisinin grup olduğunu bu haritadan öğreniyor; grup adları harf
  * duyarsız tekil olduğu için okuma da öyle.
  */
-func TestRoleSudoRuleRoundTripsByRoleName(t *testing.T) {
+func TestGroupSudoRuleRoundTripsByGroupName(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
-	if _, err := s.CreateRole(ctx, "dba"); err != nil {
+	if _, err := s.CreateGroup(ctx, "dba"); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := s.RoleSudoRule(ctx, "dba"); !errors.Is(err, ErrNotFound) {
-		t.Errorf("kuralsız rol: err = %v, ErrNotFound bekleniyordu", err)
+	if _, err := s.GroupSudoRule(ctx, "dba"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("kuralsız grup: err = %v, ErrNotFound bekleniyordu", err)
 	}
-	if err := s.SetRoleSudo(ctx, "dba", restartRule(), "yigit"); err != nil {
+	if err := s.SetGroupSudo(ctx, "dba", restartRule(), "yigit"); err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := s.RoleSudoRule(ctx, "DBA")
+	got, err := s.GroupSudoRule(ctx, "DBA")
 	if err != nil {
 		t.Fatalf("harf duyarsız okuma: %v", err)
 	}
-	if got.Role != "dba" || got.UpdatedBy != "yigit" || len(got.Rule.Commands) != 1 ||
+	if got.Group != "dba" || got.UpdatedBy != "yigit" || len(got.Rule.Commands) != 1 ||
 		got.Rule.Commands[0].Path != "/usr/sbin/nginx" ||
 		len(got.Rule.Commands[0].Args) != 1 || got.UpdatedAt.IsZero() {
 		t.Fatalf("kural geri okunmadı: %+v", got)
@@ -50,10 +50,10 @@ func TestRoleSudoRuleRoundTripsByRoleName(t *testing.T) {
 	second := sudoers.Rule{RunAs: "postgres", Commands: []sudoers.Command{
 		{Path: "/usr/bin/pg_ctl", Args: []string{"reload"}},
 	}}
-	if err := s.SetRoleSudo(ctx, "dba", second, "ayse"); err != nil {
+	if err := s.SetGroupSudo(ctx, "dba", second, "ayse"); err != nil {
 		t.Fatal(err)
 	}
-	all, err := s.RoleSudoRules(ctx)
+	all, err := s.GroupSudoRules(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,14 +61,14 @@ func TestRoleSudoRuleRoundTripsByRoleName(t *testing.T) {
 		t.Fatalf("üzerine yazma: %+v", all)
 	}
 
-	if err := s.DeleteRoleSudo(ctx, "dba"); err != nil {
+	if err := s.DeleteGroupSudo(ctx, "dba"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DeleteRoleSudo(ctx, "dba"); !errors.Is(err, ErrNotFound) {
+	if err := s.DeleteGroupSudo(ctx, "dba"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("ikinci silme: err = %v, ErrNotFound bekleniyordu", err)
 	}
-	if err := s.SetRoleSudo(ctx, "yokrol", restartRule(), "yigit"); !errors.Is(err, ErrNotFound) {
-		t.Errorf("olmayan rol: err = %v, ErrNotFound bekleniyordu", err)
+	if err := s.SetGroupSudo(ctx, "yokrol", restartRule(), "yigit"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("olmayan grup: err = %v, ErrNotFound bekleniyordu", err)
 	}
 }
 
@@ -78,58 +78,58 @@ func TestRoleSudoRuleRoundTripsByRoleName(t *testing.T) {
  * uygulanamayan bir kural, operatörün "verdim" sandığı bir yetki demek.
  * Onaylanan kural yazılıyor — karar operatörün, ama açıkça.
  */
-func TestRoleSudoRefusesAWayOutToRootUnlessAcknowledged(t *testing.T) {
+func TestGroupSudoRefusesAWayOutToRootUnlessAcknowledged(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
-	if _, err := s.CreateRole(ctx, "ops"); err != nil {
+	if _, err := s.CreateGroup(ctx, "ops"); err != nil {
 		t.Fatal(err)
 	}
 
 	escape := sudoers.Rule{Commands: []sudoers.Command{{Path: "/usr/bin/vim"}}}
-	err := s.SetRoleSudo(ctx, "ops", escape, "yigit")
+	err := s.SetGroupSudo(ctx, "ops", escape, "yigit")
 	if !errors.Is(err, ErrInvalid) {
 		t.Fatalf("kaçış kuralı kabul edildi: %v", err)
 	}
-	if _, rerr := s.RoleSudoRule(ctx, "ops"); !errors.Is(rerr, ErrNotFound) {
+	if _, rerr := s.GroupSudoRule(ctx, "ops"); !errors.Is(rerr, ErrNotFound) {
 		t.Errorf("reddedilen kural yine de yazıldı: %v", rerr)
 	}
 
 	escape.Acknowledged = true
-	if err := s.SetRoleSudo(ctx, "ops", escape, "yigit"); err != nil {
+	if err := s.SetGroupSudo(ctx, "ops", escape, "yigit"); err != nil {
 		t.Fatalf("onaylanan kaçış kuralı reddedildi: %v", err)
 	}
-	got, err := s.RoleSudoRule(ctx, "ops")
+	got, err := s.GroupSudoRule(ctx, "ops")
 	if err != nil || !got.Rule.Acknowledged {
 		t.Errorf("onay bayrağı kaybedildi: %+v (%v)", got, err)
 	}
 
 	// Komutsuz kural hiçbir şey vermiyor; onu yazmak sessiz bir boşluk olurdu.
-	if err := s.SetRoleSudo(ctx, "ops", sudoers.Rule{}, "yigit"); !errors.Is(err, ErrInvalid) {
+	if err := s.SetGroupSudo(ctx, "ops", sudoers.Rule{}, "yigit"); !errors.Is(err, ErrInvalid) {
 		t.Errorf("komutsuz kural: err = %v, ErrInvalid bekleniyordu", err)
 	}
 }
 
 /*
  * ⚠️ ROL SİLİNİNCE KURALI DA GİDİYOR (ON DELETE CASCADE). Kalsaydı aynı
- * adla açılan yeni bir rol, kimsenin yazmadığı bir sudo kuralıyla
+ * adla açılan yeni bir grup, kimsenin yazmadığı bir sudo kuralıyla
  * doğardı.
  */
-func TestDeletingARoleTakesItsSudoRuleWithIt(t *testing.T) {
+func TestDeletingAGroupTakesItsSudoRuleWithIt(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
-	if _, err := s.CreateRole(ctx, "gecici"); err != nil {
+	if _, err := s.CreateGroup(ctx, "gecici"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetRoleSudo(ctx, "gecici", restartRule(), "yigit"); err != nil {
+	if err := s.SetGroupSudo(ctx, "gecici", restartRule(), "yigit"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DeleteRole(ctx, "gecici"); err != nil {
+	if err := s.DeleteGroup(ctx, "gecici"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateRole(ctx, "gecici"); err != nil {
+	if _, err := s.CreateGroup(ctx, "gecici"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.RoleSudoRule(ctx, "gecici"); !errors.Is(err, ErrNotFound) {
-		t.Errorf("silinen rolün kuralı yeni role miras kaldı: %v", err)
+	if _, err := s.GroupSudoRule(ctx, "gecici"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("silinen grubun kuralı yeni group miras kaldı: %v", err)
 	}
 }

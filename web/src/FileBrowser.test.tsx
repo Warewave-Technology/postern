@@ -245,13 +245,13 @@ describe("FileBrowser", () => {
         FXP.STATUS,
         ...u32(idOf(ws.body(od))),
         ...u32(FX.PERMISSION_DENIED),
-        ...str("postern: path is not allowed by your role"),
+        ...str("postern: path is not allowed by your group"),
       ),
     );
 
     await waitFor(() =>
       expect(screen.getByRole("alert").textContent).toBe(
-        "path is not allowed by your role",
+        "path is not allowed by your group",
       ),
     );
 

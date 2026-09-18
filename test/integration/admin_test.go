@@ -2,7 +2,7 @@
 
 package integration
 
-// S4.2'nin "Bitti" kanıtı: admin, tarayıcı oturumuyla kullanıcı/rol/hedef
+// S4.2'nin "Bitti" kanıtı: admin, tarayıcı oturumuyla kullanıcı/grup/hedef
 // yönetiyor; admin olmayan 403 yiyor; her değişiklik admin_log'a düşüyor.
 //
 //	go test -tags integration -run TestAdminAPI -v ./test/integration/
@@ -64,18 +64,18 @@ func TestAdminAPIEndToEnd(t *testing.T) {
 	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
 	browserSignIn(t, client, apiURL)
 
-	// Hedef kaydet → rol aç → hedefi role bağla → kullanıcı aç → rol ata.
+	// Hedef kaydet → grup aç → hedefi gruba bağla → kullanıcı aç → grup ata.
 	hostKey := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIcLUQM0UcoZdJVh2EokribDvFZyyNyAVURM/LrCugFM"
 	steps := []struct {
 		method, path, body string
 		want               int
 	}{
 		{"POST", "/api/admin/targets", fmt.Sprintf(`{"name":"db01","host":"10.0.0.5","port":22,"host_key":%q}`, hostKey), 200},
-		{"POST", "/api/admin/roles", `{"name":"dba"}`, 200},
-		{"POST", "/api/admin/roles/dba/targets", `{"target":"db01"}`, 200},
-		{"POST", "/api/admin/users", `{"name":"ayse","os_user":"ayse","roles":["dba"]}`, 200},
+		{"POST", "/api/admin/groups", `{"name":"dba"}`, 200},
+		{"POST", "/api/admin/groups/dba/targets", `{"target":"db01"}`, 200},
+		{"POST", "/api/admin/users", `{"name":"ayse","os_user":"ayse","groups":["dba"]}`, 200},
 		// Çakışma 409'a eşlenmeli (translateErr sözleşmesinin HTTP hâli).
-		{"POST", "/api/admin/roles", `{"name":"dba"}`, 409},
+		{"POST", "/api/admin/groups", `{"name":"dba"}`, 409},
 		// Bilinmeyen varlık 404.
 		{"DELETE", "/api/admin/targets/yok-boyle", "", 404},
 	}
@@ -103,7 +103,7 @@ func TestAdminAPIEndToEnd(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &entries); err != nil {
 		t.Fatalf("log JSON: %v — %s", err, body)
 	}
-	wantActions := map[string]bool{"target.create": false, "role.create": false, "role.grant": false, "user.create": false}
+	wantActions := map[string]bool{"target.create": false, "group.create": false, "group.grant": false, "user.create": false}
 	for _, e := range entries {
 		// Giriş anında yazılan kimlik-bağlama satırı bu testin konusu
 		// değil: onu sistem yazıyor (via=sso), yönetici değil.
@@ -136,7 +136,7 @@ func TestAdminAPIForbidsNonAdmins(t *testing.T) {
 	if status, _ := adminReq(t, client, "GET", apiURL+"/api/admin/users", ""); status != http.StatusForbidden {
 		t.Fatalf("admin olmayan okuma = %d, beklenen 403", status)
 	}
-	if status, _ := adminReq(t, client, "POST", apiURL+"/api/admin/roles", `{"name":"kacak"}`); status != http.StatusForbidden {
+	if status, _ := adminReq(t, client, "POST", apiURL+"/api/admin/groups", `{"name":"kacak"}`); status != http.StatusForbidden {
 		t.Fatalf("admin olmayan yazma = %d, beklenen 403", status)
 	}
 }
@@ -159,7 +159,7 @@ func TestAdminAPIRejectsCrossSite(t *testing.T) {
 	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
 	browserSignIn(t, client, apiURL)
 
-	req, _ := http.NewRequest("POST", apiURL+"/api/admin/roles", strings.NewReader(`{"name":"csrf-rolu"}`))
+	req, _ := http.NewRequest("POST", apiURL+"/api/admin/groups", strings.NewReader(`{"name":"csrf-rolu"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Sec-Fetch-Site", "cross-site")
 	resp, err := client.Do(req)

@@ -40,8 +40,8 @@ func TestUserRoundTrip(t *testing.T) {
 		t.Errorf("OSUser = %q, beklenen %q", u.OSUser, "yigit")
 	}
 	// Rolü olmayan kullanıcı geçerlidir: hiçbir hedefe erişemez, o kadar.
-	if len(u.Roles) != 0 {
-		t.Errorf("Roles = %v, beklenen boş", u.Roles)
+	if len(u.Groups) != 0 {
+		t.Errorf("Groups = %v, beklenen boş", u.Groups)
 	}
 }
 
@@ -109,14 +109,14 @@ func TestCreateUserStoresEmail(t *testing.T) {
 }
 
 // Paketin varlık sebebi: config.ModelUser ile AYNI model.User'ı üretmek.
-func TestUserResolvesRolesAndTargets(t *testing.T) {
+func TestUserResolvesGroupsAndTargets(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
 	if _, err := s.CreateUser(ctx, "yigit", "yigit@warewave.io", "yigit"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateRole(ctx, "ops"); err != nil {
+	if _, err := s.CreateGroup(ctx, "ops"); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"web01", "db01"} {
@@ -126,8 +126,8 @@ func TestUserResolvesRolesAndTargets(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := s.AssignRole(ctx, "yigit", "ops", time.Time{}); err != nil {
-		t.Fatalf("AssignRole: %v", err)
+	if err := s.AssignGroup(ctx, "yigit", "ops", time.Time{}); err != nil {
+		t.Fatalf("AssignGroup: %v", err)
 	}
 	for _, name := range []string{"web01", "db01"} {
 		if err := s.GrantTarget(ctx, "ops", name); err != nil {
@@ -139,86 +139,86 @@ func TestUserResolvesRolesAndTargets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("User: %v", err)
 	}
-	if len(u.Roles) != 1 {
-		t.Fatalf("Roles = %d adet, beklenen 1: %+v", len(u.Roles), u.Roles)
+	if len(u.Groups) != 1 {
+		t.Fatalf("Groups = %d adet, beklenen 1: %+v", len(u.Groups), u.Groups)
 	}
-	if u.Roles[0].Name != "ops" {
-		t.Errorf("rol adı = %q, beklenen %q", u.Roles[0].Name, "ops")
+	if u.Groups[0].Name != "ops" {
+		t.Errorf("grup adı = %q, beklenen %q", u.Groups[0].Name, "ops")
 	}
 
 	got := map[string]bool{}
-	for _, tgt := range u.Roles[0].Targets {
+	for _, tgt := range u.Groups[0].Targets {
 		got[tgt] = true
 	}
 	if len(got) != 2 || !got["web01"] || !got["db01"] {
-		t.Errorf("rolün hedefleri = %v, beklenen web01 + db01", u.Roles[0].Targets)
+		t.Errorf("grubun hedefleri = %v, beklenen web01 + db01", u.Groups[0].Targets)
 	}
 }
 
-func TestAssignRoleIsIdempotent(t *testing.T) {
+func TestAssignGroupIsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
 	if _, err := s.CreateUser(ctx, "yigit", "", "yigit"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateRole(ctx, "ops"); err != nil {
+	if _, err := s.CreateGroup(ctx, "ops"); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := s.AssignRole(ctx, "yigit", "ops", time.Time{}); err != nil {
+	if err := s.AssignGroup(ctx, "yigit", "ops", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	// "Bu kişiye ops ver" isteği, kişi zaten ops ise yerine getirilmiştir.
-	if err := s.AssignRole(ctx, "yigit", "ops", time.Time{}); err != nil {
-		t.Fatalf("ikinci AssignRole hata verdi: %v", err)
+	if err := s.AssignGroup(ctx, "yigit", "ops", time.Time{}); err != nil {
+		t.Fatalf("ikinci AssignGroup hata verdi: %v", err)
 	}
 
 	u, err := s.User(ctx, "yigit")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(u.Roles) != 1 {
-		t.Fatalf("Roles = %d adet, beklenen 1 — rol iki kez eklenmiş olabilir", len(u.Roles))
+	if len(u.Groups) != 1 {
+		t.Fatalf("Groups = %d adet, beklenen 1 — grup iki kez eklenmiş olabilir", len(u.Groups))
 	}
 
-	// İkinci, FARKLI bir rol yutulmamalı.
+	// İkinci, FARKLI bir grup yutulmamalı.
 	//
-	// Idempotency'nin "zaten var" tanımı kullanıcı+rol ÇİFTİ olmalı,
+	// Idempotency'nin "zaten var" tanımı kullanıcı+grup ÇİFTİ olmalı,
 	// yalnızca kullanıcı değil. Tanım kullanıcıya daralırsa bu atama
 	// sessizce hiçbir şey yapmaz: hata yok, log yok, sadece eksik yetki.
-	if _, err := s.CreateRole(ctx, "dba"); err != nil {
+	if _, err := s.CreateGroup(ctx, "dba"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AssignRole(ctx, "yigit", "dba", time.Time{}); err != nil {
-		t.Fatalf("ikinci rol: %v", err)
+	if err := s.AssignGroup(ctx, "yigit", "dba", time.Time{}); err != nil {
+		t.Fatalf("ikinci grup: %v", err)
 	}
 
 	u, err = s.User(ctx, "yigit")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(u.Roles) != 2 {
-		t.Fatalf("Roles = %d adet, beklenen 2 — ikinci rol sessizce yutulmuş olabilir: %+v", len(u.Roles), u.Roles)
+	if len(u.Groups) != 2 {
+		t.Fatalf("Groups = %d adet, beklenen 2 — ikinci grup sessizce yutulmuş olabilir: %+v", len(u.Groups), u.Groups)
 	}
 }
 
-func TestAssignRoleUnknown(t *testing.T) {
+func TestAssignGroupUnknown(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
 	if _, err := s.CreateUser(ctx, "yigit", "", "yigit"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateRole(ctx, "ops"); err != nil {
+	if _, err := s.CreateGroup(ctx, "ops"); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := s.AssignRole(ctx, "yok-boyle-biri", "ops", time.Time{}); !errors.Is(err, ErrNotFound) {
+	if err := s.AssignGroup(ctx, "yok-boyle-biri", "ops", time.Time{}); !errors.Is(err, ErrNotFound) {
 		t.Errorf("bilinmeyen kullanıcı: hata = %v, beklenen ErrNotFound", err)
 	}
-	if err := s.AssignRole(ctx, "yigit", "yok-boyle-rol", time.Time{}); !errors.Is(err, ErrNotFound) {
-		t.Errorf("bilinmeyen rol: hata = %v, beklenen ErrNotFound", err)
+	if err := s.AssignGroup(ctx, "yigit", "yok-boyle-grup", time.Time{}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("bilinmeyen grup: hata = %v, beklenen ErrNotFound", err)
 	}
 }
 
@@ -320,7 +320,7 @@ func TestTargetNameIsCaseInsensitive(t *testing.T) {
 	}
 }
 
-// Olmayan bir kullanıcıya rol veren satır kabul EDİLMEMELİ.
+// Olmayan bir kullanıcıya grup veren satır kabul EDİLMEMELİ.
 //
 // Testin geçmişi var: SQLite bağlantı başına PRAGMA foreign_keys açılmadan
 // REFERENCES satırlarını SESSİZCE yok sayardı ve bu test o pragma'nın
@@ -332,10 +332,10 @@ func TestForeignKeysAreEnforced(t *testing.T) {
 	s := newTestStore(t)
 
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO user_roles (user_id, role_id) VALUES ('hayalet-kullanici', 'hayalet-rol')`)
+		`INSERT INTO user_groups (user_id, group_id) VALUES ('hayalet-kullanici', 'hayalet-grup')`)
 	if err == nil {
-		t.Fatal("var olmayan kullanıcı/rol'e referans veren satır kabul edildi — " +
-			"user_roles'taki REFERENCES satırları eksik ya da etkisiz")
+		t.Fatal("var olmayan kullanıcı/grup'e referans veren satır kabul edildi — " +
+			"user_groups'taki REFERENCES satırları eksik ya da etkisiz")
 	}
 }
 
@@ -605,14 +605,14 @@ func TestPublicKeyRoundTrip(t *testing.T) {
 
 // UserByPublicKey'in dönüşü doğrudan policy'ye gidecek: rolsüz gelirse
 // kimliği doğrulanmış kullanıcı hiçbir hedefe erişemez.
-func TestUserByPublicKeyCarriesRoles(t *testing.T) {
+func TestUserByPublicKeyCarriesGroups(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
 	if _, err := s.CreateUser(ctx, "yigit", "", "yigit"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateRole(ctx, "ops"); err != nil {
+	if _, err := s.CreateGroup(ctx, "ops"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.CreateTarget(ctx, model.Target{
@@ -620,7 +620,7 @@ func TestUserByPublicKeyCarriesRoles(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AssignRole(ctx, "yigit", "ops", time.Time{}); err != nil {
+	if err := s.AssignGroup(ctx, "yigit", "ops", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.GrantTarget(ctx, "ops", "web01"); err != nil {
@@ -636,11 +636,11 @@ func TestUserByPublicKeyCarriesRoles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(u.Roles) != 1 || u.Roles[0].Name != "ops" {
-		t.Fatalf("Roles = %+v, beklenen tek 'ops' rolü", u.Roles)
+	if len(u.Groups) != 1 || u.Groups[0].Name != "ops" {
+		t.Fatalf("Groups = %+v, beklenen tek 'ops' grubu", u.Groups)
 	}
-	if len(u.Roles[0].Targets) != 1 || u.Roles[0].Targets[0] != "web01" {
-		t.Fatalf("rolün hedefleri = %v, beklenen [web01]", u.Roles[0].Targets)
+	if len(u.Groups[0].Targets) != 1 || u.Groups[0].Targets[0] != "web01" {
+		t.Fatalf("grubun hedefleri = %v, beklenen [web01]", u.Groups[0].Targets)
 	}
 }
 
@@ -652,7 +652,7 @@ func TestUnknownPublicKey(t *testing.T) {
 }
 
 // Aynı anahtarı aynı kişiye tekrar eklemek istek zaten yerine getirilmiş
-// demektir; AssignRole ile aynı sözleşme.
+// demektir; AssignGroup ile aynı sözleşme.
 func TestAddPublicKeyIsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
@@ -743,7 +743,7 @@ func TestDeletingUserRemovesKeys(t *testing.T) {
 	}
 }
 
-func TestUsersListsAllWithRoles(t *testing.T) {
+func TestUsersListsAllWithGroups(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
@@ -757,7 +757,7 @@ func TestUsersListsAllWithRoles(t *testing.T) {
 		}
 	}
 	for _, r := range []string{"ops", "dba"} {
-		if _, err := s.CreateRole(ctx, r); err != nil {
+		if _, err := s.CreateGroup(ctx, r); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -767,13 +767,13 @@ func TestUsersListsAllWithRoles(t *testing.T) {
 	if err := s.GrantTarget(ctx, "ops", "web01"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AssignRole(ctx, "yigit", "ops", time.Time{}); err != nil {
+	if err := s.AssignGroup(ctx, "yigit", "ops", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AssignRole(ctx, "yigit", "dba", time.Time{}); err != nil {
+	if err := s.AssignGroup(ctx, "yigit", "dba", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AssignRole(ctx, "ali", "ops", time.Time{}); err != nil {
+	if err := s.AssignGroup(ctx, "ali", "ops", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -794,19 +794,19 @@ func TestUsersListsAllWithRoles(t *testing.T) {
 	for _, u := range users {
 		byName[u.Name] = u
 	}
-	if got := len(byName["zeynep"].Roles); got != 0 {
+	if got := len(byName["zeynep"].Groups); got != 0 {
 		t.Errorf("zeynep %d rolle geldi, beklenen 0", got)
 	}
-	if got := len(byName["yigit"].Roles); got != 2 {
-		t.Errorf("yigit %d rolle geldi, beklenen 2: %+v", got, byName["yigit"].Roles)
+	if got := len(byName["yigit"].Groups); got != 2 {
+		t.Errorf("yigit %d rolle geldi, beklenen 2: %+v", got, byName["yigit"].Groups)
 	}
-	// Satır çarpımı tuzağı: ali'nin TEK rolü var; kullanıcı gruplaması
+	// Satır çarpımı tuzağı: ali'nin TEK grubu var; kullanıcı gruplaması
 	// yanlışsa ops'un hedef satırları ali'yi çoğaltır ya da rolünü şişirir.
-	if got := len(byName["ali"].Roles); got != 1 {
-		t.Errorf("ali %d rolle geldi, beklenen 1: %+v", got, byName["ali"].Roles)
+	if got := len(byName["ali"].Groups); got != 1 {
+		t.Errorf("ali %d rolle geldi, beklenen 1: %+v", got, byName["ali"].Groups)
 	}
-	if len(byName["ali"].Roles) == 1 && len(byName["ali"].Roles[0].Targets) != 1 {
-		t.Errorf("ali'nin ops rolü %v hedefiyle geldi, beklenen [web01]", byName["ali"].Roles[0].Targets)
+	if len(byName["ali"].Groups) == 1 && len(byName["ali"].Groups[0].Targets) != 1 {
+		t.Errorf("ali'nin ops grubu %v hedefiyle geldi, beklenen [web01]", byName["ali"].Groups[0].Targets)
 	}
 }
 
@@ -1010,7 +1010,7 @@ func TestAdminLogRoundTrip(t *testing.T) {
 	base := time.Now().Truncate(time.Second)
 	for i, e := range []AdminLogEntry{
 		{At: base.Add(-2 * time.Hour), Actor: "yigit", Via: "web", Action: "user.create", Entity: "ayse"},
-		{At: base.Add(-1 * time.Hour), Actor: "root", Via: "cli", Action: "role.grant", Entity: "ops", Details: "granted target web01"},
+		{At: base.Add(-1 * time.Hour), Actor: "root", Via: "cli", Action: "group.grant", Entity: "ops", Details: "granted target web01"},
 	} {
 		if err := s.LogAdmin(ctx, e); err != nil {
 			t.Fatalf("LogAdmin[%d]: %v", i, err)
@@ -1025,7 +1025,7 @@ func TestAdminLogRoundTrip(t *testing.T) {
 		t.Fatalf("%d kayıt, beklenen 2", len(got))
 	}
 	// Yeniden eskiye.
-	if got[0].Action != "role.grant" || got[1].Action != "user.create" {
+	if got[0].Action != "group.grant" || got[1].Action != "user.create" {
 		t.Errorf("sıralama yanlış: %+v", got)
 	}
 	if got[0].Details != "granted target web01" || got[0].Via != "cli" {
@@ -1035,7 +1035,7 @@ func TestAdminLogRoundTrip(t *testing.T) {
 		t.Errorf("At = %v", got[1].At)
 	}
 
-	if one, _ := s.AdminLog(ctx, 1); len(one) != 1 || one[0].Action != "role.grant" {
+	if one, _ := s.AdminLog(ctx, 1); len(one) != 1 || one[0].Action != "group.grant" {
 		t.Errorf("limit=1 en yenisini vermedi: %+v", one)
 	}
 
@@ -1049,12 +1049,12 @@ func TestAdminLogRoundTrip(t *testing.T) {
 	}
 }
 
-func TestRolesListing(t *testing.T) {
+func TestGroupsListing(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
-	for _, r := range []string{"ops", "bos-rol", "dba"} {
-		if _, err := s.CreateRole(ctx, r); err != nil {
+	for _, r := range []string{"ops", "bos-grup", "dba"} {
+		if _, err := s.CreateGroup(ctx, r); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1065,28 +1065,28 @@ func TestRolesListing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	roles, err := s.Roles(ctx)
+	groups, err := s.Groups(ctx)
 	if err != nil {
-		t.Fatalf("Roles: %v", err)
+		t.Fatalf("Groups: %v", err)
 	}
-	if len(roles) != 3 {
-		t.Fatalf("%d rol, beklenen 3: %+v", len(roles), roles)
+	if len(groups) != 3 {
+		t.Fatalf("%d grup, beklenen 3: %+v", len(groups), groups)
 	}
-	for i, want := range []string{"bos-rol", "dba", "ops"} {
-		if roles[i].Name != want {
-			t.Errorf("roles[%d] = %q, beklenen %q", i, roles[i].Name, want)
+	for i, want := range []string{"bos-grup", "dba", "ops"} {
+		if groups[i].Name != want {
+			t.Errorf("groups[%d] = %q, beklenen %q", i, groups[i].Name, want)
 		}
 	}
 	byName := map[string][]string{}
-	for _, r := range roles {
+	for _, r := range groups {
 		byName[r.Name] = r.Targets
 	}
 	if len(byName["ops"]) != 1 || byName["ops"][0] != "web01" {
 		t.Errorf("ops hedefleri = %v", byName["ops"])
 	}
-	// Hedefsiz rol hayalet hedefle gelmemeli (LEFT JOIN dersi).
-	if len(byName["bos-rol"]) != 0 {
-		t.Errorf("bos-rol hedefleri = %v, beklenen boş", byName["bos-rol"])
+	// Hedefsiz grup hayalet hedefle gelmemeli (LEFT JOIN dersi).
+	if len(byName["bos-grup"]) != 0 {
+		t.Errorf("bos-grup hedefleri = %v, beklenen boş", byName["bos-grup"])
 	}
 }
 
@@ -1097,40 +1097,40 @@ func TestRevokes(t *testing.T) {
 	if _, err := s.CreateUser(ctx, "yigit", "", "yigit"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateRole(ctx, "ops"); err != nil {
+	if _, err := s.CreateGroup(ctx, "ops"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.CreateTarget(ctx, model.Target{Name: "web01", Host: "h", Port: 22, HostKey: testHostKey}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AssignRole(ctx, "yigit", "ops", time.Time{}); err != nil {
+	if err := s.AssignGroup(ctx, "yigit", "ops", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.GrantTarget(ctx, "ops", "web01"); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := s.RevokeRole(ctx, "yigit", "ops"); err != nil {
-		t.Fatalf("RevokeRole: %v", err)
+	if err := s.RevokeGroup(ctx, "yigit", "ops"); err != nil {
+		t.Fatalf("RevokeGroup: %v", err)
 	}
-	if u, _ := s.User(ctx, "yigit"); len(u.Roles) != 0 {
-		t.Errorf("rol geri alınamadı: %+v", u.Roles)
+	if u, _ := s.User(ctx, "yigit"); len(u.Groups) != 0 {
+		t.Errorf("grup geri alınamadı: %+v", u.Groups)
 	}
-	// Zaten yok: sessiz no-op (AssignRole'un aynası).
-	if err := s.RevokeRole(ctx, "yigit", "ops"); err != nil {
+	// Zaten yok: sessiz no-op (AssignGroup'un aynası).
+	if err := s.RevokeGroup(ctx, "yigit", "ops"); err != nil {
 		t.Errorf("ikinci revoke hata verdi: %v", err)
 	}
 	// Bilinmeyen taraflar: ErrNotFound.
-	if err := s.RevokeRole(ctx, "yok", "ops"); !errors.Is(err, ErrNotFound) {
+	if err := s.RevokeGroup(ctx, "yok", "ops"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("bilinmeyen kullanıcı: %v", err)
 	}
 
 	if err := s.RevokeTarget(ctx, "ops", "web01"); err != nil {
 		t.Fatalf("RevokeTarget: %v", err)
 	}
-	roles, _ := s.Roles(ctx)
-	if len(roles) != 1 || len(roles[0].Targets) != 0 {
-		t.Errorf("hedef geri alınamadı: %+v", roles)
+	groups, _ := s.Groups(ctx)
+	if len(groups) != 1 || len(groups[0].Targets) != 0 {
+		t.Errorf("hedef geri alınamadı: %+v", groups)
 	}
 }
 
@@ -1184,17 +1184,17 @@ func TestDeletes(t *testing.T) {
 	}
 
 	// Kaydı olmayanlar silinebilir; bağları CASCADE ile gider.
-	if _, err := s.CreateRole(ctx, "gecici"); err != nil {
+	if _, err := s.CreateGroup(ctx, "gecici"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.GrantTarget(ctx, "gecici", "web01"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DeleteRole(ctx, "gecici"); err != nil {
-		t.Fatalf("DeleteRole: %v", err)
+	if err := s.DeleteGroup(ctx, "gecici"); err != nil {
+		t.Fatalf("DeleteGroup: %v", err)
 	}
-	if roles, _ := s.Roles(ctx); len(roles) != 0 { // tek rol "gecici"ydi
-		t.Errorf("rol silinemedi: %+v", roles)
+	if groups, _ := s.Groups(ctx); len(groups) != 0 { // tek grup "gecici"ydi
+		t.Errorf("grup silinemedi: %+v", groups)
 	}
 
 	if _, err := s.CreateUser(ctx, "gecici-user", "", "gecici"); err != nil {
@@ -1216,11 +1216,11 @@ func TestDeletes(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------
-// S5.1: rol kaynağı, süre ve ayarlar
+// S5.1: grup kaynağı, süre ve ayarlar
 // ---------------------------------------------------------------------
 
-// seedRoleFixtures, rol testleri için kullanıcı + üç rol hazırlar.
-func seedRoleFixtures(t *testing.T, s *Store) {
+// seedGroupFixtures, grup testleri için kullanıcı + üç grup hazırlar.
+func seedGroupFixtures(t *testing.T, s *Store) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -1228,36 +1228,36 @@ func seedRoleFixtures(t *testing.T, s *Store) {
 		t.Fatal(err)
 	}
 	for _, r := range []string{"ops", "dba", "network"} {
-		if _, err := s.CreateRole(ctx, r); err != nil {
+		if _, err := s.CreateGroup(ctx, r); err != nil {
 			t.Fatal(err)
 		}
 	}
 }
 
 func roleNames(u model.User) []string {
-	out := make([]string, 0, len(u.Roles))
-	for _, r := range u.Roles {
+	out := make([]string, 0, len(u.Groups))
+	for _, r := range u.Groups {
 		out = append(out, r.Name)
 	}
 	sort.Strings(out)
 	return out
 }
 
-// Senkronizasyonun ÇEKİRDEK sözleşmesi: SSO rolleri yenilenir, elle
+// Senkronizasyonun ÇEKİRDEK sözleşmesi: SSO grupları yenilenir, elle
 // atananlara dokunulmaz. Bu testin düşmesi, Warpgate'in iki modundan
 // birine geri düştüğümüz anlamına gelir.
-func TestSyncRolesLeavesManualGrantsAlone(t *testing.T) {
+func TestSyncGroupsLeavesManualGrantsAlone(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
-	seedRoleFixtures(t, s)
+	seedGroupFixtures(t, s)
 
 	// Yönetici elle "dba" verdi.
-	if err := s.AssignRole(ctx, "yigit", "dba", time.Time{}); err != nil {
+	if err := s.AssignGroup(ctx, "yigit", "dba", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	// IdP "ops" diyor.
-	if err := s.SyncRoles(ctx, "yigit", []string{"ops"}); err != nil {
-		t.Fatalf("SyncRoles: %v", err)
+	if err := s.SyncGroups(ctx, "yigit", []string{"ops"}); err != nil {
+		t.Fatalf("SyncGroups: %v", err)
 	}
 
 	u, err := s.User(ctx, "yigit")
@@ -1265,85 +1265,85 @@ func TestSyncRolesLeavesManualGrantsAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := roleNames(u); len(got) != 2 || got[0] != "dba" || got[1] != "ops" {
-		t.Fatalf("roller = %v, beklenen [dba ops] — elle atama silinmiş ya da SSO rolü yazılmamış", got)
+		t.Fatalf("gruplar = %v, beklenen [dba ops] — elle atama silinmiş ya da SSO grubu yazılmamış", got)
 	}
 
 	// IdP artık "network" diyor: ops gitmeli, dba KALMALI.
-	if err := s.SyncRoles(ctx, "yigit", []string{"network"}); err != nil {
+	if err := s.SyncGroups(ctx, "yigit", []string{"network"}); err != nil {
 		t.Fatal(err)
 	}
 	u, _ = s.User(ctx, "yigit")
 	if got := roleNames(u); len(got) != 2 || got[0] != "dba" || got[1] != "network" {
-		t.Fatalf("roller = %v, beklenen [dba network]", got)
+		t.Fatalf("gruplar = %v, beklenen [dba network]", got)
 	}
 
-	// IdP hiçbir şey demiyor: SSO rolleri gider, elle atanan kalır.
-	if err := s.SyncRoles(ctx, "yigit", nil); err != nil {
+	// IdP hiçbir şey demiyor: SSO grupları gider, elle atanan kalır.
+	if err := s.SyncGroups(ctx, "yigit", nil); err != nil {
 		t.Fatal(err)
 	}
 	u, _ = s.User(ctx, "yigit")
 	if got := roleNames(u); len(got) != 1 || got[0] != "dba" {
-		t.Fatalf("roller = %v, beklenen [dba] — elle atama SSO senkronunda silinmiş", got)
+		t.Fatalf("gruplar = %v, beklenen [dba] — elle atama SSO senkronunda silinmiş", got)
 	}
 }
 
-// Bilinmeyen rol adı girişi düşürmemeli: eşleme silinmiş olabilir ve
+// Bilinmeyen grup adı girişi düşürmemeli: eşleme silinmiş olabilir ve
 // yönetici hatası kullanıcıyı kapıda bırakmamalı.
-func TestSyncRolesSkipsUnknownRoles(t *testing.T) {
+func TestSyncGroupsSkipsUnknownGroups(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
-	seedRoleFixtures(t, s)
+	seedGroupFixtures(t, s)
 
-	if err := s.SyncRoles(ctx, "yigit", []string{"ops", "boyle-bir-rol-yok"}); err != nil {
-		t.Fatalf("bilinmeyen rol senkronizasyonu düşürdü: %v", err)
+	if err := s.SyncGroups(ctx, "yigit", []string{"ops", "boyle-bir-grup-yok"}); err != nil {
+		t.Fatalf("bilinmeyen grup senkronizasyonu düşürdü: %v", err)
 	}
 	u, _ := s.User(ctx, "yigit")
 	if got := roleNames(u); len(got) != 1 || got[0] != "ops" {
-		t.Fatalf("roller = %v, beklenen [ops]", got)
+		t.Fatalf("gruplar = %v, beklenen [ops]", got)
 	}
 
-	if err := s.SyncRoles(ctx, "yok-boyle-biri", []string{"ops"}); !errors.Is(err, ErrNotFound) {
+	if err := s.SyncGroups(ctx, "yok-boyle-biri", []string{"ops"}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("bilinmeyen kullanıcı: %v, beklenen ErrNotFound", err)
 	}
 }
 
-// Elle atanmış rol IdP'den de gelirse elle atama KAZANIR: bir sonraki
+// Elle atanmış grup IdP'den de gelirse elle atama KAZANIR: bir sonraki
 // senkronizasyonda silinmemeli.
 func TestManualGrantSurvivesSSOOverlap(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
-	seedRoleFixtures(t, s)
+	seedGroupFixtures(t, s)
 
-	if err := s.AssignRole(ctx, "yigit", "ops", time.Time{}); err != nil {
+	if err := s.AssignGroup(ctx, "yigit", "ops", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	// IdP de "ops" diyor.
-	if err := s.SyncRoles(ctx, "yigit", []string{"ops"}); err != nil {
+	if err := s.SyncGroups(ctx, "yigit", []string{"ops"}); err != nil {
 		t.Fatal(err)
 	}
 	// IdP artık demiyor — elle atandığı için KALMALI.
-	if err := s.SyncRoles(ctx, "yigit", nil); err != nil {
+	if err := s.SyncGroups(ctx, "yigit", nil); err != nil {
 		t.Fatal(err)
 	}
 
 	u, _ := s.User(ctx, "yigit")
 	if got := roleNames(u); len(got) != 1 || got[0] != "ops" {
-		t.Fatalf("roller = %v, beklenen [ops] — elle atama SSO çakışmasında kaybolmuş", got)
+		t.Fatalf("gruplar = %v, beklenen [ops] — elle atama SSO çakışmasında kaybolmuş", got)
 	}
 }
 
-// Süresi dolan rol yetki VERMEZ ama satır durur (denetim izi).
-func TestExpiredRoleIsNotGranted(t *testing.T) {
+// Süresi dolan grup yetki VERMEZ ama satır durur (denetim izi).
+func TestExpiredGroupIsNotGranted(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
-	seedRoleFixtures(t, s)
+	seedGroupFixtures(t, s)
 
 	// Geçmişte dolmuş.
-	if err := s.AssignRole(ctx, "yigit", "dba", time.Now().Add(-time.Hour)); err != nil {
+	if err := s.AssignGroup(ctx, "yigit", "dba", time.Now().Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	// Gelecekte dolacak.
-	if err := s.AssignRole(ctx, "yigit", "ops", time.Now().Add(time.Hour)); err != nil {
+	if err := s.AssignGroup(ctx, "yigit", "ops", time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1352,7 +1352,7 @@ func TestExpiredRoleIsNotGranted(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := roleNames(u); len(got) != 1 || got[0] != "ops" {
-		t.Fatalf("roller = %v, beklenen [ops] — süresi dolan rol hâlâ yetki veriyor", got)
+		t.Fatalf("gruplar = %v, beklenen [ops] — süresi dolan grup hâlâ yetki veriyor", got)
 	}
 
 	// Users listesi de aynı filtreyi uygulamalı: iki ayrı sorgu, tek kural.
@@ -1364,13 +1364,13 @@ func TestExpiredRoleIsNotGranted(t *testing.T) {
 		t.Fatalf("%d kullanıcı", len(users))
 	}
 	if got := roleNames(users[0]); len(got) != 1 || got[0] != "ops" {
-		t.Errorf("Users'ta roller = %v — süre filtresi yalnızca User'a konmuş", got)
+		t.Errorf("Users'ta gruplar = %v — süre filtresi yalnızca User'a konmuş", got)
 	}
 
 	// Satır SİLİNMEMİŞ olmalı: denetim izi kalır.
 	var n int
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM user_roles WHERE expires_at IS NOT NULL`).Scan(&n); err != nil {
+		`SELECT COUNT(*) FROM user_groups WHERE expires_at IS NOT NULL`).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	if n != 2 {
@@ -1378,36 +1378,36 @@ func TestExpiredRoleIsNotGranted(t *testing.T) {
 	}
 }
 
-// "Yetkiyi uzat" ayrı komut gerektirmemeli: aynı rolü yeni süreyle
+// "Yetkiyi uzat" ayrı komut gerektirmemeli: aynı grubu yeni süreyle
 // atamak süreyi günceller.
-func TestAssignRoleExtendsExpiry(t *testing.T) {
+func TestAssignGroupExtendsExpiry(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
-	seedRoleFixtures(t, s)
+	seedGroupFixtures(t, s)
 
 	past := time.Now().Add(-time.Hour)
-	if err := s.AssignRole(ctx, "yigit", "ops", past); err != nil {
+	if err := s.AssignGroup(ctx, "yigit", "ops", past); err != nil {
 		t.Fatal(err)
 	}
-	if u, _ := s.User(ctx, "yigit"); len(u.Roles) != 0 {
-		t.Fatal("süresi dolmuş rol yetki veriyor")
+	if u, _ := s.User(ctx, "yigit"); len(u.Groups) != 0 {
+		t.Fatal("süresi dolmuş grup yetki veriyor")
 	}
 
 	// Uzat.
-	if err := s.AssignRole(ctx, "yigit", "ops", time.Now().Add(time.Hour)); err != nil {
+	if err := s.AssignGroup(ctx, "yigit", "ops", time.Now().Add(time.Hour)); err != nil {
 		t.Fatalf("uzatma: %v", err)
 	}
-	if u, _ := s.User(ctx, "yigit"); len(u.Roles) != 1 {
-		t.Fatal("uzatma sonrası rol hâlâ etkisiz")
+	if u, _ := s.User(ctx, "yigit"); len(u.Groups) != 1 {
+		t.Fatal("uzatma sonrası grup hâlâ etkisiz")
 	}
 
 	// Süresizleştir.
-	if err := s.AssignRole(ctx, "yigit", "ops", time.Time{}); err != nil {
+	if err := s.AssignGroup(ctx, "yigit", "ops", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	var expires sql.NullInt64
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT expires_at FROM user_roles LIMIT 1`).Scan(&expires); err != nil {
+		`SELECT expires_at FROM user_groups LIMIT 1`).Scan(&expires); err != nil {
 		t.Fatal(err)
 	}
 	if expires.Valid {
@@ -1537,7 +1537,7 @@ func seedMappingFixtures(t *testing.T, s *Store) {
 	ctx := context.Background()
 
 	for _, r := range []string{"ops", "dba"} {
-		if _, err := s.CreateRole(ctx, r); err != nil {
+		if _, err := s.CreateGroup(ctx, r); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1559,7 +1559,7 @@ func TestGroupMappingRoundTrip(t *testing.T) {
 	if err := s.AddGroupMapping(ctx, "sysadmins", "ops", "yigit"); err != nil {
 		t.Fatalf("AddGroupMapping: %v", err)
 	}
-	// Bir grup birden fazla rol verebilir.
+	// Bir grup birden fazla grup verebilir.
 	if err := s.AddGroupMapping(ctx, "sysadmins", "dba", "yigit"); err != nil {
 		t.Fatal(err)
 	}
@@ -1567,26 +1567,26 @@ func TestGroupMappingRoundTrip(t *testing.T) {
 	if err := s.AddGroupMapping(ctx, "sysadmins", "ops", "yigit"); !errors.Is(err, ErrConflict) {
 		t.Fatalf("aynı eşleme ikinci kez: %v, beklenen ErrConflict", err)
 	}
-	if err := s.AddGroupMapping(ctx, "x", "yok-boyle-rol", "yigit"); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("bilinmeyen rol: %v, beklenen ErrNotFound", err)
+	if err := s.AddGroupMapping(ctx, "x", "yok-boyle-grup", "yigit"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("bilinmeyen grup: %v, beklenen ErrNotFound", err)
 	}
 
 	list, err := s.GroupMappings(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(list) != 2 || list[0].Role != "dba" || list[1].Role != "ops" {
+	if len(list) != 2 || list[0].Group != "dba" || list[1].Group != "ops" {
 		t.Fatalf("eşlemeler = %+v", list)
 	}
 
 	// AD grupları karışık harfle gelir; aynı grubun iki yazımı iki ayrı
 	// eşleme olmamalı.
-	roles, unmapped, err := s.RolesForGroups(ctx, []string{"SysAdmins"})
+	groups, unmapped, err := s.GroupsForDirectoryGroups(ctx, []string{"SysAdmins"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(roles) != 2 || len(unmapped) != 0 {
-		t.Fatalf("büyük/küçük harf duyarlılığı: roller=%v eşlenmeyen=%v", roles, unmapped)
+	if len(groups) != 2 || len(unmapped) != 0 {
+		t.Fatalf("büyük/küçük harf duyarlılığı: gruplar=%v eşlenmeyen=%v", groups, unmapped)
 	}
 
 	if err := s.RemoveGroupMapping(ctx, "sysadmins", "dba"); err != nil {
@@ -1611,12 +1611,12 @@ func TestUnmappedGroupsAreRecorded(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	roles, unmapped, err := s.RolesForGroups(ctx, []string{"sysadmins", "developers", "hr"})
+	groups, unmapped, err := s.GroupsForDirectoryGroups(ctx, []string{"sysadmins", "developers", "hr"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(roles) != 1 || roles[0] != "ops" {
-		t.Fatalf("roller = %v", roles)
+	if len(groups) != 1 || groups[0] != "ops" {
+		t.Fatalf("gruplar = %v", groups)
 	}
 	if len(unmapped) != 2 || unmapped[0] != "developers" || unmapped[1] != "hr" {
 		t.Fatalf("eşlenmeyenler = %v", unmapped)
@@ -1692,11 +1692,11 @@ func TestProvisionUserRequiresMappedGroup(t *testing.T) {
 	if !u.SSOOnly {
 		t.Error("JIT kullanıcı sso_only doğmamış — anahtarla girebilir, IdP'de kapatılınca erişimi bitmez")
 	}
-	if len(u.Roles) != 1 || u.Roles[0].Name != "ops" {
-		t.Errorf("roller = %+v, beklenen [ops]", u.Roles)
+	if len(u.Groups) != 1 || u.Groups[0].Name != "ops" {
+		t.Errorf("gruplar = %+v, beklenen [ops]", u.Groups)
 	}
-	if len(u.Roles[0].Targets) != 1 || u.Roles[0].Targets[0] != "web01" {
-		t.Errorf("rolün hedefleri = %v", u.Roles[0].Targets)
+	if len(u.Groups[0].Targets) != 1 || u.Groups[0].Targets[0] != "web01" {
+		t.Errorf("grubun hedefleri = %v", u.Groups[0].Targets)
 	}
 }
 
@@ -1723,34 +1723,34 @@ func TestProvisionUserSyncsExistingUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(u.Roles) != 2 {
-		t.Fatalf("roller = %+v, beklenen 2", u.Roles)
+	if len(u.Groups) != 2 {
+		t.Fatalf("gruplar = %+v, beklenen 2", u.Groups)
 	}
 
-	// Yönetici elle bir rol daha verdi.
-	if err := s.AssignRole(ctx, "yigit.basalma", "dba", time.Time{}); err != nil {
+	// Yönetici elle bir grup daha verdi.
+	if err := s.AssignGroup(ctx, "yigit.basalma", "dba", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 
-	// IdP'de dbteam'den çıkarıldı: SSO rolü gider, elle atanan KALIR.
+	// IdP'de dbteam'den çıkarıldı: SSO grubu gider, elle atanan KALIR.
 	req.Groups = []string{"sysadmins"}
 	u, err = s.ProvisionUser(ctx, req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := roleNames(u); len(got) != 2 || got[0] != "dba" || got[1] != "ops" {
-		t.Fatalf("roller = %v, beklenen [dba ops] — elle atama kaybolmuş olabilir", got)
+		t.Fatalf("gruplar = %v, beklenen [dba ops] — elle atama kaybolmuş olabilir", got)
 	}
 
 	// Bütün gruplardan çıkarıldı: kullanıcı SİLİNMEZ (denetim), SSO
-	// rolleri temizlenir.
+	// grupları temizlenir.
 	req.Groups = nil
 	u, err = s.ProvisionUser(ctx, req)
 	if err != nil {
 		t.Fatalf("var olan kullanıcı eşleşmesiz kalınca hata verdi: %v", err)
 	}
 	if got := roleNames(u); len(got) != 1 || got[0] != "dba" {
-		t.Fatalf("roller = %v, beklenen [dba]", got)
+		t.Fatalf("gruplar = %v, beklenen [dba]", got)
 	}
 	if _, err := s.User(ctx, "yigit.basalma"); err != nil {
 		t.Error("var olan kullanıcı silinmiş — denetim kaydı sahipsiz kalır")
@@ -1958,7 +1958,7 @@ func TestProvisionUserRefusesReservedAccountNames(t *testing.T) {
 // TestProvisionUserAuditsAutomaticAccountCreation, JIT sağlamanın denetim
 // satırı bıraktığını doğrular.
 //
-// NEDEN: SSO ile açılan hesap, CLI'daki `user add` + `role grant` ile aynı
+// NEDEN: SSO ile açılan hesap, CLI'daki `user add` + `gruba grant` ile aynı
 // şeyi yapıyor — hesabı açıp hedef erişimi veriyor. CLI yolu denetim
 // günlüğüne düşerken bu yol sessizdi; panelde günlüğe bakan operatör, SSO
 // üzerinden gelip sysadmin olmuş kullanıcıları hiç görmüyordu. Yetkinin en
@@ -2008,15 +2008,15 @@ func TestProvisionUserAuditsAutomaticAccountCreation(t *testing.T) {
 	if entry.Via != "sso" {
 		t.Errorf("via = %q, \"sso\" bekleniyordu", entry.Via)
 	}
-	// Verilen rol de görünmeli: "hesap açıldı" tek başına neyin
+	// Verilen grup de görünmeli: "hesap açıldı" tek başına neyin
 	// verildiğini söylemiyor.
 	if !strings.Contains(entry.Details, "ops") {
-		t.Errorf("details = %q, verilen rolü içermeli", entry.Details)
+		t.Errorf("details = %q, verilen grubu içermeli", entry.Details)
 	}
 }
 
 /*
- * Grupları ÖĞRENEMEDİĞİMİZDE roller olduğu gibi kalmalı.
+ * Grupları ÖĞRENEMEDİĞİMİZDE gruplar olduğu gibi kalmalı.
  *
  * Ölçülmüş arıza: IdP kullanıcıyı "yigit" biliyor, dizinde kayıt
  * "yigit.basalma". Dizin "böyle biri yok" diye BAŞARIYLA cevap veriyor,
@@ -2025,7 +2025,7 @@ func TestProvisionUserAuditsAutomaticAccountCreation(t *testing.T) {
  * girişte, bekleme süresi olmadan, tavan olmadan, uyarı olmadan.
  * Senkronizasyon döngüsündeki patlama yarıçapı korumaları bu yolda yok.
  */
-func TestProvisionUserKeepsRolesWhenGroupsUnresolved(t *testing.T) {
+func TestProvisionUserKeepsGroupsWhenGroupsUnresolved(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
@@ -2053,8 +2053,8 @@ func TestProvisionUserKeepsRolesWhenGroupsUnresolved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bağlı kullanıcı reddedildi: %v", err)
 	}
-	if len(u.Roles) != 1 || u.Roles[0].Name != "ops" {
-		t.Fatalf("roller silinmiş: %+v — dizin cevabı 'bulamadım'ken yetki kararı verilmemeliydi", u.Roles)
+	if len(u.Groups) != 1 || u.Groups[0].Name != "ops" {
+		t.Fatalf("gruplar silinmiş: %+v — dizin cevabı 'bulamadım'ken yetki kararı verilmemeliydi", u.Groups)
 	}
 }
 
@@ -2082,7 +2082,7 @@ func TestProvisionUserRefusesNewAccountWhenGroupsUnresolved(t *testing.T) {
 }
 
 // Buna karşılık: kaynak kullanıcıyı TANIYOR ve hiçbir grubu yoksa, bu
-// gerçek bir cevaptır ve SSO rolleri temizlenir. ProvisionUser'ın
+// gerçek bir cevaptır ve SSO grupları temizlenir. ProvisionUser'ın
 // sözleşmesi bu; düzeltme onu değiştirmemeli.
 func TestProvisionUserStillRevokesWhenPresentWithNoGroups(t *testing.T) {
 	ctx := context.Background()
@@ -2109,7 +2109,7 @@ func TestProvisionUserStillRevokesWhenPresentWithNoGroups(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(u.Roles) != 0 {
-		t.Fatalf("roller = %+v, beklenen 0 — gerçek bir cevap iptal ettirmeli", u.Roles)
+	if len(u.Groups) != 0 {
+		t.Fatalf("gruplar = %+v, beklenen 0 — gerçek bir cevap iptal ettirmeli", u.Groups)
 	}
 }

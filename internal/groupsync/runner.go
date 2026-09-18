@@ -105,9 +105,9 @@ type Report struct {
 	Outcome string
 	Reason  string
 
-	Considered, Present, Absent, Unknown, Revoked, RolesChanged int
+	Considered, Present, Absent, Unknown, Revoked, GroupsChanged int
 
-	// KeptManual, iptal edilmiş ama elle verilmiş rolleri DURAN
+	// KeptManual, iptal edilmiş ama elle verilmiş grupları DURAN
 	// kullanıcılar. Ayrı raporlanıyor çünkü "iptal edildi" okuyup
 	// erişimin tamamen bittiğini sanmak kolay.
 	KeptManual []string
@@ -150,7 +150,7 @@ func (r *Runner) RunOnce(ctx context.Context, trigger string) (Report, error) {
 	if ferr := r.db.FinishSyncRun(finishCtx, store.SyncRun{
 		ID: runID, Outcome: rep.Outcome, Reason: rep.Reason,
 		Considered: rep.Considered, Present: rep.Present, Absent: rep.Absent,
-		Unknown: rep.Unknown, Revoked: rep.Revoked, RolesChanged: rep.RolesChanged,
+		Unknown: rep.Unknown, Revoked: rep.Revoked, GroupsChanged: rep.GroupsChanged,
 	}); ferr != nil {
 		r.logger.Error("sync run bookkeeping failed", "run", runID, "error", ferr)
 	}
@@ -215,7 +215,7 @@ func (r *Runner) run(ctx context.Context, runID int64, dryRun bool, limits Limit
 		 *
 		 * Adla arama, dizinde YENİDEN ADLANDIRILAN kişiyi SİLİNMİŞ
 		 * kişiden ayırt edemiyor: ikisi de PresenceAbsent döner ve
-		 * aşağıdaki plan ikincisini rol iptaline çevirir. Yani bir
+		 * aşağıdaki plan ikincisini grup iptaline çevirir. Yani bir
 		 * soyadı güncellemesi, kimsenin baktığı bir yerde olmadan
 		 * erişim kaybına dönüşüyordu.
 		 *
@@ -233,18 +233,18 @@ func (r *Runner) run(ctx context.Context, runID int64, dryRun bool, limits Limit
 			Username:     c.Username,
 			Presence:     res.Presence,
 			MissingSince: c.MissingSince,
-			ManualRoles:  c.ManualRoles,
-			SSORoles:     c.SSORoles,
+			ManualGroups: c.ManualGroups,
+			SSOGroups:    c.SSOGroups,
 		}
 
 		if res.Presence == ldap.PresencePresent {
-			roles, _, rerr := r.db.RolesForGroups(ctx, model.ResolvedGroups(res.Groups))
+			groups, _, rerr := r.db.GroupsForDirectoryGroups(ctx, model.ResolvedGroups(res.Groups))
 			if rerr != nil {
 				// Rol çözümü başarısızsa bu kullanıcı hakkında bir şey
 				// bilmiyoruz demektir — "grupsuz" saymak yanlış olurdu.
 				o.Presence = ldap.PresenceUnknown
 			} else {
-				o.MappedRoles = roles
+				o.MappedGroups = groups
 			}
 		}
 
@@ -285,26 +285,26 @@ func (r *Runner) run(ctx context.Context, runID int64, dryRun bool, limits Limit
 	// 6) Uygula.
 	now := time.Now()
 	for _, a := range plan.Apply {
-		if err := r.db.SyncRoles(ctx, a.Username, a.Roles); err != nil {
-			r.logger.Error("sync roles failed", "user", a.Username, "error", err)
+		if err := r.db.SyncGroups(ctx, a.Username, a.Groups); err != nil {
+			r.logger.Error("sync groups failed", "user", a.Username, "error", err)
 			continue
 		}
-		rep.RolesChanged++
+		rep.GroupsChanged++
 
 		if a.Revoking {
 			rep.Revoked++
-			if a.ManualRoles > 0 {
+			if a.ManualGroups > 0 {
 				rep.KeptManual = append(rep.KeptManual, a.Username)
 			}
 
 			// Denetim satırı: iptal, bir insanın sonradan sorabileceği
 			// bir olay.
 			details := "directory no longer lists this user"
-			if a.ManualRoles > 0 {
-				details += fmt.Sprintf("; %d manually granted role(s) kept", a.ManualRoles)
+			if a.ManualGroups > 0 {
+				details += fmt.Sprintf("; %d manually granted group(s) kept", a.ManualGroups)
 			}
 			if err := r.db.LogAdmin(ctx, store.AdminLogEntry{
-				Actor: "system", Via: "sync", Action: "role.sync_revoke",
+				Actor: "system", Via: "sync", Action: "group.sync_revoke",
 				Entity: a.Username, Details: details,
 			}); err != nil {
 				r.logger.Error("sync audit write failed", "user", a.Username, "error", err)

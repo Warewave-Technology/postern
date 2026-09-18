@@ -193,7 +193,7 @@ func TestRenderRefusesAUserNameThatIsSyntax(t *testing.T) {
  * ⚠️ HESAP DEĞİŞTİKÇE YENİ ÖBEK, SIRA KORUNARAK. sudoers listenin
  * ortasında hesap değiştirmeye izin veriyor; kural başına tek hesap,
  * "nginx'i root olarak sına, pg_ctl'i postgres olarak yeniden yükle"
- * diyen bir role iki ayrı kural yazdırırdı — ve hedefte bir grubun tek
+ * diyen bir gruba iki ayrı kural yazdırırdı — ve hedefte bir grubun tek
  * sudoers dosyası var.
  *
  * NOPASSWD her öbekte yineleniyor: etiketin bir sonraki öbeğe

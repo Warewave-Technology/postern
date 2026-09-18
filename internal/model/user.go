@@ -24,14 +24,14 @@ type User struct {
 	// Driver 1'in özü bu alan: herkes hedefe kendi adıyla düşüyor.
 	OSUser string
 
-	// Roles, kişinin sahip olduğu roller. Hedef erişimi rollerden gelir.
-	Roles []Role
+	// Groups, kişinin sahip olduğu gruplar. Hedef erişimi rollerden gelir.
+	Groups []Group
 
 	// SSOOnly true ise bu kullanıcı YALNIZCA kimlik sağlayıcı üzerinden
 	// girebilir; public key ile girişi reddedilir.
 	//
 	// IdP'den otomatik oluşan (JIT) kullanıcılar böyle doğar: erişimleri
-	// IdP'de kapatılınca gerçekten bitsin ve rolleri her girişte
+	// IdP'de kapatılınca gerçekten bitsin ve grupları her girişte
 	// tazelensin diye. Elle oluşturulan servis hesapları false kalır.
 	SSOOnly bool
 
@@ -45,9 +45,9 @@ type User struct {
 	 */
 	DirBound bool
 
-	// Admin, uygulama YÖNETİM yetkisi (kullanıcı/rol/hedef değiştirme,
+	// Admin, uygulama YÖNETİM yetkisi (kullanıcı/grup/hedef değiştirme,
 	// web'deki yönetim sayfaları). Hedef erişimiyle ilgisi yok: admin
-	// olmayan biri terminale girebilir, admin olan biri rolü yoksa hiçbir
+	// olmayan biri terminale girebilir, admin olan biri grubu yoksa hiçbir
 	// hedefe giremez. İki eksen bilerek ayrık.
 	Admin bool
 }

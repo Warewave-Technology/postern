@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { api, Mapping, Role, UnmappedGroup, toMessage } from "../api";
+import { api, Mapping, Group, UnmappedGroup, toMessage } from "../api";
 import { ActionButton, ErrorLine, ListState, OkLine, Timestamp, useList } from "./common";
 import DataTable, { Column } from "./DataTable";
 import Modal from "./Modal";
@@ -14,10 +14,10 @@ export default function Mappings() {
   const { items, error, denied, loading, failed, refresh, setError } =
     useList<Mapping>(api.mappings);
   const unmapped = useList<UnmappedGroup>(api.unmappedGroups);
-  const roles = useList<Role>(api.roles);
+  const groups = useList<Group>(api.groups);
 
+  const [directoryGroup, setDirectoryGroup] = useState("");
   const [group, setGroup] = useState("");
-  const [role, setRole] = useState("");
   // Ekleme formu MODALDA: sayfanın işi listeyi göstermek.
   const [adding, setAdding] = useState(false);
   // Hem ekleme hem kaldırma GECİKMELİ etki ediyor: satırın tablodan
@@ -29,19 +29,20 @@ export default function Mappings() {
   // Eşlenmemiş satırdaki düğme grubu yukarıdaki forma yazıyor; odağı da
   // taşımak gerekiyor, yoksa tıklayan kişi ekranın altında kalıyor ve
   // hiçbir şey olmamış gibi görünüyor.
-  const roleRef = useRef<HTMLSelectElement>(null);
+  const groupRef = useRef<HTMLSelectElement>(null);
 
   const add = () => {
-    const g = group.trim();
+    const dg = directoryGroup.trim();
     setNotice("");
     return (
       api
-        .addMapping(g, role)
+        .addMapping(dg, group)
         .then(() => {
-          // Rol seçili KALIYOR: aynı role birden çok grup eşlemek olağan iş.
-          setGroup("");
+          // postern grubu seçili KALIYOR: aynı gruba birden çok dizin
+          // grubu eşlemek olağan iş.
+          setDirectoryGroup("");
           setNotice(
-            `${g} → ${role} mapped. Members get the role at their next sign-in.`,
+            `${dg} → ${group} mapped. Members get the group at their next sign-in.`,
           );
           refresh();
           unmapped.refresh();
@@ -59,10 +60,10 @@ export default function Mappings() {
   const remove = (m: Mapping) => {
     setNotice("");
     return api
-      .removeMapping(m.group, m.role)
+      .removeMapping(m.directory_group, m.group)
       .then(() => {
         setNotice(
-          `${m.group} → ${m.role} removed. Anyone who already holds ${m.role} keeps it until their next sign-in.`,
+          `${m.directory_group} → ${m.group} removed. Anyone who already holds ${m.group} keeps it until their next sign-in.`,
         );
         refresh();
       })
@@ -71,7 +72,7 @@ export default function Mappings() {
 
   const mapThisGroup = (name: string) => {
     setGroup(name);
-    roleRef.current?.focus();
+    groupRef.current?.focus();
   };
 
   // Sunucu teşhis tablosundan satır SİLMİYOR: bir grubu eşledikten sonra
@@ -86,16 +87,21 @@ export default function Mappings() {
 
   const mappingCols: Column<Mapping>[] = [
     {
-      key: "group",
-      header: "IdP group",
-      value: (m) => m.group,
-      render: (m) => <code>{m.group}</code>,
+      key: "directory_group",
+      /*
+       * ⚠️ "Directory group", "IdP group" DEĞİL ve "Group" hiç değil.
+       * Bu ekranda üç ayrı grup kavramı var; sütun adı hangisinden
+       * bahsettiğini söylemezse eşleme okunmaz olur.
+       */
+      header: "Directory group",
+      value: (m) => m.directory_group,
+      render: (m) => <code>{m.directory_group}</code>,
     },
     {
-      key: "role",
-      header: "Role",
-      value: (m) => m.role,
-      render: (m) => <code>{m.role}</code>,
+      key: "group",
+      header: "Group",
+      value: (m) => m.group,
+      render: (m) => <code>{m.group}</code>,
     },
     { key: "by", header: "Mapped by", value: (m) => m.created_by },
     {
@@ -106,8 +112,8 @@ export default function Mappings() {
       render: (m) => (
         <ActionButton
           variant="danger"
-          confirm={`Remove the mapping ${m.group} → ${m.role}? Anyone who already holds ${m.role} keeps it until their next sign-in.`}
-          label={`remove mapping ${m.group} to ${m.role}`}
+          confirm={`Remove the mapping ${m.group} → ${m.group}? Anyone who already holds ${m.group} keeps it until their next sign-in.`}
+          label={`remove mapping ${m.group} to ${m.group}`}
           onClick={() => remove(m)}
         >
           Remove
@@ -161,7 +167,7 @@ export default function Mappings() {
         <div className="page-head">
           <h2>Group mappings</h2>
           <p className="page-sub">
-            A directory group becomes a postern role at sign-in. Removing a
+            A directory group becomes a postern group at sign-in. Removing a
             mapping revokes nothing on the spot: existing SSO assignments are
             refreshed on the user&apos;s next login.
           </p>
@@ -184,10 +190,10 @@ export default function Mappings() {
         <DataTable
           rows={items}
           columns={mappingCols}
-          rowKey={(m) => `${m.group}/${m.role}`}
+          rowKey={(m) => `${m.group}/${m.group}`}
           initialSort={{ key: "group", dir: "asc" }}
           noun="mapping"
-          searchLabel="search mappings by group or role"
+          searchLabel="search mappings by group or group"
           searchPlaceholder="Search mappings…"
         />
       )}
@@ -196,11 +202,11 @@ export default function Mappings() {
         open={adding}
         onClose={() => setAdding(false)}
         title="New mapping"
-        description="Members of the group get the role at their next sign-in — a mapping never changes anyone's access on the spot."
+        description="Members of the group get the group at their next sign-in — a mapping never changes anyone's access on the spot."
       >
         <div className="field-row">
           <label>
-            IdP group
+            Directory group
             <input
               value={group}
               onChange={(e) => setGroup(e.target.value)}
@@ -208,14 +214,14 @@ export default function Mappings() {
             />
           </label>
           <label>
-            Role
+            Group
             <select
-              ref={roleRef}
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
+              ref={groupRef}
+              value={group}
+              onChange={(e) => setGroup(e.target.value)}
             >
-              <option value="">select role…</option>
-              {roles.items.map((r) => (
+              <option value="">select group…</option>
+              {groups.items.map((r) => (
                 <option key={r.name} value={r.name}>
                   {r.name}
                 </option>
@@ -225,22 +231,22 @@ export default function Mappings() {
           <ActionButton
             variant="primary"
             onClick={() => add().then((ok) => ok && setAdding(false))}
-            disabled={!group.trim() || !role}
+            disabled={!group.trim() || !group}
           >
             Map group
           </ActionButton>
         </div>
-        <ErrorLine msg={roles.error} />
+        <ErrorLine msg={groups.error} />
         {/*
         Boş bir rol açılırı sessizce "seçecek bir şey yok" gibi duruyor.
         Sebebi söylenmezse yönetici formu bozuk sanıyor — ve reddedilmiş
         bir istek ile gerçekten rol olmaması AYNI şey değil.
       */}
-        {!roles.loading && roles.items.length === 0 && (
+        {!groups.loading && groups.items.length === 0 && (
           <p className="note">
-            {roles.denied
-              ? "Roles could not be listed for your account, so this list is empty — that is not the same as there being no roles."
-              : "No roles exist yet — create one on the Roles tab before a group can be mapped."}
+            {groups.denied
+              ? "Groups could not be listed for your account, so this list is empty — that is not the same as there being no groups."
+              : "No groups exist yet — create one on the Groups tab before a group can be mapped."}
           </p>
         )}
       </Modal>
@@ -248,7 +254,7 @@ export default function Mappings() {
       <div className="page-head">
         <h3>Groups seen but not mapped</h3>
         <p className="page-sub">
-          These arrived in a login and matched no role, so whoever signed in got
+          These arrived in a login and matched no group, so whoever signed in got
           nothing from them. Mapping one grants access on that user&apos;s next
           sign-in.
         </p>
@@ -264,7 +270,7 @@ export default function Mappings() {
         // eklendiği arıza, onu ekleyen sayfada.
         failed={unmapped.failed}
         empty={pending.length === 0}
-        emptyText="Nothing unmapped so far — every group seen in a login matched a role."
+        emptyText="Nothing unmapped so far — every group seen in a login matched a group."
       />
       {pending.length > 0 && (
         <DataTable

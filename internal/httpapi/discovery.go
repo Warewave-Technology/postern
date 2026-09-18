@@ -9,7 +9,7 @@ package httpapi
  * dönüyor (store.DiscoverySource'un kendisinde sır alanı yok). Güncelleme
  * gövdesinde sır boşsa "değiştirmedim" demek.
  *
- * ⚠️ MAKİNE KAYDI ERİŞİM VERİYOR (hedef + rol bağı), yani POST ve
+ * ⚠️ MAKİNE KAYDI ERİŞİM VERİYOR (hedef + grup bağı), yani POST ve
  * sameOrigin; koşu başlatma da öyle — hipervizöre ve her makinenin
  * sshd'sine bağlanan bir iş bir <img> etiketiyle tetiklenmemeli.
  */
@@ -61,7 +61,7 @@ type discoveredMachineView struct {
 	Host     string   `json:"host"`
 	Tags     []string `json:"tags"`
 	Running  bool     `json:"running"`
-	Role     string   `json:"role,omitempty"`
+	Group    string   `json:"group,omitempty"`
 	// Fingerprint, koşunun okuduğu anahtarın parmak izi; okunamadıysa boş.
 	Fingerprint  string `json:"fingerprint,omitempty"`
 	Problem      string `json:"problem,omitempty"`
@@ -75,7 +75,7 @@ type discoveredMachineView struct {
 func machineView(m store.DiscoveredMachine) discoveredMachineView {
 	v := discoveredMachineView{
 		SourceID: m.SourceID, Source: m.Source, Ref: m.Ref, Name: m.Name, Host: m.Host,
-		Tags: m.Tags, Running: m.Running, Role: m.Role, Problem: m.Problem, Target: m.Target,
+		Tags: m.Tags, Running: m.Running, Group: m.Group, Problem: m.Problem, Target: m.Target,
 		Ignored: m.Ignored, FirstSeen: m.FirstSeen.Format(time.RFC3339),
 		LastSeen: m.LastSeen.Format(time.RFC3339),
 	}
@@ -317,16 +317,16 @@ func (s *Server) adminDiscoveryRuns(w http.ResponseWriter, r *http.Request) {
 // adminRegisterDiscovered: POST /api/admin/discovery/register
 func (s *Server) adminRegisterDiscovered(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Machines []discover.MachineRef `json:"machines"`
-		Roles    []string              `json:"roles"`
-		TagRoles bool                  `json:"tag_roles"`
-		Labels   map[string]string     `json:"labels"`
+		Machines  []discover.MachineRef `json:"machines"`
+		Groups    []string              `json:"groups"`
+		TagGroups bool                  `json:"tag_roles"`
+		Labels    map[string]string     `json:"labels"`
 	}
 	if !readJSON(w, r, &in) {
 		return
 	}
 	out, err := s.discovery.Register(r.Context(), discover.RegisterRequest{
-		Machines: in.Machines, Roles: in.Roles, TagRoles: in.TagRoles, Labels: in.Labels,
+		Machines: in.Machines, Groups: in.Groups, TagGroups: in.TagGroups, Labels: in.Labels,
 		Actor: sessionUser(r),
 	})
 	if err != nil {

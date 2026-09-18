@@ -109,7 +109,7 @@ func keyOf(t *testing.T, host string, port int) string {
 
 /*
  * ⚠️ KOŞU HEDEF YAZMIYOR. Platformun bildirdiği makine satıra giriyor —
- * okunan anahtarı, etiketten çıkan rolü ve engeliyle — ama targets
+ * okunan anahtarı, etiketten çıkan grubu ve engeliyle — ama targets
  * tablosuna hiçbir şey yazılmıyor. Kaynağın sırrı açılıp hipervizöre
  * gidiyor, başka yere değil.
  */
@@ -130,21 +130,21 @@ func TestARunRecordsMachinesWithoutWritingTargets(t *testing.T) {
 		t.Errorf("kaynağa giden sır %q", f.secret)
 	}
 	web := f.machine(t, "qemu/101")
-	if web.Role != "ops" || !web.Tagged || web.HostKey != keyOf(t, f.host, f.port) || web.Problem != "" || web.Host != f.host {
+	if web.Group != "ops" || !web.Tagged || web.HostKey != keyOf(t, f.host, f.port) || web.Problem != "" || web.Host != f.host {
 		t.Errorf("web-01: %+v", web)
 	}
 	db := f.machine(t, "qemu/102")
-	if db.HostKey != "" || !strings.Contains(db.Problem, "not running") || db.Role != "dba" {
+	if db.HostKey != "" || !strings.Contains(db.Problem, "not running") || db.Group != "dba" {
 		t.Errorf("kapalı makine: %+v", db)
 	}
-	if bad := f.machine(t, "qemu/103"); !strings.Contains(bad.Problem, "cannot be a target name") || bad.Role != "" {
+	if bad := f.machine(t, "qemu/103"); !strings.Contains(bad.Problem, "cannot be a target name") || bad.Group != "" {
 		t.Errorf("adı bozuk makine: %+v", bad)
 	}
 	if targets, _ := f.db.Targets(ctx); len(targets) != 0 {
 		t.Fatalf("KOŞU HEDEF YAZDI: %+v", targets)
 	}
-	if roles, _ := f.db.Roles(ctx); len(roles) != 0 {
-		t.Fatalf("KOŞU ROL YAZDI: %+v", roles)
+	if groups, _ := f.db.Groups(ctx); len(groups) != 0 {
+		t.Fatalf("KOŞU ROL YAZDI: %+v", groups)
 	}
 	runs, _ := f.db.DiscoveryRuns(ctx, f.source.ID, 5)
 	if len(runs) != 1 || runs[0].Outcome != store.DiscoveryOK || runs[0].Trigger != "web" || runs[0].Actor != "ops" {
@@ -269,15 +269,15 @@ func TestANameMatchLinksOnlyWhenTheKeyMatches(t *testing.T) {
 }
 
 /*
- * ⚠️ KAYIT KOŞUNUN OKUDUĞU ANAHTARI SABİTLİYOR, seçilen rollere ve
- * etiketin rolüne bağlıyor (yoksa açıyor), etiketleri takıyor ve her
+ * ⚠️ KAYIT KOŞUNUN OKUDUĞU ANAHTARI SABİTLİYOR, seçilen gruplara ve
+ * etiketin grubuna bağlıyor (yoksa açıyor), etiketleri takıyor ve her
  * adımı deftere yazıyor. Anahtarı olmayan makine kaydedilmiyor; olmayan
- * rol isteği baştan reddediliyor.
+ * grup isteği baştan reddediliyor.
  */
-func TestRegisterPinsTheRecordedKeyGrantsRolesAndWritesTheLedger(t *testing.T) {
+func TestRegisterPinsTheRecordedKeyGrantsGroupsAndWritesTheLedger(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	if _, err := f.db.CreateRole(ctx, "ops"); err != nil {
+	if _, err := f.db.CreateGroup(ctx, "ops"); err != nil {
 		t.Fatal(err)
 	}
 	f.src.set(
@@ -287,18 +287,18 @@ func TestRegisterPinsTheRecordedKeyGrantsRolesAndWritesTheLedger(t *testing.T) {
 	f.run(t)
 
 	if _, err := f.svc.Register(ctx, RegisterRequest{
-		Machines: []MachineRef{{SourceID: f.source.ID, Ref: "qemu/101"}}, Roles: []string{"yok"}, Actor: "ops",
+		Machines: []MachineRef{{SourceID: f.source.ID, Ref: "qemu/101"}}, Groups: []string{"yok"}, Actor: "ops",
 	}); !errors.Is(err, store.ErrInvalid) {
-		t.Fatalf("olmayan rol: %v", err)
+		t.Fatalf("olmayan grup: %v", err)
 	}
 	out, err := f.svc.Register(ctx, RegisterRequest{
 		Machines: []MachineRef{{SourceID: f.source.ID, Ref: "qemu/101"}, {SourceID: f.source.ID, Ref: "qemu/102"}, {SourceID: f.source.ID, Ref: "yok"}},
-		Roles:    []string{"ops"}, TagRoles: true, Labels: map[string]string{"env": "prod"}, Actor: "ayse",
+		Groups:   []string{"ops"}, TagGroups: true, Labels: map[string]string{"env": "prod"}, Actor: "ayse",
 	})
 	if err != nil || len(out) != 3 {
 		t.Fatalf("Register: %+v (%v)", out, err)
 	}
-	if out[0].Target != "web-01" || strings.Join(out[0].Roles, ",") != "ops,web" || strings.Join(out[0].CreatedRoles, ",") != "web" {
+	if out[0].Target != "web-01" || strings.Join(out[0].Groups, ",") != "ops,web" || strings.Join(out[0].CreatedGroups, ",") != "web" {
 		t.Errorf("web-01 sonucu: %+v", out[0])
 	}
 	if !strings.Contains(out[1].Error, "no host key") {
@@ -316,14 +316,14 @@ func TestRegisterPinsTheRecordedKeyGrantsRolesAndWritesTheLedger(t *testing.T) {
 		t.Errorf("etiket takılmadı: %v", labels)
 	}
 	granted := map[string]bool{}
-	roles, _ := f.db.Roles(ctx)
-	for _, r := range roles {
+	groups, _ := f.db.Groups(ctx)
+	for _, r := range groups {
 		for _, tn := range r.Targets {
 			granted[r.Name+"→"+tn] = true
 		}
 	}
 	if !granted["ops→web-01"] || !granted["web→web-01"] {
-		t.Errorf("rol bağları: %v", granted)
+		t.Errorf("grup bağları: %v", granted)
 	}
 	if m := f.machine(t, "qemu/101"); m.Target != "web-01" {
 		t.Errorf("makine hedefe bağlanmadı: %+v", m)
@@ -336,7 +336,7 @@ func TestRegisterPinsTheRecordedKeyGrantsRolesAndWritesTheLedger(t *testing.T) {
 			seen[e.Action]++
 		}
 	}
-	if seen["target.create"] != 1 || seen["role.create"] != 1 || seen["role.grant"] != 2 {
+	if seen["target.create"] != 1 || seen["group.create"] != 1 || seen["group.grant"] != 2 {
 		t.Errorf("defter: %v", seen)
 	}
 
@@ -487,7 +487,7 @@ func TestValidateSourceRefusesWhatWouldNotWork(t *testing.T) {
  * ⚠️ TEST BAĞLANTISI HİÇBİR ŞEY YAZMIYOR: ne kaynak, ne makine, ne koşu.
  * Sayımlar formun dört sorusunu cevaplıyor: adres/sır doğru mu (liste
  * geldi mi), ad kalıbı kaç makineyi tutuyor, etiket anahtarı kaç makinede
- * var ve hangi roller çıkıyor; sıfırsa görülen etiketler ne.
+ * var ve hangi gruplar çıkıyor; sıfırsa görülen etiketler ne.
  */
 func TestProbeCountsWhatThePlatformReportsWithoutWriting(t *testing.T) {
 	f := newFixture(t)
@@ -507,7 +507,7 @@ func TestProbeCountsWhatThePlatformReportsWithoutWriting(t *testing.T) {
 		t.Errorf("kaynağa giden sır %q", f.secret)
 	}
 	if p.Machines != 3 || p.Running != 2 || p.WithAddress != 1 || p.Matching != 2 || p.Tagged != 2 ||
-		strings.Join(p.Roles, ",") != "ops,dba" || len(p.Tags) != 3 {
+		strings.Join(p.Groups, ",") != "ops,dba" || len(p.Tags) != 3 {
 		t.Errorf("sayımlar: %+v", p)
 	}
 	if runs, _ := f.db.DiscoveryRuns(ctx, f.source.ID, 5); len(runs) != 0 {

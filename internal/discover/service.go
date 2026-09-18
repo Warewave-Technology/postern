@@ -27,7 +27,7 @@ import (
  *
  * ⚠️ KOŞU HEDEF YAZMIYOR, ROL BAĞLAMIYOR. CLI'daki `--apply` bunu yapıyor,
  * çünkü orada önizlemeyi bir insan okuyup onaylıyor. Zamanlayıcının okuru
- * yok: Proxmox'ta `role_prod` etiketiyle VM açabilen biri, o role bağlı
+ * yok: Proxmox'ta `role_prod` etiketiyle VM açabilen biri, o group bağlı
  * insanların girebileceği bir makine yaratmış olurdu — sanallaştırma
  * platformu üzerinden yetki yükseltme. Koşu bulduğunu discovered_machines'e
  * yazıyor; makine hedef ancak bir yönetici Register dediğinde oluyor.
@@ -96,10 +96,10 @@ type Probe struct {
 	WithAddress int `json:"with_address"`
 	// Matching, ad kalıbına uyan makine sayısı (kalıp boşsa hepsi).
 	Matching int `json:"matching"`
-	// Tagged, etiket anahtarını taşıyan makine sayısı; Roles onlardan
-	// çıkan rol adlarının örneği, Tags görülen etiketlerin örneği.
+	// Tagged, etiket anahtarını taşıyan makine sayısı; Groups onlardan
+	// çıkan grup adlarının örneği, Tags görülen etiketlerin örneği.
 	Tagged int      `json:"tagged"`
-	Roles  []string `json:"roles"`
+	Groups []string `json:"groups"`
 	Tags   []string `json:"tags"`
 	TookMS int64    `json:"took_ms"`
 }
@@ -125,8 +125,8 @@ func (s *Service) Probe(ctx context.Context, src store.DiscoverySource, secret s
 	if err != nil {
 		return Probe{}, fmt.Errorf("%s: %w", src.Kind, err)
 	}
-	p := Probe{Roles: []string{}, Tags: []string{}}
-	seenRole, seenTag := map[string]bool{}, map[string]bool{}
+	p := Probe{Groups: []string{}, Tags: []string{}}
+	seenGroup, seenTag := map[string]bool{}, map[string]bool{}
 	for _, m := range listed {
 		p.Machines++
 		if m.Running {
@@ -138,11 +138,11 @@ func (s *Service) Probe(ctx context.Context, src store.DiscoverySource, secret s
 		if matchesPattern(src.NamePattern, m.Name) {
 			p.Matching++
 		}
-		if role, tagged := RoleFromTags(m.Tags, src.TagKey); tagged {
+		if group, tagged := GroupFromTags(m.Tags, src.TagKey); tagged {
 			p.Tagged++
-			if !seenRole[role] && len(p.Roles) < probeSample {
-				seenRole[role] = true
-				p.Roles = append(p.Roles, role)
+			if !seenGroup[group] && len(p.Groups) < probeSample {
+				seenGroup[group] = true
+				p.Groups = append(p.Groups, group)
 			}
 		}
 		for _, t := range m.Tags {
@@ -561,9 +561,9 @@ func (s *Service) collect(ctx context.Context, src store.DiscoverySource, rep *s
 			SourceID: src.ID, Ref: m.Key, Name: m.Name, Host: strings.TrimSpace(m.Host),
 			Tags: m.Tags, Running: m.Running, LastSeen: now,
 		}
-		row.Role, row.Tagged = RoleFromTags(m.Tags, src.TagKey)
+		row.Group, row.Tagged = GroupFromTags(m.Tags, src.TagKey)
 		if !row.Tagged {
-			row.Role = ""
+			row.Group = ""
 		}
 		if isKnown {
 			row.TargetID, row.Ignored, row.HostKey = prev.TargetID, prev.Ignored, prev.HostKey
@@ -573,8 +573,8 @@ func (s *Service) collect(ctx context.Context, src store.DiscoverySource, rep *s
 
 		var problems []string
 		if row.Tagged {
-			if err := ValidRoleName(row.Role); err != nil {
-				problems = append(problems, fmt.Sprintf("its tag names an unusable role (%v)", err))
+			if err := ValidGroupName(row.Group); err != nil {
+				problems = append(problems, fmt.Sprintf("its tag names an unusable group (%v)", err))
 			}
 		}
 		if err := ValidTargetName(m.Name); err != nil {
@@ -648,27 +648,27 @@ type MachineRef struct {
 // RegisterRequest, seçili makineleri hedef yapma isteği.
 type RegisterRequest struct {
 	Machines []MachineRef
-	// Roles, her makinenin bağlanacağı var olan roller.
-	Roles []string
-	// TagRoles: makinenin etiketinin söylediği role de bağla (yoksa aç).
-	TagRoles bool
-	Labels   map[string]string
-	Actor    string
+	// Groups, her makinenin bağlanacağı var olan gruplar.
+	Groups []string
+	// TagGroups: makinenin etiketinin söylediği group de bağla (yoksa aç).
+	TagGroups bool
+	Labels    map[string]string
+	Actor     string
 }
 
 // Registered, tek makinenin kayıt sonucu.
 type Registered struct {
-	SourceID     string   `json:"source_id"`
-	Ref          string   `json:"ref"`
-	Name         string   `json:"name"`
-	Target       string   `json:"target,omitempty"`
-	Roles        []string `json:"roles,omitempty"`
-	CreatedRoles []string `json:"created_roles,omitempty"`
-	Error        string   `json:"error,omitempty"`
+	SourceID      string   `json:"source_id"`
+	Ref           string   `json:"ref"`
+	Name          string   `json:"name"`
+	Target        string   `json:"target,omitempty"`
+	Groups        []string `json:"groups,omitempty"`
+	CreatedGroups []string `json:"created_roles,omitempty"`
+	Error         string   `json:"error,omitempty"`
 }
 
 /*
- * Register, seçili makineleri hedef yapar, rollere bağlar ve etiketler.
+ * Register, seçili makineleri hedef yapar, gruplara bağlar ve etiketler.
  *
  * ⚠️ ANAHTAR YENİDEN TARANMIYOR, KOŞUNUN OKUDUĞU SABİTLENİYOR. Yönetici
  * özet ekranında o parmak izini gördü ve onu onayladı; tıklama anında
@@ -689,22 +689,22 @@ func (s *Service) Register(ctx context.Context, req RegisterRequest) ([]Register
 			return nil, fmt.Errorf("%w: %v", store.ErrInvalid, err)
 		}
 	}
-	roles, err := s.db.Roles(ctx)
+	groups, err := s.db.Groups(ctx)
 	if err != nil {
 		return nil, err
 	}
-	haveRole := make(map[string]bool, len(roles))
-	for _, r := range roles {
-		haveRole[r.Name] = true
+	haveGroup := make(map[string]bool, len(groups))
+	for _, r := range groups {
+		haveGroup[r.Name] = true
 	}
 	var chosen []string
-	for _, r := range req.Roles {
+	for _, r := range req.Groups {
 		r = strings.TrimSpace(r)
 		if r == "" || hasString(chosen, r) {
 			continue
 		}
-		if !haveRole[r] {
-			return nil, fmt.Errorf("%w: role %q does not exist", store.ErrInvalid, r)
+		if !haveGroup[r] {
+			return nil, fmt.Errorf("%w: group %q does not exist", store.ErrInvalid, r)
 		}
 		chosen = append(chosen, r)
 	}
@@ -712,7 +712,7 @@ func (s *Service) Register(ctx context.Context, req RegisterRequest) ([]Register
 	sources := map[string]store.DiscoverySource{}
 	out := make([]Registered, 0, len(req.Machines))
 	for _, key := range req.Machines {
-		res, err := s.registerOne(ctx, key, chosen, req, haveRole, sources)
+		res, err := s.registerOne(ctx, key, chosen, req, haveGroup, sources)
 		out = append(out, res)
 		if err != nil {
 			return out, err
@@ -722,7 +722,7 @@ func (s *Service) Register(ctx context.Context, req RegisterRequest) ([]Register
 }
 
 func (s *Service) registerOne(ctx context.Context, key MachineRef, chosen []string, req RegisterRequest,
-	haveRole map[string]bool, sources map[string]store.DiscoverySource) (Registered, error) {
+	haveGroup map[string]bool, sources map[string]store.DiscoverySource) (Registered, error) {
 	res := Registered{SourceID: key.SourceID, Ref: key.Ref}
 	m, err := s.db.DiscoveredMachine(ctx, key.SourceID, key.Ref)
 	if errors.Is(err, store.ErrNotFound) {
@@ -767,11 +767,11 @@ func (s *Service) registerOne(ctx context.Context, key MachineRef, chosen []stri
 	}
 
 	grant := append([]string(nil), chosen...)
-	createRole := ""
-	if req.TagRoles && m.Tagged && ValidRoleName(m.Role) == nil && !hasString(grant, m.Role) {
-		grant = append(grant, m.Role)
-		if !haveRole[m.Role] {
-			createRole = m.Role
+	createGroup := ""
+	if req.TagGroups && m.Tagged && ValidGroupName(m.Group) == nil && !hasString(grant, m.Group) {
+		grant = append(grant, m.Group)
+		if !haveGroup[m.Group] {
+			createGroup = m.Group
 		}
 	}
 
@@ -804,13 +804,13 @@ func (s *Service) registerOne(ctx context.Context, key MachineRef, chosen []stri
 			return res, err
 		}
 	}
-	if createRole != "" {
-		if _, err := s.db.CreateRole(ctx, createRole); err != nil && !errors.Is(err, store.ErrConflict) {
+	if createGroup != "" {
+		if _, err := s.db.CreateGroup(ctx, createGroup); err != nil && !errors.Is(err, store.ErrConflict) {
 			return res, err
 		}
-		haveRole[createRole] = true
-		res.CreatedRoles = append(res.CreatedRoles, createRole)
-		if err := s.audit(ctx, req.Actor, "role.create", createRole,
+		haveGroup[createGroup] = true
+		res.CreatedGroups = append(res.CreatedGroups, createGroup)
+		if err := s.audit(ctx, req.Actor, "group.create", createGroup,
 			"from tag "+src.TagKey+" while registering "+m.Name); err != nil {
 			return res, err
 		}
@@ -819,8 +819,8 @@ func (s *Service) registerOne(ctx context.Context, key MachineRef, chosen []stri
 		if err := s.db.GrantTarget(ctx, r, m.Name); err != nil && !errors.Is(err, store.ErrConflict) {
 			return res, err
 		}
-		res.Roles = append(res.Roles, r)
-		if err := s.audit(ctx, req.Actor, "role.grant", r,
+		res.Groups = append(res.Groups, r)
+		if err := s.audit(ctx, req.Actor, "group.grant", r,
 			"target "+m.Name+" (registered from discovery)"); err != nil {
 			return res, err
 		}

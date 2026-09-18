@@ -176,12 +176,12 @@ func TestOpenWithoutTransferIsNotCalledGet(t *testing.T) {
 func TestRefusalsAndFailuresAreVisible(t *testing.T) {
 	denied := Line(ev("denied.opendir", "/etc", func(e *sftpaudit.Event) {
 		e.OK = false
-		e.Detail = "postern: path is not allowed by your role"
+		e.Detail = "postern: path is not allowed by your group"
 	}))
 	if !strings.Contains(denied, "denied opendir") {
 		t.Errorf("ret görünmüyor: %q", denied)
 	}
-	if !strings.Contains(denied, "not allowed by your role") {
+	if !strings.Contains(denied, "not allowed by your group") {
 		t.Errorf("gerekçe görünmüyor: %q", denied)
 	}
 

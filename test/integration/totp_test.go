@@ -63,7 +63,7 @@ func signedInSSOUser(t *testing.T) (*http.Client, string) {
 	// Göç 033: TOTP kaydı sır kutusu olmadan açılmıyor.
 	attachSecretBox(t, db)
 
-	if _, err := db.CreateRole(t.Context(), "ops"); err != nil {
+	if _, err := db.CreateGroup(t.Context(), "ops"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.AddGroupMapping(t.Context(), "sysadmins", "ops", "test"); err != nil {

@@ -17,8 +17,8 @@ type SyncCandidate struct {
 	// MissingSince sıfırsa kullanıcı en son bakıldığında dizinde vardı.
 	MissingSince time.Time
 
-	SSORoles    int
-	ManualRoles int
+	SSOGroups    int
+	ManualGroups int
 
 	/*
 	 * DirSubject, hesabın bağlı olduğu KARARLI dizin kimliği; bağlı
@@ -26,7 +26,7 @@ type SyncCandidate struct {
 	 *
 	 * ⚠️ Döngü, varsa BUNUNLA aramalı. Adla arama, dizinde yeniden
 	 * adlandırılan kişiyi SİLİNMİŞ kişiden ayırt edemiyor — ikisi de
-	 * PresenceAbsent döner ve döngü ikincisini rol iptaline çevirir.
+	 * PresenceAbsent döner ve döngü ikincisini grup iptaline çevirir.
 	 * Yani İK'nın bir soyadı güncellemesi, kimsenin fark etmediği bir
 	 * yerde erişim kaybına dönüşüyordu.
 	 */
@@ -58,7 +58,7 @@ func (s *Store) SyncCandidates(ctx context.Context) ([]SyncCandidate, error) {
 		       COUNT(*) FILTER (WHERE ur.source = 'sso')    AS sso_roles,
 		       COUNT(*) FILTER (WHERE ur.source = 'manual') AS manual_roles
 		FROM users u
-		LEFT JOIN user_roles ur ON ur.user_id = u.id
+		LEFT JOIN user_groups ur ON ur.user_id = u.id
 		WHERE u.sso_only = TRUE OR u.dir_subject IS NOT NULL
 		GROUP BY u.username, u.email, u.dir_missing_since, u.dir_subject
 		ORDER BY u.username;`)
@@ -72,7 +72,7 @@ func (s *Store) SyncCandidates(ctx context.Context) ([]SyncCandidate, error) {
 		var c SyncCandidate
 		var missing sql.NullInt64
 		if err := rows.Scan(&c.Username, &c.Email, &missing, &c.DirSubject,
-			&c.SSORoles, &c.ManualRoles); err != nil {
+			&c.SSOGroups, &c.ManualGroups); err != nil {
 			return nil, translateErr("store.SyncCandidates", err)
 		}
 		if missing.Valid {
@@ -123,12 +123,12 @@ type SyncRun struct {
 	Outcome    string
 	Reason     string
 
-	Considered   int
-	Present      int
-	Absent       int
-	Unknown      int
-	Revoked      int
-	RolesChanged int
+	Considered    int
+	Present       int
+	Absent        int
+	Unknown       int
+	Revoked       int
+	GroupsChanged int
 
 	DryRun bool
 }
@@ -157,11 +157,11 @@ func (s *Store) FinishSyncRun(ctx context.Context, run SyncRun) error {
 		UPDATE sync_runs SET
 			finished_at = $1, outcome = $2, reason = $3,
 			users_considered = $4, users_present = $5, users_absent = $6,
-			users_unknown = $7, users_revoked = $8, roles_changed = $9
+			users_unknown = $7, users_revoked = $8, groups_changed = $9
 		WHERE id = $10;`,
 		time.Now().Unix(), run.Outcome, run.Reason,
 		run.Considered, run.Present, run.Absent,
-		run.Unknown, run.Revoked, run.RolesChanged, run.ID)
+		run.Unknown, run.Revoked, run.GroupsChanged, run.ID)
 	if err != nil {
 		return translateErr("store.FinishSyncRun", err)
 	}
@@ -174,7 +174,7 @@ func (s *Store) SyncRuns(ctx context.Context, limit int) ([]SyncRun, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, started_at, finished_at, source, trigger, outcome, reason,
 		       users_considered, users_present, users_absent,
-		       users_unknown, users_revoked, roles_changed, dry_run
+		       users_unknown, users_revoked, groups_changed, dry_run
 		FROM sync_runs
 		ORDER BY started_at DESC, id DESC`+limitClause(limit, "$1")+`;`,
 		limitArgs(limit)...)
@@ -190,7 +190,7 @@ func (s *Store) SyncRuns(ctx context.Context, limit int) ([]SyncRun, error) {
 		var finished sql.NullInt64
 		if err := rows.Scan(&r.ID, &started, &finished, &r.Source, &r.Trigger,
 			&r.Outcome, &r.Reason, &r.Considered, &r.Present, &r.Absent,
-			&r.Unknown, &r.Revoked, &r.RolesChanged, &r.DryRun); err != nil {
+			&r.Unknown, &r.Revoked, &r.GroupsChanged, &r.DryRun); err != nil {
 			return nil, translateErr("store.SyncRuns", err)
 		}
 		r.StartedAt = time.Unix(started, 0)

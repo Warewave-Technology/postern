@@ -8,7 +8,7 @@ import Modal from "./Modal";
  * PathRules — bir rolün SFTP yol kuralları.
  *
  * ⚠️ NİYE PANELDE OLMASI GEREKİYORDU. Kurallar bugüne kadar yalnızca
- * `postern role path set` ile yazılabiliyordu ve panelin dosya
+ * `postern group path set` ile yazılabiliyordu ve panelin dosya
  * tarayıcısı, kuralı olmayan bir hesapta kendini KAPATIYOR. Yani panel,
  * kullanıcıyı ancak bir kabuğa girip komut çalıştırarak çözebileceği bir
  * duvara götürüyordu. Kuralı doğuran ekranla kuralı yazan ekran aynı
@@ -19,7 +19,7 @@ import Modal from "./Modal";
  * yöneticiye koymadığı bir korumayı koymuş gibi gösterirdi — ve bu,
  * yanlış tarafa düşen bir yanılgı.
  */
-export default function PathRules({ role }: { role: string }) {
+export default function PathRules({ group }: { group: string }) {
   const [rules, setRules] = useState<PathRule[] | null>(null);
   const [error, setError] = useState("");
   const [prefix, setPrefix] = useState("");
@@ -28,13 +28,13 @@ export default function PathRules({ role }: { role: string }) {
 
   const load = useCallback(() => {
     api
-      .rolePaths(role)
+      .rolePaths(group)
       .then((r) => {
         setRules(r);
         setError("");
       })
       .catch((e: unknown) => setError(toMessage(e)));
-  }, [role]);
+  }, [group]);
 
   useEffect(load, [load]);
 
@@ -45,7 +45,7 @@ export default function PathRules({ role }: { role: string }) {
     const p = prefix.trim();
     if (!p) return Promise.resolve(false);
     return api
-      .setRolePath(role, {
+      .setRolePath(group, {
         prefix: p,
         allow: mode !== "deny",
         can_write: mode === "write",
@@ -63,7 +63,7 @@ export default function PathRules({ role }: { role: string }) {
 
   const remove = (p: string) =>
     api
-      .deleteRolePath(role, p)
+      .deleteRolePath(group, p)
       .then(load)
       .catch((e: unknown) => setError(toMessage(e)));
 
@@ -106,7 +106,7 @@ export default function PathRules({ role }: { role: string }) {
           variant="danger"
           onClick={() => remove(r.prefix)}
           confirm={removeConfirm(r.prefix)}
-          label={`remove rule ${r.prefix} from role ${role}`}
+          label={`remove rule ${r.prefix} from group ${group}`}
         >
           Remove
         </ActionButton>
@@ -116,8 +116,8 @@ export default function PathRules({ role }: { role: string }) {
 
   const removeConfirm = (p: string) =>
     rules?.length === 1
-      ? `Remove "${p}"? It is the last rule on "${role}", so the role becomes unrestricted — every path opens for everyone holding it.`
-      : `Remove the rule for "${p}" from the role "${role}"?`;
+      ? `Remove "${p}"? It is the last rule on "${group}", so the group becomes unrestricted — every path opens for everyone holding it.`
+      : `Remove the rule for "${p}" from the group "${group}"?`;
 
   return (
     <div>
@@ -127,7 +127,7 @@ export default function PathRules({ role }: { role: string }) {
 
       {rules?.length === 0 && (
         <p className="msg msg-warn" role="status">
-          No rules — <strong>this role is unrestricted</strong> and reaches
+          No rules — <strong>this group is unrestricted</strong> and reaches
           every path over SFTP. Adding the first rule starts the restriction.
         </p>
       )}
@@ -145,7 +145,7 @@ export default function PathRules({ role }: { role: string }) {
           rowKey={(r) => r.prefix}
           initialSort={{ key: "prefix", dir: "asc" }}
           noun="rule"
-          searchLabel={`search the SFTP path rules of ${role}`}
+          searchLabel={`search the SFTP path rules of ${group}`}
           searchPlaceholder="Search prefixes…"
         />
       )}
@@ -165,9 +165,9 @@ export default function PathRules({ role }: { role: string }) {
       <p className="pathrules-hint">
         The longest matching prefix wins, so <code>/home/dev/.ssh</code> as a
         deny carves a hole in an allowed <code>/home/dev</code>. Rules from all
-        of a user's roles are pooled, and at equal length a deny beats an allow.
-        A role with <strong>no rules at all is unrestricted</strong>, and one
-        such role among a user's roles switches every rule here off.{" "}
+        of a user's groups are pooled, and at equal length a deny beats an allow.
+        A group with <strong>no rules at all is unrestricted</strong>, and one
+        such group among a user's groups switches every rule here off.{" "}
         <strong>Links are resolved by the target, not by postern</strong>: a
         rule constrains the path the client writes, so a link inside an allowed
         directory can still lead somewhere no rule names.
@@ -177,8 +177,8 @@ export default function PathRules({ role }: { role: string }) {
         open={adding}
         onClose={() => setAdding(false)}
         narrow
-        title={`Add an SFTP path rule to "${role}"`}
-        description="A prefix and what the role may do under it. The longest matching prefix wins, and at equal length a deny beats an allow."
+        title={`Add an SFTP path rule to "${group}"`}
+        description="A prefix and what the group may do under it. The longest matching prefix wins, and at equal length a deny beats an allow."
       >
         <div className="form-grid cols-2">
           <label className="span-all">
@@ -194,7 +194,7 @@ export default function PathRules({ role }: { role: string }) {
             <select
               value={mode}
               onChange={(e) => setMode(e.target.value as typeof mode)}
-              aria-label={`access for the new rule on role ${role}`}
+              aria-label={`access for the new rule on group ${group}`}
             >
               <option value="read">Read-only</option>
               <option value="write">Read-write</option>

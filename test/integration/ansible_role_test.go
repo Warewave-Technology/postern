@@ -16,7 +16,7 @@ package integration
  *        - /etc/ssh/auth_principals/*      → 0644 root:root
  *        - sshd -T -C user=postern,host=localhost shows correct APF
  *
- * Mutation: mode 0440 → 0644 in the role causes this test to FAIL.
+ * Mutation: mode 0440 → 0644 in the gruba causes this test to FAIL.
  */
 
 import (
@@ -31,7 +31,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-const ansibleRoleImage = "postern-certtarget:test"
+const ansibleGroupImage = "postern-certtarget:test"
 
 // ansibleTarget is an Alpine sshd container with ansible installed and the
 // playbook copied in.
@@ -46,7 +46,7 @@ func startAnsibleTarget(t *testing.T) ansibleTarget {
 
 	cont, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        ansibleRoleImage,
+			Image:        ansibleGroupImage,
 			ExposedPorts: []string{"22/tcp"},
 			Files: []testcontainers.ContainerFile{{
 				Reader:            strings.NewReader(""),
@@ -60,7 +60,7 @@ func startAnsibleTarget(t *testing.T) ansibleTarget {
 	if err != nil {
 		t.Fatalf("ansible hedefi başlatılamadı: %v\n\n"+
 			"%s imajı yoksa önce `make test-images` çalıştır.",
-			err, ansibleRoleImage)
+			err, ansibleGroupImage)
 	}
 
 	// Install ansible inside the running container.
@@ -174,9 +174,9 @@ func (a ansibleTarget) execShellWithRC(ctx context.Context, t *testing.T, script
 	return string(out), code
 }
 
-// TestAnsibleRoleHardening applies the postern_target Ansible role to an
+// TestAnsibleGroupHardening applies the postern_target Ansible role to an
 // Alpine sshd container and asserts correct file modes and ownership.
-func TestAnsibleRoleHardening(t *testing.T) {
+func TestAnsibleGroupHardening(t *testing.T) {
 	if testing.Short() {
 		t.Skip("short mode: ansible role test skipped")
 	}

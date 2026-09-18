@@ -32,7 +32,7 @@ const STEPS: { id: StepID; title: string }[] = [
   { id: "source", title: "Sign-in source" },
   { id: "configure", title: "Configure it" },
   { id: "admins", title: "Administrators" },
-  { id: "mapping", title: "Groups and roles" },
+  { id: "mapping", title: "Groups and groups" },
   { id: "activate", title: "Link yourself, then switch" },
 ];
 
@@ -453,7 +453,7 @@ export default function Setup({
           */}
           {choice === "local" ? (
             <div className="panel">
-              <h3>Accounts and roles</h3>
+              <h3>Accounts and groups</h3>
               <p className="note">
                 With postern&apos;s own credentials there is no source to read
                 groups from, so there is nothing to map. Accounts and their
@@ -461,13 +461,13 @@ export default function Setup({
               </p>
               <ul className="problem-list">
                 <li>
-                  <b>Roles</b> — create a role and give it targets. A role is a
+                  <b>Groups</b> — create a group and give it targets. A group is a
                   set of machines, and it is what access means here.
                 </li>
                 <li>
                   <b>Users</b> — create the account with{" "}
                   <code>postern user add</code> on the bastion host, then assign
-                  roles to it from the Users screen.
+                  groups to it from the Users screen.
                 </li>
                 <li>
                   <b>Administrators</b> — only <code>postern admin issue</code>{" "}

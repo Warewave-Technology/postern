@@ -195,7 +195,7 @@ func newSettingsSetCmd() *cobra.Command {
 			 *
 			 * audit.go'nun başındaki gerekçe ("CLI'dan yapılan hiçbir
 			 * değişiklik admin_log'a düşmüyordu ... en ayrıcalıklı olanı
-			 * denetlenmiyordu") user/role/target'a ulaşıp burada durmuş.
+			 * denetlenmiyordu") user/group/target'a ulaşıp burada durmuş.
 			 * Oysa bu komut, CLI'ın YÖNETİCİ VERME/ALMA kolu:
 			 * ldap.admin_group değişince eski gruptan gelen bütün
 			 * yetkiler düşüyor, yenisinin üyeleri bir sonraki girişte
@@ -403,13 +403,13 @@ func newSettingsTestLDAPCmd() *cobra.Command {
 				}
 				fmt.Fprintf(out, "user %q groups: %s\n", username, strings.Join(groups, ", "))
 
-				// Hangileri role dönüşüyor: eşlemenin çalışıp
+				// Hangileri group dönüşüyor: eşlemenin çalışıp
 				// çalışmadığını burada gör.
-				roles, unmapped, err := db.RolesForGroups(ctx, groups)
+				groups, unmapped, err := db.GroupsForDirectoryGroups(ctx, groups)
 				if err != nil {
 					return err
 				}
-				fmt.Fprintf(out, "  mapped to roles: %s\n", joinOrDash(roles))
+				fmt.Fprintf(out, "  mapped to groups: %s\n", joinOrDash(groups))
 				fmt.Fprintf(out, "  unmapped groups: %s\n", joinOrDash(unmapped))
 			}
 			return nil

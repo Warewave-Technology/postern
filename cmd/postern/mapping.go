@@ -13,14 +13,14 @@ import (
 	"github.com/Warewave-Technology/postern/internal/store"
 )
 
-// newMappingCmd, dış grup → rol eşlemesi yönetimi.
+// newMappingCmd, dış grup → grup eşlemesi yönetimi.
 //
 // Yetki modeli user.go'daki notla aynı: bastion hostunda, veritabanına
 // erişebilen kişi çalıştırır.
 func newMappingCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "mapping",
-		Short: "Manage IdP group to role mappings",
+		Short: "Manage IdP group to group mappings",
 	}
 	cmd.AddCommand(newMappingAddCmd())
 	cmd.AddCommand(newMappingListCmd())
@@ -43,11 +43,11 @@ func openStore(configPath string) (*store.Store, context.Context, error) {
 }
 
 func newMappingAddCmd() *cobra.Command {
-	var configPath, group, role string
+	var configPath, directoryGroup, group string
 
 	cmd := &cobra.Command{
 		Use:   "add",
-		Short: "Map an IdP group to a role",
+		Short: "Map a directory group to a postern group",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, ctx, err := openStore(configPath)
@@ -56,19 +56,19 @@ func newMappingAddCmd() *cobra.Command {
 			}
 			defer db.Close()
 
-			if err := db.AddGroupMapping(ctx, group, role, cliActor()); err != nil {
+			if err := db.AddGroupMapping(ctx, directoryGroup, group, cliActor()); err != nil {
 				if errors.Is(err, store.ErrConflict) {
-					return fmt.Errorf("group %q is already mapped to role %q", group, role)
+					return fmt.Errorf("group %q is already mapped to group %q", group, group)
 				}
 				if errors.Is(err, store.ErrNotFound) {
-					return fmt.Errorf("role %q not found — create it with `postern role add`", role)
+					return fmt.Errorf("group %q not found — create it with `postern group add`", group)
 				}
 				return err
 			}
 			/*
 			 * ⚠️ DEFTERE YAZILIYOR — VE YAZILMIYORDU.
 			 *
-			 * Bir eşleme, KOCA BİR IdP GRUBUNA rol vermek demek.
+			 * Bir eşleme, KOCA BİR IdP GRUBUNA grup vermek demek.
 			 * Panelden yapıldığında deftere düşüyor
 			 * (httpapi/federation.go: mapping.create); CLI'dan
 			 * yapıldığında hiçbir iz kalmıyordu.
@@ -81,28 +81,28 @@ func newMappingAddCmd() *cobra.Command {
 			 * Eylem adları panelinkiyle AYNI: iki defter yan yana
 			 * okunacak.
 			 */
-			if err := auditCLI(ctx, db, "mapping.create", group, "role "+role); err != nil {
+			if err := auditCLI(ctx, db, "mapping.create", group, "group "+group); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "group %q mapped to role %q\n", group, role)
+			fmt.Fprintf(cmd.OutOrStdout(), "group %q mapped to group %q\n", group, group)
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
-	cmd.Flags().StringVar(&group, "group", "", "IdP or LDAP group name (required)")
-	cmd.Flags().StringVar(&role, "role", "", "postern role (required)")
+	cmd.Flags().StringVar(&directoryGroup, "directory-group", "", "IdP or LDAP group name (required)")
+	cmd.Flags().StringVar(&group, "group", "", "postern group (required)")
+	_ = cmd.MarkFlagRequired("directory-group")
 	_ = cmd.MarkFlagRequired("group")
-	_ = cmd.MarkFlagRequired("role")
 	return cmd
 }
 
 func newMappingRemoveCmd() *cobra.Command {
-	var configPath, group, role string
+	var configPath, directoryGroup, group string
 
 	cmd := &cobra.Command{
 		Use:   "remove",
-		Short: "Remove a group to role mapping",
+		Short: "Remove a group to group mapping",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, ctx, err := openStore(configPath)
@@ -111,16 +111,16 @@ func newMappingRemoveCmd() *cobra.Command {
 			}
 			defer db.Close()
 
-			if err := db.RemoveGroupMapping(ctx, group, role); err != nil {
+			if err := db.RemoveGroupMapping(ctx, directoryGroup, group); err != nil {
 				if errors.Is(err, store.ErrNotFound) {
-					return fmt.Errorf("no mapping from %q to %q", group, role)
+					return fmt.Errorf("no mapping from %q to %q", group, group)
 				}
 				return err
 			}
 			// ⚠️ KALDIRMA, EKLEMEDEN DAHA ÖNEMLİ: satır silindiği için
 			// created_by kalıntısı da yok oluyor. Defter yazılmazsa
 			// eşlemenin var olduğuna dair hiçbir kayıt kalmıyor.
-			if err := auditCLI(ctx, db, "mapping.delete", group, "role "+role); err != nil {
+			if err := auditCLI(ctx, db, "mapping.delete", group, "group "+group); err != nil {
 				return err
 			}
 			// Etki alanını açıkça söyle: mevcut oturumlar ve atamalar
@@ -132,10 +132,10 @@ func newMappingRemoveCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
-	cmd.Flags().StringVar(&group, "group", "", "IdP or LDAP group name (required)")
-	cmd.Flags().StringVar(&role, "role", "", "postern role (required)")
+	cmd.Flags().StringVar(&directoryGroup, "directory-group", "", "IdP or LDAP group name (required)")
+	cmd.Flags().StringVar(&group, "group", "", "postern group (required)")
+	_ = cmd.MarkFlagRequired("directory-group")
 	_ = cmd.MarkFlagRequired("group")
-	_ = cmd.MarkFlagRequired("role")
 	return cmd
 }
 
@@ -144,7 +144,7 @@ func newMappingListCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List group to role mappings",
+		Short: "List group to group mappings",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, ctx, err := openStore(configPath)
@@ -165,7 +165,7 @@ func newMappingListCmd() *cobra.Command {
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			fmt.Fprintln(w, "IDP GROUP\tROLE\tCREATED\tBY")
 			for _, m := range mappings {
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", m.ExternalGroup, m.Role,
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", m.ExternalGroup, m.Group,
 					m.CreatedAt.Local().Format("2006-01-02"), m.CreatedBy)
 			}
 			return w.Flush()
@@ -183,7 +183,7 @@ func newMappingUnmappedCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "unmapped",
-		Short: "Show IdP groups seen at login but not mapped to any role",
+		Short: "Show IdP groups seen at login but not mapped to any group",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, ctx, err := openStore(configPath)
@@ -211,7 +211,7 @@ func newMappingUnmappedCmd() *cobra.Command {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(),
-				"\nmap one with:  postern mapping add --group <name> --role <role>\n")
+				"\nmap one with:  postern mapping add --group <name> --group <group>\n")
 			return nil
 		},
 	}

@@ -23,21 +23,21 @@ type Observation struct {
 	// Presence, dizinin bu kullanıcı hakkında söylediği (üç değerli).
 	Presence ldap.Presence
 
-	// MappedRoles, dizindeki gruplarının karşılığı olan roller.
+	// MappedGroups, dizindeki gruplarının karşılığı olan gruplar.
 	// Presence != PresencePresent iken anlamsızdır.
-	MappedRoles []string
+	MappedGroups []string
 
 	// MissingSince, bu kullanıcının İLK kez dizinde bulunamadığı an.
 	// Sıfır ise şu ana kadar hep bulunmuş.
 	MissingSince time.Time
 
-	// ManualRoles, elle verilmiş rol sayısı. Senkronizasyon bunlara
+	// ManualGroups, elle verilmiş grup sayısı. Senkronizasyon bunlara
 	// DOKUNMAZ (bkz. göç 005) — ama rapor bunu ayrıca söylemeli, yoksa
 	// operatör "iptal edildi" okuyup erişimin tamamen bittiğini sanar.
-	ManualRoles int
+	ManualGroups int
 
 	/*
-	 * SSORoles, kullanıcının ŞU AN sahip olduğu SSO kaynaklı rol sayısı.
+	 * SSOGroups, kullanıcının ŞU AN sahip olduğu SSO kaynaklı grup sayısı.
 	 *
 	 * ⚠️ TAVANLARIN DOĞRU SAYMASI İÇİN ŞART. Bu alan yokken "sıfıra
 	 * düşecek" sayacı, dizinde bulunamayan HERKESİ sayıyordu — çoktan
@@ -51,7 +51,7 @@ type Observation struct {
 	 * çünkü sayı yalnızca büyüyor. Patlama yarıçapı koruması, kalıcı ve
 	 * sessiz bir "hiç kimse iptal edilemez" moduna dönüşüyordu.
 	 */
-	SSORoles int
+	SSOGroups int
 }
 
 // Limits, patlama yarıçapı tavanları.
@@ -61,7 +61,7 @@ type Limits struct {
 	// silmesin diye.
 	Grace time.Duration
 
-	// MaxZeroFraction / MinZeroFloor, "kaç kişi sıfır SSO rolüne
+	// MaxZeroFraction / MinZeroFloor, "kaç kişi sıfır SSO grubuna
 	// düşerse bu bir kesintidir" eşiği. İkisi BİRLİKTE aşılmalı: küçük
 	// kurumlarda oran tek kişiyle aşılır, büyüklerinde taban tek başına
 	// anlamsız kalır.
@@ -87,23 +87,23 @@ func DefaultLimits() Limits {
 	}
 }
 
-// UserRoles, bir kullanıcıya uygulanacak yeni SSO rol kümesi.
-type UserRoles struct {
+// UserGroups, bir kullanıcıya uygulanacak yeni SSO grup kümesi.
+type UserGroups struct {
 	Username string
-	Roles    []string
+	Groups   []string
 
-	// Revoking, bu uygulamanın kullanıcıyı SIFIR SSO rolüne düşürdüğünü
+	// Revoking, bu uygulamanın kullanıcıyı SIFIR SSO grubuna düşürdüğünü
 	// söyler — rapor ve denetim için.
 	Revoking bool
 
-	// ManualRoles, iptalden SONRA elinde kalan elle verilmiş rol sayısı.
-	ManualRoles int
+	// ManualGroups, iptalden SONRA elinde kalan elle verilmiş grup sayısı.
+	ManualGroups int
 }
 
 // Plan, bir senkronizasyon koşusunda ne yapılacağı.
 type Plan struct {
-	// Apply, uygulanacak rol kümeleri.
-	Apply []UserRoles
+	// Apply, uygulanacak grup kümeleri.
+	Apply []UserGroups
 
 	// Hold, dizinde bulunamayan ama Grace süresi dolmamış kullanıcılar.
 	Hold []string
@@ -144,11 +144,11 @@ func BuildPlan(now time.Time, obs []Observation, limits Limits) Plan {
 			// gelen bir kullanıcı bu koşuda hiçbir şey kaybetmez;
 			// onu saymak, tavanı geçmiş bir kesinti varmış gibi
 			// gösterir ve bir daha asla düşmeyen bir sayaç üretir.
-			if o.SSORoles > 0 {
+			if o.SSOGroups > 0 {
 				zeroing++
 			}
 		case ldap.PresencePresent:
-			if len(o.MappedRoles) == 0 && o.SSORoles > 0 {
+			if len(o.MappedGroups) == 0 && o.SSOGroups > 0 {
 				zeroing++
 			}
 		}
@@ -165,7 +165,7 @@ func BuildPlan(now time.Time, obs []Observation, limits Limits) Plan {
 	if zeroing >= limits.MinZeroFloor {
 		if frac := float64(zeroing) / float64(total); frac > limits.MaxZeroFraction {
 			return Plan{Abort: fmt.Sprintf(
-				"%d of %d users would lose all SSO roles (%.0f%%, ceiling %.0f%%); "+
+				"%d of %d users would lose all SSO groups (%.0f%%, ceiling %.0f%%); "+
 					"this looks like a directory problem, not %d departures",
 				zeroing, total, frac*100, limits.MaxZeroFraction*100, zeroing)}
 		}
@@ -180,9 +180,9 @@ func BuildPlan(now time.Time, obs []Observation, limits Limits) Plan {
 
 		case ldap.PresenceAbsent:
 			// Kaybedecek bir şeyi yoksa bu koşunun onunla işi yok:
-			// boş bir SyncRoles yazmak ne bir şey değiştirir ne de
+			// boş bir SyncGroups yazmak ne bir şey değiştirir ne de
 			// tavanlarda yer tutmalı.
-			if o.SSORoles == 0 {
+			if o.SSOGroups == 0 {
 				continue
 			}
 			// Grace penceresi: kısa bir çoğaltma gecikmesi yetkileri
@@ -193,14 +193,14 @@ func BuildPlan(now time.Time, obs []Observation, limits Limits) Plan {
 				continue
 			}
 			revoking++
-			plan.Apply = append(plan.Apply, UserRoles{
-				Username: o.Username, Roles: nil,
-				Revoking: true, ManualRoles: o.ManualRoles,
+			plan.Apply = append(plan.Apply, UserGroups{
+				Username: o.Username, Groups: nil,
+				Revoking: true, ManualGroups: o.ManualGroups,
 			})
 
 		case ldap.PresencePresent:
-			ur := UserRoles{Username: o.Username, Roles: o.MappedRoles, ManualRoles: o.ManualRoles}
-			if len(o.MappedRoles) == 0 && o.SSORoles > 0 {
+			ur := UserGroups{Username: o.Username, Groups: o.MappedGroups, ManualGroups: o.ManualGroups}
+			if len(o.MappedGroups) == 0 && o.SSOGroups > 0 {
 				ur.Revoking = true
 				revoking++
 			}

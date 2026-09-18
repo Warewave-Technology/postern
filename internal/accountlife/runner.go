@@ -112,7 +112,7 @@ func (r *Runner) RunOnce(ctx context.Context) Report {
 			 * ⚠️ ROLLER SİLİNMİYOR, hesap kapanıyor.
 			 *
 			 * Rolleri silmek, kişi geri döndüğünde onları yeniden
-			 * kurmayı gerektirirdi — ve elle verilmiş roller (source
+			 * kurmayı gerektirirdi — ve elle verilmiş gruplar (source
 			 * 'manual') geri gelmezdi. Kapı zaten kapalı; yetkiyi de
 			 * yok etmenin faydası yok, kaybı var.
 			 */

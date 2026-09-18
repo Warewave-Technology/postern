@@ -76,7 +76,7 @@ func TestATemporaryAccountIsCreatedAndTakenAwayAgain(t *testing.T) {
 	 * Kullanıcının tasarımı bu: yetki gruba tanımlanıyor, kişi üyelikten
 	 * çekiyor; hak sırasında verilen ek yetki yalnızca o hesaba ait.
 	 */
-	if _, err := db.CreateRole(ctx, "yayilim"); err != nil {
+	if _, err := db.CreateGroup(ctx, "yayilim"); err != nil {
 		t.Fatal(err)
 	}
 	/*
@@ -85,7 +85,7 @@ func TestATemporaryAccountIsCreatedAndTakenAwayAgain(t *testing.T) {
 	 * (plan: sudo.stage → sudo.check → sudo.install), yani "(root) ... ,
 	 * (deploy) ..." biçimini uydurduysak bu test orada düşer.
 	 */
-	if err := db.SetRoleSudo(ctx, "yayilim", sudoers.Rule{Commands: []sudoers.Command{
+	if err := db.SetGroupSudo(ctx, "yayilim", sudoers.Rule{Commands: []sudoers.Command{
 		{Path: "/usr/sbin/nginx", Args: []string{"-s", "reload"}},
 		{Path: "/usr/bin/id", RunAs: "deploy"},
 	}}, "ops"); err != nil {
@@ -134,7 +134,7 @@ func TestATemporaryAccountIsCreatedAndTakenAwayAgain(t *testing.T) {
 		!strings.Contains(body, "%yayilim") ||
 		!strings.Contains(body, "(root) NOPASSWD: /usr/sbin/nginx -s reload") ||
 		!strings.Contains(body, "(deploy) NOPASSWD: /usr/bin/id") {
-		t.Errorf("rolün kuralı komut başına hesapla yazılmamış: %q (%v)", body, err)
+		t.Errorf("grubun kuralı komut başına hesapla yazılmamış: %q (%v)", body, err)
 	}
 	// Hedefin sudo'su da öyle okuyor: kural yalnızca dosyada değil, etkin.
 	if list, err := r.Exec(ctx, "sudo -n -l -U jitayse", ""); err != nil ||
@@ -209,12 +209,12 @@ func TestATemporaryAccountIsCreatedAndTakenAwayAgain(t *testing.T) {
 	}
 	/*
 	 * ⚠️ ROLÜN DOSYASI KALIYOR — hakka değil ROLE ait. Geri alma hakkı
-	 * kaldırıyor; rolün yetkisini kaldırmak ayrı ve bilinçli bir iş
-	 * (rolün kuralını silmek). Hesap gittiği için kimse o kuralı
+	 * kaldırıyor; grubun yetkisini kaldırmak ayrı ve bilinçli bir iş
+	 * (grubun kuralını silmek). Hesap gittiği için kimse o kuralı
 	 * çekmiyor: yetki üyelikten geliyor.
 	 */
 	if f, _ := r.Exec(ctx, "sudo -n test -e "+provision.SudoPath("yayilim")+" && echo VAR || echo YOK", ""); strings.TrimSpace(f) != "VAR" {
-		t.Errorf("rolün sudo dosyası geri almada silindi")
+		t.Errorf("grubun sudo dosyası geri almada silindi")
 	}
 	if f, _ := r.Exec(ctx, "sudo -n test -e /etc/ssh/auth_principals/jitayse && echo VAR || echo YOK", ""); strings.TrimSpace(f) != "YOK" {
 		t.Errorf("principals dosyası duruyor")

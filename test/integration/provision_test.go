@@ -24,7 +24,7 @@ func TestProvisionCreatesUserFromMappedGroup(t *testing.T) {
 	ctx := context.Background()
 
 	// Rol ve hedef var, eşleme var — ama KULLANICI yok.
-	if _, err := db.CreateRole(ctx, "ops"); err != nil {
+	if _, err := db.CreateGroup(ctx, "ops"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.GrantTarget(ctx, "ops", "web01"); err != nil {
@@ -54,7 +54,7 @@ func TestProvisionCreatesUserFromMappedGroup(t *testing.T) {
 		t.Errorf("OSUser = %q, beklenen %q — os_user IdP kullanıcı adı olmalı", me.OSUser, kcUser)
 	}
 	if len(me.Targets) != 1 || me.Targets[0] != "web01" {
-		t.Errorf("targets = %v, beklenen [web01] — grup eşlemesi rol vermemiş", me.Targets)
+		t.Errorf("targets = %v, beklenen [web01] — grup eşlemesi grup vermemiş", me.Targets)
 	}
 
 	// Kullanıcı gerçekten oluşmuş ve SSO'ya bağlı doğmuş olmalı.
@@ -87,8 +87,8 @@ func TestProvisionDeniesUnmappedUser(t *testing.T) {
 	_, apiURL, _, db := oobBastionFresh(t)
 	ctx := context.Background()
 
-	// Eşleme YOK (rol var ama hiçbir gruba bağlanmamış).
-	if _, err := db.CreateRole(ctx, "ops"); err != nil {
+	// Eşleme YOK (grup var ama hiçbir gruba bağlanmamış).
+	if _, err := db.CreateGroup(ctx, "ops"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -104,12 +104,12 @@ func TestProvisionDeniesUnmappedUser(t *testing.T) {
 	}
 }
 
-// Gruptan çıkarılan kullanıcının rolleri bir sonraki girişte düşer.
-func TestProvisionSyncsRolesOnEachLogin(t *testing.T) {
+// Gruptan çıkarılan kullanıcının grupları bir sonraki girişte düşer.
+func TestProvisionSyncsGroupsOnEachLogin(t *testing.T) {
 	_, apiURL, _, db := oobBastionFresh(t)
 	ctx := context.Background()
 
-	if _, err := db.CreateRole(ctx, "ops"); err != nil {
+	if _, err := db.CreateGroup(ctx, "ops"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.GrantTarget(ctx, "ops", "web01"); err != nil {
@@ -133,7 +133,7 @@ func TestProvisionSyncsRolesOnEachLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Yeni oturum: roller yenilenmeli ve erişim düşmeli.
+	// Yeni oturum: gruplar yenilenmeli ve erişim düşmeli.
 	jar2, _ := cookiejar.New(nil)
 	client2 := &http.Client{Jar: jar2, Timeout: 30 * time.Second}
 	browserSignIn(t, client2, apiURL)
@@ -169,7 +169,7 @@ func TestOIDCQueuesWhenAutoCreateIsOff(t *testing.T) {
 	}
 	// ⚠️ Eşleme VAR: reddin sebebi "grubu yok" değil, "otomatik açılış
 	// kapalı" olsun. Aksi halde test kendi konusunu ölçmez.
-	if _, err := db.CreateRole(ctx, "ops"); err != nil {
+	if _, err := db.CreateGroup(ctx, "ops"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.AddGroupMapping(ctx, "sysadmins", "ops", "test"); err != nil {

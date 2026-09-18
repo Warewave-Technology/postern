@@ -24,7 +24,7 @@ func TestFederationAPIMappings(t *testing.T) {
 	ctx := context.Background()
 
 	// Giriş yapabilmek için eşleme + admin gerekiyor.
-	if _, err := db.CreateRole(ctx, "ops"); err != nil {
+	if _, err := db.CreateGroup(ctx, "ops"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.AddGroupMapping(ctx, "sysadmins", "ops", "bootstrap"); err != nil {
@@ -49,18 +49,18 @@ func TestFederationAPIMappings(t *testing.T) {
 
 	// Yeni eşleme ekle.
 	if status, body := adminReq(t, client, "POST", apiURL+"/api/admin/mappings",
-		`{"group":"developers","role":"ops"}`); status != 200 {
+		`{"directory_group":"developers","group":"ops"}`); status != 200 {
 		t.Fatalf("eşleme ekleme = %d: %s", status, body)
 	}
 	// Aynısı ikinci kez: 409.
 	if status, _ := adminReq(t, client, "POST", apiURL+"/api/admin/mappings",
-		`{"group":"developers","role":"ops"}`); status != 409 {
+		`{"directory_group":"developers","group":"ops"}`); status != 409 {
 		t.Errorf("çakışan eşleme = %d, beklenen 409", status)
 	}
-	// Olmayan rol: 404.
+	// Olmayan grup: 404.
 	if status, _ := adminReq(t, client, "POST", apiURL+"/api/admin/mappings",
-		`{"group":"x","role":"yok-boyle-rol"}`); status != 404 {
-		t.Errorf("bilinmeyen rol = %d, beklenen 404", status)
+		`{"directory_group":"x","group":"yok-boyle-grup"}`); status != 404 {
+		t.Errorf("bilinmeyen grup = %d, beklenen 404", status)
 	}
 
 	status, body := adminReq(t, client, "GET", apiURL+"/api/admin/mappings", "")
@@ -96,7 +96,7 @@ func TestFederationAPISettings(t *testing.T) {
 	_, apiURL, _, db := oobBastionFresh(t)
 	ctx := context.Background()
 
-	if _, err := db.CreateRole(ctx, "ops"); err != nil {
+	if _, err := db.CreateGroup(ctx, "ops"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.AddGroupMapping(ctx, "sysadmins", "ops", "bootstrap"); err != nil {
@@ -166,7 +166,7 @@ func TestFederationAPIForbidsNonAdmins(t *testing.T) {
 	_, apiURL, _, db := oobBastionFresh(t)
 	ctx := context.Background()
 
-	if _, err := db.CreateRole(ctx, "ops"); err != nil {
+	if _, err := db.CreateGroup(ctx, "ops"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.AddGroupMapping(ctx, "sysadmins", "ops", "bootstrap"); err != nil {
@@ -334,7 +334,7 @@ func TestVerifyLDAPWontSendStoredPasswordElsewhere(t *testing.T) {
  * (direct) koşuyordu. `subtree` kayıtlı bir kurulumda ekran "bu
  * değerler çalışıyor" derken, gerçekten çalışacak olandan BAŞKA bir
  * kapsam altında kanıt topluyordu — grupları taban DN'in bir OU altında
- * duran kurum yeşil bir doğrulama görüp kaydediyor ve rolleri sessizce
+ * duran kurum yeşil bir doğrulama görüp kaydediyor ve grupları sessizce
  * kaybediyordu.
  *
  * ⚠️ Kapsam DOĞRULAMASI üzerinden ölçüyoruz: ldap.New, subtree ile
@@ -347,7 +347,7 @@ func TestVerifyUsesTheStoredGroupScope(t *testing.T) {
 	_, apiURL, _, db := oobBastionFresh(t)
 	ctx := context.Background()
 
-	seedRole(t, db)
+	seedGroup(t, db)
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
 	browserSignIn(t, client, apiURL)

@@ -190,7 +190,7 @@ type Server struct {
 	 * sftpPanelWrite, panelden yüklemeye izin verilip verilmediği
 	 * (session.sftp_panel_write). Kapalıyken kanal salt-okunur
 	 * KURULUYOR — panelin çizdiği düğmeye değil, sunucudaki kısıta
-	 * bağlı. Açıkken de hangi yola yazılabileceğine rol yol kuralları
+	 * bağlı. Açıkken de hangi yola yazılabileceğine grup yol kuralları
 	 * karar veriyor.
 	 */
 	sftpPanelWrite bool

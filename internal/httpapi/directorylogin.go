@@ -263,11 +263,11 @@ func (s *Server) directoryLogin(w http.ResponseWriter, r *http.Request,
 }
 
 /*
- * finishDirectorySession, rolleri tazeler ve oturumu açar.
+ * finishDirectorySession, grupları tazeler ve oturumu açar.
  *
  * Ayrı bir fonksiyon çünkü İKİ yol buraya çıkıyor: var olan hesapla
  * giriş, ve hesabın o an kendiliğinden açılması. İkisinin de aynı
- * rol/yönetici/denetim yolundan geçmesi gerekiyor — ayrı yazılsaydı,
+ * grup/yönetici/denetim yolundan geçmesi gerekiyor — ayrı yazılsaydı,
  * biri unutulan bir adımla ilerlerdi.
  */
 func (s *Server) finishDirectorySession(w http.ResponseWriter, r *http.Request, log logger,
@@ -275,12 +275,12 @@ func (s *Server) finishDirectorySession(w http.ResponseWriter, r *http.Request, 
 
 	// Presence çağıranda Present olarak doğrulandı: boş liste burada
 	// "hiçbir grupta değil" demek, "bilmiyorum" değil.
-	roles, _, rerr := s.store.RolesForGroups(r.Context(), model.ResolvedGroups(groups))
+	groups, _, rerr := s.store.GroupsForDirectoryGroups(r.Context(), model.ResolvedGroups(groups))
 	if rerr != nil {
 		s.storeErr(w, "auth.directory", rerr)
 		return
 	}
-	if serr := s.store.SyncRoles(r.Context(), u.Name, roles); serr != nil {
+	if serr := s.store.SyncGroups(r.Context(), u.Name, groups); serr != nil {
 		s.storeErr(w, "auth.directory", serr)
 		return
 	}
@@ -321,7 +321,7 @@ func (s *Server) finishDirectorySession(w http.ResponseWriter, r *http.Request, 
 	}); aerr != nil {
 		log.Error("audit write failed", "error", aerr)
 	}
-	log.Info("directory login", "user", u.Name, "roles", len(roles))
+	log.Info("directory login", "user", u.Name, "groups", len(groups))
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -433,7 +433,7 @@ func (s *Server) resolveDirectoryUser(ctx context.Context, log logger,
  * İki yol var ve hangisinin geçerli olduğunu auth.auto_create söylüyor:
  *
  *   AÇIK  → hesap kendiliğinden açılır. Rol eşlemesi hâlâ kapıda:
- *           hiçbir grubu role eşleşmiyorsa hesap AÇILMAZ.
+ *           hiçbir grubu gruba eşleşmiyorsa hesap AÇILMAZ.
  *   KAPALI→ kişi onay kuyruğuna düşer ve "onay bekliyor" cevabı alır.
  *
  * ⚠️ KARARLI KİMLİK OLMADAN KUYRUĞA DA ALMIYORUZ. Kuyruk satırı
@@ -462,10 +462,10 @@ func (s *Server) admitOrQueue(w http.ResponseWriter, r *http.Request, log logger
 			if errors.Is(err, store.ErrAccessDenied) {
 				// Rol eşlemesi yok: hesap açmak, hiçbir yere
 				// erişemeyen bir kayıt bırakmak olurdu.
-				log.Warn("auto-create refused: no group maps to a role",
+				log.Warn("auto-create refused: no group maps to a group",
 					"user", username, "groups", groups)
 				writeErr(w, http.StatusForbidden,
-					"none of your groups is mapped to a role on this bastion; "+
+					"none of your groups is mapped to a group on this bastion; "+
 						"ask an administrator")
 				return
 			}

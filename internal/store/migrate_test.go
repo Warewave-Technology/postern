@@ -109,7 +109,7 @@ func TestMigrateCreatesSchema(t *testing.T) {
 		t.Fatalf("migrate sonrası versiyon = %d, beklenen %d", v, want)
 	}
 
-	for _, table := range []string{"users", "roles", "targets", "user_roles", "role_targets", "sessions", "user_public_keys"} {
+	for _, table := range []string{"users", "groups", "targets", "user_groups", "group_targets", "sessions", "user_public_keys"} {
 		if !tableExists(t, s, table) {
 			t.Errorf("%q tablosu oluşmadı", table)
 		}

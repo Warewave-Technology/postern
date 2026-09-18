@@ -17,7 +17,7 @@ import (
  * devre dışı bırakmak, işten ayrılma ve olay müdahalesinde atılan İLK
  * adımdır — ama AD'de bu ne girişi siler ne de grup üyeliklerini
  * kaldırır. Yalnızca gruplara bakan bir tazeleme o hesabı "present,
- * rolleri şunlar" diye okur ve rollerini yeniden yazar.
+ * grupları şunlar" diye okur ve rollerini yeniden yazar.
  *
  * ⚠️ EN İYİ ÇABA, GARANTİ DEĞİL. Dizin bu özniteliklerin hiçbirini
  * sunmuyorsa ya da servis hesabı okuyamıyorsa, sonuç "açık" olur —

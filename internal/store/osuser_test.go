@@ -10,7 +10,7 @@ import (
  * ⚠️ HEDEFLERDEKİ HESAP ADI, YAZILMADAN ÖNCE ELENMELİ.
  *
  * ÖLÇÜLEN ARIZA: kural yalnızca politika kapısındaydı. Hesap açılıyor,
- * roller veriliyor, panelde hedef kartları görünüyor — ve her bağlantı
+ * gruplar veriliyor, panelde hedef kartları görünüyor — ve her bağlantı
  * "access denied" ile düşüyordu. Sebebi söyleyen tek cümle bastion'ın
  * log'undaydı.
  *

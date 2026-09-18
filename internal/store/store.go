@@ -22,7 +22,7 @@ var (
 	ErrNotFound = errors.New("store: not found")
 
 	// ErrConflict, benzersizlik kısıtının ihlal edildiğini söyler
-	// (aynı adla ikinci bir kullanıcı, rol, hedef...).
+	// (aynı adla ikinci bir kullanıcı, grup, hedef...).
 	ErrConflict = errors.New("store: already exists")
 
 	// ErrInvalid: değerin kendisi kabul edilebilir değil — çağıranın
@@ -32,7 +32,7 @@ var (
 	ErrInvalid = errors.New("store: invalid value")
 
 	// ErrAccessDenied: kimlik geçerli ama postern'de karşılığı yok —
-	// JIT sağlamada hiçbir grup role eşleşmediğinde.
+	// JIT sağlamada hiçbir grup gruba eşleşmediğinde.
 	ErrAccessDenied = errors.New("store: access denied")
 
 	// ErrIdentityConflict: kullanıcı adı var olan bir hesapla eşleşiyor
@@ -156,7 +156,7 @@ func newID() (string, error) {
  * hesaplardı: JIT sağlama os_user'ı IdP kullanıcı adından birebir
  * alıyor (ProvisionUser -> CreateUser(..., req.Username)), Entra ID ise
  * preferred_username'e UPN koyuyor. "yigit@corp.com" desene uymuyor.
- * Hesap açılıyor, roller veriliyor, panelde hedef kartları görünüyor —
+ * Hesap açılıyor, gruplar veriliyor, panelde hedef kartları görünüyor —
  * ve her bağlantı "access denied" ile düşüyor. Sebebi açıklayan tek
  * cümle ("OSUser name violation") yalnızca bastion'ın log'unda.
  *
@@ -257,13 +257,13 @@ func (s *Store) User(ctx context.Context, username string) (model.User, error) {
 	       t.name AS target_name
 		FROM users u
 		-- ⚠️ Süre filtresi JOIN koşulunda, WHERE'de DEĞİL: WHERE'e
-		-- koysaydık süresi dolmuş tek rolü olan kullanıcı satır
+		-- koysaydık süresi dolmuş tek grubu olan kullanıcı satır
 		-- üretmez ve "kullanıcı yok" gibi görünürdü. JOIN koşulu
 		-- yalnızca eşleşmeyi düşürür, kullanıcıyı değil.
-		LEFT JOIN user_roles   ur ON ur.user_id = u.id
+		LEFT JOIN user_groups   ur ON ur.user_id = u.id
 		                         AND (ur.expires_at IS NULL OR ur.expires_at > $1)
-		LEFT JOIN roles        r  ON r.id       = ur.role_id
-		LEFT JOIN role_targets rt ON rt.role_id = r.id
+		LEFT JOIN groups        r  ON r.id       = ur.group_id
+		LEFT JOIN group_targets rt ON rt.group_id = r.id
 		LEFT JOIN targets      t  ON t.id       = rt.target_id
 		WHERE ` + ciEq("u.username", "$2") + `
 		ORDER BY r.name, ` + ciOrder("t.name") + `;
@@ -282,10 +282,10 @@ func (s *Store) User(ctx context.Context, username string) (model.User, error) {
 	for rows.Next() {
 		var scannedName, scannedOSUser string
 		var scannedAdmin, scannedSSOOnly, scannedDirBound bool
-		var rawRole, rawTarget sql.NullString
+		var rawGroup, rawTarget sql.NullString
 
 		if err := rows.Scan(&scannedName, &scannedOSUser, &scannedAdmin, &scannedSSOOnly,
-			&scannedDirBound, &rawRole, &rawTarget); err != nil {
+			&scannedDirBound, &rawGroup, &rawTarget); err != nil {
 			return model.User{}, translateErr("store.User", err)
 		}
 
@@ -296,27 +296,27 @@ func (s *Store) User(ctx context.Context, username string) (model.User, error) {
 			user.Admin = scannedAdmin
 			user.SSOOnly = scannedSSOOnly
 			user.DirBound = scannedDirBound
-			user.Roles = make([]model.Role, 0)
+			user.Groups = make([]model.Group, 0)
 		}
 
-		if !rawRole.Valid {
+		if !rawGroup.Valid {
 			continue
 		}
-		roleName := rawRole.String
+		roleName := rawGroup.String
 
 		idx, alreadyExists := roleIndexMap[roleName]
 		if !alreadyExists {
-			newGroup := model.Role{
+			newGroup := model.Group{
 				Name:    roleName,
 				Targets: make([]string, 0),
 			}
-			user.Roles = append(user.Roles, newGroup)
-			idx = len(user.Roles) - 1
+			user.Groups = append(user.Groups, newGroup)
+			idx = len(user.Groups) - 1
 			roleIndexMap[roleName] = idx
 		}
 
 		if rawTarget.Valid {
-			user.Roles[idx].Targets = append(user.Roles[idx].Targets, rawTarget.String)
+			user.Groups[idx].Targets = append(user.Groups[idx].Targets, rawTarget.String)
 		}
 
 	}
@@ -334,7 +334,7 @@ func (s *Store) User(ctx context.Context, username string) (model.User, error) {
 	 * hedefler × kurallar kartezyeni kadar çoğaltır ve iki listenin de
 	 * tekilleştirilmesi gerekirdi — okuması zor, hata yapması kolay.
 	 */
-	if err := s.loadRolePaths(ctx, user.Roles); err != nil {
+	if err := s.loadGroupPaths(ctx, user.Groups); err != nil {
 		return model.User{}, err
 	}
 
@@ -342,14 +342,14 @@ func (s *Store) User(ctx context.Context, username string) (model.User, error) {
 }
 
 /*
- * loadRolePaths, rollerin SFTP yol kurallarını doldurur.
+ * loadGroupPaths, grupların SFTP yol kurallarını doldurur.
  *
  * ⚠️ KURALSIZ ROL BOŞ LİSTEYLE DÖNÜYOR, HATA DEĞİL. "Kuralı yok" bu
  * modelde geçerli ve yaygın bir durum: kısıtlama kural EKLENDİĞİNDE
  * başlıyor (bkz. policy.SFTPDecider).
  */
-func (s *Store) loadRolePaths(ctx context.Context, roles []model.Role) error {
-	if len(roles) == 0 {
+func (s *Store) loadGroupPaths(ctx context.Context, groups []model.Group) error {
+	if len(groups) == 0 {
 		return nil
 	}
 
@@ -359,22 +359,22 @@ func (s *Store) loadRolePaths(ctx context.Context, roles []model.Role) error {
 	 * işaretledi ve haklıydı — birleştirilen şey bugün güvenli olsa da
 	 * yarın birinin oraya değer koymasına açık bir kalıp.
 	 */
-	names := make([]string, 0, len(roles))
-	idx := make(map[string]int, len(roles))
-	for i, r := range roles {
+	names := make([]string, 0, len(groups))
+	idx := make(map[string]int, len(groups))
+	for i, r := range groups {
 		names = append(names, r.Name)
 		idx[r.Name] = i
 	}
 
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT r.name, rp.prefix, rp.allow, rp.can_write
-		FROM role_paths rp
-		JOIN roles r ON r.id = rp.role_id
+		FROM group_paths rp
+		JOIN groups r ON r.id = rp.group_id
 		WHERE r.name = ANY($1)
 		ORDER BY r.name, LENGTH(rp.prefix), rp.prefix;
 	`, names)
 	if err != nil {
-		return translateErr("store.loadRolePaths", err)
+		return translateErr("store.loadGroupPaths", err)
 	}
 	defer rows.Close()
 
@@ -382,18 +382,18 @@ func (s *Store) loadRolePaths(ctx context.Context, roles []model.Role) error {
 		var roleName string
 		var rule model.PathRule
 		if err := rows.Scan(&roleName, &rule.Prefix, &rule.Allow, &rule.CanWrite); err != nil {
-			return translateErr("store.loadRolePaths", err)
+			return translateErr("store.loadGroupPaths", err)
 		}
 		if i, ok := idx[roleName]; ok {
-			roles[i].Paths = append(roles[i].Paths, rule)
+			groups[i].Paths = append(groups[i].Paths, rule)
 		}
 	}
 
-	return translateErr("store.loadRolePaths", rows.Err())
+	return translateErr("store.loadGroupPaths", rows.Err())
 }
 
 /*
- * SetRolePath, bir role yol kuralı ekler ya da var olanı günceller.
+ * SetGroupPath, bir gruba yol kuralı ekler ya da var olanı günceller.
  *
  * ⚠️ ÖNEK MUTLAK OLMALI. Göreli bir kuralın neye göre olduğunu bilemeyiz —
  * istemcinin çalışma dizini hedefte, bizde değil — ve politika da göreli
@@ -403,67 +403,67 @@ func (s *Store) loadRolePaths(ctx context.Context, roles []model.Role) error {
  * Şemada da CHECK var; buradaki kontrol hatayı ANLAŞILIR kılmak için,
  * kısıtın yerine geçmek için değil.
  */
-func (s *Store) SetRolePath(ctx context.Context, roleName, prefix string, allow, canWrite bool) error {
+func (s *Store) SetGroupPath(ctx context.Context, roleName, prefix string, allow, canWrite bool) error {
 	if !strings.HasPrefix(prefix, "/") {
-		return fmt.Errorf("store.SetRolePath: prefix must be absolute: %q", prefix)
+		return fmt.Errorf("store.SetGroupPath: prefix must be absolute: %q", prefix)
 	}
 	prefix = path.Clean(prefix)
 
 	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO role_paths (role_id, prefix, allow, can_write)
-		SELECT r.id, $2, $3, $4 FROM roles r WHERE r.name = $1
-		ON CONFLICT (role_id, prefix)
+		INSERT INTO group_paths (group_id, prefix, allow, can_write)
+		SELECT r.id, $2, $3, $4 FROM groups r WHERE r.name = $1
+		ON CONFLICT (group_id, prefix)
 		DO UPDATE SET allow = EXCLUDED.allow, can_write = EXCLUDED.can_write;
 	`, roleName, prefix, allow, canWrite)
 	if err != nil {
-		return translateErr("store.SetRolePath", err)
+		return translateErr("store.SetGroupPath", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("store.SetRolePath: %w", ErrNotFound)
+		return fmt.Errorf("store.SetGroupPath: %w", ErrNotFound)
 	}
 
 	return nil
 }
 
-// DeleteRolePath, bir yol kuralını kaldırır.
-func (s *Store) DeleteRolePath(ctx context.Context, roleName, prefix string) error {
+// DeleteGroupPath, bir yol kuralını kaldırır.
+func (s *Store) DeleteGroupPath(ctx context.Context, roleName, prefix string) error {
 	res, err := s.db.ExecContext(ctx, `
-		DELETE FROM role_paths
-		WHERE prefix = $2 AND role_id = (SELECT id FROM roles WHERE name = $1);
+		DELETE FROM group_paths
+		WHERE prefix = $2 AND group_id = (SELECT id FROM groups WHERE name = $1);
 	`, roleName, path.Clean(prefix))
 	if err != nil {
-		return translateErr("store.DeleteRolePath", err)
+		return translateErr("store.DeleteGroupPath", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("store.DeleteRolePath: %w", ErrNotFound)
+		return fmt.Errorf("store.DeleteGroupPath: %w", ErrNotFound)
 	}
 
 	return nil
 }
 
-// RolePaths, bir rolün yol kurallarını okur.
-func (s *Store) RolePaths(ctx context.Context, roleName string) ([]model.PathRule, error) {
-	role := []model.Role{{Name: roleName}}
-	if err := s.loadRolePaths(ctx, role); err != nil {
+// GroupPaths, bir grubun yol kurallarını okur.
+func (s *Store) GroupPaths(ctx context.Context, roleName string) ([]model.PathRule, error) {
+	group := []model.Group{{Name: roleName}}
+	if err := s.loadGroupPaths(ctx, group); err != nil {
 		return nil, err
 	}
 
-	return role[0].Paths, nil
+	return group[0].Paths, nil
 }
 
-func (s *Store) CreateRole(ctx context.Context, name string) (string, error) {
+func (s *Store) CreateGroup(ctx context.Context, name string) (string, error) {
 	roleID, err := newID()
 	if err != nil {
-		return "", fmt.Errorf("store.CreateRole: %w", err)
+		return "", fmt.Errorf("store.CreateGroup: %w", err)
 	}
 
 	queryStr := `
-		INSERT INTO roles (id, name)
+		INSERT INTO groups (id, name)
 		VALUES ($1, $2);
 	`
 
 	if _, err = s.db.ExecContext(ctx, queryStr, roleID, name); err != nil {
-		return "", translateErr("store.CreateRole", err)
+		return "", translateErr("store.CreateGroup", err)
 	}
 
 	return roleID, nil
@@ -552,20 +552,20 @@ func (s *Store) Targets(ctx context.Context) ([]model.Target, error) {
 	return targets, nil
 }
 
-// AssignRole, kullanıcıya ELLE rol verir (source='manual').
+// AssignGroup, kullanıcıya ELLE grup verir (source='manual').
 //
-// expiresAt sıfır ise süresiz. Zaten verilmiş bir rolü tekrar vermek hata
+// expiresAt sıfır ise süresiz. Zaten verilmiş bir grubu tekrar vermek hata
 // değil — ama artık tam olarak no-op da değil: expires_at GÜNCELLENİR,
 // çünkü "bu yetkiyi uzat" doğal bir istek ve ayrı bir komut gerektirmesi
 // için sebep yok.
 //
-// Kullanıcı ya da rol yoksa ErrNotFound.
-func (s *Store) AssignRole(ctx context.Context, username, roleName string, expiresAt time.Time) error {
-	userID, err := s.rowID(ctx, "store.AssignRole", "users", "username", username)
+// Kullanıcı ya da grup yoksa ErrNotFound.
+func (s *Store) AssignGroup(ctx context.Context, username, roleName string, expiresAt time.Time) error {
+	userID, err := s.rowID(ctx, "store.AssignGroup", "users", "username", username)
 	if err != nil {
 		return err
 	}
-	roleID, err := s.rowID(ctx, "store.AssignRole", "roles", "name", roleName)
+	roleID, err := s.rowID(ctx, "store.AssignGroup", "groups", "name", roleName)
 	if err != nil {
 		return err
 	}
@@ -579,17 +579,17 @@ func (s *Store) AssignRole(ctx context.Context, username, roleName string, expir
 
 	// DO UPDATE, DO NOTHING değil: "bu yetkiyi uzat" ayrı bir komut
 	// gerektirmemeli. source'un da yazılması bilinçli — SSO'dan gelmiş
-	// bir rolü yönetici elle onaylıyorsa artık ona aittir ve bir sonraki
+	// bir grubu yönetici elle onaylıyorsa artık ona aittir ve bir sonraki
 	// senkronizasyonda silinmez.
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO user_roles (user_id, role_id, source, expires_at)
+		INSERT INTO user_groups (user_id, group_id, source, expires_at)
 		VALUES ($1, $2, 'manual', $3)
-		ON CONFLICT(user_id, role_id) DO UPDATE SET
+		ON CONFLICT(user_id, group_id) DO UPDATE SET
 			source = 'manual',
 			expires_at = excluded.expires_at;`,
 		userID, roleID, expires)
 	if err != nil {
-		return translateErr("store.AssignRole", err)
+		return translateErr("store.AssignGroup", err)
 	}
 	return nil
 }
@@ -603,9 +603,9 @@ func (s *Store) GrantTarget(ctx context.Context, roleName, targetName string) er
 	`
 
 	var roleID string
-	queryRoleStr := `
+	queryGroupStr := `
 		SELECT id
-		FROM roles
+		FROM groups
 		WHERE name=$1;
 	`
 
@@ -614,12 +614,12 @@ func (s *Store) GrantTarget(ctx context.Context, roleName, targetName string) er
 		return translateErr("store.GrantTarget", err)
 	}
 
-	err = s.db.QueryRowContext(ctx, queryRoleStr, roleName).Scan(&roleID)
+	err = s.db.QueryRowContext(ctx, queryGroupStr, roleName).Scan(&roleID)
 	if err != nil {
 		return translateErr("store.GrantTarget", err)
 	}
 
-	if _, err = s.db.ExecContext(ctx, `INSERT INTO role_targets (role_id, target_id) VALUES ($1, $2) ON CONFLICT(role_id, target_id) DO NOTHING;`, roleID, targetID); err != nil {
+	if _, err = s.db.ExecContext(ctx, `INSERT INTO group_targets (group_id, target_id) VALUES ($1, $2) ON CONFLICT(group_id, target_id) DO NOTHING;`, roleID, targetID); err != nil {
 		return translateErr("store.GrantTarget", err)
 	}
 
@@ -635,7 +635,7 @@ type AdminLogEntry struct {
 	At      time.Time
 	Actor   string // web: oturum sahibi; cli: işletim sistemi kullanıcısı
 	Via     string // "web" | "cli"
-	Action  string // makine-okur: "user.create", "role.grant" ...
+	Action  string // makine-okur: "user.create", "group.grant" ...
 	Entity  string // etkilenen varlık adı
 	Details string
 }
@@ -690,46 +690,46 @@ func (s *Store) AdminLog(ctx context.Context, limit int) ([]AdminLogEntry, error
 	return entries, nil
 }
 
-// Roles, tüm rolleri hedefleriyle, ada göre sıralı döner; hedefsiz rol
+// Groups, tüm grupları hedefleriyle, ada göre sıralı döner; hedefsiz grup
 // boş Targets ile gelir.
-func (s *Store) Roles(ctx context.Context) ([]model.Role, error) {
+func (s *Store) Groups(ctx context.Context) ([]model.Group, error) {
 	// #nosec G202 -- birleştirilen parça sabit (dialect.go); değerler $N ile gidiyor
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT r.name, t.name
-		FROM roles r
-		LEFT JOIN role_targets rt ON rt.role_id = r.id
+		FROM groups r
+		LEFT JOIN group_targets rt ON rt.group_id = r.id
 		LEFT JOIN targets      t  ON t.id       = rt.target_id
 		ORDER BY r.name, `+ciOrder("t.name")+`;`)
 	if err != nil {
-		return nil, translateErr("store.Roles", err)
+		return nil, translateErr("store.Groups", err)
 	}
 	defer rows.Close()
 
-	roles := make([]model.Role, 0)
+	groups := make([]model.Group, 0)
 	index := map[string]int{}
 
 	for rows.Next() {
 		var name string
 		var rawTarget sql.NullString
 		if err := rows.Scan(&name, &rawTarget); err != nil {
-			return nil, translateErr("store.Roles", err)
+			return nil, translateErr("store.Groups", err)
 		}
 
 		ri, ok := index[name]
 		if !ok {
-			roles = append(roles, model.Role{Name: name, Targets: make([]string, 0)})
-			ri = len(roles) - 1
+			groups = append(groups, model.Group{Name: name, Targets: make([]string, 0)})
+			ri = len(groups) - 1
 			index[name] = ri
 		}
-		// Hedefsiz rolün hayalet LEFT JOIN satırı: NULL hedefi atla.
+		// Hedefsiz grubun hayalet LEFT JOIN satırı: NULL hedefi atla.
 		if rawTarget.Valid {
-			roles[ri].Targets = append(roles[ri].Targets, rawTarget.String)
+			groups[ri].Targets = append(groups[ri].Targets, rawTarget.String)
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, translateErr("store.Roles", err)
+		return nil, translateErr("store.Groups", err)
 	}
-	return roles, nil
+	return groups, nil
 }
 
 // rowID, ada göre tek bir id çözer; yoksa ErrNotFound. table/column
@@ -750,7 +750,7 @@ func (s *Store) rowID(ctx context.Context, op, table, column, value string) (str
 	return id, nil
 }
 
-// DeleteTarget, hedefi ve rol bağlarını (CASCADE) kaldırır. Yoksa
+// DeleteTarget, hedefi ve grup bağlarını (CASCADE) kaldırır. Yoksa
 // ErrNotFound; oturum kaydı varsa ErrConflict — denetim kaydı olan varlık
 // silinmez, bu bir kısıt değil özellik (ayrıntı: isFKRestrict).
 func (s *Store) DeleteTarget(ctx context.Context, name string) error {
@@ -768,20 +768,20 @@ func (s *Store) DeleteTarget(ctx context.Context, name string) error {
 	return nil
 }
 
-// DeleteRole: rolün bağları (user_roles, role_targets) CASCADE ile gider;
-// sessions rolü referanslamadığı için 787 bu yoldan çıkmaz — kontrol yine
+// DeleteGroup: grubun bağları (user_groups, group_targets) CASCADE ile gider;
+// sessions grubu referanslamadığı için 787 bu yoldan çıkmaz — kontrol yine
 // de duruyor, şema yarın değişirse sessizce yanlış hataya düşmeyelim.
-func (s *Store) DeleteRole(ctx context.Context, name string) error {
-	id, err := s.rowID(ctx, "store.DeleteRole", "roles", "name", name)
+func (s *Store) DeleteGroup(ctx context.Context, name string) error {
+	id, err := s.rowID(ctx, "store.DeleteGroup", "groups", "name", name)
 	if err != nil {
 		return err
 	}
 
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM roles WHERE id = $1;`, id); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM groups WHERE id = $1;`, id); err != nil {
 		if isRestrictViolation(err) {
-			return fmt.Errorf("store.DeleteRole: role %q is still referenced: %w", name, ErrConflict)
+			return fmt.Errorf("store.DeleteGroup: group %q is still referenced: %w", name, ErrConflict)
 		}
-		return translateErr("store.DeleteRole", err)
+		return translateErr("store.DeleteGroup", err)
 	}
 	return nil
 }
@@ -805,13 +805,13 @@ func (s *Store) DeleteUser(ctx context.Context, username string) error {
 	return nil
 }
 
-// SyncRoles, kullanıcının SSO kaynaklı rollerini IdP'nin söylediğiyle
-// DEĞİŞTİRİR. Elle atanmış roller (source='manual') etkilenmez.
+// SyncGroups, kullanıcının SSO kaynaklı rollerini IdP'nin söylediğiyle
+// DEĞİŞTİRİR. Elle atanmış gruplar (source='manual') etkilenmez.
 //
 // Her SSO girişinde çağrılır: gruptan çıkarılan kullanıcı yetkisini o an
 // kaybeder, yeni gruba eklenen o an kazanır.
-func (s *Store) SyncRoles(ctx context.Context, username string, roleNames []string) error {
-	userID, err := s.rowID(ctx, "store.SyncRoles", "users", "username", username)
+func (s *Store) SyncGroups(ctx context.Context, username string, roleNames []string) error {
+	userID, err := s.rowID(ctx, "store.SyncGroups", "users", "username", username)
 	if err != nil {
 		return err
 	}
@@ -820,40 +820,40 @@ func (s *Store) SyncRoles(ctx context.Context, username string, roleNames []stri
 	// kullanıcıyı bir sonraki girişe kadar yetkisiz bırakırdı.
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return translateErr("store.SyncRoles", err)
+		return translateErr("store.SyncGroups", err)
 	}
 	defer tx.Rollback()
 
 	if _, err := tx.ExecContext(ctx,
-		`DELETE FROM user_roles WHERE user_id = $1 AND source = 'sso';`, userID); err != nil {
-		return translateErr("store.SyncRoles", err)
+		`DELETE FROM user_groups WHERE user_id = $1 AND source = 'sso';`, userID); err != nil {
+		return translateErr("store.SyncGroups", err)
 	}
 
 	for _, name := range roleNames {
-		// Bilinmeyen rol: ATLA. Rol adları group_mappings'ten geliyor ve
+		// Bilinmeyen grup: ATLA. Rol adları group_mappings'ten geliyor ve
 		// bir eşleme silinmiş olabilir; yönetici hatası yüzünden
 		// kullanıcının girişini reddetmek yanlış olurdu.
 		var roleID string
-		err := tx.QueryRowContext(ctx, `SELECT id FROM roles WHERE name = $1;`, name).Scan(&roleID)
+		err := tx.QueryRowContext(ctx, `SELECT id FROM groups WHERE name = $1;`, name).Scan(&roleID)
 		if errors.Is(err, sql.ErrNoRows) {
 			continue
 		}
 		if err != nil {
-			return translateErr("store.SyncRoles", err)
+			return translateErr("store.SyncGroups", err)
 		}
 
-		// DO NOTHING: rol zaten elle atanmışsa o kayıt kazanır ve IdP'ye
+		// DO NOTHING: grup zaten elle atanmışsa o kayıt kazanır ve IdP'ye
 		// bağlı olmadan yaşamaya devam eder ("elle verilen elle alınır").
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO user_roles (user_id, role_id, source, expires_at)
+			INSERT INTO user_groups (user_id, group_id, source, expires_at)
 			VALUES ($1, $2, 'sso', NULL)
-			ON CONFLICT(user_id, role_id) DO NOTHING;`, userID, roleID); err != nil {
-			return translateErr("store.SyncRoles", err)
+			ON CONFLICT(user_id, group_id) DO NOTHING;`, userID, roleID); err != nil {
+			return translateErr("store.SyncGroups", err)
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		return translateErr("store.SyncRoles", err)
+		return translateErr("store.SyncGroups", err)
 	}
 	return nil
 }
@@ -862,18 +862,18 @@ func (s *Store) SyncRoles(ctx context.Context, username string, roleNames []stri
 // Grup eşlemeleri ve JIT sağlama (S5.2)
 // ---------------------------------------------------------------------
 
-// GroupMapping, bir dış grubun hangi role karşılık geldiği.
+// GroupMapping, bir dış grubun hangi gruba karşılık geldiği.
 type GroupMapping struct {
 	ExternalGroup string
-	Role          string
+	Group         string
 	CreatedAt     time.Time
 	CreatedBy     string
 }
 
-// AddGroupMapping, dış grubu role bağlar. Rol yoksa ErrNotFound; aynı
+// AddGroupMapping, dış grubu gruba bağlar. Rol yoksa ErrNotFound; aynı
 // eşleme ikinci kez eklenirse ErrConflict.
 func (s *Store) AddGroupMapping(ctx context.Context, externalGroup, roleName, actor string) error {
-	roleID, err := s.rowID(ctx, "store.AddGroupMapping", "roles", "name", roleName)
+	roleID, err := s.rowID(ctx, "store.AddGroupMapping", "groups", "name", roleName)
 	if err != nil {
 		return err
 	}
@@ -884,7 +884,7 @@ func (s *Store) AddGroupMapping(ctx context.Context, externalGroup, roleName, ac
 	}
 
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO group_mappings (id, external_group, role_id, created_at, created_by)
+		INSERT INTO group_mappings (id, external_group, group_id, created_at, created_by)
 		VALUES ($1, $2, $3, $4, $5);`,
 		id, externalGroup, roleID, time.Now().Unix(), actor)
 	if err != nil {
@@ -897,16 +897,16 @@ func (s *Store) AddGroupMapping(ctx context.Context, externalGroup, roleName, ac
 //
 // ⚠️ Bu, kullanıcıların rollerini ANINDA değiştirmez: mevcut SSO
 // atamaları bir sonraki girişte yenilenir. Yetkiyi hemen kesmek gerekiyorsa
-// rolü ya da kullanıcının erişimini ayrıca ele almak gerekir.
+// grubu ya da kullanıcının erişimini ayrıca ele almak gerekir.
 func (s *Store) RemoveGroupMapping(ctx context.Context, externalGroup, roleName string) error {
-	roleID, err := s.rowID(ctx, "store.RemoveGroupMapping", "roles", "name", roleName)
+	roleID, err := s.rowID(ctx, "store.RemoveGroupMapping", "groups", "name", roleName)
 	if err != nil {
 		return err
 	}
 
 	res, err := s.db.ExecContext(ctx,
 		// #nosec G202 -- birleştirilen parça sabit (dialect.go); değerler $N ile gidiyor
-		`DELETE FROM group_mappings WHERE `+ciEq("external_group", "$1")+` AND role_id = $2;`,
+		`DELETE FROM group_mappings WHERE `+ciEq("external_group", "$1")+` AND group_id = $2;`,
 		externalGroup, roleID)
 	if err != nil {
 		return translateErr("store.RemoveGroupMapping", err)
@@ -927,7 +927,7 @@ func (s *Store) GroupMappings(ctx context.Context) ([]GroupMapping, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT gm.external_group, r.name, gm.created_at, gm.created_by
 		FROM group_mappings gm
-		JOIN roles r ON r.id = gm.role_id
+		JOIN groups r ON r.id = gm.group_id
 		ORDER BY `+ciOrder("gm.external_group")+`, r.name;`)
 	if err != nil {
 		return nil, translateErr("store.GroupMappings", err)
@@ -938,7 +938,7 @@ func (s *Store) GroupMappings(ctx context.Context) ([]GroupMapping, error) {
 	for rows.Next() {
 		var m GroupMapping
 		var createdAt int64
-		if err := rows.Scan(&m.ExternalGroup, &m.Role, &createdAt, &m.CreatedBy); err != nil {
+		if err := rows.Scan(&m.ExternalGroup, &m.Group, &createdAt, &m.CreatedBy); err != nil {
 			return nil, translateErr("store.GroupMappings", err)
 		}
 		m.CreatedAt = time.Unix(createdAt, 0)
@@ -950,24 +950,31 @@ func (s *Store) GroupMappings(ctx context.Context) ([]GroupMapping, error) {
 	return out, nil
 }
 
-// RolesForGroups, verilen dış grup adlarının karşılığı rolleri ve
-// eşleşmeyen grupları döner.
-//
-// Eşleşmeyenler çağırana veriliyor ki kaydedebilsin (RecordUnmappedGroups)
-// ve yönetici neyi eşlemediğini görebilsin.
-func (s *Store) RolesForGroups(ctx context.Context, groups []string) (roles, unmapped []string, err error) {
-	roleSet := map[string]struct{}{}
+/*
+ * GroupsForDirectoryGroups, dizinin verdiği grup adlarının karşılığı olan
+ * postern gruplarını ve eşleşmeyenleri döner.
+ *
+ * ⚠️ İKİ UCU DA "GRUP" ve adları bunu söylemek zorunda: girdi dizinin
+ * gönderdiği adlar, çıktı postern'in kendi nesneleri. İkisine de `groups`
+ * demek derlenmiyordu bile — ve derlenseydi, okuyan kişi eşlemenin hangi
+ * yöne aktığını koddan çıkaramazdı.
+ *
+ * Eşleşmeyenler çağırana veriliyor ki kaydedebilsin (RecordUnmappedGroups)
+ * ve yönetici neyi eşlemediğini görebilsin.
+ */
+func (s *Store) GroupsForDirectoryGroups(ctx context.Context, directoryGroups []string) (groups, unmapped []string, err error) {
+	seen := map[string]struct{}{}
 	unmapped = make([]string, 0)
 
-	for _, g := range groups {
+	for _, g := range directoryGroups {
 		// #nosec G202 -- birleştirilen parça sabit (dialect.go); değerler $N ile gidiyor
 		rows, qerr := s.db.QueryContext(ctx, `
 			SELECT r.name
 			FROM group_mappings gm
-			JOIN roles r ON r.id = gm.role_id
+			JOIN groups r ON r.id = gm.group_id
 			WHERE `+ciEq("gm.external_group", "$1")+`;`, g)
 		if qerr != nil {
-			return nil, nil, translateErr("store.RolesForGroups", qerr)
+			return nil, nil, translateErr("store.GroupsForDirectoryGroups", qerr)
 		}
 
 		found := false
@@ -975,28 +982,28 @@ func (s *Store) RolesForGroups(ctx context.Context, groups []string) (roles, unm
 			var name string
 			if serr := rows.Scan(&name); serr != nil {
 				rows.Close()
-				return nil, nil, translateErr("store.RolesForGroups", serr)
+				return nil, nil, translateErr("store.GroupsForDirectoryGroups", serr)
 			}
-			roleSet[name] = struct{}{}
+			seen[name] = struct{}{}
 			found = true
 		}
 		rerr := rows.Err()
 		rows.Close()
 		if rerr != nil {
-			return nil, nil, translateErr("store.RolesForGroups", rerr)
+			return nil, nil, translateErr("store.GroupsForDirectoryGroups", rerr)
 		}
 		if !found {
 			unmapped = append(unmapped, g)
 		}
 	}
 
-	roles = make([]string, 0, len(roleSet))
-	for r := range roleSet {
-		roles = append(roles, r)
+	groups = make([]string, 0, len(seen))
+	for r := range seen {
+		groups = append(groups, r)
 	}
-	sort.Strings(roles)
+	sort.Strings(groups)
 	sort.Strings(unmapped)
-	return roles, unmapped, nil
+	return groups, unmapped, nil
 }
 
 // RecordUnmappedGroups, eşlenmemiş grupları teşhis tablosuna işler.
@@ -1066,8 +1073,8 @@ type ProvisionRequest struct {
 	 * GroupsResolved, grupların GERÇEKTEN öğrenilip öğrenilmediği.
 	 *
 	 * ⚠️ SIFIR DEĞERİ false VE BU KASITLI. false iken SSO rollerine
-	 * HİÇ DOKUNULMAZ. Alanı doldurmayı unutan bir çağrı yolu, rolleri
-	 * TAZELEMEMİŞ olur — rolleri SİLMİŞ değil. İki yanlıştan geri
+	 * HİÇ DOKUNULMAZ. Alanı doldurmayı unutan bir çağrı yolu, grupları
+	 * TAZELEMEMİŞ olur — grupları SİLMİŞ değil. İki yanlıştan geri
 	 * dönülebilir olanı bu.
 	 *
 	 * Neden gerekti: kaynak "kullanıcıyı bulamadım" dediğinde de boş
@@ -1206,23 +1213,23 @@ func (s *Store) BindIdPSubject(ctx context.Context, username, issuer, subject st
 // ProvisionUser, IdP kimliğinden kullanıcıyı oluşturur/günceller ve SSO
 // rollerini senkronize eder. Dönen değer yetkileriyle birlikte kullanıcıdır.
 //
-// SÖZLEŞME: hiçbir grup role eşleşmiyorsa kullanıcı OLUŞTURULMAZ ve
+// SÖZLEŞME: hiçbir grup gruba eşleşmiyorsa kullanıcı OLUŞTURULMAZ ve
 // ErrAccessDenied döner. "IdP'de hesabın olması postern'de hesabın olması
 // demek değil" kuralının JIT çağındaki hâli — sadece "elle ekle" yerine
 // "grubunu eşle" oldu. Yan faydası: users tablosu IdP'nin tüm dizinine
 // dönüşmez, yalnızca gerçekten erişimi olanları içerir.
 //
 // Var olan kullanıcı için: eşleşme kalmadıysa kullanıcı SİLİNMEZ (denetim
-// kaydı ona bağlı) ama SSO rolleri temizlenir — erişim biter, iz kalır.
+// kaydı ona bağlı) ama SSO grupları temizlenir — erişim biter, iz kalır.
 func (s *Store) ProvisionUser(ctx context.Context, req ProvisionRequest) (model.User, error) {
-	var roles, unmapped []string
+	var groups, unmapped []string
 	if req.GroupsResolved {
 		var err error
 		// ⚠️ Kaynak cevap verdi ama hiç grup söylemediyse `unknown`.
 		// Onsuz, grup claim'i göndermeyen bir IdP'de HİÇ KİMSE hesap
 		// açamıyordu (aşağıdaki ErrAccessDenied) ve yöneticinin bunu
 		// düzeltecek bir tutamağı yoktu.
-		roles, unmapped, err = s.RolesForGroups(ctx, model.ResolvedGroups(req.Groups))
+		groups, unmapped, err = s.GroupsForDirectoryGroups(ctx, model.ResolvedGroups(req.Groups))
 		if err != nil {
 			return model.User{}, err
 		}
@@ -1264,7 +1271,7 @@ func (s *Store) ProvisionUser(ctx context.Context, req ProvisionRequest) (model.
 		// dokunmuyoruz. İptal kararı korumalı senkronizasyon
 		// yolunundur.
 		if req.GroupsResolved {
-			if serr := s.SyncRoles(ctx, bound.Name, roles); serr != nil {
+			if serr := s.SyncGroups(ctx, bound.Name, groups); serr != nil {
 				return model.User{}, serr
 			}
 		}
@@ -1299,7 +1306,7 @@ func (s *Store) ProvisionUser(ctx context.Context, req ProvisionRequest) (model.
 		 * Rol eşlemesi bunu DURDURMAZ ve durdurması da beklenmemeli:
 		 * saldırgan kendi rollerini alıyor (developer), ama hesabın
 		 * is_admin bayrağı hiçbir eşlemeden gelmiyor — CLI'dan ya da
-		 * yönetici grubundan geliyor. Aşağıdaki len(roles)==0 kapısı
+		 * yönetici grubundan geliyor. Aşağıdaki len(groups)==0 kapısı
 		 * da yalnızca YENİ hesap dalında; var olan bir hesabı
 		 * devralmaya uygulanmıyor.
 		 *
@@ -1338,12 +1345,12 @@ func (s *Store) ProvisionUser(ctx context.Context, req ProvisionRequest) (model.
 		}
 	case errors.Is(err, ErrNotFound):
 		/*
-		 * ⚠️ OTOMATİK AÇILIŞ KAPALIYSA BURADA DURUYORUZ — rol
+		 * ⚠️ OTOMATİK AÇILIŞ KAPALIYSA BURADA DURUYORUZ — grup
 		 * kontrolünden ÖNCE.
 		 *
 		 * Kuyruk, "seni tanımıyoruz" hâlinin tamamı için: hiçbir grubu
 		 * eşleşmeyen kişi de oraya düşmeli ki yönetici onaylayıp elle
-		 * rol verebilsin. Rol kapısını önce uygulasaydık, tam da
+		 * grup verebilsin. Rol kapısını önce uygulasaydık, tam da
 		 * kuyruğun var olma sebebi olan nüfusu kapıda bırakırdık.
 		 *
 		 * ⚠️ Bu kontrol eskiden YALNIZCA dizin kapısındaydı: OIDC
@@ -1355,8 +1362,8 @@ func (s *Store) ProvisionUser(ctx context.Context, req ProvisionRequest) (model.
 				"store.ProvisionUser[%s]: %w", req.Username, ErrAccountNotProvisioned)
 		}
 
-		// Yeni kullanıcı: yalnızca en az bir rol eşleşiyorsa yarat.
-		if len(roles) == 0 {
+		// Yeni kullanıcı: yalnızca en az bir grup eşleşiyorsa yarat.
+		if len(groups) == 0 {
 			return model.User{}, fmt.Errorf("store.ProvisionUser[%s]: %w", req.Username, ErrAccessDenied)
 		}
 
@@ -1401,8 +1408,8 @@ func (s *Store) ProvisionUser(ctx context.Context, req ProvisionRequest) (model.
 		// ⚠️ OTOMATİK AÇILAN HESAP DA DENETİM SATIRI BIRAKMALI.
 		//
 		// Burası bir YETKİ VERME noktası: hesap açılıyor ve altındaki
-		// SyncRoles rolleri — dolayısıyla hedef erişimini — veriyor.
-		// CLI'dan yapılan aynı iş (user.create, role.grant) denetim
+		// SyncGroups grupları — dolayısıyla hedef erişimini — veriyor.
+		// CLI'dan yapılan aynı iş (user.create, group.grant) denetim
 		// günlüğüne düşerken bu yol sessizdi: panelde günlüğe bakan bir
 		// operatör, SSO ile gelip sysadmin olan kullanıcıları HİÇ
 		// görmüyordu. Denetim izi ürünün kendisi olan bir sistemde,
@@ -1413,8 +1420,8 @@ func (s *Store) ProvisionUser(ctx context.Context, req ProvisionRequest) (model.
 		if lerr := s.LogAdmin(ctx, AdminLogEntry{
 			Actor: "system", Via: "sso", Action: "user.create",
 			Entity: req.Username,
-			Details: fmt.Sprintf("provisioned on first sign-in; roles from directory groups: %s",
-				strings.Join(roles, ", ")),
+			Details: fmt.Sprintf("provisioned on first sign-in; groups from directory groups: %s",
+				strings.Join(groups, ", ")),
 		}); lerr != nil {
 			return model.User{}, fmt.Errorf("store.ProvisionUser[%s]: audit: %w", req.Username, lerr)
 		}
@@ -1422,7 +1429,7 @@ func (s *Store) ProvisionUser(ctx context.Context, req ProvisionRequest) (model.
 		return model.User{}, err
 	}
 
-	if serr := s.SyncRoles(ctx, req.Username, roles); serr != nil {
+	if serr := s.SyncGroups(ctx, req.Username, groups); serr != nil {
 		return model.User{}, serr
 	}
 
@@ -1599,30 +1606,30 @@ type SettingView struct {
 	UpdatedBy string
 }
 
-// RevokeRole, kullanıcıdan rolü geri alır. Kullanıcı ya da rol yoksa
-// ErrNotFound; bağ zaten yoksa SESSİZ no-op (AssignRole'un aynası).
-func (s *Store) RevokeRole(ctx context.Context, username, roleName string) error {
-	userID, err := s.rowID(ctx, "store.RevokeRole", "users", "username", username)
+// RevokeGroup, kullanıcıdan grubu geri alır. Kullanıcı ya da grup yoksa
+// ErrNotFound; bağ zaten yoksa SESSİZ no-op (AssignGroup'un aynası).
+func (s *Store) RevokeGroup(ctx context.Context, username, roleName string) error {
+	userID, err := s.rowID(ctx, "store.RevokeGroup", "users", "username", username)
 	if err != nil {
 		return err
 	}
-	roleID, err := s.rowID(ctx, "store.RevokeRole", "roles", "name", roleName)
+	roleID, err := s.rowID(ctx, "store.RevokeGroup", "groups", "name", roleName)
 	if err != nil {
 		return err
 	}
 
 	// Bağ zaten yoksa sessiz no-op: "bu yetkiyi al" isteği, yetki zaten
-	// yokken de yerine getirilmiş sayılır (AssignRole'un aynası).
+	// yokken de yerine getirilmiş sayılır (AssignGroup'un aynası).
 	if _, err := s.db.ExecContext(ctx,
-		`DELETE FROM user_roles WHERE user_id = $1 AND role_id = $2;`, userID, roleID); err != nil {
-		return translateErr("store.RevokeRole", err)
+		`DELETE FROM user_groups WHERE user_id = $1 AND group_id = $2;`, userID, roleID); err != nil {
+		return translateErr("store.RevokeGroup", err)
 	}
 	return nil
 }
 
 // RevokeTarget, rolden hedef erişimini geri alır. GrantTarget'ın aynası.
 func (s *Store) RevokeTarget(ctx context.Context, roleName, targetName string) error {
-	roleID, err := s.rowID(ctx, "store.RevokeTarget", "roles", "name", roleName)
+	roleID, err := s.rowID(ctx, "store.RevokeTarget", "groups", "name", roleName)
 	if err != nil {
 		return err
 	}
@@ -1632,7 +1639,7 @@ func (s *Store) RevokeTarget(ctx context.Context, roleName, targetName string) e
 	}
 
 	if _, err := s.db.ExecContext(ctx,
-		`DELETE FROM role_targets WHERE role_id = $1 AND target_id = $2;`, roleID, targetID); err != nil {
+		`DELETE FROM group_targets WHERE group_id = $1 AND target_id = $2;`, roleID, targetID); err != nil {
 		return translateErr("store.RevokeTarget", err)
 	}
 	return nil
@@ -1804,7 +1811,7 @@ func (s *Store) SetUserOSUser(ctx context.Context, username, osUser string) erro
 // Users, tüm kullanıcıları rolleriyle birlikte, ada göre sıralı döner.
 //
 // User'ın sorgusunun WHERE'siz hâli; gruplama iki seviyeli — önce
-// kullanıcıya, sonra role. Desen User'dakiyle aynı, yalnızca indeks
+// kullanıcıya, sonra gruba. Desen User'dakiyle aynı, yalnızca indeks
 // map'leri kullanıcı boyutu kazanıyor.
 //
 // Hiç kullanıcı yoksa boş dilim, hata değil.
@@ -1818,15 +1825,15 @@ func (s *Store) Users(ctx context.Context) ([]model.User, error) {
 	       r.name AS role_name,
 	       t.name AS target_name
 		FROM users u
-		LEFT JOIN user_roles   ur ON ur.user_id = u.id
+		LEFT JOIN user_groups   ur ON ur.user_id = u.id
 		                         AND (ur.expires_at IS NULL OR ur.expires_at > $1)
-		LEFT JOIN roles        r  ON r.id       = ur.role_id
-		LEFT JOIN role_targets rt ON rt.role_id = r.id
+		LEFT JOIN groups        r  ON r.id       = ur.group_id
+		LEFT JOIN group_targets rt ON rt.group_id = r.id
 		LEFT JOIN targets      t  ON t.id       = rt.target_id
 		-- ⚠️ PURGE EDİLMİŞ SATIRLAR LİSTEDE YOK.
 		--
 		-- Onlar bir KAYIT, bir kullanıcı değil: adı serbest bırakılmış,
-		-- anahtarları ve rolleri alınmış, giriş yapamayan bir iz.
+		-- anahtarları ve grupları alınmış, giriş yapamayan bir iz.
 		-- Listede durmaları hem gürültü hem yanıltıcı — "purged:9bf1…"
 		-- diye bir hesap yok. İzin kendisi PurgedAccounts'tan okunuyor.
 		WHERE u.purged_at IS NULL
@@ -1843,40 +1850,40 @@ func (s *Store) Users(ctx context.Context) ([]model.User, error) {
 	// burada make ile başlıyoruz.
 	users := make([]model.User, 0)
 	userIndex := map[string]int{}
-	// Rol indeksi kullanıcı BAŞINA tutulur: iki kullanıcı aynı role
+	// Rol indeksi kullanıcı BAŞINA tutulur: iki kullanıcı aynı gruba
 	// sahipse bunlar ayrı gruplardır, tek map ikisini karıştırırdı.
 	roleIndex := map[string]map[string]int{}
 
 	for rows.Next() {
 		var name, osUser string
 		var admin, ssoOnly bool
-		var rawRole, rawTarget sql.NullString
+		var rawGroup, rawTarget sql.NullString
 
-		if err := rows.Scan(&name, &osUser, &admin, &ssoOnly, &rawRole, &rawTarget); err != nil {
+		if err := rows.Scan(&name, &osUser, &admin, &ssoOnly, &rawGroup, &rawTarget); err != nil {
 			return nil, translateErr("store.Users", err)
 		}
 
 		ui, ok := userIndex[name]
 		if !ok {
-			users = append(users, model.User{Name: name, OSUser: osUser, Admin: admin, SSOOnly: ssoOnly, Roles: make([]model.Role, 0)})
+			users = append(users, model.User{Name: name, OSUser: osUser, Admin: admin, SSOOnly: ssoOnly, Groups: make([]model.Group, 0)})
 			ui = len(users) - 1
 			userIndex[name] = ui
 			roleIndex[name] = map[string]int{}
 		}
 
-		if !rawRole.Valid {
+		if !rawGroup.Valid {
 			continue // rolsüz kullanıcının hayalet LEFT JOIN satırı
 		}
 
-		ri, ok := roleIndex[name][rawRole.String]
+		ri, ok := roleIndex[name][rawGroup.String]
 		if !ok {
-			users[ui].Roles = append(users[ui].Roles, model.Role{Name: rawRole.String, Targets: make([]string, 0)})
-			ri = len(users[ui].Roles) - 1
-			roleIndex[name][rawRole.String] = ri
+			users[ui].Groups = append(users[ui].Groups, model.Group{Name: rawGroup.String, Targets: make([]string, 0)})
+			ri = len(users[ui].Groups) - 1
+			roleIndex[name][rawGroup.String] = ri
 		}
 
 		if rawTarget.Valid {
-			users[ui].Roles[ri].Targets = append(users[ui].Roles[ri].Targets, rawTarget.String)
+			users[ui].Groups[ri].Targets = append(users[ui].Groups[ri].Targets, rawTarget.String)
 		}
 	}
 
@@ -2074,7 +2081,7 @@ type SessionStart struct {
 	StartedAt     time.Time
 	RecordingPath string
 
-	// Temporary, erişimi rol değil süreli hak verdi (model.Session.Temporary).
+	// Temporary, erişimi grup değil süreli hak verdi (model.Session.Temporary).
 	Temporary bool
 }
 
@@ -2365,7 +2372,7 @@ func translateErr(op string, err error) error {
 		return fmt.Errorf("%s: %w: %v", op, ErrConflict, err)
 
 	case isForeignKeyViolation(err):
-		// "İşaret ettiğin şey yok." ErrConflict DEĞİL: AssignRole'a olmayan
+		// "İşaret ettiğin şey yok." ErrConflict DEĞİL: AssignGroup'a olmayan
 		// bir kullanıcı adı verildiğinde çıkan hata budur ve sözleşme orada
 		// ErrNotFound diyor.
 		return fmt.Errorf("%s: %w: %v", op, ErrNotFound, err)
@@ -2426,8 +2433,8 @@ func (s *Store) SeenGroupNames(ctx context.Context) ([]string, error) {
 		    UNION
 		    SELECT gm.external_group AS name
 		    FROM group_mappings gm
-		    JOIN roles r      ON r.id = gm.role_id
-		    JOIN user_roles ur ON ur.role_id = r.id AND ur.source = 'sso'
+		    JOIN groups r      ON r.id = gm.group_id
+		    JOIN user_groups ur ON ur.group_id = r.id AND ur.source = 'sso'
 		) g;`)
 	if err != nil {
 		return nil, translateErr("store.SeenGroupNames", err)
@@ -2556,36 +2563,36 @@ func (s *Store) ClaimByVerifiedEmail(ctx context.Context,
 }
 
 /*
- * RoleGrantSource, bir atamanın NEREDEN geldiğini söyler: "manual" ya
+ * GroupGrantSource, bir atamanın NEREDEN geldiğini söyler: "manual" ya
  * da "sso". found=false, böyle bir atama yok demek.
  *
- * ⚠️ NEDEN GEREKLİ: AssignRole'un ON CONFLICT dalı source'u koşulsuz
- * 'manual' yapıyor, SyncRoles ise yalnızca source='sso' satırlarını
- * siliyor. Yani dizinden gelen bir rolü elle "yeniden vermek", o rolü
+ * ⚠️ NEDEN GEREKLİ: AssignGroup'un ON CONFLICT dalı source'u koşulsuz
+ * 'manual' yapıyor, SyncGroups ise yalnızca source='sso' satırlarını
+ * siliyor. Yani dizinden gelen bir grubu elle "yeniden vermek", o grubu
  * senkronizasyonun erişemeyeceği bir yere taşıyor: kişi gruptan
- * çıkarıldığında rol ÜZERİNDE KALIYOR ve hiçbir otomatik yol onu geri
+ * çıkarıldığında grup ÜZERİNDE KALIYOR ve hiçbir otomatik yol onu geri
  * alamıyor. Bu okuma olmadan çağıran, sessizce kalıcı yetki üretiyor.
  *
  * Kimseyi engellemek için değil, SÖYLEYEBİLMEK için var.
  */
-func (s *Store) RoleGrantSource(ctx context.Context, username, roleName string) (source string, found bool, err error) {
-	userID, err := s.rowID(ctx, "store.RoleGrantSource", "users", "username", username)
+func (s *Store) GroupGrantSource(ctx context.Context, username, roleName string) (source string, found bool, err error) {
+	userID, err := s.rowID(ctx, "store.GroupGrantSource", "users", "username", username)
 	if err != nil {
 		return "", false, err
 	}
-	roleID, err := s.rowID(ctx, "store.RoleGrantSource", "roles", "name", roleName)
+	roleID, err := s.rowID(ctx, "store.GroupGrantSource", "groups", "name", roleName)
 	if err != nil {
 		return "", false, err
 	}
 
 	qerr := s.db.QueryRowContext(ctx,
-		`SELECT source FROM user_roles WHERE user_id = $1 AND role_id = $2;`,
+		`SELECT source FROM user_groups WHERE user_id = $1 AND group_id = $2;`,
 		userID, roleID).Scan(&source)
 	if errors.Is(qerr, sql.ErrNoRows) {
 		return "", false, nil
 	}
 	if qerr != nil {
-		return "", false, translateErr("store.RoleGrantSource", qerr)
+		return "", false, translateErr("store.GroupGrantSource", qerr)
 	}
 	return source, true, nil
 }

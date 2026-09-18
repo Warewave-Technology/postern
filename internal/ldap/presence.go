@@ -54,7 +54,7 @@ type LookupResult struct {
 	 * ⚠️ PresencePresent İLE BİRLİKTE GELEBİLİR ve gelmesi normal:
 	 * bir hesabı devre dışı bırakmak girişi silmez, grup üyeliklerini
 	 * de kaldırmaz. Yalnızca gruplara bakan bir çağıran o hesabı
-	 * "burada ve şu rollere sahip" diye okur — işten ayrılma ve olay
+	 * "burada ve şu gruplara sahip" diye okur — işten ayrılma ve olay
 	 * müdahalesinde atılan İLK adımı görmezden gelmiş olur.
 	 */
 	Disabled       bool
@@ -81,7 +81,7 @@ type LookupResult struct {
 	// kaldığı için sayılmayan grupların ham DN'leri.
 	//
 	// Teşhis için: kapsam varsayılanı "direct" olduğunda, gruplarını bir
-	// OU daha derinde tutan bir kurulum yükseltmeden sonra rol
+	// OU daha derinde tutan bir kurulum yükseltmeden sonra grup
 	// kaybeder. Bunu sessizce yapmak, operatörü kaybolan yetkinin
 	// sebebini arayarak saatlerce dolaştırırdı.
 	OutOfScope []string

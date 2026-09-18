@@ -13,7 +13,7 @@ const detail = (over: Partial<Detail> = {}): Detail => ({
   state: "active",
   sso_only: false,
   dir_bound: false,
-  roles: [],
+  groups: [],
   keys: [],
   sessions: [],
   ...over,
@@ -25,7 +25,7 @@ beforeEach(() => {
     "confirm",
     vi.fn((_m?: string) => true),
   );
-  vi.spyOn(api, "roles").mockResolvedValue([]);
+  vi.spyOn(api, "groups").mockResolvedValue([]);
 });
 
 const show = (over: Partial<Detail> = {}, props = {}) => {
@@ -88,7 +88,7 @@ describe("hesap durumu", () => {
       await screen.findByRole("button", { name: /deactivate suheda/i }),
     );
     const msg = confirmSpy.mock.calls[0][0] ?? "";
-    expect(msg).toMatch(/roles and keys are kept/i);
+    expect(msg).toMatch(/groups and keys are kept/i);
     expect(msg).toMatch(/signing in through the source reactivates them/i);
   });
 });
@@ -262,7 +262,7 @@ describe("roller ve anahtarlar", () => {
    * bittiğini düşündürür.
    */
   it("rolü olmayan hesabı uyarıyor", async () => {
-    show({ roles: [] });
+    show({ groups: [] });
     await waitFor(() =>
       expect(screen.getByText(/reaches no target at all/i)).toBeTruthy(),
     );
@@ -278,7 +278,7 @@ describe("roller ve anahtarlar", () => {
     const confirmSpy = vi.fn((_m?: string) => true);
     vi.stubGlobal("confirm", confirmSpy);
     const revoke = vi.spyOn(api, "revokeRole").mockResolvedValue(undefined);
-    show({ roles: [{ name: "ops", targets: ["web01", "db01"] }] });
+    show({ groups: [{ name: "ops", targets: ["web01", "db01"] }] });
 
     await userEvent.click(
       await screen.findByRole("button", { name: /revoke ops from suheda/i }),
@@ -315,14 +315,14 @@ describe("roller ve anahtarlar", () => {
   /*
    * ⚠️ "ÇEKİLEMEDİ" İLE "HİÇ YOK" AYRI ŞEYLER.
    *
-   * Rol listesi düşünce kutu "no roles defined" diyordu ve operatör
-   * Roles ekranına gidip orada duran rolleri görüyordu.
+   * Rol listesi düşünce kutu "no groups defined" diyordu ve operatör
+   * Groups ekranına gidip orada duran rolleri görüyordu.
    */
   it("rol listesi çekilemezse bunu söylüyor", async () => {
-    vi.spyOn(api, "roles").mockRejectedValue(new Error("boom"));
+    vi.spyOn(api, "groups").mockRejectedValue(new Error("boom"));
     show();
     await waitFor(() =>
-      expect(screen.getByText(/roles could not be loaded/i)).toBeTruthy(),
+      expect(screen.getByText(/groups could not be loaded/i)).toBeTruthy(),
     );
   });
 

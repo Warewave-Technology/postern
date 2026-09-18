@@ -66,16 +66,16 @@ func fakeVC(t *testing.T, sessions *atomic.Int32) *httptest.Server {
 	mux.HandleFunc("/api/cis/tagging/tag/", guard(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "tag-a"):
-			_, _ = w.Write([]byte(`{"name":"ops","category_id":"cat-role"}`))
+			_, _ = w.Write([]byte(`{"name":"ops","category_id":"cat-group"}`))
 		case strings.HasSuffix(r.URL.Path, "tag-b"):
-			_, _ = w.Write([]byte(`{"name":"dba","category_id":"cat-role"}`))
+			_, _ = w.Write([]byte(`{"name":"dba","category_id":"cat-group"}`))
 		default:
-			// Başka kategoriden bir etiket: rol çıkarmayı etkilememeli.
+			// Başka kategoriden bir etiket: grup çıkarmayı etkilememeli.
 			_, _ = w.Write([]byte(`{"name":"prod","category_id":"cat-env"}`))
 		}
 	}))
 	mux.HandleFunc("/api/cis/tagging/category/", guard(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "cat-role") {
+		if strings.HasSuffix(r.URL.Path, "cat-group") {
 			_, _ = w.Write([]byte(`{"name":"role"}`))
 			return
 		}
@@ -123,7 +123,7 @@ func newVC(t *testing.T, srv *httptest.Server) *VSphere {
 /*
  * ⚠️ vSPHERE ETİKETİ GERÇEKTEN ANAHTAR/DEĞER: kategori anahtar, etiket
  * değer. Yine de Proxmox'la AYNI biçimde ("kategori=etiket") dışarı
- * veriliyor ki rol çıkarma mantığı tek olsun — iki kaynak için iki
+ * veriliyor ki grup çıkarma mantığı tek olsun — iki kaynak için iki
  * ayrı mantık, ikisinin zamanla ayrışması demekti.
  */
 func TestVSphereMachines(t *testing.T) {
@@ -144,17 +144,17 @@ func TestVSphereMachines(t *testing.T) {
 		by[m.Name] = m
 	}
 
-	if role, tagged := RoleFromTags(by["web-01"].Tags, "role"); role != "ops" || !tagged {
-		t.Errorf("web-01 rolü = %q %v (etiketler %v)", role, tagged, by["web-01"].Tags)
+	if group, tagged := GroupFromTags(by["web-01"].Tags, "role"); group != "ops" || !tagged {
+		t.Errorf("web-01 grubu = %q %v (etiketler %v)", group, tagged, by["web-01"].Tags)
 	}
-	if role, _ := RoleFromTags(by["db-01"].Tags, "role"); role != "dba" {
-		t.Errorf("db-01 rolü = %q", role)
+	if group, _ := GroupFromTags(by["db-01"].Tags, "role"); group != "dba" {
+		t.Errorf("db-01 grubu = %q", group)
 	}
-	// ⚠️ Başka kategorideki etiket rol vermiyor: yalnızca env=prod
+	// ⚠️ Başka kategorideki etiket grup vermiyor: yalnızca env=prod
 	// taşıyan makine unknown'a gidiyor.
-	if role, tagged := RoleFromTags(by["etiketsiz"].Tags, "role"); role != UnknownRole || tagged {
+	if group, tagged := GroupFromTags(by["etiketsiz"].Tags, "role"); group != UnknownGroup || tagged {
 		t.Errorf("etiketsiz makine = %q %v (etiketler %v)",
-			role, tagged, by["etiketsiz"].Tags)
+			group, tagged, by["etiketsiz"].Tags)
 	}
 
 	if by["web-01"].Host != "10.0.0.5" {

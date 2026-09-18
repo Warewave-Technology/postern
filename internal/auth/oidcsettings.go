@@ -40,7 +40,7 @@ const (
 	 * KeyOIDCGroupsClaim, grup adlarını taşıyan claim.
 	 *
 	 * ⚠️ ALAN VARDI, AYARI YOKTU. OIDCConfig.GroupsClaim ilk günden
-	 * beri duruyor ve yorumu Entra'nın "roles", bazı kurulumların
+	 * beri duruyor ve yorumu Entra'nın "groups", bazı kurulumların
 	 * "memberOf" kullandığını söylüyor — ama onu dolduran hiçbir yol
 	 * yazılmamıştı, yani pratikte "groups" sabitti. Entra ya da Okta
 	 * kullanan bir kurum hiç grup göremiyordu ve sebebini de göremiyordu:

@@ -1,7 +1,7 @@
 package main
 
 /*
- * `postern role sudo show` — kuralı okumanın panel dışı yolu.
+ * `postern group sudo show` — kuralı okumanın panel dışı yolu.
  *
  * ⚠️ BU KOMUT BİR SÜRÜM NOTUNUN İÇİNDE. 1.3.0'ın güvenlik satırı, panelde
  * düzenlenen bir kuralın sessizce root'a çıkmış olabileceğini söylüyor ve
@@ -17,22 +17,22 @@ import (
 	"github.com/Warewave-Technology/postern/internal/sudoers"
 )
 
-func TestRoleSudoShowNamesTheAccountOfEachCommand(t *testing.T) {
+func TestGroupSudoShowNamesTheAccountOfEachCommand(t *testing.T) {
 	e := newEnv(t)
 	ctx := t.Context()
 
-	if _, err := e.db.CreateRole(ctx, "dba"); err != nil {
+	if _, err := e.db.CreateGroup(ctx, "dba"); err != nil {
 		t.Fatal(err)
 	}
 	rule := sudoers.Rule{Commands: []sudoers.Command{
 		{Path: "/usr/sbin/nginx", Args: []string{"-t"}},
 		{Path: "/usr/bin/pg_ctl", Args: []string{"reload"}, RunAs: "postgres"},
 	}}
-	if err := e.db.SetRoleSudo(ctx, "dba", rule, "ops"); err != nil {
+	if err := e.db.SetGroupSudo(ctx, "dba", rule, "ops"); err != nil {
 		t.Fatal(err)
 	}
 
-	out, err := e.run(t, newRoleSudoCmd(), "show", "--role", "dba")
+	out, err := e.run(t, newGroupSudoCmd(), "show", "--group", "dba")
 	if err != nil {
 		t.Fatalf("show: %v — %s", err, out)
 	}
@@ -65,7 +65,7 @@ func TestRoleSudoShowNamesTheAccountOfEachCommand(t *testing.T) {
 	if !strings.Contains(out, "/etc/sudoers.d/postern-dba") {
 		t.Errorf("hedefteki dosya yazılmamış:\n%s", out)
 	}
-	_ = store.RoleSudo{}
+	_ = store.GroupSudo{}
 }
 
 /*
@@ -81,16 +81,16 @@ func TestRoleSudoShowNamesTheAccountOfEachCommand(t *testing.T) {
 func TestWritingFromTheCLIDoesNotSilentlyMoveACommandToRoot(t *testing.T) {
 	e := newEnv(t)
 	ctx := t.Context()
-	if _, err := e.db.CreateRole(ctx, "dba"); err != nil {
+	if _, err := e.db.CreateGroup(ctx, "dba"); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.db.SetRoleSudo(ctx, "dba", sudoers.Rule{Commands: []sudoers.Command{
+	if err := e.db.SetGroupSudo(ctx, "dba", sudoers.Rule{Commands: []sudoers.Command{
 		{Path: "/usr/bin/pg_ctl", Args: []string{"reload"}, RunAs: "postgres"},
 	}}, "ops"); err != nil {
 		t.Fatal(err)
 	}
 
-	out, err := e.run(t, newRoleSudoCmd(), "set", "--role", "dba",
+	out, err := e.run(t, newGroupSudoCmd(), "set", "--group", "dba",
 		"--command", "/usr/sbin/nginx -t")
 	if err == nil {
 		t.Fatalf("sessizce yazdı: %s", out)
@@ -104,7 +104,7 @@ func TestWritingFromTheCLIDoesNotSilentlyMoveACommandToRoot(t *testing.T) {
 
 	// Kural DEĞİŞMEMİŞ olmalı: yarım uygulanan bir yazma, hem hasarı verip
 	// hem sebebi gizlemek olurdu.
-	still, rerr := e.db.RoleSudoRule(ctx, "dba")
+	still, rerr := e.db.GroupSudoRule(ctx, "dba")
 	if rerr != nil {
 		t.Fatal(rerr)
 	}
@@ -113,7 +113,7 @@ func TestWritingFromTheCLIDoesNotSilentlyMoveACommandToRoot(t *testing.T) {
 	}
 
 	// Niyet açıkça söylenirse geçiyor: acil çıkış yolu kapanmıyor.
-	if _, err := e.run(t, newRoleSudoCmd(), "set", "--role", "dba",
+	if _, err := e.run(t, newGroupSudoCmd(), "set", "--group", "dba",
 		"--command", "/usr/sbin/nginx -t", "--run-as", "root"); err != nil {
 		t.Errorf("--run-as verilmiş istek de reddedildi: %v", err)
 	}

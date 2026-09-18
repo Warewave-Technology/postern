@@ -140,10 +140,10 @@ func newSyncRunCmd() *cobra.Command {
 				rep.Considered, rep.Present, rep.Absent, rep.Unknown)
 			fmt.Fprintf(out, "revoked    %d\n", rep.Revoked)
 
-			// Elle verilmiş roller ayrı satırda: "iptal edildi" okuyup
+			// Elle verilmiş gruplar ayrı satırda: "iptal edildi" okuyup
 			// erişimin tamamen bittiğini sanmak kolay.
 			if len(rep.KeptManual) > 0 {
-				fmt.Fprintf(out, "\n⚠️  still reachable — these users kept manually granted roles:\n")
+				fmt.Fprintf(out, "\n⚠️  still reachable — these users kept manually granted groups:\n")
 				for _, u := range rep.KeptManual {
 					fmt.Fprintf(out, "    %s\n", u)
 				}

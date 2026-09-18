@@ -440,7 +440,7 @@ func TestApplyAdminGroupDoesNotDowngradeCLIAdmin(t *testing.T) {
 		t.Fatalf("verilenler = %v, boş bekleniyordu (zaten CLI yöneticisi)", granted)
 	}
 	if via, _ := s.AdminVia(ctx, "ops"); via != "cli" {
-		t.Fatalf("kaynak = %q — CLI yöneticisi gruba girince kaynağı düştü", via)
+		t.Fatalf("kaynak = %q — CLI yöneticisi group girince kaynağı düştü", via)
 	}
 
 	// Ve gruptan çıkınca yetkisini KAYBETMEMELİ.
@@ -597,8 +597,8 @@ func TestAdminAccountCannotBeClaimedByUsername(t *testing.T) {
 	}
 
 	// Rol eşlemesi olan bir grup: saldırgan MEŞRU bir çalışan, kendi
-	// rolleri var. Onu durduran şey rol eşlemesi olmamalı.
-	if _, err := s.CreateRole(ctx, "developer"); err != nil {
+	// grupları var. Onu durduran şey grup eşlemesi olmamalı.
+	if _, err := s.CreateGroup(ctx, "developer"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AddGroupMapping(ctx, "developers", "developer", "test"); err != nil {
@@ -646,7 +646,7 @@ func TestOrdinaryAccountStillBindsOnFirstSignIn(t *testing.T) {
 	if _, err := s.CreateUser(ctx, "suheda", "suheda@warewave.io", "suheda"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateRole(ctx, "developer"); err != nil {
+	if _, err := s.CreateGroup(ctx, "developer"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AddGroupMapping(ctx, "developers", "developer", "test"); err != nil {
@@ -710,7 +710,7 @@ func TestAllowBindOpensExactlyOneWindow(t *testing.T) {
 	if err := s.SetUserAdmin(ctx, "ops", true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateRole(ctx, "developer"); err != nil {
+	if _, err := s.CreateGroup(ctx, "developer"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AddGroupMapping(ctx, "developers", "developer", "test"); err != nil {
@@ -762,7 +762,7 @@ func TestAllowBindIsRefusedForOrdinaryAccounts(t *testing.T) {
 	}
 	// Store katmanı izni yazabilir (kısıt CLI'da), ama bağlama zaten
 	// izinsiz de çalışıyor olmalı — asıl doğrulanan bu.
-	if _, err := s.CreateRole(ctx, "developer"); err != nil {
+	if _, err := s.CreateGroup(ctx, "developer"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AddGroupMapping(ctx, "developers", "developer", "test"); err != nil {
@@ -876,7 +876,7 @@ func TestProvisionRefusesToCreateWhenAutoCreateIsOff(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
-	if _, err := s.CreateRole(ctx, "developer"); err != nil {
+	if _, err := s.CreateGroup(ctx, "developer"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AddGroupMapping(ctx, "developers", "developer", "test"); err != nil {
@@ -907,7 +907,7 @@ func TestProvisionRefusesToCreateWhenAutoCreateIsOff(t *testing.T) {
 		t.Fatalf("eşlemesiz kişi kuyruğa değil kapıya yönlendirildi: %v", err)
 	}
 
-	// Açık: hesap açılıyor — ama rol eşlemesi hâlâ kapıda.
+	// Açık: hesap açılıyor — ama grup eşlemesi hâlâ kapıda.
 	req.AutoCreate = true
 	if _, err := s.ProvisionUser(ctx, req); err != nil {
 		t.Fatalf("otomatik açılış açıkken hesap açılmadı: %v", err)

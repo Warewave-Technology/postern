@@ -62,7 +62,7 @@ func TestNewRefusesUnencryptedTransportOffLoopback(t *testing.T) {
 // Kapatılan yetki yükseltme: memberOf yolu dizinin herhangi bir
 // yerindeki grubu alıp CN'ine indiriyordu. Dizinde bir yere grup
 // açabilen herkes (self-servis grup oluşturma, devredilmiş bir OU,
-// yüklenici alt ağacı) adını eşlenmiş bir role denk getirerek o rolü
+// yüklenici alt ağacı) adını eşlenmiş bir gruba denk getirerek o grubu
 // alabiliyordu.
 func TestUnderBaseScopesGroupIdentity(t *testing.T) {
 	const base = "ou=groups,dc=corp,dc=local"
@@ -88,7 +88,7 @@ func TestUnderBaseScopesGroupIdentity(t *testing.T) {
 		// ⚠️ KAÇIŞLI VİRGÜL TUZAĞI. Bu giriş dc=corp,dc=local'in
 		// ÇOCUĞU; ou=groups diye bir atası yok. Metin olarak
 		// karşılaştıran eski hâl onu kapsam içi sayıyordu ve dizinde
-		// dc=corp altına tek bir giriş açabilen herkese istediği rolü
+		// dc=corp altına tek bir giriş açabilen herkese istediği grubu
 		// veriyordu.
 		`cn=sysadmins,ou=evil\,ou=groups,dc=corp,dc=local`,
 		// Aynı tuzağın kullanıcı adı tarafındaki biçimi.
@@ -202,13 +202,13 @@ func TestCheckScheme(t *testing.T) {
 }
 
 /*
- * Grup KAPSAMI: aynı adlı grup başka bir OU'da açılarak rol basılamamalı.
+ * Grup KAPSAMI: aynı adlı grup başka bir OU'da açılarak grup basılamamalı.
  *
  * Ölçülmüş açık: normalize() grup adını DN'in yalnızca ilk bileşeninden
  * okuyor ve LDAP'ta benzersizlik EBEVEYN BAŞINA. cn=sysadmins zaten
  * varken bir alt-OU'da ikincisi açılabiliyor, ve ikisi de "sysadmins"e
  * çözülüyordu. Grup açma yetkisi devredilmiş her kurumda bu, istediğin
- * rolü kendine basmak demekti.
+ * grubu kendine basmak demekti.
  */
 func TestGroupScopeDirectRefusesNestedGroups(t *testing.T) {
 	const base = "ou=groups,dc=corp,dc=local"
@@ -254,7 +254,7 @@ func TestNewRefusesSubtreeScopeWithCNNames(t *testing.T) {
 	}
 	if _, err := New(cfg); err == nil {
 		t.Error("group_scope=subtree, group_name_from=cn ile kabul edildi — " +
-			"alt-OU'daki aynı adlı grup yine rol basardı")
+			"alt-OU'daki aynı adlı grup yine grup basardı")
 	}
 
 	cfg.GroupNameFrom = "dn"

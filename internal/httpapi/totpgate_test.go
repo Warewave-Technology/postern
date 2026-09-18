@@ -39,7 +39,7 @@ func TestTOTPEnrolmentAllowlistIsMinimal(t *testing.T) {
 		 * özelliği çiviliyor, yarın biri listeye eklerse test söylesin.
 		 */
 		"POST /api/admin/sessions/{id}/verify",
-		"POST /api/admin/roles/{name}/paths",
+		"POST /api/admin/groups/{name}/paths",
 		"GET /api/sftp/{target}",
 		"GET /api/admin/users",
 		"GET /api/admin/settings",

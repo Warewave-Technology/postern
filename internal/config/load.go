@@ -246,7 +246,7 @@ func (c *Config) Validate() error {
 	// Kural eskiden yalnızca terminal_enabled iken uygulanıyordu. Ama
 	// terminal KAPALIYKEN de aynı kaynak üzerinden şunlar servis
 	// ediliyor: oturum çerezi, OIDC kod değişimi, admin API'si (kullanıcı
-	// ve rol yönetimi), denetim kaydı ve OTURUM KAYITLARININ TAMAMI.
+	// ve grup yönetimi), denetim kaydı ve OTURUM KAYITLARININ TAMAMI.
 	// Düz HTTP'de bunların hepsi ağda açık gidiyor ve çerez de Secure
 	// olamıyor — yani panele giren herkesin oturumu, aynı ağdaki birine
 	// açık.

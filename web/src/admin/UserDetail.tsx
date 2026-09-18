@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   IssuedCredential,
-  Role,
+  Group,
   UserDetail as Detail,
   api,
   toMessage,
@@ -35,7 +35,7 @@ export default function UserDetail({
   const [ok, setOk] = useState("");
   const [loading, setLoading] = useState(true);
 
-  const roles = useList<Role>(api.roles);
+  const groups = useList<Group>(api.groups);
   const [pick, setPick] = useState("");
   const [keyText, setKeyText] = useState("");
   const [issued, setIssued] = useState<IssuedCredential | null>(null);
@@ -92,8 +92,8 @@ export default function UserDetail({
   };
 
   const state = u?.state ?? "active";
-  const unassigned = roles.items.filter(
-    (r) => !(u?.roles ?? []).some((have) => have.name === r.name),
+  const unassigned = groups.items.filter(
+    (r) => !(u?.groups ?? []).some((have) => have.name === r.name),
   );
 
   return (
@@ -119,7 +119,7 @@ export default function UserDetail({
               .then(onBack)
               .catch((e: unknown) => setError(toMessage(e)))
           }
-          confirm={`Delete the user "${name}"? Their SSH keys and role assignments go with them. If ${name} has recorded sessions the server refuses this outright — revoking their keys and roles is how access is cut without losing the audit trail.`}
+          confirm={`Delete the user "${name}"? Their SSH keys and group assignments go with them. If ${name} has recorded sessions the server refuses this outright — revoking their keys and groups is how access is cut without losing the audit trail.`}
           label={`delete user ${name}`}
         >
           Delete user
@@ -363,7 +363,7 @@ export default function UserDetail({
                        */
                       confirm={
                         `Deactivate ${name}?\n\n` +
-                        `They cannot sign in or open an SSH session. Their roles and keys ` +
+                        `They cannot sign in or open an SSH session. Their groups and keys ` +
                         `are kept, and signing in through the source reactivates them.`
                       }
                       label={`deactivate ${name}`}
@@ -391,7 +391,7 @@ export default function UserDetail({
                       }
                       confirm={
                         `Free the name "${name}"?\n\n` +
-                        `Their keys and roles are released so someone new can use ` +
+                        `Their keys and groups are released so someone new can use ` +
                         `the name.\n\nThe account row is kept: audit entries naming ` +
                         `"${name}" stay readable, and the log records when the name ` +
                         `was released.`
@@ -549,20 +549,20 @@ export default function UserDetail({
           <div className="detail-side">
             <div className="card">
               <div className="card-head">
-                <h3>Roles</h3>
+                <h3>Groups</h3>
                 <p>
-                  Access comes only from roles. Without one this account reaches
+                  Access comes only from groups. Without one this account reaches
                   nothing, whatever else is set.
                 </p>
               </div>
               <div className="card-body">
-                {u.roles.length === 0 ? (
+                {u.groups.length === 0 ? (
                   <p className="msg msg-warn" role="status">
-                    No role, so this account reaches no target at all.
+                    No group, so this account reaches no target at all.
                   </p>
                 ) : (
-                  <ul className="role-list">
-                    {u.roles.map((r) => (
+                  <ul className="group-list">
+                    {u.groups.map((r) => (
                       <li key={r.name}>
                         <div>
                           <code>{r.name}</code>
@@ -611,28 +611,28 @@ export default function UserDetail({
                   {/*
                     ⚠️ "ÇEKİLEMEDİ" İLE "HİÇ YOK" AYRI ŞEYLER.
                     Rol listesi düşerse kutu boş kalıyor ve operatör hiç
-                    rol tanımlı olmadığını sanıp Roles ekranına gidip
+                    rol tanımlı olmadığını sanıp Groups ekranına gidip
                     orada duran rolleri görüyordu. denied ayrıca
                     kontrol ediliyor: useList 403'ü boş error ile
                     denied'a çeviriyor.
                   */}
                   <label>
-                    Add a role
+                    Add a group
                     <select
                       value={pick}
                       onChange={(e) => setPick(e.target.value)}
                       disabled={unassigned.length === 0}
                     >
                       <option value="">
-                        {roles.error || roles.denied
-                          ? "roles could not be loaded"
-                          : roles.loading
+                        {groups.error || groups.denied
+                          ? "groups could not be loaded"
+                          : groups.loading
                             ? "loading…"
-                            : roles.items.length === 0
-                              ? "no roles defined"
+                            : groups.items.length === 0
+                              ? "no groups defined"
                               : unassigned.length === 0
-                                ? "already has every role"
-                                : "choose a role…"}
+                                ? "already has every group"
+                                : "choose a group…"}
                       </option>
                       {unassigned.map((r) => (
                         <option key={r.name} value={r.name}>
@@ -649,7 +649,7 @@ export default function UserDetail({
                         setPick(""),
                       )
                     }
-                    label={`assign the chosen role to ${name}`}
+                    label={`assign the chosen group to ${name}`}
                   >
                     Assign
                   </ActionButton>
@@ -668,7 +668,7 @@ export default function UserDetail({
                   <h3>SSH keys</h3>
                   <p>
                     What lets this account open a session. What it can reach is
-                    decided by the roles, not by the key.
+                    decided by the groups, not by the key.
                   </p>
                 </div>
                 <div className="card-body">

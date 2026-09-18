@@ -2,7 +2,7 @@
 //
 // SÖZLEŞME (S3): config yalnızca ALTYAPI taşır — dinleme adresi, anahtar
 // yolları, veritabanı ve kayıt dizini. Kimlik ve yetki verisi (kullanıcı,
-// rol, hedef) burada YAŞAMAZ: tek kaynağı veritabanıdır ve yalnızca
+// grup, hedef) burada YAŞAMAZ: tek kaynağı veritabanıdır ve yalnızca
 // yetkili kanallardan (bastion hostundaki postern CLI; ileride OIDC'li
 // API) değiştirilir. YAML'a kullanıcı yazmak diye bir şey yoktur.
 package config
@@ -249,10 +249,10 @@ type TargetProbeConfig struct {
 /*
  * ManageConfig, panelin hedefte yönetim hesabıyla iş yapabilmesi.
  *
- * ⚠️ VARSAYILAN KAPALI, VE İKİ AYRI RIZA GEREKİYOR. Hedef tarafında rol
+ * ⚠️ VARSAYILAN KAPALI, VE İKİ AYRI RIZA GEREKİYOR. Hedef tarafında grup
  * postern_manage_host ile yönetim hesabını açıyor; bu anahtar ise
  * bastion tarafında panelin o hesabı KULLANMASINA izin veriyor. Açık bir
- * panelde yönetici oturumu, rolü koşmuş her makinede parolasız root
+ * panelde yönetici oturumu, grubu koşmuş her makinede parolasız root
  * demek. Rolü deneme için bir makinede açan bir operatörün, panelin bu
  * gücü kendiliğinden kazanmasını beklememesi gerekiyor — target_probe ve
  * http.terminal_enabled ile aynı kural: hedefte komut çalıştıran her şey
@@ -340,7 +340,7 @@ type CAConfig struct {
 
 // DatabaseConfig, kalıcı durumun tutulduğu PostgreSQL bağlantısı.
 //
-// S3'ten itibaren kullanıcılar, roller, hedefler ve oturum denetim kaydı
+// S3'ten itibaren kullanıcılar, gruplar, hedefler ve oturum denetim kaydı
 // burada. Yönetimi paket doc'undaki sözleşmeye tabi: CLI ya da API,
 // config değil.
 type DatabaseConfig struct {
@@ -518,7 +518,7 @@ type SessionConfig struct {
 	 * tek bayrağa bağlamak, birini isteyene diğerini de vermek olurdu.
 	 *
 	 * ⚠️ AÇMAK YETMİYOR: kanal ancak kullanıcının rollerinde YOL KURALI
-	 * varsa açılıyor (bkz. Session.SFTPPolicyActive). Kuralsız rol
+	 * varsa açılıyor (bkz. Session.SFTPPolicyActive). Kuralsız grup
 	 * kısıtsız, ve "politika riski sınırlar" gerekçesine dayanan bir
 	 * yüzeyi tam da o gerekçenin boş olduğu kurulumda açmak, korumayı
 	 * iddia edip vermemek olurdu.
@@ -536,7 +536,7 @@ type SessionConfig struct {
 	 *
 	 * ⚠️ AÇMAK "HER YERE YAZILABİLİR" DEMEK DEĞİL. Bayrak yalnızca
 	 * kanalın salt-okunur kilidini kaldırıyor; hangi yola yazılabileceği
-	 * yine rolün yol kurallarındaki can_write'a bağlı ve karar
+	 * yine grubun yol kurallarındaki can_write'a bağlı ve karar
 	 * postern'de veriliyor — yazma isteği tanıtıcının yolu üzerinden
 	 * politikaya soruluyor (sftpaudit/policy.go). Kuralları olmayan bir
 	 * hesapta tarayıcı zaten hiç açılmıyor.
@@ -552,7 +552,7 @@ type SessionConfig struct {
 
 	// MaxLifetime, oturumun mutlak ömrü. VARSAYILAN KAPALI (0).
 	//
-	// Gerekçesi somut: süreli rol atamaları (AssignRole expiresAt)
+	// Gerekçesi somut: süreli grup atamaları (AssignGroup expiresAt)
 	// oturum ORTASINDA yeniden denetlenmiyor. Süresi dolmadan bir dakika
 	// önce açılan bir oturum, bugün kendi yetkisinden sonsuza kadar uzun
 	// yaşıyor.

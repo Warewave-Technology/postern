@@ -10,7 +10,7 @@ type Target struct {
 
 	// Labels, operatörün iliştirdiği key=value notları ("env=prod").
 	//
-	// ⚠️ YETKİ DEĞİL: erişimi rol → hedef bağı veriyor. Etiket yalnızca
+	// ⚠️ YETKİ DEĞİL: erişimi grup → hedef bağı veriyor. Etiket yalnızca
 	// hedefleri gruplayıp bulmak için — etiketten yetki türetmek,
 	// etiket ekleyebilen herkese yetki dağıtmak olurdu.
 	//
@@ -27,7 +27,7 @@ type Target struct {
 // kullanıcının kendi bağlantısındaki tanımadan geliyor.
 //
 // ⚠️ Bu yorum önceden "postern kullanıcının oturumu dışında hedefte iş
-// çalıştırmaz" diyordu. Yönetim hesabıyla bu artık yalnızca rolü
+// çalıştırmaz" diyordu. Yönetim hesabıyla bu artık yalnızca grubu
 // postern_manage_host ile koşmuş hedefler için doğru değil — ve o
 // koşuların sonucu BURAYA yazılmıyor: bu yapı hâlâ yalnızca bağlanırken
 // öğrenilenleri tutuyor.

@@ -28,7 +28,7 @@ func (s *Server) registerFederationRoutes(mux *http.ServeMux) {
 
 	mux.Handle("GET /api/admin/mappings", admin(s.adminListMappings))
 	mux.Handle("POST /api/admin/mappings", admin(s.adminAddMapping))
-	mux.Handle("DELETE /api/admin/mappings/{group}/{role}", admin(s.adminRemoveMapping))
+	mux.Handle("DELETE /api/admin/mappings/{directory_group}/{group}", admin(s.adminRemoveMapping))
 	mux.Handle("GET /api/admin/unmapped-groups", admin(s.adminUnmappedGroups))
 
 	mux.Handle("GET /api/admin/settings", admin(s.adminListSettings))
@@ -63,53 +63,59 @@ func (s *Server) adminListMappings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	/*
+	 * ⚠️ İKİ AYRI "GRUP" AYNI SATIRDA. Soldaki dizinin gönderdiği ad,
+	 * sağdaki postern'in kendi nesnesi. Yeniden adlandırmadan sonra
+	 * ikisi de "group" olacaktı; hangisinin hangisi olduğunu okuyan
+	 * kişiye bırakmak, bu ekranın anlattığı eşlemeyi anlamsız kılardı.
+	 */
 	type row struct {
-		Group     string `json:"group"`
-		Role      string `json:"role"`
-		CreatedBy string `json:"created_by"`
+		DirectoryGroup string `json:"directory_group"`
+		Group          string `json:"group"`
+		CreatedBy      string `json:"created_by"`
 	}
 	out := make([]row, 0, len(mappings))
 	for _, m := range mappings {
-		out = append(out, row{Group: m.ExternalGroup, Role: m.Role, CreatedBy: m.CreatedBy})
+		out = append(out, row{DirectoryGroup: m.ExternalGroup, Group: m.Group, CreatedBy: m.CreatedBy})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) adminAddMapping(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Group string `json:"group"`
-		Role  string `json:"role"`
+		DirectoryGroup string `json:"directory_group"`
+		Group          string `json:"group"`
 	}
 	if !readJSON(w, r, &in) {
 		return
 	}
-	if in.Group == "" || in.Role == "" {
-		writeErr(w, http.StatusBadRequest, "group and role are required")
+	if in.DirectoryGroup == "" || in.Group == "" {
+		writeErr(w, http.StatusBadRequest, "directory_group and group are required")
 		return
 	}
 
-	if err := s.store.AddGroupMapping(r.Context(), in.Group, in.Role, sessionUser(r)); err != nil {
+	if err := s.store.AddGroupMapping(r.Context(), in.DirectoryGroup, in.Group, sessionUser(r)); err != nil {
 		s.storeErr(w, "mapping.create", err)
 		return
 	}
-	s.audit(r, "mapping.create", in.Group, "role "+in.Role)
+	s.audit(r, "mapping.create", in.DirectoryGroup, "group "+in.Group)
 	ok(w)
 }
 
 func (s *Server) adminRemoveMapping(w http.ResponseWriter, r *http.Request) {
-	group, role := r.PathValue("group"), r.PathValue("role")
+	directoryGroup, group := r.PathValue("directory_group"), r.PathValue("group")
 
-	if err := s.store.RemoveGroupMapping(r.Context(), group, role); err != nil {
+	if err := s.store.RemoveGroupMapping(r.Context(), directoryGroup, group); err != nil {
 		s.storeErr(w, "mapping.delete", err)
 		return
 	}
-	s.audit(r, "mapping.delete", group, "role "+role)
+	s.audit(r, "mapping.delete", directoryGroup, "group "+group)
 
 	// Etki alanını açıkça söyle: mevcut atamalar bir sonraki girişte
 	// yenilenir, şu an açık oturumlar etkilenmez.
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":   true,
-		"note": "users lose this role on their next login",
+		"note": "users lose this group on their next login",
 	})
 }
 
@@ -348,8 +354,8 @@ func (s *Server) adminTestLDAP(w http.ResponseWriter, r *http.Request) {
 
 		res["presence"] = lr.Presence.String()
 		if lr.Presence != ldap.PresencePresent {
-			// Bulunamayan kullanıcı için rol hesaplamak anlamsız:
-			// gösterilecek "sıfır rol", kullanıcının değil aramanın
+			// Bulunamayan kullanıcı için grup hesaplamak anlamsız:
+			// gösterilecek "sıfır grup", kullanıcının değil aramanın
 			// sonucu olurdu.
 			writeJSON(w, http.StatusOK, res)
 			return
@@ -360,24 +366,30 @@ func (s *Server) adminTestLDAP(w http.ResponseWriter, r *http.Request) {
 		 *
 		 * Dizin "tanıyorum, hiçbir grupta değil" dediğinde giriş yolu
 		 * `unknown` grubunu uyguluyor. Burada ham boş listeyi gösterip
-		 * rolleri `unknown` üzerinden hesaplamak, ekranda "grup yok
-		 * ama rol var" gibi açıklanamaz bir çift üretirdi — teşhis
+		 * grupları `unknown` üzerinden hesaplamak, ekranda "grup yok
+		 * ama grup var" gibi açıklanamaz bir çift üretirdi — teşhis
 		 * aracının yapabileceği en kötü şey.
 		 */
 		effective := model.ResolvedGroups(lr.Groups)
-		roles, unmapped, err := s.store.RolesForGroups(r.Context(), effective)
+		groups, unmapped, err := s.store.GroupsForDirectoryGroups(r.Context(), effective)
 		if err != nil {
 			s.storeErr(w, "ldap.test", err)
 			return
 		}
 		// Boş dilimler nil DEĞİL: JSON'da null ile [] farkı, panelde
 		// "veri yok" ile "cevap boş" farkına dönüşüyor.
-		res["groups"] = nonNil(effective)
-		res["roles"] = nonNil(roles)
+		/*
+		 * ⚠️ İKİ AYRI LİSTE, İKİ AYRI KELİME. Soldaki dizinin söylediği
+		 * gruplar, sağdaki onların eşlendiği postern grupları. İkisine de
+		 * "groups" demek, teşhis ekranını okunmaz yapardı: eşlemenin
+		 * hangi ucunun ne olduğu yalnızca bu adlardan anlaşılıyor.
+		 */
+		res["directory_groups"] = nonNil(effective)
+		res["groups"] = nonNil(groups)
 		res["unmapped"] = nonNil(unmapped)
 		// ⚠️ KAPSAM DIŞI KALANLAR AYRICA SÖYLENİYOR. group_scope
 		// varsayılanı "direct"; gruplarını bir OU daha derinde tutan bir
-		// kurulum yükseltmeden sonra rol kaybeder ve bunu sessizce
+		// kurulum yükseltmeden sonra grup kaybeder ve bunu sessizce
 		// yapmak, operatörü kaybolan yetkinin sebebini arayarak
 		// dolaştırır.
 		res["out_of_scope"] = nonNil(lr.OutOfScope)
@@ -441,17 +453,17 @@ func (s *Server) adminSyncRuns(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type row struct {
-		ID           int64  `json:"id"`
-		StartedAt    string `json:"started_at"`
-		FinishedAt   string `json:"finished_at"`
-		Trigger      string `json:"trigger"`
-		Outcome      string `json:"outcome"`
-		Reason       string `json:"reason"`
-		Considered   int    `json:"considered"`
-		Unknown      int    `json:"unknown"`
-		Revoked      int    `json:"revoked"`
-		RolesChanged int    `json:"roles_changed"`
-		DryRun       bool   `json:"dry_run"`
+		ID            int64  `json:"id"`
+		StartedAt     string `json:"started_at"`
+		FinishedAt    string `json:"finished_at"`
+		Trigger       string `json:"trigger"`
+		Outcome       string `json:"outcome"`
+		Reason        string `json:"reason"`
+		Considered    int    `json:"considered"`
+		Unknown       int    `json:"unknown"`
+		Revoked       int    `json:"revoked"`
+		GroupsChanged int    `json:"groups_changed"`
+		DryRun        bool   `json:"dry_run"`
 	}
 	out := make([]row, 0, len(runs))
 	for _, x := range runs {
@@ -463,7 +475,7 @@ func (s *Server) adminSyncRuns(w http.ResponseWriter, r *http.Request) {
 			ID: x.ID, StartedAt: x.StartedAt.UTC().Format(time.RFC3339), FinishedAt: fin,
 			Trigger: x.Trigger, Outcome: x.Outcome, Reason: x.Reason,
 			Considered: x.Considered, Unknown: x.Unknown, Revoked: x.Revoked,
-			RolesChanged: x.RolesChanged, DryRun: x.DryRun,
+			GroupsChanged: x.GroupsChanged, DryRun: x.DryRun,
 		})
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -546,8 +558,8 @@ var knownSettingKeys = map[string]bool{
 	/*
 	 * Hesapların kendiliğinden açılıp açılmayacağı.
 	 *
-	 * ⚠️ Açmak yeni bir yetki vermiyor: rol eşlemesi kapıda duruyor
-	 * (bkz. CreateFromDirectory ve ProvisionUser — hiçbir grup bir role
+	 * ⚠️ Açmak yeni bir yetki vermiyor: grup eşlemesi kapıda duruyor
+	 * (bkz. CreateFromDirectory ve ProvisionUser — hiçbir grup bir gruba
 	 * eşleşmiyorsa hesap AÇILMIYOR). Kapattığında ise kişi onay
 	 * kuyruğuna düşüyor, kapıda kalmıyor.
 	 */
@@ -633,7 +645,7 @@ func (s *Server) adminVerifyLDAP(w http.ResponseWriter, r *http.Request) {
 		 * ekran "bu değerler çalışıyor" derken, ÇALIŞACAK olandan
 		 * BAŞKA bir kapsam altında kanıt topluyordu. Grupları taban
 		 * DN'in bir OU altında duran kurum, yeşil bir doğrulama görüp
-		 * kaydediyor ve rolleri sessizce kaybediyordu.
+		 * kaydediyor ve grupları sessizce kaybediyordu.
 		 *
 		 * Boş gelirse KAYITLI değer kullanılıyor, varsayılan değil:
 		 * ekran alanı henüz çizmiyor olabilir ve "gönderilmedi"nin
@@ -708,20 +720,20 @@ func (s *Server) adminVerifyLDAP(w http.ResponseWriter, r *http.Request) {
 		// Teşhis ucu da üç değerli cevabı taşımalı: boş liste ile
 		// "böyle bir kullanıcı yok" panelde ayrı şeyler.
 		out["presence"] = gres.Presence.String()
-		groups := gres.Groups
+		directoryGroups := gres.Groups
 		// ⚠️ `unknown` YALNIZCA kullanıcı gerçekten bulunduğunda.
 		// Bulunamayan biri için "unknown grubundasın" demek, aramanın
 		// sonucunu kullanıcının özelliği gibi göstermek olurdu.
 		if gres.Presence == auth.GroupsPresent {
-			groups = model.ResolvedGroups(groups)
+			directoryGroups = model.ResolvedGroups(directoryGroups)
 		}
-		roles, unmapped, rerr := s.store.RolesForGroups(r.Context(), groups)
+		groups, unmapped, rerr := s.store.GroupsForDirectoryGroups(r.Context(), directoryGroups)
 		if rerr != nil {
 			s.storeErr(w, "ldap.verify", rerr)
 			return
 		}
+		out["directory_groups"] = directoryGroups
 		out["groups"] = groups
-		out["roles"] = roles
 		out["unmapped"] = unmapped
 	}
 	writeJSON(w, http.StatusOK, out)

@@ -251,7 +251,7 @@ export default function TargetDetail({
                 <h3>Labels</h3>
                 <p>
                   Notes for finding this host. A label grants nothing — access
-                  comes only from a role.
+                  comes only from a group.
                 </p>
               </div>
               <div className="card-body">
@@ -306,14 +306,14 @@ export default function TargetDetail({
               <div className="card-head">
                 <h3>Reached by</h3>
                 <p>
-                  The roles that grant this target. Anyone holding one of them
+                  The groups that grant this target. Anyone holding one of them
                   can open a session here.
                 </p>
               </div>
               <div className="card-body">
                 {t.granted_by.length === 0 ? (
                   <p className="msg msg-warn" role="status">
-                    No role grants this target, so nobody can reach it.
+                    No group grants this target, so nobody can reach it.
                   </p>
                 ) : (
                   <div className="chips">

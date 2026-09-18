@@ -52,9 +52,9 @@ type Server struct {
 	// olmalı: iki kapı aynı yetkiyi vermeli.
 	groups auth.GroupSource
 
-	// freshenRoles, oturum açılışında yetkiyi tazeleyen fonksiyon.
-	// nil ise tazeleme yapılmaz (bkz. proxy.Deps.FreshenRoles).
-	freshenRoles func(context.Context, string) error
+	// freshenGroups, oturum açılışında yetkiyi tazeleyen fonksiyon.
+	// nil ise tazeleme yapılmaz (bkz. proxy.Deps.FreshenGroups).
+	freshenGroups func(context.Context, string) error
 
 	// bus nil ise canlı olay akışı kapalı.
 	bus events.Publisher
@@ -108,13 +108,13 @@ func (s *Server) publish(kind events.Kind, user, source, detail string) {
 //
 // httpapi ile PAYLAŞILIR: web terminali ve SSH aynı store'u, aynı kayıt
 // dizinini ve aynı CA'yı kullanmalı — iki kapı, tek gerçek.
-// UseRoleRefresher, oturum açılışında yetkiyi tazeleyen fonksiyonu
+// UseGroupRefresher, oturum açılışında yetkiyi tazeleyen fonksiyonu
 // bildirir. Dinlemeye başlamadan ÖNCE çağrılmalı: alan kilitsiz.
 //
 // Aynı fonksiyon web terminaline de gidiyor (ProxyDeps paylaşılıyor) —
 // iki kapı tek kuralı uyguluyor.
-func (s *Server) UseRoleRefresher(fn func(context.Context, string) error) {
-	s.freshenRoles = fn
+func (s *Server) UseGroupRefresher(fn func(context.Context, string) error) {
+	s.freshenGroups = fn
 }
 
 /*
@@ -140,13 +140,13 @@ func (s *Server) Authority() *ca.CA { return s.authority }
 
 func (s *Server) ProxyDeps() proxy.Deps {
 	return proxy.Deps{
-		Store:        s.db,
-		Live:         s.live,
-		FreshenRoles: s.freshenRoles,
-		Records:      s.rStore,
-		Authority:    s.authority,
-		Logger:       s.logger,
-		RecordInput:  s.cfg.Recording.RecordInput,
+		Store:         s.db,
+		Live:          s.live,
+		FreshenGroups: s.freshenGroups,
+		Records:       s.rStore,
+		Authority:     s.authority,
+		Logger:        s.logger,
+		RecordInput:   s.cfg.Recording.RecordInput,
 		// ⚠️ Eşik AÇILIŞTA çözülüyor, her oturumda değil: çözülemeyen
 		// bir değer yüzünden her bağlantının ayrı ayrı düşmesi yerine
 		// açılışta bir kez hata veriyor (config.MinFreeBytes).

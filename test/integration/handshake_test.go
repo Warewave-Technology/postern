@@ -102,7 +102,7 @@ func withConfig(t *testing.T, caKeyPath string, tune func(*config.Config), targe
 	return startBastion(t, srv), hostPub, clientSigner
 }
 
-// newBastionOpts, skipSeed true ise kullanıcı/rol tohumlamaz — yalnızca
+// newBastionOpts, skipSeed true ise kullanıcı/grup tohumlamaz — yalnızca
 // hedefleri yazar. JIT sağlama testleri kullanıcının YOKLUĞUNDAN başlar.
 func newBastionOpts(t *testing.T, caKeyPath string, skipSeed bool, targets ...model.Target) (srv *sshd.Server, hostPub ssh.PublicKey, clientSigner ssh.Signer, db *store.Store) {
 	t.Helper()
@@ -142,7 +142,7 @@ func newBastionOpts(t *testing.T, caKeyPath string, skipSeed bool, targets ...mo
 		Recording: config.RecordingConfig{Dir: filepath.Join(t.TempDir(), "recordings")},
 	}
 
-	// Kimlik verisi config'te YAŞAMAZ (S3 sözleşmesi): kullanıcı, rol ve
+	// Kimlik verisi config'te YAŞAMAZ (S3 sözleşmesi): kullanıcı, grup ve
 	// hedefler doğrudan store'a yazılır — üretimde bu işi yetkili CLI yapar.
 	// OSUser "deploy": hedef konteynerdeki hesap; sertifikanın principal'ı
 	// ve SSH kullanıcı adı bu olacak.
@@ -248,7 +248,7 @@ func attachSecretBox(t *testing.T, db *store.Store) {
 
 // seedStore, "yigit" kullanıcısını (os_user: deploy) verilen hedeflerin
 // hepsini kapsayan "ops" rolüyle tanıyan bir store kurar. FK sırası:
-// hedefler, rol, kullanıcı, bağlar.
+// hedefler, grup, kullanıcı, bağlar.
 func seedStore(t *testing.T, dbDSN string, targets []model.Target, authorizedKey string) *store.Store {
 	t.Helper()
 	ctx := context.Background()
@@ -263,8 +263,8 @@ func seedStore(t *testing.T, dbDSN string, targets []model.Target, authorizedKey
 		t.Fatalf("Migrate: %v", err)
 	}
 
-	if _, err := db.CreateRole(ctx, "ops"); err != nil {
-		t.Fatalf("CreateRole: %v", err)
+	if _, err := db.CreateGroup(ctx, "ops"); err != nil {
+		t.Fatalf("CreateGroup: %v", err)
 	}
 	for _, tgt := range targets {
 		if _, err := db.CreateTarget(ctx, tgt); err != nil {
@@ -280,8 +280,8 @@ func seedStore(t *testing.T, dbDSN string, targets []model.Target, authorizedKey
 	if _, err := db.CreateUser(ctx, "yigit", "yigit@warewave.io", "deploy"); err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
-	if err := db.AssignRole(ctx, "yigit", "ops", time.Time{}); err != nil {
-		t.Fatalf("AssignRole: %v", err)
+	if err := db.AssignGroup(ctx, "yigit", "ops", time.Time{}); err != nil {
+		t.Fatalf("AssignGroup: %v", err)
 	}
 	pub, comment, _, _, err := ssh.ParseAuthorizedKey([]byte(authorizedKey))
 	if err != nil {
@@ -293,7 +293,7 @@ func seedStore(t *testing.T, dbDSN string, targets []model.Target, authorizedKey
 	return db
 }
 
-// seedTargetsOnly, yalnızca hedefleri yazar: kullanıcı, rol ve eşleme
+// seedTargetsOnly, yalnızca hedefleri yazar: kullanıcı, grup ve eşleme
 // testin kendi işi.
 func seedTargetsOnly(t *testing.T, dbDSN string, targets []model.Target) *store.Store {
 	t.Helper()

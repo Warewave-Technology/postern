@@ -63,7 +63,7 @@ func oobBastionWithTerminal(t *testing.T) (sshAddr, apiURL string, hostPub ssh.P
 	return a, b, c, d
 }
 
-// oobBastionFresh, kullanıcı/rol TOHUMLANMAMIŞ düzenek: JIT sağlama
+// oobBastionFresh, kullanıcı/grup TOHUMLANMAMIŞ düzenek: JIT sağlama
 // testleri kullanıcının yokluğundan başlamak zorunda.
 func oobBastionFresh(t *testing.T) (sshAddr, apiURL string, hostPub ssh.PublicKey, db *store.Store) {
 	t.Helper()

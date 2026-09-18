@@ -1,15 +1,15 @@
 import { useState } from "react";
-import { api, Role, Target, toMessage } from "../api";
+import { api, Group, Target, toMessage } from "../api";
 import { ActionButton, ErrorLine, OkLine } from "./common";
 import DataTable, { Column } from "./DataTable";
 import Modal from "./Modal";
 import MultiSelect from "./MultiSelect";
 import { BackIcon } from "../icons";
 import PathRules from "./PathRules";
-import RoleSudo from "./RoleSudo";
+import GroupSudo from "./GroupSudo";
 
 /**
- * RoleDetail — tek bir rolün sayfası: hedefleri, sudo kuralı, yol kuralları.
+ * GroupDetail — tek bir rolün sayfası: hedefleri, sudo kuralı, yol kuralları.
  *
  * ⚠️ NİYE AYRI SAYFA. Hepsi rol listesinin satırındaydı: hedefler rozet
  * rozet yan yana, yol kuralları bir modalda, sudo başka bir modalda. Yüz
@@ -19,17 +19,17 @@ import RoleSudo from "./RoleSudo";
  * sayfa gösteriyor — hedef listesindeki desenin aynısı.
  *
  * ⚠️ VERİ LİSTEDEN GELİYOR, AYRI BİR UÇTAN DEĞİL. Rolün hedefleri ve sudo
- * kuralı zaten /api/admin/roles cevabında var; sayfa için ikinci bir uç
+ * kuralı zaten /api/admin/groups cevabında var; sayfa için ikinci bir uç
  * açmak, aynı gerçeği iki yerden anlatmak olurdu. Değişiklikten sonra
  * onChanged listeyi tazeliyor ve sayfa tazelenen satırla yeniden çiziliyor.
  */
-export default function RoleDetail({
-  role,
+export default function GroupDetail({
+  group,
   targets,
   onBack,
   onChanged,
 }: {
-  role: Role;
+  group: Group;
   targets: Target[];
   onBack: () => void;
   onChanged: () => Promise<unknown>;
@@ -53,7 +53,7 @@ export default function RoleDetail({
     let done = 0;
     for (const t of picked) {
       try {
-        await api.grantTarget(role.name, t);
+        await api.grantTarget(group.name, t);
         done++;
       } catch (e: unknown) {
         failed.push(`${t}: ${toMessage(e)}`);
@@ -62,7 +62,7 @@ export default function RoleDetail({
     setPicked([]);
     await onChanged();
     if (done > 0) {
-      setOk(`${done} target${done === 1 ? "" : "s"} granted to ${role.name}.`);
+      setOk(`${done} target${done === 1 ? "" : "s"} granted to ${group.name}.`);
     }
     if (failed.length > 0) {
       setError(failed.join("; "));
@@ -75,7 +75,7 @@ export default function RoleDetail({
     setError("");
     setOk("");
     try {
-      await api.revokeTarget(role.name, target);
+      await api.revokeTarget(group.name, target);
       await onChanged();
     } catch (e: unknown) {
       setError(toMessage(e));
@@ -85,7 +85,7 @@ export default function RoleDetail({
   const remove = async () => {
     setError("");
     try {
-      await api.deleteRole(role.name);
+      await api.deleteRole(group.name);
       onBack();
       await onChanged();
     } catch (e: unknown) {
@@ -96,7 +96,7 @@ export default function RoleDetail({
   // Verilmiş hedefi tekrar sunmak anlamsız: sunucu onu sessizce yutuyor
   // (ON CONFLICT DO NOTHING), yani hiçbir şeyi değiştirmeyen bir tıklama
   // başarı gibi görünüyordu.
-  const free = targets.filter((t) => !role.targets.includes(t.name));
+  const free = targets.filter((t) => !group.targets.includes(t.name));
 
   const columns: Column<{ name: string }>[] = [
     { key: "name", header: "Target", value: (t) => t.name, className: "wrap" },
@@ -109,8 +109,8 @@ export default function RoleDetail({
         <ActionButton
           variant="danger"
           onClick={() => revoke(t.name)}
-          confirm={`Revoke "${t.name}" from the role "${role.name}"? Everyone holding this role loses access to that host.`}
-          label={`revoke ${t.name} from role ${role.name}`}
+          confirm={`Revoke "${t.name}" from the group "${group.name}"? Everyone holding this group loses access to that host.`}
+          label={`revoke ${t.name} from group ${group.name}`}
         >
           Revoke
         </ActionButton>
@@ -124,9 +124,9 @@ export default function RoleDetail({
    * o hedeflere erişimini anında kaybediyor.
    */
   const deleteConfirm =
-    role.targets.length === 0
-      ? `Delete the role "${role.name}"? It grants no targets, but every user and group mapping holding it loses it immediately.`
-      : `Delete the role "${role.name}"? Everyone holding it immediately loses access to ${role.targets.length} host(s): ${role.targets.join(", ")}.`;
+    group.targets.length === 0
+      ? `Delete the group "${group.name}"? It grants no targets, but every user and group mapping holding it loses it immediately.`
+      : `Delete the group "${group.name}"? Everyone holding it immediately loses access to ${group.targets.length} host(s): ${group.targets.join(", ")}.`;
 
   return (
     <section>
@@ -134,11 +134,11 @@ export default function RoleDetail({
         <div className="page-head">
           <button className="btn-quiet back-link" onClick={onBack}>
             <BackIcon />
-            All roles
+            All groups
           </button>
-          <h2>{role.name}</h2>
+          <h2>{group.name}</h2>
           <p className="page-sub">
-            What this role reaches, what it may run there with sudo, and which
+            What this group reaches, what it may run there with sudo, and which
             paths it may touch over SFTP.
           </p>
         </div>
@@ -146,9 +146,9 @@ export default function RoleDetail({
           variant="danger"
           onClick={remove}
           confirm={deleteConfirm}
-          label={`delete role ${role.name}`}
+          label={`delete group ${group.name}`}
         >
-          Delete role
+          Delete group
         </ActionButton>
       </div>
 
@@ -159,7 +159,7 @@ export default function RoleDetail({
         <div className="card-head">
           <h3>Targets</h3>
           <p className="muted small">
-            The hosts everyone holding this role can open a session to.
+            The hosts everyone holding this group can open a session to.
           </p>
         </div>
         <div className="card-body">
@@ -175,23 +175,23 @@ export default function RoleDetail({
               {targets.length === 0
                 ? "No targets are registered yet."
                 : free.length === 0
-                  ? "Every registered target is already granted to this role."
+                  ? "Every registered target is already granted to this group."
                   : `${free.length} target${free.length === 1 ? "" : "s"} not granted yet.`}
             </span>
           </div>
 
-          {role.targets.length === 0 ? (
+          {group.targets.length === 0 ? (
             <p className="state">
-              This role grants nothing yet, so holding it reaches no host.
+              This group grants nothing yet, so holding it reaches no host.
             </p>
           ) : (
             <DataTable
-              rows={role.targets.map((name) => ({ name }))}
+              rows={group.targets.map((name) => ({ name }))}
               columns={columns}
               rowKey={(t) => t.name}
               initialSort={{ key: "name", dir: "asc" }}
               noun="target"
-              searchLabel={`search the targets granted to ${role.name}`}
+              searchLabel={`search the targets granted to ${group.name}`}
               searchPlaceholder="Search targets…"
             />
           )}
@@ -204,8 +204,8 @@ export default function RoleDetail({
           setGranting(false);
           setPicked([]);
         }}
-        title={`Grant targets to "${role.name}"`}
-        description="Everyone holding this role can open a session to whatever you add here."
+        title={`Grant targets to "${group.name}"`}
+        description="Everyone holding this group can open a session to whatever you add here."
       >
         {/*
           ⚠️ KENDİ ÇOKLU SEÇİMİMİZ, TARAYICININ LİSTESİ DEĞİL. Yüz hedefli
@@ -227,7 +227,7 @@ export default function RoleDetail({
           value={picked}
           onChange={setPicked}
           placeholder="Search targets…"
-          emptyText="Every registered target is already granted to this role."
+          emptyText="Every registered target is already granted to this group."
         />
         <ErrorLine msg={error} />
         <div className="form-actions">
@@ -241,12 +241,12 @@ export default function RoleDetail({
         <div className="card-head">
           <h3>Sudo</h3>
           <p className="muted small">
-            What everyone in this role may run with sudo on the machines it
+            What everyone in this group may run with sudo on the machines it
             reaches. A temporary grant can still add more for one account.
           </p>
         </div>
         <div className="card-body">
-          <RoleSudo role={role.name} rule={role.sudo} onChanged={onChanged} />
+          <GroupSudo group={group.name} rule={group.sudo} onChanged={onChanged} />
         </div>
       </div>
 
@@ -254,12 +254,12 @@ export default function RoleDetail({
         <div className="card-head">
           <h3>SFTP paths</h3>
           <p className="muted small">
-            Which paths this role may reach over SFTP. A role with no rules is
-            unrestricted, and rules restrict a role rather than a user.
+            Which paths this group may reach over SFTP. A group with no rules is
+            unrestricted, and rules restrict a group rather than a user.
           </p>
         </div>
         <div className="card-body">
-          <PathRules role={role.name} />
+          <PathRules group={group.name} />
         </div>
       </div>
     </section>

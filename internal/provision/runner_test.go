@@ -55,7 +55,7 @@ func hostAnswers(table map[string]string) script {
 }
 
 /*
- * managedTarget, yönetim hesabını rolün kurduğu gibi taklit eden bir
+ * managedTarget, yönetim hesabını grubun kurduğu gibi taklit eden bir
  * sunucu açar: "postern" hesabı, yalnızca "postern-manage" principal'ı,
  * yalnızca verilen CA.
  */

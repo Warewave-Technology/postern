@@ -87,7 +87,7 @@ export type UserDetail = {
      göndermiyordu — TypeScript'in var saydığı, çalışma anında hep
      undefined olan bir alan. Okuyan olmadığı için hata vermiyordu;
      okuyan ilk kişi için bir tuzaktı. */
-  roles: { name: string; targets: string[] }[];
+  groups: { name: string; targets: string[] }[];
   keys: { fingerprint: string; comment: string; added_at: string }[];
   sessions: { id: string; target: string; started: string; ended?: string }[];
   /** Hesabın postern'de doğrulanabilir bir değeri varsa. Yoksa kimliği
@@ -148,7 +148,7 @@ export type OIDCSettings = {
    *  okuyabildiği bir sır, panele erişen herkesin okuyabildiği sırdır. */
   client_secret_set: boolean;
   /** ⚠️ Sağlayıcıya özel: grupları taşıyan claim. Boşsa "groups".
-   *  Entra "roles", bazı kurulumlar "memberOf" kullanıyor — sabit
+   *  Entra "groups", bazı kurulumlar "memberOf" kullanıyor — sabit
    *  bıraksaydık o kurumlar grupsuz kalırdı. */
   groups_claim: string;
   /** ⚠️ İstenen kapsamlar. Boşsa "openid email profile". Okta ve
@@ -163,7 +163,7 @@ export type User = {
   name: string;
   os_user: string;
   admin: boolean;
-  roles: string[];
+  groups: string[];
   /** ⚠️ SAYI, anahtarların kendisi değil. Listenin cevapladığı soru
    *  "kim hiç bağlanamıyor" — sıfır anahtarlı hesap, rolü ne olursa
    *  olsun hiçbir hedefe SSH ile ulaşamıyor. */
@@ -179,13 +179,13 @@ export type User = {
   last_confirmed?: string;
 };
 /**
- * RoleSudoRule, rolün sudo kuralı.
+ * GroupSudoRule, rolün sudo kuralı.
  *
  * ⚠️ KOMUTLAR TEK SATIRLIK DİZE olarak geliyor ("/usr/sbin/nginx -t"):
  * ekran onları olduğu gibi yazım kutusuna koyuyor ve kaydederken aynı
  * biçimden ayrıştırıyor.
  */
-export type RoleSudoCommand = {
+export type GroupSudoCommand = {
   /** "/usr/bin/pg_ctl reload" — yol ve izin verilen argümanlar. */
   command: string;
   /** ⚠️ DOLUYSA BU KOMUT DAR YETKİDEN ÇIKIŞ YOLU ve cümlesi burada.
@@ -193,19 +193,19 @@ export type RoleSudoCommand = {
    *  kuralda hangisinin olduğunu söylemiyordu. */
   escape?: string;
   /** ⚠️ HESAP KOMUT BAŞINA: sudoers bunu taşıyor, kural başına tek hesap
-   *  aynı role iki ayrı kural yazdırırdı. Sunucu etkin değeri hesaplayıp
+   *  aynı group iki ayrı kural yazdırırdı. Sunucu etkin değeri hesaplayıp
    *  gönderiyor, yani burası hiç boş gelmiyor. */
   run_as: string;
 };
 
-export type RoleSudoRule = {
-  commands: RoleSudoCommand[];
+export type GroupSudoRule = {
+  commands: GroupSudoCommand[];
   acknowledged: boolean;
   updated_by: string;
   updated_at: string;
 };
 
-export type Role = { name: string; targets: string[]; sudo?: RoleSudoRule };
+export type Group = { name: string; targets: string[]; sudo?: GroupSudoRule };
 
 /**
  * PathRule, bir rolün SFTP yol kuralı.
@@ -501,7 +501,7 @@ export type DiscoveredMachine = {
   host: string;
   tags: string[];
   running: boolean;
-  role?: string;
+  group?: string;
   fingerprint?: string;
   problem?: string;
   /** Bağlı olduğu hedefin adı; yoksa henüz kaydedilmemiş. */
@@ -519,7 +519,7 @@ export type DiscoveryProbe = {
   with_address: number;
   matching: number;
   tagged: number;
-  roles: string[];
+  groups: string[];
   tags: string[];
   took_ms: number;
 };
@@ -531,7 +531,7 @@ export type DiscoveryOverview = {
 };
 export type RegisterRequest = {
   machines: MachineRef[];
-  roles: string[];
+  groups: string[];
   tag_roles: boolean;
   labels: Record<string, string>;
 };
@@ -540,7 +540,7 @@ export type Registered = {
   ref: string;
   name: string;
   target?: string;
-  roles?: string[];
+  groups?: string[];
   created_roles?: string[];
   error?: string;
 };
@@ -621,7 +621,14 @@ export type TargetGroups = {
   checked_at: string;
 };
 
-export type Mapping = { group: string; role: string; created_by: string };
+/*
+ * Mapping, dizinin bir grubunu postern'in bir grubuna bağlayan satır.
+ *
+ * ⚠️ İKİ AYRI "GRUP" AYNI SATIRDA: soldaki dizinin gönderdiği ad,
+ * sağdaki postern'in kendi nesnesi. İkisine de "group" demek, ekranın
+ * anlattığı eşlemeyi anlamsız kılardı.
+ */
+export type Mapping = { directory_group: string; group: string; created_by: string };
 export type UnmappedGroup = {
   name: string;
   seen_count: number;
@@ -728,8 +735,10 @@ export type LDAPTestResult = {
   // farklı cevabı ayırır: dizinde var, dizinde yok, dizin cevap
   // veremedi. "grubu yok" ile "kendisi yok" aynı şey değil.
   presence?: "present" | "absent" | "unknown";
+  /* Dizinin söylediği gruplar ve onların eşlendiği postern grupları —
+     ayrı adlar, çünkü teşhis ekranının anlattığı şey tam da eşleme. */
+  directory_groups?: string[];
   groups?: string[];
-  roles?: string[];
   unmapped?: string[];
   // Kullanıcının üye olduğu ama grup kapsamı dışında kaldığı için
   // sayılmayan gruplar. Boş olmayan bir liste, yükseltmede rol kaybı
@@ -1240,7 +1249,7 @@ export const api = {
     name: string;
     os_user: string;
     email?: string;
-    roles?: string[];
+    groups?: string[];
     /** ⚠️ Yerel kaynakta cevap giriş bilgisini TAŞIYOR ve tek kez
      *  gösteriliyor. Diğer kaynaklarda yerel kapı kapalı olduğu için
      *  hiçbir değer üretilmiyor. */
@@ -1249,14 +1258,14 @@ export const api = {
     req<void>("PATCH", `/api/admin/users/${encodeURIComponent(name)}`, p),
   deleteUser: (name: string) =>
     req<void>("DELETE", `/api/admin/users/${encodeURIComponent(name)}`),
-  assignRole: (user: string, role: string) =>
-    req<void>("POST", `/api/admin/users/${encodeURIComponent(user)}/roles`, {
-      role,
+  assignRole: (user: string, group: string) =>
+    req<void>("POST", `/api/admin/users/${encodeURIComponent(user)}/groups`, {
+      group,
     }),
-  revokeRole: (user: string, role: string) =>
+  revokeRole: (user: string, group: string) =>
     req<void>(
       "DELETE",
-      `/api/admin/users/${encodeURIComponent(user)}/roles/${encodeURIComponent(role)}`,
+      `/api/admin/users/${encodeURIComponent(user)}/groups/${encodeURIComponent(group)}`,
     ),
   addKey: (user: string, authorized_key: string) =>
     req<void>("POST", `/api/admin/users/${encodeURIComponent(user)}/keys`, {
@@ -1273,45 +1282,45 @@ export const api = {
       { fingerprint },
     ),
 
-  roles: () => req<Role[]>("GET", "/api/admin/roles"),
+  groups: () => req<Group[]>("GET", "/api/admin/groups"),
   createRole: (r: { name: string; targets?: string[] }) =>
-    req<void>("POST", "/api/admin/roles", r),
+    req<void>("POST", "/api/admin/groups", r),
   deleteRole: (name: string) =>
-    req<void>("DELETE", `/api/admin/roles/${encodeURIComponent(name)}`),
-  grantTarget: (role: string, target: string) =>
-    req<void>("POST", `/api/admin/roles/${encodeURIComponent(role)}/targets`, {
+    req<void>("DELETE", `/api/admin/groups/${encodeURIComponent(name)}`),
+  grantTarget: (group: string, target: string) =>
+    req<void>("POST", `/api/admin/groups/${encodeURIComponent(group)}/targets`, {
       target,
     }),
-  revokeTarget: (role: string, target: string) =>
+  revokeTarget: (group: string, target: string) =>
     req<void>(
       "DELETE",
-      `/api/admin/roles/${encodeURIComponent(role)}/targets/${encodeURIComponent(target)}`,
+      `/api/admin/groups/${encodeURIComponent(group)}/targets/${encodeURIComponent(target)}`,
     ),
 
   /** Rolün sudo kuralı; kaydetmek onu o rolün GRUBUNA yazıyor. */
   setRoleSudo: (
-    role: string,
+    group: string,
     rule: {
       commands: { path: string; args: string[]; run_as?: string }[];
       acknowledged: boolean;
     },
   ) =>
-    req<{ ok: true }>("PUT", `/api/admin/roles/${encodeURIComponent(role)}/sudo`, rule),
+    req<{ ok: true }>("PUT", `/api/admin/groups/${encodeURIComponent(group)}/sudo`, rule),
   /** Kuralı postern'den siler; hedeflerdeki dosya bir sonraki dokunuşa kadar kalıyor. */
-  deleteRoleSudo: (role: string) =>
+  deleteRoleSudo: (group: string) =>
     req<{ ok: true; note?: string }>(
       "DELETE",
-      `/api/admin/roles/${encodeURIComponent(role)}/sudo`,
+      `/api/admin/groups/${encodeURIComponent(group)}/sudo`,
     ),
-  rolePaths: (role: string) =>
+  rolePaths: (group: string) =>
     req<PathRule[]>(
       "GET",
-      `/api/admin/roles/${encodeURIComponent(role)}/paths`,
+      `/api/admin/groups/${encodeURIComponent(group)}/paths`,
     ),
-  setRolePath: (role: string, rule: PathRule) =>
+  setRolePath: (group: string, rule: PathRule) =>
     req<void>(
       "POST",
-      `/api/admin/roles/${encodeURIComponent(role)}/paths`,
+      `/api/admin/groups/${encodeURIComponent(group)}/paths`,
       rule,
     ),
   /*
@@ -1320,8 +1329,8 @@ export const api = {
    * tarafından normalleştirilip başka bir yolu silmeye dönüşebilir.
    * Uç da bu yüzden gövdeden okuyor.
    */
-  deleteRolePath: (role: string, prefix: string) =>
-    req<void>("DELETE", `/api/admin/roles/${encodeURIComponent(role)}/paths`, {
+  deleteRolePath: (group: string, prefix: string) =>
+    req<void>("DELETE", `/api/admin/groups/${encodeURIComponent(group)}/paths`, {
       prefix,
     }),
 
@@ -1402,12 +1411,12 @@ export const api = {
     ),
 
   mappings: () => req<Mapping[]>("GET", "/api/admin/mappings"),
-  addMapping: (group: string, role: string) =>
-    req<void>("POST", "/api/admin/mappings", { group, role }),
-  removeMapping: (group: string, role: string) =>
+  addMapping: (directoryGroup: string, group: string) =>
+    req<void>("POST", "/api/admin/mappings", { directory_group: directoryGroup, group }),
+  removeMapping: (directoryGroup: string, group: string) =>
     req<void>(
       "DELETE",
-      `/api/admin/mappings/${encodeURIComponent(group)}/${encodeURIComponent(role)}`,
+      `/api/admin/mappings/${encodeURIComponent(directoryGroup)}/${encodeURIComponent(group)}`,
     ),
   unmappedGroups: () =>
     req<UnmappedGroup[]>("GET", "/api/admin/unmapped-groups"),

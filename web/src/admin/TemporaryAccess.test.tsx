@@ -36,14 +36,14 @@ const step = { kind: "group.add", command: "sudo -n groupadd dba", why: "group d
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.spyOn(api, "users").mockResolvedValue([
-    { name: "ayse", os_user: "ayse", admin: false, roles: [], keys: 1 } as never,
+    { name: "ayse", os_user: "ayse", admin: false, groups: [], keys: 1 } as never,
   ]);
   vi.spyOn(api, "targets").mockResolvedValue([
     { name: "web-01", host: "10.0.1.11", port: 22, fingerprint: "SHA256:a", labels: {} },
     { name: "db-01", host: "10.0.2.5", port: 22, fingerprint: "SHA256:b", labels: {} },
     { name: "cache-03", host: "10.0.3.3", port: 22, fingerprint: "SHA256:c", labels: {} },
   ]);
-  vi.spyOn(api, "roles").mockResolvedValue([
+  vi.spyOn(api, "groups").mockResolvedValue([
     { name: "sre", targets: [] },
     {
       name: "developer",
@@ -153,7 +153,7 @@ it("sihirbaz kişi, hedefler ve gruplarla hedef başına bir istek atıyor", asy
 
   fireEvent.click(screen.getByRole("button", { name: /load groups from the selected hosts/i }));
   await screen.findByText(/Only the 1 group\(s\) present on all 2 selected hosts are offered; 1 system group\(s\) below gid 1000 are not/);
-  const groupBox = screen.getByRole("combobox", { name: "Groups" });
+  const groupBox = screen.getByRole("combobox", { name: "Host groups" });
   fireEvent.focus(groupBox);
   expect(screen.queryByRole("option", { name: "docker" })).toBeNull();
   expect(screen.queryByRole("option", { name: "web" })).toBeNull();

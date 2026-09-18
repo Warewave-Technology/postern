@@ -34,7 +34,7 @@ func hasAction(rows []store.AdminLogEntry, action string) *store.AdminLogEntry {
  * audit.go'nun kendi gerekçesi şu: "CLI'dan yapılan HİÇBİR değişiklik
  * admin_log'a düşmüyordu ... Panelden yapılan her değişiklik
  * denetlenirken, EN AYRICALIKLI OLANI denetlenmiyordu." O düzeltme
- * user/role/target'a ulaşmış ve orada durmuş.
+ * user/group/target'a ulaşmış ve orada durmuş.
  *
  * `settings set --key ldap.admin_group` ise tam olarak o kol: eski
  * gruptan gelen bütün yönetici yetkilerini düşürüyor, yeni grubun
@@ -97,7 +97,7 @@ func TestAdminGroupChangeReachesTheLedger(t *testing.T) {
 /*
  * ⚠️ EŞLEME EKLEME VE KALDIRMA DA DEFTERE DÜŞMELİ.
  *
- * Bir eşleme, koca bir IdP grubuna rol vermek demek. Panelden
+ * Bir eşleme, koca bir IdP grubuna grup vermek demek. Panelden
  * yapıldığında deftere düşüyor; CLI'dan hiçbir iz kalmıyordu.
  * Kaldırma daha kötüsü: satır silindiği için created_by kalıntısı da
  * yok oluyor, yani eşlemenin var olduğuna dair hiçbir kayıt kalmıyor.
@@ -106,22 +106,22 @@ func TestMappingChangesReachTheLedger(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
 
-	if _, err := e.db.CreateRole(ctx, "ops"); err != nil {
+	if _, err := e.db.CreateGroup(ctx, "ops"); err != nil {
 		t.Fatal(err)
 	}
 
 	if out, err := e.run(t, newRootCmd(), "mapping", "add",
-		"--group", "developers", "--role", "ops"); err != nil {
+		"--directory-group", "developers", "--group", "ops"); err != nil {
 		t.Fatalf("mapping add düştü: %v\n%s", err, out)
 	}
 	if r := hasAction(ledger(t, e), "mapping.create"); r == nil {
 		t.Errorf("eşleme ekleme deftere düşmedi; defter: %+v", ledger(t, e))
 	} else if !strings.Contains(r.Details, "ops") {
-		t.Errorf("hangi rol verildiği yazılmamış: %q", r.Details)
+		t.Errorf("hangi grup verildiği yazılmamış: %q", r.Details)
 	}
 
 	if out, err := e.run(t, newRootCmd(), "mapping", "remove",
-		"--group", "developers", "--role", "ops"); err != nil {
+		"--directory-group", "developers", "--group", "ops"); err != nil {
 		t.Fatalf("mapping remove düştü: %v\n%s", err, out)
 	}
 	if r := hasAction(ledger(t, e), "mapping.delete"); r == nil {

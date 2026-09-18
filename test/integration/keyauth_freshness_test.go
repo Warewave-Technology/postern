@@ -24,7 +24,7 @@ import (
  * SSO'ya bağlı kullanıcı ve anahtar kapısı.
  *
  * Eskiden koşulsuz REDDEDİLİYORDU ve gerekçesi doğruydu: anahtar kapısı
- * kimlik sağlayıcıya bakmıyor, roller yalnızca SSO girişinde
+ * kimlik sağlayıcıya bakmıyor, gruplar yalnızca SSO girişinde
  * senkronize ediliyordu, yani anahtar bayat bir yetkiyi süresiz
  * taşıyabilirdi.
  *
@@ -34,7 +34,7 @@ import (
  * token'dan okuyan bir kurulumda anahtarla açılan oturumda sorulacak
  * bir şey yok ve eski gerekçe aynen geçerli.
  */
-func TestKeyDoorRefusesSSOUserWhenRolesCannotBeRefreshed(t *testing.T) {
+func TestKeyDoorRefusesSSOUserWhenGroupsCannotBeRefreshed(t *testing.T) {
 	caKeyPath, _ := newTestCA(t)
 	srv, hostPub, clientSigner, db := newBastion(t, caKeyPath)
 
@@ -125,10 +125,10 @@ func openWithDirectory(t *testing.T, res auth.GroupResult) error {
 	if err := db.SetUserSSOOnly(ctx, "yigit", true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.CreateRole(ctx, "ops"); err != nil {
+	if _, err := db.CreateGroup(ctx, "ops"); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AssignRole(ctx, "yigit", "ops", time.Time{}); err != nil {
+	if err := db.AssignGroup(ctx, "yigit", "ops", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	// Hedef VAR ama kapalı bir portta: yetki geçerse bağlantı hatası
@@ -153,7 +153,7 @@ func openWithDirectory(t *testing.T, res auth.GroupResult) error {
 		Records:   recStore,
 		Authority: testAuthority(t),
 		Logger:    slog.New(slog.DiscardHandler),
-		FreshenRoles: func(c context.Context, username string) error {
+		FreshenGroups: func(c context.Context, username string) error {
 			r, gerr := src.Groups(c, auth.Identity{Username: username})
 			if gerr != nil {
 				return gerr
@@ -168,11 +168,11 @@ func openWithDirectory(t *testing.T, res auth.GroupResult) error {
 			default:
 				return nil
 			}
-			roles, _, rerr := db.RolesForGroups(c, r.Groups)
+			groups, _, rerr := db.GroupsForDirectoryGroups(c, r.Groups)
 			if rerr != nil {
 				return rerr
 			}
-			return db.SyncRoles(c, username, roles)
+			return db.SyncGroups(c, username, groups)
 		},
 	}
 
@@ -198,7 +198,7 @@ func openWithDirectory(t *testing.T, res auth.GroupResult) error {
  * Bir hesabı devre dışı bırakmak işten ayrılmada ve olay müdahalesinde
  * atılan İLK adımdır — ama AD'de bu ne girişi siler ne de grup
  * üyeliklerini kaldırır. Yalnızca gruplara bakan tazeleme o hesabı
- * "present, rolleri şunlar" diye okuyup rollerini YENİDEN YAZIYORDU.
+ * "present, grupları şunlar" diye okuyup rollerini YENİDEN YAZIYORDU.
  */
 func TestSessionRefusedWhenDirectoryAccountIsDisabled(t *testing.T) {
 	err := openWithDirectory(t, auth.GroupResult{

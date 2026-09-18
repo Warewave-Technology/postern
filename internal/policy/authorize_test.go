@@ -10,14 +10,14 @@ import (
 
 // --- test verisi ---
 //
-// Plan S2.4 tablosundaki kurulum: "ops" rolü web01'e, "readonly" rolü
+// Plan S2.4 tablosundaki kurulum: "ops" grubu web01'e, "readonly" grubu
 // yalnızca web01'e erişebiliyor; db01'e kimsenin yetkisi yok.
 
 func opsUser() model.User {
 	return model.User{
 		Name:   "yigit",
 		OSUser: "yigit",
-		Roles:  []model.Role{{Name: "ops", Targets: []string{"web01", "web02"}}},
+		Groups: []model.Group{{Name: "ops", Targets: []string{"web01", "web02"}}},
 	}
 }
 
@@ -25,7 +25,7 @@ func readonlyUser() model.User {
 	return model.User{
 		Name:   "ayse",
 		OSUser: "ayse",
-		Roles:  []model.Role{{Name: "readonly", Targets: []string{"web01"}}},
+		Groups: []model.Group{{Name: "readonly", Targets: []string{"web01"}}},
 	}
 }
 
@@ -169,7 +169,7 @@ func TestAuthorizeRejectsUnsafeUsernames(t *testing.T) {
 			u := model.User{
 				Name:   "yigit",
 				OSUser: tc.value,
-				Roles:  []model.Role{{Name: "ops", Targets: []string{"web01"}}},
+				Groups: []model.Group{{Name: "ops", Targets: []string{"web01"}}},
 			}
 
 			if got := Authorize(u, target("web01"), tc.value); got.Allowed {
@@ -187,7 +187,7 @@ func TestAuthorizeAcceptsValidUsernames(t *testing.T) {
 			u := model.User{
 				Name:   "someone",
 				OSUser: name,
-				Roles:  []model.Role{{Name: "ops", Targets: []string{"web01"}}},
+				Groups: []model.Group{{Name: "ops", Targets: []string{"web01"}}},
 			}
 
 			got := Authorize(u, target("web01"), "")
@@ -212,7 +212,7 @@ func TestAuthorizeDefaultsToDeny(t *testing.T) {
 // Nokta desteklenmeli; ASCII dışı ve büyük harf reddedilmeli.
 func TestOSUserNameAcceptsDottedIdPNames(t *testing.T) {
 	target := model.Target{Name: "web01"}
-	roles := []model.Role{{Name: "ops", Targets: []string{"web01"}}}
+	groups := []model.Group{{Name: "ops", Targets: []string{"web01"}}}
 
 	cases := []struct {
 		osUser string
@@ -234,7 +234,7 @@ func TestOSUserNameAcceptsDottedIdPNames(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.osUser, func(t *testing.T) {
-			u := model.User{Name: "x", OSUser: tc.osUser, Roles: roles}
+			u := model.User{Name: "x", OSUser: tc.osUser, Groups: groups}
 			d := Authorize(u, target, "")
 			if d.Allowed != tc.allow {
 				t.Fatalf("Allowed = %v, beklenen %v (%s); reason: %s",
@@ -273,8 +273,8 @@ func TestTemporaryAccessOpensTheTargetForTheGrantOnly(t *testing.T) {
 		{"hesap adı değişmiş → red", model.User{Name: "mehmet", OSUser: "mehmet2"}, "db01", "", []model.TemporaryAccess{live}, false, false},
 		{"hak root hesabına → red", model.User{Name: "r", OSUser: "root"}, "db01", "", []model.TemporaryAccess{{Target: "db01", OSUser: "root", ExpiresAt: now.Add(time.Hour), Applied: true}}, false, false},
 		{"hak yönetim hesabına → red", model.User{Name: "p", OSUser: model.ManagementAccount}, "db01", "", []model.TemporaryAccess{{Target: "db01", OSUser: model.ManagementAccount, ExpiresAt: now.Add(time.Hour), Applied: true}}, false, false},
-		{"rolü olan + hak → izin, geçici DEĞİL", opsUser(), "web01", "", []model.TemporaryAccess{{Target: "web01", OSUser: "yigit", ExpiresAt: now.Add(time.Hour), Applied: true}}, true, false},
-		{"hak yok → rol kararı (red)", rolelessUser(), "db01", "", nil, false, false},
+		{"grubu olan + hak → izin, geçici DEĞİL", opsUser(), "web01", "", []model.TemporaryAccess{{Target: "web01", OSUser: "yigit", ExpiresAt: now.Add(time.Hour), Applied: true}}, true, false},
+		{"hak yok → grup kararı (red)", rolelessUser(), "db01", "", nil, false, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

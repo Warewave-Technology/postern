@@ -71,7 +71,7 @@ func testAuthority(t *testing.T) *ca.CA {
 }
 
 /*
- * managedTarget, rolün kurduğu hedefi taklit eden bir sunucu açar:
+ * managedTarget, grubun kurduğu hedefi taklit eden bir sunucu açar:
  * "postern" hesabı yalnızca "postern-manage" principal'ıyla, "deploy"
  * hesabı yalnızca "deploy" principal'ıyla açılıyor.
  */

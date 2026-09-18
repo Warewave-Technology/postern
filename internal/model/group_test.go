@@ -6,11 +6,11 @@ import "testing"
  * ⚠️ BOŞ LİSTE `unknown`'a DÜŞER, DOLU LİSTE DEĞİŞMEZ.
  *
  * Var olma sebebi: grup claim'i göndermeyen bir IdP'de hiçbir grup
- * hiçbir role eşleşmiyor, ProvisionUser hesabı açmıyor ve kullanıcı
+ * hiçbir gruba eşleşmiyor, ProvisionUser hesabı açmıyor ve kullanıcı
  * kapıda kalıyor. Bu grup yöneticiye bir tutamak veriyor.
  *
  * ⚠️ Dolu listeye dokunmaması da aynı derecede önemli: `unknown`'ı
- * herkesin listesine eklemek, ona eşlenmiş bir rolü HERKESE dağıtırdı.
+ * herkesin listesine eklemek, ona eşlenmiş bir grubu HERKESE dağıtırdı.
  */
 func TestResolvedGroups(t *testing.T) {
 	if got := ResolvedGroups(nil); len(got) != 1 || got[0] != UnknownGroup {

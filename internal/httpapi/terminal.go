@@ -160,19 +160,19 @@ func (s *Server) serveChannel(w http.ResponseWriter, r *http.Request, sftp bool)
 	/*
 	 * ⚠️ POLİTİKASIZ OTURUMDA DOSYA TARAYICISI AÇILMIYOR.
 	 *
-	 * Kuralsız rol kısıtsız (policy.SFTPDecider) ve taze bir kurulumda
-	 * hiçbir rolün kuralı yok. Bu yüzeyin ertelemesini kaldıran gerekçe
+	 * Kuralsız grup kısıtsız (policy.SFTPDecider) ve taze bir kurulumda
+	 * hiçbir grubun kuralı yok. Bu yüzeyin ertelemesini kaldıran gerekçe
 	 * "yol politikası riski sınırlar"dı; politikanın hiç kurulmadığı bir
 	 * oturumda o gerekçe boş, dolayısıyla kanal da açılmıyor.
 	 *
 	 * Yükseltmeden önce: mesaj HTTP ile gidiyor ve sebebi söylüyor.
 	 */
 	if sftp && !sess.SFTPPolicyActive() {
-		sess.Log.Warn("file browser refused: no path rules on this account's roles")
+		sess.Log.Warn("file browser refused: no path rules on this account's groups")
 		sess.Close(r.Context())
 		writeErr(w, http.StatusForbidden,
-			"the file browser needs path rules on your roles — ask an administrator "+
-				"to run `postern role path set`")
+			"the file browser needs path rules on your groups — ask an administrator "+
+				"to run `postern group path set`")
 		return
 	}
 
@@ -183,7 +183,7 @@ func (s *Server) serveChannel(w http.ResponseWriter, r *http.Request, sftp bool)
 		 *
 		 * Yükleme kapalıyken kanal salt-okunur. Açıkken salt-okuma
 		 * kalkıyor ama yazma serbest kalmıyor: her yazma isteği,
-		 * tanıtıcının yolu üzerinden rol yol kurallarına soruluyor
+		 * tanıtıcının yolu üzerinden grup yol kurallarına soruluyor
 		 * (sftpaudit/policy.go). Yani bu bayrak "kilidi aç" diyor,
 		 * "her yere yaz" demiyor.
 		 */

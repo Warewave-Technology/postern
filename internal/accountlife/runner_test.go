@@ -354,7 +354,7 @@ func TestPurgeReleasesTheKey(t *testing.T) {
  * ⚠️ PURGE EDİLMİŞ SATIR KULLANICI LİSTESİNDE OLMAMALI.
  *
  * O bir KAYIT, bir kullanıcı değil: adı serbest bırakılmış, anahtarları
- * ve rolleri alınmış, giriş yapamayan bir iz. Listede durması hem
+ * ve grupları alınmış, giriş yapamayan bir iz. Listede durması hem
  * gürültü hem yanıltıcı — "purged:9bf1…" diye bir hesap yok. İzin
  * kendisi PurgedAccounts'tan okunuyor.
  */

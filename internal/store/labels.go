@@ -10,7 +10,7 @@ import (
 
 // Etiket, hedefe iliştirilen key=value notu: "env=prod", "team=payments".
 //
-// ⚠️ ETİKET BİR YETKİ DEĞİL. Erişimi rol → hedef bağı veriyor; etiket
+// ⚠️ ETİKET BİR YETKİ DEĞİL. Erişimi grup → hedef bağı veriyor; etiket
 // yalnızca operatörün hedefleri gruplayıp bulması için. Bu ayrım
 // bilinçli: etiketten yetki türetmek, panelden etiket ekleyebilen
 // herkese yetki dağıtma imkânı verirdi.

@@ -97,7 +97,7 @@ type Deps struct {
 	Probe ProbePolicy
 
 	/*
-	 * FreshenRoles, oturum AÇILIRKEN kullanıcının rollerini aktif kimlik
+	 * FreshenGroups, oturum AÇILIRKEN kullanıcının rollerini aktif kimlik
 	 * kaynağından tazeler. nil ise tazeleme yapılmaz.
 	 *
 	 * ⚠️ NEDEN BURADA: iki kapı (SSH kanalı ve web terminali) tek
@@ -111,7 +111,7 @@ type Deps struct {
 	 * yalnızca loglanır ve saklanan rollerle devam edilir (dizin arızası
 	 * yetki yokluğu değildir).
 	 */
-	FreshenRoles func(ctx context.Context, username string) error
+	FreshenGroups func(ctx context.Context, username string) error
 
 	// Events, canlı izleme akışı. nil ise olay yayınlanmaz.
 	//
@@ -314,8 +314,8 @@ type Session struct {
 	 * politikası. nil ise kısıt yok.
 	 *
 	 * ⚠️ OTURUM AÇILIRKEN ÜRETİLİYOR, KANAL AÇILIRKEN DEĞİL. Roller
-	 * oturum açılışında tazeleniyor (FreshenRoles); politikayı da o anda
-	 * dondurmak, oturum ortasında değişen bir rolün açık bir kanalın
+	 * oturum açılışında tazeleniyor (FreshenGroups); politikayı da o anda
+	 * dondurmak, oturum ortasında değişen bir grubun açık bir kanalın
 	 * kurallarını altından değiştirmesini önlüyor. Değişiklik bir sonraki
 	 * oturumda geçerli — yetkilendirmenin geri kalanıyla aynı kural.
 	 */
@@ -452,7 +452,7 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 	 *
 	 * Eskiden bunu sağlayan şey bir REDDETMEYDİ: SSO'ya bağlı kullanıcı
 	 * anahtarla giremiyordu, çünkü anahtar kapısı kimlik sağlayıcıya
-	 * bakmıyor ve roller yalnızca SSO girişinde tazeleniyordu. SSH'ın
+	 * bakmıyor ve gruplar yalnızca SSO girişinde tazeleniyordu. SSH'ın
 	 * anahtara sabitlenmesiyle o reddetme, dizin kullanıcılarının SSH'ını
 	 * tamamen kapatır hâle geldi.
 	 *
@@ -474,8 +474,8 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 	 * oturum açardı. Tam da yetkisi en yüksek ve kontrolü en gerekli
 	 * olan kişi, kontrolün dışında kalıyordu.
 	 */
-	if (u.SSOOnly || u.DirBound) && deps.FreshenRoles != nil {
-		ferr := deps.FreshenRoles(ctx, u.Name)
+	if (u.SSOOnly || u.DirBound) && deps.FreshenGroups != nil {
+		ferr := deps.FreshenGroups(ctx, u.Name)
 		switch {
 		case errors.Is(ferr, ErrDirectoryRefused):
 			/*
@@ -495,7 +495,7 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 				"reason", ferr)
 			return nil, fmt.Errorf("proxy.Open: %w", ErrAccessDenied)
 		case ferr != nil:
-			log.Warn("role refresh failed; continuing with stored roles", "error", ferr)
+			log.Warn("group refresh failed; continuing with stored groups", "error", ferr)
 		default:
 			if refreshed, rerr := deps.Store.User(ctx, u.Name); rerr == nil {
 				u = refreshed
@@ -507,15 +507,15 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 
 	/*
 	 * ⚠️ SÜRELİ HAKLAR DA BİR YETKİ KAYNAĞI. Geçici hesap hedefte açılıyor
-	 * ama kişi hedefe bastion'dan geçerek giriyor; politika yalnızca rolleri
-	 * tanısaydı, rolü olmayan kişi için hak hedefte bir hesap açar ve
+	 * ama kişi hedefe bastion'dan geçerek giriyor; politika yalnızca grupları
+	 * tanısaydı, grubu olmayan kişi için hak hedefte bir hesap açar ve
 	 * bastion'da kapalı bir kapı bırakırdı — hak verilmiş ama kullanılamaz.
-	 * Okuma hatası reddetmiyor: rolü olan kişi rolüyle girer; olmayan
+	 * Okuma hatası reddetmiyor: grubu olan kişi rolüyle girer; olmayan
 	 * zaten reddedilecek ve sebep log'da.
 	 */
 	var temp []model.TemporaryAccess
 	if grants, gerr := deps.Store.ActiveJITGrantsForUser(ctx, u.Name); gerr != nil {
-		log.Warn("temporary access could not be read; deciding on roles alone", "error", gerr)
+		log.Warn("temporary access could not be read; deciding on groups alone", "error", gerr)
 	} else {
 		for _, g := range grants {
 			temp = append(temp, model.TemporaryAccess{
@@ -531,7 +531,7 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 		return nil, fmt.Errorf("proxy.Open: %w", ErrAccessDenied)
 	}
 	if d.Temporary {
-		log.Info("access granted by temporary access, not by a role")
+		log.Info("access granted by temporary access, not by a group")
 	}
 
 	// Buradan sonrası kaynak açıyor. Yedi ayrı hata dalına yedi ayrı
@@ -681,7 +681,7 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 	opened = true
 	return &Session{
 		ID: id, OSUser: d.OSUser, Log: log,
-		sftpPolicy: policy.SFTPDecider(u.Roles),
+		sftpPolicy: policy.SFTPDecider(u.Groups),
 		deps:       deps, conn: conn, up: up, upR: upR, rec: rec, start: start,
 		user: req.Username, target: req.TargetName, src: req.SrcIP,
 	}, nil
@@ -696,8 +696,8 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
  * SFTPPolicyActive, bu oturumda bir yol politikasının kurulu olup
  * olmadığını söyler.
  *
- * ⚠️ ÇAĞIRAN BUNA GÖRE KAPALI TARAFA DÜŞEBİLİR. Kuralsız rol kısıtsız
- * (bkz. policy.SFTPDecider) ve taze bir kurulumda hiçbir rolün kuralı
+ * ⚠️ ÇAĞIRAN BUNA GÖRE KAPALI TARAFA DÜŞEBİLİR. Kuralsız grup kısıtsız
+ * (bkz. policy.SFTPDecider) ve taze bir kurulumda hiçbir grubun kuralı
  * yok. "Politika riski sınırlar" gerekçesine dayanan bir yüzey — panelin
  * dosya tarayıcısı gibi — tam da o kurulumlarda hiçbir şeye dayanmıyor
  * demektir; açılmaması gereken yer orası.
@@ -822,7 +822,7 @@ func (s *Session) Run(ctx context.Context, down ssh.Channel, downR <-chan *ssh.R
 	 *
 	 * Satır session_files'a gidiyor: oturuma bağlı tek denetim tablosu o,
 	 * ve op'ta enum kısıtı yok. Yol BOŞ, çünkü ortada bir yol yok —
-	 * reddedilen şey alt sistemin kendisi. Yol düzeyindeki retler (rol
+	 * reddedilen şey alt sistemin kendisi. Yol düzeyindeki retler (grup
 	 * politikası geldiğinde) aynı tabloya gerçek bir yolla yazılacak.
 	 */
 	b.WithDenyLog(func(reqType, reason string) {

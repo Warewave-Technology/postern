@@ -132,8 +132,8 @@ describe("LDAP kullanici sorgusu", () => {
     vi.spyOn(api, "testLDAP").mockResolvedValue({
       ok: true,
       presence: "present",
+      directory_groups: [],
       groups: [],
-      roles: [],
       unmapped: [],
     });
 
@@ -141,7 +141,7 @@ describe("LDAP kullanici sorgusu", () => {
 
     // Boş cevap, cevapsızlık değil: satırlar çizilmeli ve "none" demeli.
     await waitFor(() =>
-      expect(screen.getByText(/mapped to roles/i)).toBeInTheDocument(),
+      expect(screen.getByText(/mapped to groups/i)).toBeInTheDocument(),
     );
     expect(screen.getAllByText("none").length).toBeGreaterThan(0);
   });
@@ -162,8 +162,8 @@ describe("grup kapsami uyarisi", () => {
     vi.spyOn(api, "testLDAP").mockResolvedValue({
       ok: true,
       presence: "present",
-      groups: ["dbas"],
-      roles: ["dba"],
+      directory_groups: ["dbas"],
+      groups: ["dba"],
       unmapped: [],
       out_of_scope: ["cn=lab,ou=teams,ou=groups,dc=corp"],
     });
@@ -186,8 +186,8 @@ describe("grup kapsami uyarisi", () => {
     vi.spyOn(api, "testLDAP").mockResolvedValue({
       ok: true,
       presence: "present",
-      groups: ["dbas"],
-      roles: ["dba"],
+      directory_groups: ["dbas"],
+      groups: ["dba"],
       unmapped: [],
       out_of_scope: [],
     });
@@ -195,7 +195,7 @@ describe("grup kapsami uyarisi", () => {
     await runLookup("ayse");
 
     await waitFor(() =>
-      expect(screen.getByText(/mapped to roles/i)).toBeInTheDocument(),
+      expect(screen.getByText(/mapped to groups/i)).toBeInTheDocument(),
     );
     expect(
       screen.queryByText(/sit outside the group scope/i),
@@ -234,7 +234,7 @@ describe("senkronizasyon kosu gorunurlugu", () => {
     vi.spyOn(api, "syncRuns").mockResolvedValue([
       run({
         outcome: "aborted",
-        reason: "14 of 120 users would lose all SSO roles",
+        reason: "14 of 120 users would lose all SSO groups",
       }),
     ]);
 
@@ -248,7 +248,7 @@ describe("senkronizasyon kosu gorunurlugu", () => {
     expect(screen.getByText(/nobody is being revoked/i)).toBeInTheDocument();
     // Sebep hem şeritte hem koşu listesinde geçiyor; ikisi de doğru.
     expect(
-      screen.getAllByText(/14 of 120 users would lose all SSO roles/).length,
+      screen.getAllByText(/14 of 120 users would lose all SSO groups/).length,
     ).toBeGreaterThan(0);
   });
 

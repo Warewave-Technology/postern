@@ -16,7 +16,7 @@ import Configuration from "./admin/Configuration";
 import Discovery from "./admin/Discovery";
 import Notifications from "./Notifications";
 import UserMenu from "./UserMenu";
-import Roles from "./admin/Roles";
+import Groups from "./admin/Groups";
 import { AdminLog, Sessions } from "./admin/Audit";
 import FileHistory from "./admin/FileHistory";
 import Mappings from "./admin/Mappings";
@@ -58,7 +58,7 @@ type Section =
   | "setup"
   | "overview"
   | "users"
-  | "roles"
+  | "groups"
   | "mappings"
   | "pending"
   | "targets"
@@ -84,7 +84,7 @@ const NAV: { title?: string; items: [Section, string, ReactNode][] }[] = [
     title: "Access",
     items: [
       ["users", "Users", <UsersIcon key="i" />],
-      ["roles", "Roles", <RolesIcon key="i" />],
+      ["groups", "Groups", <RolesIcon key="i" />],
       ["mappings", "Mappings", <MapIcon key="i" />],
       ["pending", "Pending", <UsersIcon key="i" />],
     ],
@@ -1057,7 +1057,7 @@ export default function App() {
                       localSource={sourceIsLocal}
                     />
                   )}
-                  {section === "roles" && <Roles />}
+                  {section === "groups" && <Groups />}
                   {section === "mappings" && <Mappings />}
                   {section === "pending" && <Pending />}
                   {section === "targets" && <Targets />}

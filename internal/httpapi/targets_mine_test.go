@@ -58,14 +58,14 @@ func TestTemporaryAccessShowsUpInThePersonsInventory(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// ayse'nin rolü web01'e; db01 yalnızca hakla.
-	if _, err := db.CreateRole(ctx, "web"); err != nil {
+	// ayse'nin grubu web01'e; db01 yalnızca hakla.
+	if _, err := db.CreateGroup(ctx, "web"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.GrantTarget(ctx, "web", "web01"); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AssignRole(ctx, "ayse", "web", time.Time{}); err != nil {
+	if err := db.AssignGroup(ctx, "ayse", "web", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 

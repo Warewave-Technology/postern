@@ -266,7 +266,7 @@ func (s *Session) policyView(req request) (policyResult, bool) {
 		 *
 		 * Bu, hemen yukarıdaki salt-okuma dalının kendisi için yazdığı
 		 * gerekçenin aynısı: "bastion kendi kısıtını kendi uygulamalı".
-		 * Aynı cümle rol yol kuralları için de geçerli — can_write bir
+		 * Aynı cümle grup yol kuralları için de geçerli — can_write bir
 		 * söz ve onu hedefin insafına bırakamayız.
 		 *
 		 * ⚠️ İZİN VERİLEN YAZMA SATIR ÜRETMİYOR: karar true dönerse

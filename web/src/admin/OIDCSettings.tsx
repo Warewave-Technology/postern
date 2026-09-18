@@ -219,7 +219,7 @@ export default function OIDCSettingsScreen() {
                     postern bunları hep destekliyordu (OIDCConfig'te alan
                     duruyor) ama doldurulacak bir yer yoktu: pratikte
                     "groups" ve "openid email" sabitti. Entra grupları
-                    "roles" claim'inde gönderiyor, Okta ve Auth0 ise
+                    "groups" claim'inde gönderiyor, Okta ve Auth0 ise
                     grupları ancak açıkça istenirse veriyor — o
                     kurulumlarda postern grupsuz kalıyor ve sebebi
                     hiçbir ekranda görünmüyordu.
@@ -238,9 +238,9 @@ export default function OIDCSettingsScreen() {
                       <p className="wfield-hint">
                         Which claim in the token carries the group names. Empty
                         means <code>groups</code>. Entra sends them in{" "}
-                        <code>roles</code>; some setups use{" "}
+                        <code>groups</code>; some setups use{" "}
                         <code>memberOf</code>. Group names are what the Mappings
-                        screen turns into roles.
+                        screen turns into groups.
                       </p>
                     </div>
 

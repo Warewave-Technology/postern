@@ -20,39 +20,39 @@ func write(p string) sftpaudit.Request {
  * ⚠️ KURALSIZ ROL POLİTİKA KURDURMUYOR.
  *
  * Bu, yükseltmenin ertesi sabahını belirleyen davranış: göç var olan hiçbir
- * rolü değiştirmiyor ve kuralı olmayan bir kurulum bu özellikten önceki gibi
+ * grubu değiştirmiyor ve kuralı olmayan bir kurulum bu özellikten önceki gibi
  * çalışıyor. nil dönmek "her şeyi reddet"in tersi — veri yoluna fazladan
  * karar, tutma ve gecikme de eklenmiyor.
  */
 func TestNoRulesMeansNoPolicy(t *testing.T) {
 	if d := SFTPDecider(nil); d != nil {
-		t.Fatal("rol yokken politika kuruldu")
+		t.Fatal("grup yokken politika kuruldu")
 	}
-	if d := SFTPDecider([]model.Role{{Name: "dev"}}); d != nil {
-		t.Fatal("kuralsız rol politika kurdurdu")
+	if d := SFTPDecider([]model.Group{{Name: "dev"}}); d != nil {
+		t.Fatal("kuralsız grup politika kurdurdu")
 	}
 }
 
 /*
- * Kuralsız BİR rol, kurallı diğerlerini etkisiz kılıyor.
+ * Kuralsız BİR grup, kurallı diğerlerini etkisiz kılıyor.
  *
  * ⚠️ SEZGİYE AYKIRI AMA TUTARLI: kural yazmak bir ROLÜ kısıtlamak demek,
- * kullanıcıyı değil. Aksini seçseydik (kesişim), kısıtlı bir rol eklemek
+ * kullanıcıyı değil. Aksini seçseydik (kesişim), kısıtlı bir grup eklemek
  * kullanıcının mevcut erişimini SESSİZCE daraltırdı — ve sessiz daralma,
  * fark edilmesi en zor arıza türü.
  */
-func TestAnUnrestrictedRoleKeepsAccessOpen(t *testing.T) {
-	d := SFTPDecider([]model.Role{
+func TestAnUnrestrictedGroupKeepsAccessOpen(t *testing.T) {
+	d := SFTPDecider([]model.Group{
 		{Name: "kisitli", Paths: []model.PathRule{rule("/srv", true, false)}},
 		{Name: "serbest"},
 	})
 	if d != nil {
-		t.Fatal("kuralsız rol varken politika kuruldu")
+		t.Fatal("kuralsız grup varken politika kuruldu")
 	}
 }
 
 func TestLongestPrefixWinsSoCarveOutsWork(t *testing.T) {
-	d := SFTPDecider([]model.Role{{Name: "dev", Paths: []model.PathRule{
+	d := SFTPDecider([]model.Group{{Name: "dev", Paths: []model.PathRule{
 		rule("/home/u", true, true),
 		rule("/home/u/.ssh", false, false),
 	}}})
@@ -86,7 +86,7 @@ func TestLongestPrefixWinsSoCarveOutsWork(t *testing.T) {
  * veren bir kural, hiç kural olmamasından kötü.
  */
 func TestPrefixDoesNotLeakAcrossNameBoundaries(t *testing.T) {
-	d := SFTPDecider([]model.Role{{Name: "dev", Paths: []model.PathRule{
+	d := SFTPDecider([]model.Group{{Name: "dev", Paths: []model.PathRule{
 		rule("/home/user", true, true),
 	}}})
 
@@ -103,7 +103,7 @@ func TestPrefixDoesNotLeakAcrossNameBoundaries(t *testing.T) {
 
 // Salt okuma kuralı yazmayı kapsamıyor.
 func TestReadOnlyRuleRefusesWrites(t *testing.T) {
-	d := SFTPDecider([]model.Role{{Name: "dev", Paths: []model.PathRule{
+	d := SFTPDecider([]model.Group{{Name: "dev", Paths: []model.PathRule{
 		rule("/srv/veri", true, false),
 	}}})
 
@@ -125,7 +125,7 @@ func TestReadOnlyRuleRefusesWrites(t *testing.T) {
  * politikasını tümüyle boşa çıkaran şey tam olarak budur.
  */
 func TestBothPathsAreCheckedOnTwoPathOperations(t *testing.T) {
-	d := SFTPDecider([]model.Role{{Name: "dev", Paths: []model.PathRule{
+	d := SFTPDecider([]model.Group{{Name: "dev", Paths: []model.PathRule{
 		rule("/home/u", true, true),
 	}}})
 
@@ -145,9 +145,9 @@ func TestBothPathsAreCheckedOnTwoPathOperations(t *testing.T) {
 	}
 }
 
-// Birden çok rol: herhangi biri izin veriyorsa erişim var.
-func TestAccessIsTheUnionOfRoles(t *testing.T) {
-	d := SFTPDecider([]model.Role{
+// Birden çok grup: herhangi biri izin veriyorsa erişim var.
+func TestAccessIsTheUnionOfGroups(t *testing.T) {
+	d := SFTPDecider([]model.Group{
 		{Name: "a", Paths: []model.PathRule{rule("/srv/a", true, false)}},
 		{Name: "b", Paths: []model.PathRule{rule("/srv/b", true, true)}},
 	})
@@ -159,21 +159,21 @@ func TestAccessIsTheUnionOfRoles(t *testing.T) {
 		t.Error("b rolünün yolu reddedildi")
 	}
 	if ok, _ := d(read("/srv/c/x")); ok {
-		t.Error("hiçbir rolün kapsamadığı yol geçti")
+		t.Error("hiçbir grubun kapsamadığı yol geçti")
 	}
 }
 
 /*
  * ⚠️ AÇIK RET BİR VETODUR: BAŞKA BİR ROLÜN İZNİ ONU GERİ AÇAMAZ.
  *
- * ÖLÇÜLEN ARIZA: kararı rol rol verip "herhangi biri izin veriyorsa evet"
+ * ÖLÇÜLEN ARIZA: kararı grup grup verip "herhangi biri izin veriyorsa evet"
  * dediğimizde açık retler hayatta kalmıyordu. Demoda görüldü: developer
- * rolünde /home/sidinak/.ssh reddedilmişti, sftp-demo rolü /home/sidinak'a
+ * rolünde /home/sidinak/.ssh reddedilmişti, sftp-demo grubu /home/sidinak'a
  * izin veriyordu ve .ssh AÇIK KALDI. Yönetici bir dalı kestiğini sanıyor,
  * kesmemiş oluyor — sessizce fazla erişim, kural yazmanın en kötü sonucu.
  */
-func TestAnExplicitDenyIsNotReopenedByAnotherRole(t *testing.T) {
-	d := SFTPDecider([]model.Role{
+func TestAnExplicitDenyIsNotReopenedByAnotherGroup(t *testing.T) {
+	d := SFTPDecider([]model.Group{
 		{Name: "kisan", Paths: []model.PathRule{
 			rule("/home/u", true, true),
 			rule("/home/u/.ssh", false, false),
@@ -192,14 +192,14 @@ func TestAnExplicitDenyIsNotReopenedByAnotherRole(t *testing.T) {
 }
 
 /*
- * Aynı önek üzerinde bir rol ret, diğeri izin diyorsa RET kazanıyor.
+ * Aynı önek üzerinde bir grup ret, diğeri izin diyorsa RET kazanıyor.
  *
  * ⚠️ EŞİTLİKTE RET, çünkü aksi hâlde bir dalı kesmek isteyen yönetici
  * kesiğin başka bir rolce aynı uzunlukta geri açılabileceğini bilmek
  * zorunda kalırdı. Veto olmayan bir ret, ret değildir.
  */
 func TestDenyWinsOnEqualLengthPrefixes(t *testing.T) {
-	d := SFTPDecider([]model.Role{
+	d := SFTPDecider([]model.Group{
 		{Name: "a", Paths: []model.PathRule{rule("/srv/gizli", true, true)}},
 		{Name: "b", Paths: []model.PathRule{rule("/srv/gizli", false, false)}},
 	})
@@ -211,10 +211,10 @@ func TestDenyWinsOnEqualLengthPrefixes(t *testing.T) {
 	}
 }
 
-// Yazma hakkı aynı uzunlukta birleşiyor: bir rol salt okuma, diğeri yazma
+// Yazma hakkı aynı uzunlukta birleşiyor: bir grup salt okuma, diğeri yazma
 // veriyorsa yazma var. (Ret olmadığı sürece.)
 func TestWriteRightUnionsAtTheSameLength(t *testing.T) {
-	d := SFTPDecider([]model.Role{
+	d := SFTPDecider([]model.Group{
 		{Name: "ro", Paths: []model.PathRule{rule("/srv/v", true, false)}},
 		{Name: "rw", Paths: []model.PathRule{rule("/srv/v", true, true)}},
 	})

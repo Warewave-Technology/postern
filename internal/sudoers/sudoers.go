@@ -97,7 +97,7 @@ type Command struct {
 	 *
 	 * ⚠️ KOMUT BAŞINA, ÇÜNKÜ SUDOERS BÖYLE YAZILABİLİYOR. Kural başına
 	 * tek bir hesap, "nginx'i root olarak sına, pg_ctl'i postgres olarak
-	 * yeniden yükle" diyen bir role iki ayrı kural yazdırıyordu — ve
+	 * yeniden yükle" diyen bir gruba iki ayrı kural yazdırıyordu — ve
 	 * hedefte bir grubun tek sudoers dosyası olduğu için o iki kural tek
 	 * dosyada birleşmek zorunda. sudoers'ın kendi sözdizimi bunu zaten
 	 * taşıyor: "(root) NOPASSWD: /a, (postgres) NOPASSWD: /b".

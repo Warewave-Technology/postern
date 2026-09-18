@@ -57,7 +57,7 @@ func TestAdminGroupWithoutDirectory(t *testing.T) {
 	_, apiURL, _, db := oobBastionFresh(t)
 	ctx := context.Background()
 
-	seedRole(t, db)
+	seedGroup(t, db)
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
 	browserSignIn(t, client, apiURL)
@@ -124,7 +124,7 @@ func TestUnpreviewableGroupDoesNotDemoteAnyoneNow(t *testing.T) {
 	_, apiURL, _, db := oobBastionFresh(t)
 	ctx := context.Background()
 
-	seedRole(t, db)
+	seedGroup(t, db)
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
 	browserSignIn(t, client, apiURL)

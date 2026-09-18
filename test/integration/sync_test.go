@@ -56,14 +56,15 @@ func newSyncFixture(t *testing.T) *syncFixture {
 
 	// Roller ve eşlemeler: sysadmins → ops, dbteam → dba, hr → hr
 	for _, r := range []string{"ops", "dba", "hr"} {
-		if _, err := db.CreateRole(ctx, r); err != nil {
+		if _, err := db.CreateGroup(ctx, r); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for group, role := range map[string]string{
+	// Soldaki dizinin grubu, sağdaki postern'in grubu.
+	for directoryGroup, group := range map[string]string{
 		"sysadmins": "ops", "dbteam": "dba", "hr": "hr",
 	} {
-		if err := db.AddGroupMapping(ctx, group, role, "test"); err != nil {
+		if err := db.AddGroupMapping(ctx, directoryGroup, group, "test"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -85,7 +86,7 @@ func (f *syncFixture) provision(t *testing.T, username, email string, groups []s
 		AutoCreate: true,
 		Username:   username, Email: email, Groups: groups,
 		// Bu yardımcı "dizin cevap verdi" hâlini kuruyor: senkron
-		// testlerinin başlangıç durumu, rolleri gerçekten olan bir
+		// testlerinin başlangıç durumu, grupları gerçekten olan bir
 		// kullanıcı.
 		GroupsResolved: true,
 		// Kimlik (issuer, subject) ile bağlanıyor; username tek başına
@@ -135,13 +136,13 @@ func (f *syncFixture) rolesOf(t *testing.T, username string) []string {
 		t.Fatalf("User(%s): %v", username, err)
 	}
 	var out []string
-	for _, r := range u.Roles {
+	for _, r := range u.Groups {
 		out = append(out, r.Name)
 	}
 	return out
 }
 
-// Dizinde OLMAYAN kullanıcının SSO rolleri iptal edilmeli; dizinde olanın
+// Dizinde OLMAYAN kullanıcının SSO grupları iptal edilmeli; dizinde olanın
 // rollerine dokunulmamalı.
 func TestSyncRevokesUsersRemovedFromDirectory(t *testing.T) {
 	f := newSyncFixture(t)
@@ -154,7 +155,7 @@ func TestSyncRevokesUsersRemovedFromDirectory(t *testing.T) {
 	f.provision(t, "ayrilan.kisi", "ayrilan@warewave.io", []string{"sysadmins"})
 
 	if got := f.rolesOf(t, "ayrilan.kisi"); len(got) == 0 {
-		t.Fatal("tohumlama başarısız: ayrılan kişinin başlangıçta rolü olmalıydı")
+		t.Fatal("tohumlama başarısız: ayrılan kişinin başlangıçta grubu olmalıydı")
 	}
 
 	rep := f.runTwice(t, f.source, false)
@@ -163,13 +164,13 @@ func TestSyncRevokesUsersRemovedFromDirectory(t *testing.T) {
 	}
 
 	if got := f.rolesOf(t, "ayrilan.kisi"); len(got) != 0 {
-		t.Errorf("dizinde olmayan kullanıcının rolleri duruyor: %v", got)
+		t.Errorf("dizinde olmayan kullanıcının grupları duruyor: %v", got)
 	}
 	if got := f.rolesOf(t, "yigit.basalma"); len(got) != 2 {
-		t.Errorf("dizindeki kullanıcının rolleri = %v, 2 tane bekleniyordu", got)
+		t.Errorf("dizindeki kullanıcının grupları = %v, 2 tane bekleniyordu", got)
 	}
 	if got := f.rolesOf(t, "ayse.yilmaz"); len(got) != 1 {
-		t.Errorf("dizindeki kullanıcının rolleri = %v, 1 tane bekleniyordu", got)
+		t.Errorf("dizindeki kullanıcının grupları = %v, 1 tane bekleniyordu", got)
 	}
 
 	// İptal denetim kaydına düşmeli.
@@ -179,7 +180,7 @@ func TestSyncRevokesUsersRemovedFromDirectory(t *testing.T) {
 	}
 	var found bool
 	for _, l := range logs {
-		if l.Action == "role.sync_revoke" && l.Entity == "ayrilan.kisi" && l.Via == "sync" {
+		if l.Action == "group.sync_revoke" && l.Entity == "ayrilan.kisi" && l.Via == "sync" {
 			found = true
 		}
 	}
@@ -226,22 +227,22 @@ func TestSyncRevokesNobodyWhenDirectoryIsDown(t *testing.T) {
 	}
 	for user, want := range before {
 		if got := len(f.rolesOf(t, user)); got != want {
-			t.Errorf("%s: %d rol kaldı, %d bekleniyordu — DİZİN ARIZASI YETKİ SİLDİ",
+			t.Errorf("%s: %d grup kaldı, %d bekleniyordu — DİZİN ARIZASI YETKİ SİLDİ",
 				user, got, want)
 		}
 	}
 	t.Logf("iptal sebebi: %s", rep.Reason)
 }
 
-// Elle verilmiş roller iptalden SONRA da durmalı ve rapor bunu ayrıca
+// Elle verilmiş gruplar iptalden SONRA da durmalı ve rapor bunu ayrıca
 // söylemeli.
-func TestSyncKeepsManualRolesAndReportsThem(t *testing.T) {
+func TestSyncKeepsManualGroupsAndReportsThem(t *testing.T) {
 	f := newSyncFixture(t)
 	ctx := context.Background()
 
 	f.provision(t, "ayrilan.kisi", "ayrilan@warewave.io", []string{"sysadmins"})
-	// Yönetici ELLE bir rol daha vermiş.
-	if err := f.db.AssignRole(ctx, "ayrilan.kisi", "hr", time.Time{}); err != nil {
+	// Yönetici ELLE bir grup daha vermiş.
+	if err := f.db.AssignGroup(ctx, "ayrilan.kisi", "hr", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	f.provision(t, "yigit.basalma", "yigit@warewave.io", []string{"sysadmins"})
@@ -251,9 +252,9 @@ func TestSyncKeepsManualRolesAndReportsThem(t *testing.T) {
 		t.Fatalf("sonuç = %s (%s)", rep.Outcome, rep.Reason)
 	}
 
-	roles := f.rolesOf(t, "ayrilan.kisi")
-	if len(roles) != 1 || roles[0] != "hr" {
-		t.Errorf("roller = %v, elle verilen [hr] durmalıydı", roles)
+	groups := f.rolesOf(t, "ayrilan.kisi")
+	if len(groups) != 1 || groups[0] != "hr" {
+		t.Errorf("gruplar = %v, elle verilen [hr] durmalıydı", groups)
 	}
 
 	var reported bool
@@ -263,7 +264,7 @@ func TestSyncKeepsManualRolesAndReportsThem(t *testing.T) {
 		}
 	}
 	if !reported {
-		t.Error("elle verilen rolü duran kullanıcı raporda yok — " +
+		t.Error("elle verilen grubu duran kullanıcı raporda yok — " +
 			"operatör 'iptal edildi' okuyup erişimin bittiğini sanar")
 	}
 }
@@ -297,7 +298,7 @@ func TestSyncDryRunWritesNothing(t *testing.T) {
 		t.Error("kuru koşu iptal edilecekleri saymadı — raporu işe yaramaz")
 	}
 	if got := len(f.rolesOf(t, "ayrilan.kisi")); got != before {
-		t.Errorf("kuru koşu rolleri DEĞİŞTİRDİ: %d → %d", before, got)
+		t.Errorf("kuru koşu grupları DEĞİŞTİRDİ: %d → %d", before, got)
 	}
 }
 

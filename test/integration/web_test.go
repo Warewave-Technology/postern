@@ -230,7 +230,7 @@ func TestOwnTargetDetailHidesTargetsYouCannotReach(t *testing.T) {
 	_, apiURL, _, db := oobBastionFresh(t)
 	ctx := context.Background()
 
-	if _, err := db.CreateRole(ctx, "ops"); err != nil {
+	if _, err := db.CreateGroup(ctx, "ops"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.GrantTarget(ctx, "ops", "web01"); err != nil {
@@ -286,7 +286,7 @@ func TestOwnTargetDetailShowsOnlyYourOwnSessions(t *testing.T) {
 	_, apiURL, _, db := oobBastionFresh(t)
 	ctx := context.Background()
 
-	if _, err := db.CreateRole(ctx, "ops"); err != nil {
+	if _, err := db.CreateGroup(ctx, "ops"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.GrantTarget(ctx, "ops", "web01"); err != nil {
@@ -329,7 +329,7 @@ func TestOwnTargetDetailShowsOnlyThisTargetsSessions(t *testing.T) {
 	_, apiURL, _, db := oobBastionFresh(t)
 	ctx := context.Background()
 
-	if _, err := db.CreateRole(ctx, "ops"); err != nil {
+	if _, err := db.CreateGroup(ctx, "ops"); err != nil {
 		t.Fatal(err)
 	}
 	for _, tn := range []string{"web01"} {

@@ -33,7 +33,7 @@ func (s *Server) adminListPending(w http.ResponseWriter, r *http.Request) {
 /*
  * adminApprovePending, hesabı açar.
  *
- * ⚠️ ROL VERMİYOR ve arayüz bunu söylemek zorunda: roller kişinin bir
+ * ⚠️ ROL VERMİYOR ve arayüz bunu söylemek zorunda: gruplar kişinin bir
  * sonraki girişinde canlı kaynaktan çözülüyor. Onay ekranındaki grup
  * listesi "ne görüldüğü"nü gösteriyor, bir yetki kaydı değil.
  */
@@ -62,9 +62,9 @@ func (s *Server) adminApprovePending(w http.ResponseWriter, r *http.Request) {
 		"ok":       true,
 		"username": p.Username,
 		// Yetkinin nereden geleceğini açıkça söylüyoruz: hesap açıldı
-		// ama rolleri henüz yok.
-		"note": "the account exists; its roles are resolved from the source " +
-			"at their next sign-in, and any manual role you add stays",
+		// ama grupları henüz yok.
+		"note": "the account exists; its groups are resolved from the source " +
+			"at their next sign-in, and any manual group you add stays",
 	})
 }
 

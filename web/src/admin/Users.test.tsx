@@ -8,7 +8,7 @@ const user = (over: Partial<User> = {}): User => ({
   name: "suheda",
   os_user: "suheda",
   admin: false,
-  roles: [],
+  groups: [],
   keys: 0,
   state: "active",
   ...over,
@@ -20,7 +20,7 @@ beforeEach(() => {
     "confirm",
     vi.fn((_m?: string) => true),
   );
-  vi.spyOn(api, "roles").mockResolvedValue([]);
+  vi.spyOn(api, "groups").mockResolvedValue([]);
   // <dialog> yaması ortak kurulumda (src/test/setup.ts).
 });
 

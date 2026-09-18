@@ -4,7 +4,7 @@ package httpapi
  * Rolün sudo kuralı: panelden okumak, yazmak, kaldırmak.
  *
  * ⚠️ KURAL ROLÜN, HAKKIN DEĞİL. Hak başına kural /api/admin/.../grants
- * gövdesinde gidiyor ve hedefte hesabın dosyasına yazılıyor; burası rolün
+ * gövdesinde gidiyor ve hedefte hesabın dosyasına yazılıyor; burası grubun
  * grubuna yazılan kural. İkisi aynı sudoers.Rule biçimini taşıyor, bu
  * yüzden panel tek bir yazım kutusu ve tek bir onay kutusu kullanabiliyor.
  */
@@ -19,13 +19,13 @@ import (
 	"github.com/Warewave-Technology/postern/internal/sudoers"
 )
 
-func (s *Server) registerRoleSudoRoutes(mux *http.ServeMux) {
+func (s *Server) registerGroupSudoRoutes(mux *http.ServeMux) {
 	admin := func(h http.HandlerFunc) http.Handler {
 		return noStore(s.requireSession(s.requireAdmin(s.sameOrigin(h))))
 	}
-	mux.Handle("GET /api/admin/roles/{name}/sudo", admin(s.adminRoleSudo))
-	mux.Handle("PUT /api/admin/roles/{name}/sudo", admin(s.adminSetRoleSudo))
-	mux.Handle("DELETE /api/admin/roles/{name}/sudo", admin(s.adminDeleteRoleSudo))
+	mux.Handle("GET /api/admin/groups/{name}/sudo", admin(s.adminGroupSudo))
+	mux.Handle("PUT /api/admin/groups/{name}/sudo", admin(s.adminSetGroupSudo))
+	mux.Handle("DELETE /api/admin/groups/{name}/sudo", admin(s.adminDeleteGroupSudo))
 }
 
 /*
@@ -33,7 +33,7 @@ func (s *Server) registerRoleSudoRoutes(mux *http.ServeMux) {
  *
  * ⚠️ HESAP KOMUT BAŞINA. sudoers bunu taşıyor ve kural başına tek hesap,
  * "nginx'i root olarak sına, pg_ctl'i postgres olarak yeniden yükle"
- * diyen bir role iki ayrı kural yazdırırdı — oysa hedefte bir grubun tek
+ * diyen bir gruba iki ayrı kural yazdırırdı — oysa hedefte bir grubun tek
  * sudoers dosyası var. RunAs boş gitmiyor: ekran "root" yazabilsin diye
  * etkin değer hesaplanmış hâlde geliyor.
  */
@@ -60,7 +60,7 @@ type sudoRuleView struct {
 	UpdatedAt    time.Time         `json:"updated_at"`
 }
 
-func sudoView(rs store.RoleSudo) sudoRuleView {
+func sudoView(rs store.GroupSudo) sudoRuleView {
 	out := sudoRuleView{
 		Acknowledged: rs.Rule.Acknowledged,
 		UpdatedBy:    rs.UpdatedBy, UpdatedAt: rs.UpdatedAt,
@@ -112,24 +112,24 @@ func (in sudoRuleInput) rule() sudoers.Rule {
 	return r
 }
 
-// adminRoleSudo: GET /api/admin/roles/{name}/sudo
-func (s *Server) adminRoleSudo(w http.ResponseWriter, r *http.Request) {
-	rs, err := s.store.RoleSudoRule(r.Context(), r.PathValue("name"))
+// adminGroupSudo: GET /api/admin/groups/{name}/sudo
+func (s *Server) adminGroupSudo(w http.ResponseWriter, r *http.Request) {
+	rs, err := s.store.GroupSudoRule(r.Context(), r.PathValue("name"))
 	if err != nil {
-		s.storeErr(w, "role.sudo", err)
+		s.storeErr(w, "group.sudo", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, sudoView(rs))
 }
 
 /*
- * adminSetRoleSudo: PUT /api/admin/roles/{name}/sudo
+ * adminSetGroupSudo: PUT /api/admin/groups/{name}/sudo
  *
  * ⚠️ RET METNİ OLDUĞU GİBİ GİDİYOR. Kaçış riski taşıyan bir kural 422 ile
  * dönüyor ve sebebi (hangi komut, neden) cevabın içinde: operatör onay
  * kutusunu bilerek işaretleyecekse neyi onayladığını görmek zorunda.
  */
-func (s *Server) adminSetRoleSudo(w http.ResponseWriter, r *http.Request) {
+func (s *Server) adminSetGroupSudo(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	var in sudoRuleInput
 	if !readJSON(w, r, &in) {
@@ -154,37 +154,37 @@ func (s *Server) adminSetRoleSudo(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if err := s.store.SetRoleSudo(r.Context(), name, rule, sessionUser(r)); err != nil {
+	if err := s.store.SetGroupSudo(r.Context(), name, rule, sessionUser(r)); err != nil {
 		if errors.Is(err, store.ErrInvalid) {
 			writeErr(w, http.StatusUnprocessableEntity, err.Error())
 			return
 		}
-		s.storeErr(w, "role.sudo_set", err)
+		s.storeErr(w, "group.sudo_set", err)
 		return
 	}
 	detail := describeRule(rule)
 	if rule.Acknowledged {
 		detail += "; acknowledged as a way out to a root shell"
 	}
-	s.audit(r, "role.sudo_set", name, detail)
+	s.audit(r, "group.sudo_set", name, detail)
 	ok(w)
 }
 
 /*
- * adminDeleteRoleSudo: DELETE /api/admin/roles/{name}/sudo
+ * adminDeleteGroupSudo: DELETE /api/admin/groups/{name}/sudo
  *
  * ⚠️ HEDEFTEKİ DOSYA BUNUNLA GİTMİYOR ve cevap bunu söylüyor. Kural
- * postern'de siliniyor; makinelerdeki /etc/sudoers.d/postern-<rol>
+ * postern'de siliniyor; makinelerdeki /etc/sudoers.d/postern-<grup>
  * postern o hedefe bir daha dokunana kadar duruyor. "Sildim" diyen ama
  * yetkiyi kaldırmayan bir ekran, olmayan bir korumaya güvendirir.
  */
-func (s *Server) adminDeleteRoleSudo(w http.ResponseWriter, r *http.Request) {
+func (s *Server) adminDeleteGroupSudo(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	if err := s.store.DeleteRoleSudo(r.Context(), name); err != nil {
-		s.storeErr(w, "role.sudo_delete", err)
+	if err := s.store.DeleteGroupSudo(r.Context(), name); err != nil {
+		s.storeErr(w, "group.sudo_delete", err)
 		return
 	}
-	s.audit(r, "role.sudo_delete", name,
+	s.audit(r, "group.sudo_delete", name,
 		"the rule is gone from postern; the file on hosts is replaced the next time postern touches them")
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true,

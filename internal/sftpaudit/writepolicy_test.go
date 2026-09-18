@@ -43,11 +43,11 @@ func openThenWrite(t *testing.T, flags uint32, d Decider) (*Session, []Denial) {
 /*
  * ⚠️ POLİTİKA YAZMAYI YOLA GÖRE REDDEDEBİLMELİ.
  *
- * can_write bir söz: "bu rol bu ağaca yazabilir". Yazma isteği politikaya
+ * can_write bir söz: "bu grup bu ağaca yazabilir". Yazma isteği politikaya
  * hiç sorulmuyorsa o söz ölü harf olur ve geriye yalnızca hedefin dosya
  * izinleri kalır — postern'in koyduğu kural değil, hedefin koyduğu.
  */
-func TestWriteIsRefusedWhenThePathIsReadOnlyForTheRole(t *testing.T) {
+func TestWriteIsRefusedWhenThePathIsReadOnlyForTheGroup(t *testing.T) {
 	var sawWrite bool
 	var sawPath string
 	readOnlyPath := func(r Request) (bool, string) {

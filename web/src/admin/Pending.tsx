@@ -108,7 +108,7 @@ export default function Pending() {
                 label={`approve ${p.username}`}
                 confirm={
                   `Create an account for ${p.username}?\n\n` +
-                  `They get no roles from this: roles are read from the source ` +
+                  `They get no groups from this: groups are read from the source ` +
                   `at their next sign-in.`
                 }
                 onClick={() =>
@@ -189,7 +189,7 @@ export default function Pending() {
           <p className="page-sub">
             People the source authenticated who have no account here yet. They
             were told their account is waiting. Approving creates the account
-            and binds it to their identity — <b>it grants no roles</b>; those
+            and binds it to their identity — <b>it grants no groups</b>; those
             are read from the source when they next sign in.
           </p>
         </div>

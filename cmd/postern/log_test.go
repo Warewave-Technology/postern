@@ -36,7 +36,7 @@ func TestLogShowsWhoDidWhat(t *testing.T) {
 	e := newEnv(t)
 	seedLog(t, e,
 		store.AdminLogEntry{Actor: "yigit", Via: "cli", Action: "user.grant_role",
-			Entity: "suheda", Details: "role ops"},
+			Entity: "suheda", Details: "group ops"},
 		store.AdminLogEntry{Actor: "admin", Via: "web", Action: "session.terminate",
 			Entity: "abc123", Details: "suheda on web01"},
 	)
@@ -91,7 +91,7 @@ func TestLogActionFilterIsAPrefix(t *testing.T) {
 	seedLog(t, e,
 		store.AdminLogEntry{Actor: "a", Via: "cli", Action: "user.grant_role", Entity: "x"},
 		store.AdminLogEntry{Actor: "a", Via: "cli", Action: "user.revoke_role", Entity: "x"},
-		store.AdminLogEntry{Actor: "a", Via: "cli", Action: "role.revoke", Entity: "y"},
+		store.AdminLogEntry{Actor: "a", Via: "cli", Action: "group.revoke", Entity: "y"},
 	)
 
 	out, err := e.run(t, newRootCmd(), "log", "--action", "user.")
@@ -101,7 +101,7 @@ func TestLogActionFilterIsAPrefix(t *testing.T) {
 	if !strings.Contains(out, "user.grant_role") || !strings.Contains(out, "user.revoke_role") {
 		t.Errorf("aile getirilmedi:\n%s", out)
 	}
-	if strings.Contains(out, "role.revoke") {
+	if strings.Contains(out, "group.revoke") {
 		t.Errorf("önek dışı satır geldi:\n%s", out)
 	}
 }

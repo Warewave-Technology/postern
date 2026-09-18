@@ -18,20 +18,20 @@ import (
  *
  * ⚠️ ÖNİZLEME VARSAYILAN, YAZMA AÇIK İSTEK.
  *
- * Bu komut rol yaratıp hedef ekliyor; yani envanterin şeklini
+ * Bu komut grup yaratıp hedef ekliyor; yani envanterin şeklini
  * değiştiriyor. Bir keşif taraması insanın gözünden geçmeden
- * yazmamalı: etiketi yanlış yazılmış tek bir makine, adı yanlış bir rol
- * yaratır ve o rol bir daha kimsenin bakmadığı bir yerde durur.
+ * yazmamalı: etiketi yanlış yazılmış tek bir makine, adı yanlış bir grup
+ * yaratır ve o grup bir daha kimsenin bakmadığı bir yerde durur.
  * `--apply` yazmak, gördüğünü onaylamak demek.
  *
- * ⚠️ KEŞİF ERİŞİM VERMİYOR. Hedef ve rol yaratıyor, rolü İNSANA
- * bağlamıyor. Erişim yalnızca kullanıcı→rol atamasından geliyor ve o
+ * ⚠️ KEŞİF ERİŞİM VERMİYOR. Hedef ve grup yaratıyor, grubu İNSANA
+ * bağlamıyor. Erişim yalnızca kullanıcı→grup atamasından geliyor ve o
  * ayrı, bilinçli bir adım.
  */
 func newDiscoverCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "discover",
-		Short: "Find machines on a virtualisation platform and turn their tags into roles",
+		Short: "Find machines on a virtualisation platform and turn their tags into groups",
 	}
 	cmd.AddCommand(newDiscoverProxmoxCmd())
 	cmd.AddCommand(newDiscoverVSphereCmd())
@@ -50,18 +50,18 @@ func newDiscoverVSphereCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "vsphere",
 		Short: "Discover machines from vCenter",
-		Long: "Reads the inventory, turns a tag category into a role, registers each\n" +
-			"machine as a target and grants it to that role.\n\n" +
+		Long: "Reads the inventory, turns a tag category into a group, registers each\n" +
+			"machine as a target and grants it to that group.\n\n" +
 			"In vSphere a tag really is key/value: the CATEGORY is the key and the\n" +
 			"TAG is the value, so --tag-key names a tag category.\n\n" +
 			"Nothing is written without --apply. A machine with no tag in that\n" +
-			"category lands in the \"" + discover.UnknownRole + "\" role rather than\n" +
+			"category lands in the \"" + discover.UnknownGroup + "\" group rather than\n" +
 			"being dropped.\n\n" +
 			"Needs vCenter 7.0 U2 or newer.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(tagKey) == "" {
-				return errors.New("--tag-key is required: it names the tag category that carries the role")
+				return errors.New("--tag-key is required: it names the tag category that carries the group")
 			}
 			// ⚠️ Parola ortam değişkeninden de okunuyor: komut satırına
 			// yazılan bir parola `ps` ile görülebilir ve kabuk geçmişine
@@ -89,7 +89,7 @@ func newDiscoverVSphereCmd() *cobra.Command {
 				fmt.Fprintln(out,
 					"WARNING: --insecure skips TLS verification of vCenter. Anyone able "+
 						"to sit between you and it can decide which machine lands in which "+
-						"role, and can read the session id. Use --ca-file instead.")
+						"group, and can read the session id. Use --ca-file instead.")
 			}
 
 			machines, err := src.Machines(ctx)
@@ -119,7 +119,7 @@ func newDiscoverVSphereCmd() *cobra.Command {
 		"vCenter password; prefer the POSTERN_VSPHERE_PASSWORD environment variable")
 	cmd.Flags().StringVar(&caFile, "ca-file", "", "root certificate that verifies vCenter")
 	cmd.Flags().BoolVar(&insecure, "insecure", false, "skip TLS verification (not recommended)")
-	cmd.Flags().StringVar(&tagKey, "tag-key", "", "tag CATEGORY that carries the role, e.g. role (required)")
+	cmd.Flags().StringVar(&tagKey, "tag-key", "", "tag CATEGORY that carries the group, e.g. group (required)")
 	cmd.Flags().IntVar(&port, "port", 22, "SSH port on the discovered targets")
 	cmd.Flags().BoolVar(&apply, "apply", false, "actually write the changes (default: preview only)")
 	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "timeout for API requests")
@@ -138,19 +138,19 @@ func newDiscoverProxmoxCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "proxmox",
 		Short: "Discover machines from Proxmox VE",
-		Long: "Reads the cluster inventory, turns a tag into a role, registers each\n" +
-			"machine as a target and grants it to that role.\n\n" +
+		Long: "Reads the cluster inventory, turns a tag into a group, registers each\n" +
+			"machine as a target and grants it to that group.\n\n" +
 			"TAGS: Proxmox tags are plain strings and its character set is narrow —\n" +
-			"[a-z0-9_.+-], so a tag cannot contain = or :. Write the role as\n" +
-			"  <key>_<role>      e.g. role-name_os-admins  with --tag-key role-name\n" +
-			"Everything after the first \"<key>_\" is the role, so underscores inside\n" +
+			"[a-z0-9_.+-], so a tag cannot contain = or :. Write the group as\n" +
+			"  <key>_<group>      e.g. group-name_os-admins  with --tag-key group-name\n" +
+			"Everything after the first \"<key>_\" is the group, so underscores inside\n" +
 			"either half are fine.\n\n" +
 			"Nothing is written without --apply. A machine whose tag does not name a\n" +
-			"role lands in the \"" + discover.UnknownRole + "\" role rather than being dropped.",
+			"group lands in the \"" + discover.UnknownGroup + "\" group rather than being dropped.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(tagKey) == "" {
-				return errors.New("--tag-key is required: it names the tag that carries the role")
+				return errors.New("--tag-key is required: it names the tag that carries the group")
 			}
 			/*
 			 * ⚠️ SIR ORTAM DEĞİŞKENİNDEN DE OKUNUYOR.
@@ -186,11 +186,11 @@ func newDiscoverProxmoxCmd() *cobra.Command {
 			out := cmd.OutOrStdout()
 			if insecure {
 				// ⚠️ Uyarı ÇIKTIYA: araya giren biri hangi makinenin
-				// hangi role gideceğini yazabilir.
+				// hangi group gideceğini yazabilir.
 				fmt.Fprintln(out,
 					"WARNING: --insecure skips TLS verification of the hypervisor. "+
 						"Anyone able to sit between you and it can decide which machine "+
-						"lands in which role. Use --ca-file instead.")
+						"lands in which group. Use --ca-file instead.")
 			}
 
 			machines, err := src.Machines(ctx)
@@ -222,7 +222,7 @@ func newDiscoverProxmoxCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&insecure, "insecure", false, "skip TLS verification (not recommended)")
 	cmd.Flags().StringVar(&node, "node", "", "only this node")
 	cmd.Flags().StringVar(&tagKey, "tag-key", "",
-		"tag key that carries the role; tags look like <key>_<role>, e.g. role-name (required)")
+		"tag key that carries the group; tags look like <key>_<group>, e.g. group-name (required)")
 	cmd.Flags().IntVar(&port, "port", 22, "SSH port on the discovered targets")
 	cmd.Flags().BoolVar(&apply, "apply", false, "actually write the changes (default: preview only)")
 	cmd.Flags().DurationVar(&timeout, "timeout", 20*time.Second, "timeout for API requests")
@@ -247,7 +247,7 @@ func printDiscovery(cmd *cobra.Command, res []discover.Outcome, apply bool, tagK
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "MACHINE\tADDRESS\tROLE\tFROM\tRESULT")
 
-	var created, granted, skipped, roles, tagged int
+	var created, granted, skipped, groups, tagged int
 	for _, o := range res {
 		addr := o.Machine.Host
 		if addr == "" {
@@ -266,10 +266,10 @@ func printDiscovery(cmd *cobra.Command, res []discover.Outcome, apply bool, tagK
 		result := "would add"
 		switch {
 		case o.KeyUnchecked != "":
-			// Kayıtlı hedef, rol bağı yenilendi ama anahtar bu turda
+			// Kayıtlı hedef, grup bağı yenilendi ama anahtar bu turda
 			// doğrulanamadı. "already registered" demek, kontrol
 			// edilmiş gibi göstermek olurdu.
-			result = "role granted; " + o.KeyUnchecked
+			result = "group granted; " + o.KeyUnchecked
 		case o.Skipped != "":
 			result = "SKIPPED: " + o.Skipped
 			skipped++
@@ -277,17 +277,17 @@ func printDiscovery(cmd *cobra.Command, res []discover.Outcome, apply bool, tagK
 			result = "added"
 			created++
 		case apply && o.Existing:
-			result = "already registered; role granted"
+			result = "already registered; group granted"
 		case o.Existing:
 			result = "already registered"
 		}
-		if o.CreatedRole {
-			roles++
+		if o.CreatedGroup {
+			groups++
 		}
 		if o.Granted {
 			granted++
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", o.Machine.Name, addr, o.Role, from, result)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", o.Machine.Name, addr, o.Group, from, result)
 	}
 	_ = w.Flush()
 
@@ -311,7 +311,7 @@ func printDiscovery(cmd *cobra.Command, res []discover.Outcome, apply bool, tagK
 		fmt.Fprintf(out, "\nWARNING: not one machine carried a %q tag.\n", tagKey)
 		if seen := sampleTags(res); len(seen) > 0 {
 			fmt.Fprintf(out, "The tags actually seen were: %s\n", strings.Join(seen, ", "))
-			fmt.Fprintf(out, "A tag is read as \"<key><separator><role>\", where the "+
+			fmt.Fprintf(out, "A tag is read as \"<key><separator><group>\", where the "+
 				"separator is _ = or : — so %q would need --tag-key %q.\n",
 				seen[0], tagKeyOf(seen[0]))
 		} else {
@@ -326,17 +326,17 @@ func printDiscovery(cmd *cobra.Command, res []discover.Outcome, apply bool, tagK
 		 * başlayacağını bilmez.
 		 */
 		fmt.Fprintf(out, "Nothing was written. Re-run with --apply to create "+
-			"the roles and targets above.\n")
+			"the groups and targets above.\n")
 		return nil
 	}
-	fmt.Fprintf(out, "Created %d target(s) and %d role(s); granted %d.\n",
-		created, roles, granted)
-	fmt.Fprintf(out, "\nThese roles hold targets but no people yet: access comes from "+
-		"assigning a role to a user, which discovery deliberately does not do.\n")
-	fmt.Fprintf(out, "Machines with no \"%s\" tag are in the %q role.\n",
-		tagKey, discover.UnknownRole)
+	fmt.Fprintf(out, "Created %d target(s) and %d group(s); granted %d.\n",
+		created, groups, granted)
+	fmt.Fprintf(out, "\nThese groups hold targets but no people yet: access comes from "+
+		"assigning a group to a user, which discovery deliberately does not do.\n")
+	fmt.Fprintf(out, "Machines with no \"%s\" tag are in the %q group.\n",
+		tagKey, discover.UnknownGroup)
 
-	if len(res) > 0 && created == 0 && granted == 0 && roles == 0 {
+	if len(res) > 0 && created == 0 && granted == 0 && groups == 0 {
 		return fmt.Errorf("nothing was written: all %d machine(s) were skipped", len(res))
 	}
 	return nil

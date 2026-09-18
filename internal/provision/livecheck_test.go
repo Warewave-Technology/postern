@@ -89,7 +89,7 @@ func liveRunner(t *testing.T) *SSHRunner {
 		if errors.Is(err, upstream.ErrRefused) {
 			t.Fatalf("hedef yönetim sertifikasını reddetti: %v\n\n"+
 				"İki olası sebep: (1) hedefin /etc/ssh/postern_ca.pub dosyası yukarıda "+
-				"yazan CA DEĞİL — rolü bu CA'nın açık anahtarıyla yeniden koşun; "+
+				"yazan CA DEĞİL — grubu bu CA'nın açık anahtarıyla yeniden koşun; "+
 				"(2) rol postern_manage_host: true ile koşmadı, /etc/ssh/auth_principals/postern "+
 				"yok ya da içinde %q yazmıyor. Yönetim hesabında authorized_keys yok ve "+
 				"olmamalı: oraya anahtar eklemek ürünün kaldırdığı şeyi geri koymak.",

@@ -192,7 +192,7 @@ func TestDiscoverySourceSecretsNeverLeaveTheServer(t *testing.T) {
 	}
 }
 
-// Kayıt ucu: seçili makine hedef oluyor, rolü ve etiketiyle; olmayan rol
+// Kayıt ucu: seçili makine hedef oluyor, grubu ve etiketiyle; olmayan grup
 // 400 ve hiçbir şey yazılmıyor; yok sayma ucu değişen sayısını dönüyor.
 func TestDiscoveredMachinesAreRegisteredThroughTheAPI(t *testing.T) {
 	s, db := discoveryServer(t, true)
@@ -210,25 +210,25 @@ func TestDiscoveredMachinesAreRegisteredThroughTheAPI(t *testing.T) {
 	sshPub, _ := ssh.NewPublicKey(pub)
 	now := time.Now()
 	if err := db.SaveDiscoveredMachine(ctx, store.DiscoveredMachine{
-		SourceID: sid, Ref: "qemu/101", Name: "web-01", Host: "10.0.0.5", Running: true, Role: "web", Tagged: true,
+		SourceID: sid, Ref: "qemu/101", Name: "web-01", Host: "10.0.0.5", Running: true, Group: "web", Tagged: true,
 		HostKey: strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPub))), LastSeen: now,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.CreateRole(ctx, "ops"); err != nil {
+	if _, err := db.CreateGroup(ctx, "ops"); err != nil {
 		t.Fatal(err)
 	}
 
 	refs := `"machines":[{"source_id":"` + sid + `","ref":"qemu/101"}]`
-	w, _ := callDiscovery(t, s, s.adminRegisterDiscovered, http.MethodPost, `{`+refs+`,"roles":["yok"]}`, nil)
+	w, _ := callDiscovery(t, s, s.adminRegisterDiscovered, http.MethodPost, `{`+refs+`,"groups":["yok"]}`, nil)
 	if w.Code != http.StatusBadRequest {
-		t.Fatalf("olmayan rol: %d %s", w.Code, w.Body.String())
+		t.Fatalf("olmayan grup: %d %s", w.Code, w.Body.String())
 	}
 	if _, err := db.Target(ctx, "web-01"); err == nil {
 		t.Fatal("reddedilen istek hedef yazdı")
 	}
 	w, out := callDiscovery(t, s, s.adminRegisterDiscovered, http.MethodPost,
-		`{`+refs+`,"roles":["ops"],"tag_roles":true,"labels":{"env":"prod"}}`, nil)
+		`{`+refs+`,"groups":["ops"],"tag_roles":true,"labels":{"env":"prod"}}`, nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("kayıt: %d %s", w.Code, w.Body.String())
 	}
@@ -246,7 +246,7 @@ func TestDiscoveredMachinesAreRegisteredThroughTheAPI(t *testing.T) {
 	_, out = callDiscovery(t, s, s.adminDiscovery, http.MethodGet, "", nil)
 	machines, _ := out["machines"].([]any)
 	m, _ := machines[0].(map[string]any)
-	if m["target"] != "web-01" || m["fingerprint"] != ssh.FingerprintSHA256(sshPub) || m["role"] != "web" {
+	if m["target"] != "web-01" || m["fingerprint"] != ssh.FingerprintSHA256(sshPub) || m["group"] != "web" {
 		t.Errorf("makine satırı: %v", m)
 	}
 
@@ -262,7 +262,7 @@ func TestDiscoveredMachinesAreRegisteredThroughTheAPI(t *testing.T) {
 
 /*
  * ⚠️ KAPILAR ROTADA: yönetici olmayan 403, çapraz köken 403 — hedef ve
- * rol bağı yazan uçlar için üçü de ölçülüyor. Hizmet bağlı değilse uç
+ * grup bağı yazan uçlar için üçü de ölçülüyor. Hizmet bağlı değilse uç
  * hiç yok.
  */
 func TestDiscoveryEndpointsAreBehindTheAdminAndSameOriginGates(t *testing.T) {

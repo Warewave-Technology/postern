@@ -21,11 +21,11 @@ func postRule(t *testing.T, body string) *httptest.ResponseRecorder {
 
 	s := &Server{}
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/api/admin/roles/ops/paths",
+	req := httptest.NewRequest("POST", "/api/admin/groups/ops/paths",
 		strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("name", "ops")
-	s.adminSetRolePath(rec, req)
+	s.adminSetGroupPath(rec, req)
 
 	return rec
 }
@@ -50,7 +50,7 @@ func TestRelativePrefixIsRefusedWithTheReason(t *testing.T) {
  * ⚠️ RET + YAZMA ÇELİŞKİSİ KAYDEDİLMEDEN DURDURULUYOR.
  *
  * Kaydedilseydi liste "denied, read-write" diye okunacak bir satır
- * gösterirdi ve yöneticiye o rolün yazabildiğini düşündürürdü. Politika
+ * gösterirdi ve yöneticiye o grubun yazabildiğini düşündürürdü. Politika
  * o satırı zaten ret sayar; yani ekranla gerçek ayrışırdı.
  */
 func TestDenialWithWriteIsRefused(t *testing.T) {

@@ -11,7 +11,7 @@ package model
  * sessizce kabul eder.
  *
  * ⚠️ YAPILANDIRILAMAZ. Ansible rolünde değişken olarak duruyorlar ama
- * rol, varsayılandan farklı bir değeri REDDEDİYOR. Operatörün adı
+ * grup, varsayılandan farklı bir değeri REDDEDİYOR. Operatörün adı
  * değiştirebildiği bir kurulumda ikili eski adı reddetmeye devam eder,
  * yeni adı ise sıradan bir hesap sanardı.
  */

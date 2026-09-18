@@ -27,9 +27,9 @@ func TestCaseInsensitive(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CreateTarget: %v", err)
 	}
-	_, err := s.CreateRole(ctx, "ops")
+	_, err := s.CreateGroup(ctx, "ops")
 	if err != nil {
-		t.Fatalf("CreateRole: %v", err)
+		t.Fatalf("CreateGroup: %v", err)
 	}
 	if _, err := s.CreateUser(ctx, "ali.veli", "ali@example.com", "ali.veli"); err != nil {
 		t.Fatalf("CreateUser: %v", err)
@@ -79,12 +79,12 @@ func TestCaseInsensitive(t *testing.T) {
 			t.Fatalf("AddGroupMapping: %v", err)
 		}
 
-		roles, unmapped, err := s.RolesForGroups(ctx, []string{"DOMAIN ADMINS"})
+		groups, unmapped, err := s.GroupsForDirectoryGroups(ctx, []string{"DOMAIN ADMINS"})
 		if err != nil {
-			t.Fatalf("RolesForGroups: %v", err)
+			t.Fatalf("GroupsForDirectoryGroups: %v", err)
 		}
-		if len(roles) != 1 || roles[0] != "ops" {
-			t.Errorf("roller = %v, [ops] bekleniyordu (eşleme harf duyarlı kalmış)", roles)
+		if len(groups) != 1 || groups[0] != "ops" {
+			t.Errorf("gruplar = %v, [ops] bekleniyordu (eşleme harf duyarlı kalmış)", groups)
 		}
 		if len(unmapped) != 0 {
 			t.Errorf("eşleşmeyen = %v, boş bekleniyordu", unmapped)
