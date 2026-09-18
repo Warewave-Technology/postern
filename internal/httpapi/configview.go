@@ -79,6 +79,8 @@ var shownConfig = map[string]string{
 	"target_probe.timeout":                     "how long one probe may take",
 	"manage.enabled":                           "management access to targets (temporary accounts)",
 	"manage.propagate_accounts":                "creating and adopting OS accounts on targets as people connect",
+	"manage.uid_pool_min":                      "lowest number postern hands out when the directory gives none",
+	"manage.uid_pool_max":                      "highest number postern hands out when the directory gives none",
 	"secret_key_file":                          "the key sealed secrets are encrypted with",
 	"recording.dir":                            "where session recordings are written",
 	"recording.record_input":                   "recording what users type, not just what they see",

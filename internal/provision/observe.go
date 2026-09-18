@@ -47,6 +47,7 @@ func Observe(ctx context.Context, r Runner, d Desired) (Observed, error) {
 	o := Observed{
 		Groups: map[string]bool{}, GIDs: map[string]int{}, Users: map[string][]string{},
 		PosternSudoers: map[string]string{}, Principals: map[string]string{},
+		UIDOwner: map[int]string{},
 	}
 
 	groups := append([]Group(nil), d.Groups...)
@@ -96,6 +97,21 @@ func Observe(ctx context.Context, r Runner, d Desired) (Observed, error) {
 		}
 		if !gone {
 			o.Users[u.Name] = strings.Fields(strings.TrimSpace(out))
+		}
+		/*
+		 * ⚠️ YALNIZCA AÇILACAK HESAP İÇİN SORULUYOR. Var olan bir hesabın
+		 * numarası zaten değiştirilmiyor (dosyaları o numarayla duruyor);
+		 * soru yalnızca "bu numarayı vererek açabilir miyim" olduğunda
+		 * anlamlı ve sıcak yolda her fazladan komut bir gecikme.
+		 */
+		if gone && u.UID > 0 {
+			owner, err := uidOwner(ctx, r, u.UID)
+			if err != nil {
+				return Observed{}, fmt.Errorf("provision.Observe: uid %d: %w", u.UID, err)
+			}
+			if owner != "" {
+				o.UIDOwner[u.UID] = owner
+			}
 		}
 		if u.Sudo != nil {
 			if err := readSudoFile(ctx, r, UserSudoPath(u.Name), o); err != nil {
@@ -333,4 +349,29 @@ func Account(ctx context.Context, r Runner, name string) (AccountFacts, error) {
 		Exists: true, UID: uid, Home: fields[5],
 		Groups: strings.Fields(strings.TrimSpace(groups)),
 	}, nil
+}
+
+/*
+ * uidOwner, numarayı hedefte kimin tuttuğunu söyler; boş dönüş "boş"
+ * demek.
+ *
+ * ⚠️ CEVAPSIZLIK "BOŞ" DEĞİL. absent yalnızca hedefin sıfırdan farklı
+ * çıkış kodunu boş sayıyor; ulaşılamayan bir getent boş görünseydi plan
+ * dolu bir numarayı zorlar ve başkasının dosyalarını devrederdi.
+ */
+func uidOwner(ctx context.Context, r Runner, uid int) (string, error) {
+	out, err := r.Exec(ctx, "getent passwd "+strconv.Itoa(uid), "")
+	free, err := absent(err)
+	if err != nil {
+		return "", err
+	}
+	if free {
+		return "", nil
+	}
+	name, _, _ := strings.Cut(strings.TrimSpace(out), ":")
+	if name == "" {
+		return "", fmt.Errorf("unexpected passwd entry %q", out)
+	}
+
+	return name, nil
 }

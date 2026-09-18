@@ -69,6 +69,16 @@ failure to prepare an account **never refuses the session** — a host
 postern cannot manage behaves exactly as it does today, and the reason
 travels in the dial error instead of a log on the far machine.
 
+Everyone carries one number. If your directory publishes `uidNumber`,
+postern uses it; otherwise it takes the lowest free number from
+`manage.uid_pool_min`–`manage.uid_pool_max` (60000–64999 by default, above
+the range a distribution's own `useradd` uses and below `nobody`) and keeps
+it for that person on every machine. A number that is already taken on a
+target is **never forced**: the account is created with the target's own
+number and the clash is written to the audit log with the name of whoever
+holds it, because forcing it would hand that account's home, logs and keys
+to the new person.
+
 Run `postern db migrate` before starting this version.
 
 ### Needs action if you call the API or use the CLI

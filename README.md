@@ -546,6 +546,13 @@ manage:
   # It cannot be set without `enabled`, and postern refuses to start on
   # that combination rather than leaving you to find out later.
   propagate_accounts: true
+
+  # The range postern hands numbers out of when your directory does not
+  # publish one. Above the range a distribution's own useradd uses, below
+  # nobody (65534) — a number at or past that one is mapped to "nobody" by
+  # some NFS servers and container runtimes.
+  uid_pool_min: 60000
+  uid_pool_max: 64999
 ```
 
 ### Accounts, when postern owns them
@@ -563,6 +570,22 @@ group membership and the principals entry. That is how this slides under a
 fleet whose accounts came from Ansible — and postern records which of the
 two happened, because a deletion has to be able to say whether the account
 was postern's to begin with.
+
+**Everyone carries one number, fleet-wide.** If your directory publishes
+`uidNumber`, that is the number postern uses; otherwise it takes the lowest
+free one from `uid_pool_min`–`uid_pool_max` and keeps it for that person
+forever. Letting each host pick its own is simpler and wrong the moment
+anything is shared: the same person is 1003 on one machine and 1007 on
+another, so a file on an NFS mount or restored from a backup shows the
+wrong owner — or somebody else's name.
+
+postern never forces a number onto a machine. If the number is already
+taken there by another account, the account is created with the target's
+own number instead and the clash is written to the audit log, naming who
+holds it. Forcing it would hand that account's home, logs and keys to the
+new person, and one machine where somebody's number is different is a much
+smaller problem than that. An adopted account keeps the number it already
+had, for the same reason: its files are owned by it.
 
 Sessions are never refused because of this. If a host cannot be managed,
 provisioning is skipped and the session is attempted exactly as before; if

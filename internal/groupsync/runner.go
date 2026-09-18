@@ -204,6 +204,8 @@ func (r *Runner) run(ctx context.Context, runID int64, dryRun bool, limits Limit
 
 	rep := Report{Considered: len(candidates)}
 	obs := make([]Observation, 0, len(candidates))
+	// Dizinin verdiği POSIX numaraları; dry-run değilse aşağıda yazılıyor.
+	uidNumbers := map[string]int{}
 
 	for _, c := range candidates {
 		if ctx.Err() != nil {
@@ -237,6 +239,19 @@ func (r *Runner) run(ctx context.Context, runID int64, dryRun bool, limits Limit
 			SSOGroups:    c.SSOGroups,
 		}
 
+		if res.Presence == ldap.PresencePresent && res.UIDNumber > 0 {
+			/*
+			 * ⚠️ DİZİNİN NUMARASI BURADA ÖĞRENİLİYOR, BAĞLANMA ANINDA
+			 * DEĞİL. Sıcak yolda dizine sormak, her oturuma bir LDAP
+			 * gidiş-dönüşü eklerdi; bu döngü zaten her dizin kullanıcısını
+			 * düzenli olarak çözüyor ve numarayı yanında getiriyor.
+			 *
+			 * Yazma dry-run kontrolünden SONRA yapılıyor: "hiçbir şey
+			 * yazma" diyen bir koşunun veritabanına numara ayırması,
+			 * izlemeye alınmış bir döngünün sessizce yazması olurdu.
+			 */
+			uidNumbers[c.Username] = res.UIDNumber
+		}
 		if res.Presence == ldap.PresencePresent {
 			groups, _, rerr := r.db.GroupsForDirectoryGroups(ctx, model.ResolvedGroups(res.Groups))
 			if rerr != nil {
@@ -283,6 +298,20 @@ func (r *Runner) run(ctx context.Context, runID int64, dryRun bool, limits Limit
 	}
 
 	// 6) Uygula.
+	/*
+	 * Dizinin verdiği numaralar önce: hesap açma yolu bunu okuyup
+	 * havuzdan numara vermekten vazgeçiyor. Var olan bir ayırma
+	 * EZİLMİYOR (ReserveUID öyle yazılmış) — bir kişinin numarasını
+	 * sonradan değiştirmek, filodaki bütün dosyalarının sahipliğini
+	 * koparmak demek.
+	 */
+	for username, uid := range uidNumbers {
+		if _, err := r.db.ReserveUID(ctx, username, uid, store.UIDFromDirectory); err != nil {
+			r.logger.Warn("directory uid could not be recorded",
+				"user", username, "uid", uid, "error", err)
+		}
+	}
+
 	now := time.Now()
 	for _, a := range plan.Apply {
 		if err := r.db.SyncGroups(ctx, a.Username, a.Groups); err != nil {

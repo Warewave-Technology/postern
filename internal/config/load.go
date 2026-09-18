@@ -120,6 +120,18 @@ func (c *Config) Validate() error {
 				"postern cannot create accounts on a target it is not allowed to manage")
 	}
 
+	/*
+	 * ⚠️ HAVUZ SİSTEM ARALIĞINA SARKAMAZ. 1000'in altındaki bir numara,
+	 * hedefin sistem hesaplarıyla (ve çoğu dağıtımda UID_MIN'le) aynı
+	 * bölgede; oradan verilen bir numara bir gün bir servis hesabının
+	 * dosyalarına denk gelir. 65534 (nobody) ve üstü de dışarıda: o
+	 * numara bazı NFS ve konteyner katmanlarında "kimse"ye eşleniyor.
+	 */
+	if lo, hi := c.Manage.UIDPool(); lo < 1000 || hi >= 65534 || lo > hi {
+		return fmt.Errorf(
+			"manage.uid_pool_min/max is %d-%d: the pool must stay within 1000-65533 and start below its end", lo, hi)
+	}
+
 	if c.Recording.Dir == "" {
 		return fmt.Errorf("recording.dir is empty")
 	}

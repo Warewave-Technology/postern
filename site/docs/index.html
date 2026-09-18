@@ -718,6 +718,16 @@ $ postern settings list --config postern.yaml          <span class="c"># secrets
         accounts came from configuration management.
       </p>
       <p>
+        Everyone carries <b>one number, fleet-wide</b>. If your directory publishes
+        <code>uidNumber</code> postern uses it; otherwise it takes the lowest free
+        number from <code>manage.uid_pool_min</code>–<code>manage.uid_pool_max</code>
+        (60000–64999 by default) and keeps it for that person on every machine. A
+        number already taken on a target is never forced: the account is created
+        with the target's own number and the clash goes to the audit log, naming
+        who holds it. Forcing it would hand that account's home, logs and keys to
+        the new person.
+      </p>
+      <p>
         A session is never refused because of this. On a host postern cannot
         manage, provisioning is skipped and the session is attempted exactly as
         before.

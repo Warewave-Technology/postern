@@ -307,7 +307,8 @@ func New(cfg *config.Config, db *store.Store, logger *slog.Logger) (*Server, err
 	var ensure func(context.Context, model.User, model.Target) error
 	var locker *hostacct.Worker
 	if cfg.Manage.Enabled && cfg.Manage.PropagateAccounts {
-		ensure = hostacct.Hook(db, caAuthority, logger)
+		poolMin, poolMax := cfg.Manage.UIDPool()
+		ensure = hostacct.Hook(db, caAuthority, logger, poolMin, poolMax)
 		/*
 		 * ⚠️ AÇMA VE KAPATMA BİRLİKTE KURULUYOR. Hesap açabilen ama
 		 * kapatamayan bir kurulum, bu özelliğin var olma sebebinin tam

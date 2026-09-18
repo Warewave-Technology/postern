@@ -81,7 +81,7 @@ func baseDeps(dialed *int, saved *store.HostAccount) Deps {
 func TestAMatchingFingerprintNeverTouchesTheTarget(t *testing.T) {
 	// Satır "postern açtı" diyor, dolayısıyla istenen durum marker
 	// grubunu da içeriyor; fingerprint onunla hesaplanıyor.
-	want := Compute(testUser, testTarget, nil, true)
+	want := Compute(testUser, testTarget, nil, Account{Managed: true})
 	dialed := 0
 	d := baseDeps(&dialed, nil)
 	d.Row = func(context.Context, string, string) (store.HostAccount, error) {
@@ -107,7 +107,7 @@ func TestAMatchingFingerprintNeverTouchesTheTarget(t *testing.T) {
  * makinede kilitli bırakırdı — ve postern ona "erişimin var" derdi.
  */
 func TestALockedRowIsNotSkipped(t *testing.T) {
-	want := Compute(testUser, testTarget, nil, true)
+	want := Compute(testUser, testTarget, nil, Account{Managed: true})
 	dialed := 0
 	d := baseDeps(&dialed, nil)
 	d.Row = func(context.Context, string, string) (store.HostAccount, error) {

@@ -16,6 +16,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -61,7 +62,7 @@ func hostAcctFixture(t *testing.T) (*store.Store, model.Target, *provision.SSHRu
 	}
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	hook := hostacct.Hook(db, authority, logger)
+	hook := hostacct.Hook(db, authority, logger, 60000, 64999)
 	worker := hostacct.NewLockWorker(db, authority, logger, time.Minute)
 
 	r, err := provision.Connect(ctx, target, authority, "test", "host account integration")
@@ -223,5 +224,81 @@ func TestLosingTheLastGroupLocksTheAccountOnTheHost(t *testing.T) {
 	// Ev dizini DURUYOR: kilit geri alınabilir olmak zorunda.
 	if got := ask(t, r, "sudo -n test -d /home/acctayse && echo var"); got != "var" {
 		t.Errorf("ev dizini silinmiş — kilit geri alınamaz hâle geldi")
+	}
+}
+
+/*
+ * ⚠️ AÇILAN HESAP HAVUZUN NUMARASINI TAŞIYOR — MAKİNEDE.
+ *
+ * Numaranın veritabanında doğru durması bir şey ifade etmiyor; ölçülecek
+ * olan hedefteki hesabın gerçekten o numarayla açılmış olması. Aradaki
+ * fark, `useradd -u`'nun hiç geçilmemesi kadar sessiz bir hatayla kapanır
+ * ve sonucu ancak ikinci bir makinede, dosya sahipliği tutmayınca görülür.
+ */
+func TestACreatedAccountCarriesTheFleetNumber(t *testing.T) {
+	db, target, r, hook, _ := hostAcctFixture(t)
+	ctx := context.Background()
+
+	u, err := db.User(ctx, "ayse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := hook(ctx, u, target); err != nil {
+		t.Fatalf("hazırlama: %v", err)
+	}
+
+	reserved, err := db.UIDFor(ctx, "ayse")
+	if err != nil {
+		t.Fatalf("numara ayrılmadı: %v", err)
+	}
+	if got := ask(t, r, "id -u acctayse"); got != strconv.Itoa(reserved.UID) {
+		t.Errorf("makinedeki numara %q, ayrılan %d", got, reserved.UID)
+	}
+	if reserved.UID < 60000 || reserved.UID > 64999 {
+		t.Errorf("numara havuz dışında: %d", reserved.UID)
+	}
+}
+
+/*
+ * ⚠️ DOLU NUMARA ZORLANMIYOR — VE HESAP YİNE DE AÇILIYOR.
+ *
+ * Zorlamak, o numaraya ait bütün dosyaların sahipliğini yeni hesaba
+ * devretmek olurdu: eski sahibin evi, log'ları, anahtarları. Kişinin o
+ * makinede filo numarasını taşımaması bunun yanında küçük bir zarar;
+ * kapıyı kapatmak ise K6'ya aykırı olurdu.
+ */
+func TestATakenNumberIsNotForcedOnTheHost(t *testing.T) {
+	db, target, r, hook, _ := hostAcctFixture(t)
+	ctx := context.Background()
+
+	// Havuzun ilk vereceği numarayı postern'den önce başkası tutuyor.
+	if _, err := r.Exec(ctx, "sudo -n useradd -m -u 60000 -s /bin/sh squatter", ""); err != nil {
+		t.Fatalf("hazırlık hesabı açılamadı: %v", err)
+	}
+
+	u, err := db.User(ctx, "ayse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := hook(ctx, u, target); err != nil {
+		t.Fatalf("hazırlama: %v", err)
+	}
+
+	reserved, err := db.UIDFor(ctx, "ayse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reserved.UID != 60000 {
+		t.Fatalf("test varsayımı bozuldu: havuz %d verdi, 60000 bekleniyordu", reserved.UID)
+	}
+	if got := ask(t, r, "id -u squatter"); got != "60000" {
+		t.Errorf("numara başkasından alındı: squatter = %q", got)
+	}
+	got := ask(t, r, "id -u acctayse")
+	if got == "" {
+		t.Fatal("çakışma yüzünden hesap hiç açılmadı")
+	}
+	if got == "60000" {
+		t.Errorf("dolu numara zorlandı: acctayse = %q", got)
 	}
 }

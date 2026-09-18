@@ -631,3 +631,39 @@ func TestPropagatingAccountsWithoutManagementIsRefusedAtStartup(t *testing.T) {
 		t.Errorf("geçerli bileşim reddedildi: %v", err)
 	}
 }
+
+/*
+ * ⚠️ HAVUZ SİSTEM ARALIĞINA SARKAMAZ, nobody'YE DE DEĞEMEZ.
+ *
+ * 1000'in altından verilen bir numara bir gün bir servis hesabının
+ * dosyalarına denk gelir; 65534 ve üstü bazı NFS ve konteyner
+ * katmanlarında "kimse"ye eşleniyor. İkisi de sessizce yanlış sahiplik
+ * üretir ve sebebi aylar sonra aranır.
+ */
+func TestTheUIDPoolMustStayOutOfTheSystemRange(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		min, max int
+	}{
+		{"sistem aralığına sarkıyor", 500, 64999},
+		{"nobody'ye değiyor", 60000, 65534},
+		{"ters aralık", 64999, 60000},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := validConfig()
+			c.Manage.UIDPoolMin, c.Manage.UIDPoolMax = tc.min, tc.max
+			if err := c.Validate(); err == nil {
+				t.Fatal("kabul edildi")
+			}
+		})
+	}
+
+	// Yazılmamış hâli (varsayılanlar) geçerli.
+	c := validConfig()
+	if err := c.Validate(); err != nil {
+		t.Fatalf("varsayılan havuz reddedildi: %v", err)
+	}
+	if lo, hi := c.Manage.UIDPool(); lo != DefaultUIDPoolMin || hi != DefaultUIDPoolMax {
+		t.Errorf("varsayılan havuz = %d-%d", lo, hi)
+	}
+}

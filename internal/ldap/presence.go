@@ -77,6 +77,16 @@ type LookupResult struct {
 	// IdentityError, kimlik özniteliği geldi ama çözümlenemedi.
 	IdentityError string
 
+	/*
+	 * UIDNumber, dizinin verdiği POSIX numarası; 0 ise dizin vermiyor.
+	 *
+	 * ⚠️ HESAP AÇMANIN SIRASI BUNA BAĞLI: dizin bir numara veriyorsa o
+	 * kullanılıyor, vermiyorsa postern havuzundan biri ayırıyor. Tersi,
+	 * posixAccount koşan bir kurulumda aynı kişiyi iki numarayla
+	 * yaşatırdı.
+	 */
+	UIDNumber int
+
 	// OutOfScope, kullanıcının üye olduğu ama grup KAPSAMI dışında
 	// kaldığı için sayılmayan grupların ham DN'leri.
 	//
@@ -180,6 +190,7 @@ func (s *Source) lookup(ctx context.Context, find func(*goldap.Conn) (userEntry,
 			DisabledReason: ue.DisabledReason,
 			Identity:       ue.Identity,
 			IdentityError:  ue.IdentityError,
+			UIDNumber:      ue.UIDNumber,
 		}, nil
 	}
 
@@ -194,7 +205,8 @@ func (s *Source) lookup(ctx context.Context, find func(*goldap.Conn) (userEntry,
 		Disabled:       ue.Disabled,
 		DisabledReason: ue.DisabledReason,
 		Identity:       ue.Identity,
-		IdentityError:  ue.IdentityError}, nil
+		IdentityError:  ue.IdentityError,
+		UIDNumber:      ue.UIDNumber}, nil
 }
 
 // Probe, dizinin ŞU AN veri döndürüp döndürmediğini sorar.

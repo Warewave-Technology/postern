@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -411,6 +412,14 @@ func (s *Source) findBy(conn *goldap.Conn, filter, what string) (userEntry, erro
 	 * sunuyorken.
 	 */
 	attrs = append(attrs, identityAttrs...)
+	/*
+	 * ⚠️ uidNumber DA AÇIKÇA İSTENİYOR. posixAccount şeması kullanan bir
+	 * dizin kişinin numarasını zaten taşıyor; onu okumayıp kendi
+	 * havuzumuzdan numara vermek, aynı kişiyi dizinin bildiğinden BAŞKA
+	 * bir numarayla makinelere yazmak olurdu — NFS ve mevcut dosya
+	 * sahipliği dizinin numarasına göre kurulmuşken.
+	 */
+	attrs = append(attrs, uidNumberAttr)
 
 	req := goldap.NewSearchRequest(
 		s.cfg.UserBase, goldap.ScopeWholeSubtree, goldap.NeverDerefAliases,
@@ -517,12 +526,34 @@ func (s *Source) findBy(conn *goldap.Conn, filter, what string) (userEntry, erro
 		break
 	}
 
+	/*
+	 * ⚠️ BOZUK BİR uidNumber SESSİZCE 0 OLMUYOR. 0 "numara yok" demek ve
+	 * havuzdan numara verilmesine yol açıyor; ayrıştırılamayan bir değeri
+	 * oraya düşürmek, dizinde numarası OLAN bir kişiye ikinci bir numara
+	 * verirdi. Sebep teşhis ekranına çıksın diye hata metninde duruyor.
+	 */
+	var uidNumber int
+	if raw := entry.GetEqualFoldAttributeValue(uidNumberAttr); raw != "" {
+		n, cerr := strconv.Atoi(strings.TrimSpace(raw))
+		switch {
+		case cerr != nil || n <= 0:
+			identityErr = strings.TrimSpace(identityErr + " " + uidNumberAttr + ": " +
+				strconv.Quote(raw) + " is not a usable number")
+		default:
+			uidNumber = n
+		}
+	}
+
 	return userEntry{
 		DN: entry.DN, Groups: groups, OutOfScope: outOfScope,
 		Disabled: disabled, DisabledReason: why,
 		Identity: identity, IdentityError: identityErr,
+		UIDNumber: uidNumber,
 	}, nil
 }
+
+// uidNumberAttr, POSIX numarasını taşıyan öznitelik (RFC 2307).
+const uidNumberAttr = "uidNumber"
 
 // userEntry, findUser'ın dizinden okuduğu her şey.
 //
@@ -556,6 +587,16 @@ type userEntry struct {
 	// ekranında görünmeli — sessizce "kimlik yok" saymak yanlış teşhis
 	// koydururdu.
 	IdentityError string
+
+	/*
+	 * UIDNumber, dizinin verdiği POSIX numarası; 0 ise dizin böyle bir
+	 * numara vermiyor ve numarayı postern kendi havuzundan veriyor.
+	 *
+	 * ⚠️ DİZİN ÖNCE GELİYOR. posixAccount şeması koşan bir kurulumda
+	 * makinelerdeki dosya sahipliği zaten bu numaraya göre; üstüne kendi
+	 * numaramızı yazmak, kişiyi kendi dosyalarına yabancı yapardı.
+	 */
+	UIDNumber int
 }
 
 // searchGroups, üyeliğin grubun üstünde durduğu şemalar için.

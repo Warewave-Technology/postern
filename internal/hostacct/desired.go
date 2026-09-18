@@ -12,6 +12,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/Warewave-Technology/postern/internal/model"
@@ -38,10 +39,29 @@ type GroupRule struct {
 	Sudo sudoers.Rule
 }
 
+/*
+ * Account, postern'in kişinin hesabı hakkında ZATEN VERDİĞİ kararlar —
+ * gruplardan türemeyen, kayıttan gelen iki şey.
+ *
+ * Ayrı bir tip: Compute'un imzası iki sondaki skalerle (bool, int)
+ * karışmaya açıktı ve ikisi de sessizce yanlış sonuç üretirdi.
+ */
+type Account struct {
+	// Managed, hesabı postern'in açtığı — marker grubunun koşulu.
+	Managed bool
+	/*
+	 * UID, kişinin filo boyunca taşıdığı numara; 0 ise hedef kendi
+	 * seçiyor (numara ne dizinden ne havuzdan gelebildiyse).
+	 */
+	UID int
+}
+
 // Want, bir kişinin bir hedefte olması gereken hâli.
 type Want struct {
 	OSUser string
 	Groups []GroupRule
+	// UID, hesaba verilmek istenen numara; 0 ise hedef kendi seçiyor.
+	UID int
 
 	/*
 	 * Fingerprint, bu istenen durumun özeti.
@@ -62,8 +82,8 @@ type Want struct {
  * makineye yazmak, postern'i tam da yerine geçtiği şeye — N kullanıcıyı
  * M makineye basan bir dağıtıcıya — çevirirdi.
  */
-func Compute(u model.User, t model.Target, rules map[string]store.GroupSudo, managed bool) Want {
-	w := Want{OSUser: u.OSUser, Groups: []GroupRule{}}
+func Compute(u model.User, t model.Target, rules map[string]store.GroupSudo, acct Account) Want {
+	w := Want{OSUser: u.OSUser, Groups: []GroupRule{}, UID: acct.UID}
 
 	/*
 	 * ⚠️ MARKER GRUBU YALNIZCA POSTERN'İN AÇTIĞI HESAPTA.
@@ -72,7 +92,7 @@ func Compute(u model.User, t model.Target, rules map[string]store.GroupSudo, man
 	 * silmenin ön koşulu. Devralınan bir hesaba koymak, postern'den önce
 	 * var olan bir hesabı silinebilir yapardı — ayrımın tamamı bu.
 	 */
-	if managed {
+	if acct.Managed {
 		w.Groups = append(w.Groups, GroupRule{Name: provision.ManagedGroup})
 	}
 
@@ -96,8 +116,19 @@ func Compute(u model.User, t model.Target, rules map[string]store.GroupSudo, man
 	 * hedefte duran durumun parçası. İzin dışında kalsaydı, marker'ı
 	 * eksik bir hesap hiç düzelmezdi.
 	 */
-	if managed {
+	if acct.Managed {
 		sb.WriteString("managed\n")
+	}
+	/*
+	 * ⚠️ NUMARA DA İZİN İÇİNDE. Dizin bir kişiye numara vermeye yeni
+	 * başladığında (ya da havuz aralığı değiştiğinde) istenen durum
+	 * gerçekten değişiyor; iz bunu görmezse hızlı şerit hedefe hiç
+	 * uğramaz ve numara sonsuza dek eski hâlinde kalır.
+	 */
+	if acct.UID > 0 {
+		sb.WriteString("uid=")
+		sb.WriteString(strconv.Itoa(acct.UID))
+		sb.WriteString("\n")
 	}
 
 	for _, n := range names {

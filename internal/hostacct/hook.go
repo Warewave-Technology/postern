@@ -29,11 +29,27 @@ import (
  * ekliyor (bkz. proxy.Deps.EnsureAccount). Burada hata döndürmek,
  * "hazırlanamadı" cümlesini taşımanın yolu; "içeri alma" emri değil.
  */
-func Hook(db *store.Store, authority *ca.CA, logger *slog.Logger) func(context.Context, model.User, model.Target) error {
+func Hook(db *store.Store, authority *ca.CA, logger *slog.Logger, poolMin, poolMax int) func(context.Context, model.User, model.Target) error {
 	deps := Deps{
 		Rules: db.GroupSudoRules,
 		Row:   db.HostAccountFor,
 		Save:  db.SaveHostAccount,
+		/*
+		 * ⚠️ SIRA: DİZİN, SONRA HAVUZ. AllocateUIDFromPool kişiye zaten
+		 * ayrılmış bir numara varsa onu döndürüyor — dizinin verdiği
+		 * numara senkron döngüsünde oraya yazılmış oluyor. Havuzdan
+		 * numara yalnızca dizin bir şey söylemediğinde veriliyor;
+		 * tersi, posixAccount koşan bir kurulumda aynı kişiyi iki
+		 * numarayla yaşatırdı.
+		 */
+		UID: func(ctx context.Context, u model.User) (int, error) {
+			row, err := db.AllocateUIDFromPool(ctx, u.Name, poolMin, poolMax)
+			if err != nil {
+				return 0, err
+			}
+
+			return row.UID, nil
+		},
 		Connect: func(ctx context.Context, t model.Target, reason string) (Runner, error) {
 			return provision.Connect(ctx, t, authority, "system", reason)
 		},

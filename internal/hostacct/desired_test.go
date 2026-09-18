@@ -24,7 +24,7 @@ func TestOnlyTheGroupsThatReachThisTargetAreWanted(t *testing.T) {
 			{Name: "web", Targets: []string{"web01"}},
 		},
 	}
-	want := Compute(u, model.Target{Name: "db01"}, nil, false)
+	want := Compute(u, model.Target{Name: "db01"}, nil, Account{})
 
 	var names []string
 	for _, g := range want.Groups {
@@ -47,7 +47,7 @@ func TestTheHostGroupIsPrefixed(t *testing.T) {
 	u := model.User{Name: "a", OSUser: "a", Groups: []model.Group{
 		{Name: "dba", Targets: []string{"db01"}},
 	}}
-	got := Compute(u, model.Target{Name: "db01"}, nil, false).Groups
+	got := Compute(u, model.Target{Name: "db01"}, nil, Account{}).Groups
 	if len(got) != 1 || got[0].Name != "postern-dba" {
 		t.Errorf("grup adı: %+v", got)
 	}
@@ -68,8 +68,8 @@ func TestTheFingerprintMovesWhenAnythingThatReachesTheHostMoves(t *testing.T) {
 		{Path: "/usr/bin/pg_ctl", Args: []string{"reload"}},
 	}}
 
-	base := Compute(u, tgt, nil, false).Fingerprint
-	withRule := Compute(u, tgt, map[string]store.GroupSudo{"dba": {Rule: rule}}, false).Fingerprint
+	base := Compute(u, tgt, nil, Account{}).Fingerprint
+	withRule := Compute(u, tgt, map[string]store.GroupSudo{"dba": {Rule: rule}}, Account{}).Fingerprint
 	if base == withRule {
 		t.Error("sudo kuralı eklendi, parmak izi değişmedi — kural hedefe hiç inmez")
 	}
@@ -77,20 +77,20 @@ func TestTheFingerprintMovesWhenAnythingThatReachesTheHostMoves(t *testing.T) {
 	changed := sudoers.Rule{Commands: []sudoers.Command{
 		{Path: "/usr/bin/pg_ctl", Args: []string{"reload"}, RunAs: "postgres"},
 	}}
-	withAccount := Compute(u, tgt, map[string]store.GroupSudo{"dba": {Rule: changed}}, false).Fingerprint
+	withAccount := Compute(u, tgt, map[string]store.GroupSudo{"dba": {Rule: changed}}, Account{}).Fingerprint
 	if withRule == withAccount {
 		t.Error("komutun hesabı değişti, parmak izi değişmedi — yetki sessizce eski kalır")
 	}
 
 	u2 := u
 	u2.OSUser = "ayse.y"
-	if Compute(u2, tgt, nil, false).Fingerprint == base {
+	if Compute(u2, tgt, nil, Account{}).Fingerprint == base {
 		t.Error("hesap adı değişti, parmak izi değişmedi")
 	}
 
 	u3 := u
 	u3.Groups = append([]model.Group{{Name: "sre", Targets: []string{"db01"}}}, u.Groups...)
-	if Compute(u3, tgt, nil, false).Fingerprint == base {
+	if Compute(u3, tgt, nil, Account{}).Fingerprint == base {
 		t.Error("yeni grup eklendi, parmak izi değişmedi")
 	}
 }
@@ -110,7 +110,7 @@ func TestTheFingerprintDoesNotDependOnGroupOrder(t *testing.T) {
 		{Name: "sre", Targets: []string{"db01"}},
 	}}
 	tgt := model.Target{Name: "db01"}
-	if Compute(a, tgt, nil, false).Fingerprint != Compute(b, tgt, nil, false).Fingerprint {
+	if Compute(a, tgt, nil, Account{}).Fingerprint != Compute(b, tgt, nil, Account{}).Fingerprint {
 		t.Error("sıra izi değiştiriyor")
 	}
 }
@@ -120,7 +120,7 @@ func TestAUserWithNoGroupForThisTargetWantsNothing(t *testing.T) {
 	u := model.User{Name: "a", OSUser: "a", Groups: []model.Group{
 		{Name: "web", Targets: []string{"web01"}},
 	}}
-	if got := Compute(u, model.Target{Name: "db01"}, nil, false); len(got.Groups) != 0 {
+	if got := Compute(u, model.Target{Name: "db01"}, nil, Account{}); len(got.Groups) != 0 {
 		t.Errorf("gruplar: %+v", got.Groups)
 	}
 }
@@ -139,7 +139,7 @@ func TestTheManagedMarkerIsOnlyOnAccountsPosternCreated(t *testing.T) {
 	}}
 	tgt := model.Target{Name: "db01"}
 
-	created := Compute(u, tgt, nil, true)
+	created := Compute(u, tgt, nil, Account{Managed: true})
 	var names []string
 	for _, g := range created.Groups {
 		names = append(names, g.Name)
@@ -148,7 +148,7 @@ func TestTheManagedMarkerIsOnlyOnAccountsPosternCreated(t *testing.T) {
 		t.Errorf("postern'in açtığı hesapta marker yok: %v", names)
 	}
 
-	adopted := Compute(u, tgt, nil, false)
+	adopted := Compute(u, tgt, nil, Account{})
 	names = nil
 	for _, g := range adopted.Groups {
 		names = append(names, g.Name)

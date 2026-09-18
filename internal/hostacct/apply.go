@@ -46,6 +46,17 @@ type Deps struct {
 	// Caps, hedefin yetenekleri: hangi araçlar var, sshd principals
 	// dosyası istiyor mu.
 	Caps func(ctx context.Context, r Runner) (upstream.ManageCapabilities, error)
+	/*
+	 * UID, kişinin filo boyunca taşıdığı numarayı verir. 0 dönerse
+	 * numarayı hedef seçiyor.
+	 *
+	 * ⚠️ HATA OTURUMU KESMİYOR, NUMARASIZ DEVAM EDİYOR. Havuz dolduğunda
+	 * ya da veritabanı cevap vermediğinde hesabın hiç açılmaması,
+	 * postern'i tam da olmaması gereken şeye — girişin önündeki tek hata
+	 * noktasına — çevirirdi. Numarasız hesap, yanlış numaralı hesaptan da
+	 * kapalı kapıdan da iyi.
+	 */
+	UID func(ctx context.Context, u model.User) (int, error)
 	// Audit, hedefe YAZILDIĞINDA bir denetim satırı bırakır.
 	Audit func(ctx context.Context, target, detail string) error
 	// Now, saat (testte sabitlenebilir).
@@ -83,6 +94,15 @@ func Ensure(ctx context.Context, d Deps, u model.User, t model.Target) Outcome {
 	}
 	row, rerr := d.Row(ctx, t.Name, u.Name)
 
+	var uid int
+	if d.UID != nil {
+		// Hata hâlinde uid 0 kalıyor ve hesap numarasız açılıyor;
+		// gerekçe Deps.UID'in yanında.
+		if n, uerr := d.UID(ctx, u); uerr == nil {
+			uid = n
+		}
+	}
+
 	/*
 	 * ⚠️ MARKER, KAYITLI KAYNAKTAN GELİYOR. İlk koşuda kaynak henüz
 	 * bilinmiyor (satır yok) ve marker'sız hesaplanıyor; Observe hesabın
@@ -90,7 +110,10 @@ func Ensure(ctx context.Context, d Deps, u model.User, t model.Target) Outcome {
 	 * fingerprint marker'lı hesaplanır. Sonraki koşular kayıtlı kaynakla
 	 * aynı değeri üretir, yani fast lane tutar.
 	 */
-	want := Compute(u, t, rules, rerr == nil && row.Origin == store.OriginCreated)
+	want := Compute(u, t, rules, Account{
+		Managed: rerr == nil && row.Origin == store.OriginCreated,
+		UID:     uid,
+	})
 	switch {
 	case rerr == nil:
 		/*
@@ -139,6 +162,7 @@ func Ensure(ctx context.Context, d Deps, u model.User, t model.Target) Outcome {
 	desired.Users = []provision.User{{
 		Name:   want.OSUser,
 		Groups: groupNames(want.Groups),
+		UID:    want.UID,
 	}}
 
 	observed, oerr := provision.Observe(ctx, runner, desired)
@@ -163,12 +187,29 @@ func Ensure(ctx context.Context, d Deps, u model.User, t model.Target) Outcome {
 		 * postern açıyorsa hesap marker grubuna giriyor ve fingerprint
 		 * de onu içeriyor; devralıyorsa ikisi de yok.
 		 */
-		want = Compute(u, t, rules, row.Origin == store.OriginCreated)
+		want = Compute(u, t, rules, Account{Managed: row.Origin == store.OriginCreated, UID: uid})
 		desired.Groups = desired.Groups[:0]
 		for _, g := range want.Groups {
 			desired.Groups = append(desired.Groups, provision.Group{Name: g.Name, Sudo: g.Sudo})
 		}
 		desired.Users[0].Groups = groupNames(want.Groups)
+	}
+
+	/*
+	 * ⚠️ ÇAKIŞMA ZORLANMIYOR, KAYDEDİLİYOR. Numara hedefte başka bir
+	 * hesabın üstündeyse plan `-u`'yu hiç geçmiyor ve hesap hedefin kendi
+	 * numarasıyla açılıyor. Zorlamak, o numaraya ait bütün dosyaların
+	 * sahipliğini yeni hesaba devretmek olurdu — eski sahibin evi,
+	 * log'ları, anahtarları. Kişinin o makinede filo numarasını
+	 * taşımaması, bunun yanında küçük bir zarar; ama sessiz kalmaması
+	 * gerekiyor, çünkü "neden bu makinede numarası farklı" sorusunun
+	 * cevabı başka hiçbir yerde yok.
+	 */
+	if owner := observed.UIDOwner[want.UID]; owner != "" && d.Audit != nil {
+		_ = d.Audit(ctx, t.Name, fmt.Sprintf(
+			"uid conflict: %s should be uid %d but %s already holds it here; "+
+				"%s was given the target's own number instead",
+			u.Name, want.UID, owner, want.OSUser))
 	}
 
 	steps, perr := provision.Plan(caps, desired, observed)

@@ -276,6 +276,44 @@ type ManageConfig struct {
 	 * geçici erişimin de kapalı olduğunu ürünün kendisinden öğreniyor.
 	 */
 	PropagateAccounts bool `yaml:"propagate_accounts"`
+
+	/*
+	 * UIDPoolMin/UIDPoolMax, dizin bir numara vermediğinde postern'in
+	 * kişiye kendi verdiği numaranın aralığı.
+	 *
+	 * ⚠️ VARSAYILAN 60000–64999, VE SINIRLARIN İKİSİ DE ÖLÇÜLDÜ. Alt
+	 * sınır tipik sistem (0–999) ve yerel kullanıcı (1000–60000)
+	 * aralıklarının ÜSTÜNDE: postern'in verdiği numara, hedefin kendi
+	 * useradd'inin bir gün vereceği numarayla çakışmasın diye. Üst sınır
+	 * nobody'nin (65534) ALTINDA: 16 bit'i aşan ya da nobody'ye denk
+	 * gelen bir numara, eski NFS sunucularında ve bazı konteyner
+	 * runtime'larında sessizce "kimse"ye eşlenir.
+	 *
+	 * ⚠️ CONFIG'DE, ÇÜNKÜ BU ALTYAPI. Filonun numaralama düzeni
+	 * kurulumun kendi gerçeği — kimlik verisi değil; kim kim, hâlâ
+	 * yalnızca veritabanında.
+	 */
+	UIDPoolMin int `yaml:"uid_pool_min"`
+	UIDPoolMax int `yaml:"uid_pool_max"`
+}
+
+// Havuzun varsayılan sınırları — gerekçesi UIDPoolMin'in yanında.
+const (
+	DefaultUIDPoolMin = 60000
+	DefaultUIDPoolMax = 64999
+)
+
+// UIDPool, havuzun sınırlarını verir; yazılmamışsa varsayılanları.
+func (m ManageConfig) UIDPool() (int, int) {
+	lo, hi := m.UIDPoolMin, m.UIDPoolMax
+	if lo == 0 {
+		lo = DefaultUIDPoolMin
+	}
+	if hi == 0 {
+		hi = DefaultUIDPoolMax
+	}
+
+	return lo, hi
 }
 
 // RefreshOrDefault, yazılmamış Refresh için varsayılan.

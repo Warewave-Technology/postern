@@ -16,6 +16,7 @@ package provision
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,6 +38,17 @@ type Group struct {
 type User struct {
 	Name   string
 	Groups []string
+
+	/*
+	 * UID, hesaba verilecek numara. 0 ise hedef kendi seçiyor.
+	 *
+	 * ⚠️ FİLO BOYUNCA AYNI OLSUN DİYE DIŞARIDAN GELİYOR. Her makinenin
+	 * kendi sırasından vermesi, aynı kişiyi bir makinede 1003, öbüründe
+	 * 1007 yapar; paylaşılan bir dosya sisteminde ya da yedekten dönen
+	 * bir dizinde dosyanın sahibi yanlış — kötü hâlinde BAŞKA BİRİ —
+	 * görünür.
+	 */
+	UID int
 
 	/*
 	 * JIT true ise hesap GEÇİCİ: postern açıyor, süresi dolunca siliyor.
@@ -92,6 +104,17 @@ type Observed struct {
 	PosternSudoers map[string]string
 	// Principals, geçici hesapların principals dosyalarının içeriği (yol → içerik).
 	Principals map[string]string
+	/*
+	 * UIDOwner, istenen numarayı hedefte ŞU AN kimin tuttuğu (numara →
+	 * hesap adı). Yalnızca açılacak hesaplar için ve yalnızca numara
+	 * DOLUYSA doluyor.
+	 *
+	 * ⚠️ PLAN BUNU GÖRMEDEN `-u` GEÇEMEZ. Dolu bir numarayı zorlamak, o
+	 * numaraya ait bütün dosyaların sahipliğini yeni hesaba devretmek
+	 * demek: eski sahibin evi, log'ları, anahtarları bir anda başkasının
+	 * olur. Numaranın filo boyunca aynı olması bu riske değmiyor.
+	 */
+	UIDOwner map[int]string
 }
 
 // StepKind, adımın türü.
@@ -301,6 +324,16 @@ func Plan(caps upstream.ManageCapabilities, d Desired, o Observed) ([]Step, erro
 		if !exists {
 			// Kabuk hedeften: bash yoksa /bin/sh (upstream.ManageCapabilities.Shell).
 			cmd := "sudo -n " + caps.AddUser + " -m -s " + caps.Shell
+			/*
+			 * ⚠️ NUMARA YALNIZCA BOŞSA VERİLİYOR. Doluysa `-u` hiç
+			 * geçilmiyor ve hesap hedefin kendi numarasıyla açılıyor:
+			 * kişi o makinede filo numarasını taşımaz ama KİMSENİN
+			 * dosyasını devralmaz. Çakışma Observed'da duruyor ve
+			 * çağıran onu bulgu olarak kaydediyor — sessizce kaybolmuyor.
+			 */
+			if u.UID > 0 && o.UIDOwner[u.UID] == "" {
+				cmd += " -u " + strconv.Itoa(u.UID)
+			}
 			if u.JIT && !u.ExpiresAt.IsZero() {
 				cmd += " -e " + expiryBackstop(u.ExpiresAt)
 			}
