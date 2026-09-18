@@ -233,3 +233,120 @@ func TestALockedRowIsNotOwedAnotherLock(t *testing.T) {
 		t.Errorf("kilitli satır yeniden borçlu: %+v", owed)
 	}
 }
+
+/*
+ * ⚠️ ÖNDEN AÇMANIN İŞ LİSTESİ TÜRETİLİYOR, İŞARETLENMİYOR. Bir `pending`
+ * sütunu, onu yazmayı unutan her yeni grup/hedef yazma yolunda sessiz bir
+ * boşluk açardı ve o boşluğun anlamı "önden açılması gereken hesap hiç
+ * açılmadı" olurdu.
+ */
+func TestGrantsWithoutAccountsListsWhatHasNoRowYet(t *testing.T) {
+	s, target := hostAcctEnv(t)
+	ctx := t.Context()
+
+	if _, err := s.CreateGroup(ctx, "dba"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.GrantTarget(ctx, "dba", target); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"ayse", "veli"} {
+		if err := s.AssignGroup(ctx, n, "dba", time.Time{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := s.GrantsWithoutAccounts(ctx, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("beklenen iki çift, gelen: %+v", got)
+	}
+
+	// Satırı olan çift listeden düşüyor.
+	now := time.Now()
+	if err := s.SaveHostAccount(ctx, HostAccount{
+		TargetName: target, Username: "ayse", OSUser: "ayse",
+		Origin: OriginCreated, State: HostAccountActive,
+		FirstSeen: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.GrantsWithoutAccounts(ctx, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Username != "veli" {
+		t.Fatalf("satırı olan çift düşmedi: %+v", got)
+	}
+}
+
+/*
+ * ⚠️ SİLİNMİŞ SATIR YENİDEN AÇILMIYOR. Bir insan o hesabın gitmesine
+ * karar verdiyse, süpürme onu ertesi sabah geri açmamalı — kararı geri
+ * alan bir döngü, kararı hiç sormamaktan beterdir.
+ */
+func TestARemovedAccountIsNotOpenedAgainByPrecreation(t *testing.T) {
+	s, target := hostAcctEnv(t)
+	ctx := t.Context()
+
+	if _, err := s.CreateGroup(ctx, "dba"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.GrantTarget(ctx, "dba", target); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AssignGroup(ctx, "ayse", "dba", time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := s.SaveHostAccount(ctx, HostAccount{
+		TargetName: target, Username: "ayse", OSUser: "ayse",
+		Origin: OriginCreated, State: HostAccountActive,
+		FirstSeen: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RemoveHostAccount(ctx, target, "ayse"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GrantsWithoutAccounts(ctx, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range got {
+		if g.Username == "ayse" {
+			t.Fatalf("silinmiş hesap önden açma listesine geri girdi: %+v", got)
+		}
+	}
+}
+
+// Süpürme yalnızca AÇIK satırları geziyor; kilitli olan işi değil.
+func TestActiveHostAccountRowsSkipsTheLockedOnes(t *testing.T) {
+	s, target := hostAcctEnv(t)
+	ctx := t.Context()
+
+	now := time.Now()
+	for _, tc := range []struct {
+		user  string
+		state string
+	}{{"ayse", HostAccountActive}, {"veli", HostAccountLocked}} {
+		if err := s.SaveHostAccount(ctx, HostAccount{
+			TargetName: target, Username: tc.user, OSUser: tc.user,
+			Origin: OriginCreated, State: tc.state,
+			FirstSeen: now, UpdatedAt: now,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := s.ActiveHostAccountRows(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Username != "ayse" {
+		t.Fatalf("gelen: %+v", got)
+	}
+}

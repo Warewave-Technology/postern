@@ -728,6 +728,20 @@ $ postern settings list --config postern.yaml          <span class="c"># secrets
         the new person.
       </p>
       <p>
+        Neither the connect-time path nor the lock loop can see a change made
+        <b>by hand on the machine</b>. Set <code>manage.sweep_interval</code> (off
+        by default) and postern walks the fleet on a timer: one management
+        connection per target, everyone on that machine reconciled in a single
+        pass. It puts back a sudoers file somebody deleted, and takes any account
+        out of its own <code>postern-*</code> groups when nothing in postern
+        puts them there — that account was holding the sudo rule postern wrote while
+        appearing in none of its records. Only the membership goes, every removal
+        is logged, and if one target would lose more than ten in a pass, none of
+        them go. <code>manage.precreate_accounts</code> makes the same pass open
+        accounts before anybody connects; it is off by default, because the
+        account exists where it is used.
+      </p>
+      <p>
         A session is never refused because of this. On a host postern cannot
         manage, provisioning is skipped and the session is attempted exactly as
         before.
@@ -1263,9 +1277,9 @@ sync:
         file, so it is there even for a start that failed:
       </p>
 <pre>$ postern version
-postern v1.1.0
-  commit    56adc1512090 (clean)
-  committed 2026-09-05T07:46:46Z
+postern v1.3.0
+  commit    e16ff7698a2f (clean)
+  committed 2026-09-16T12:46:43Z
   go        go1.26.6
   platform  linux/amd64
 </pre>

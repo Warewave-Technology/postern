@@ -295,6 +295,39 @@ type ManageConfig struct {
 	 */
 	UIDPoolMin int `yaml:"uid_pool_min"`
 	UIDPoolMax int `yaml:"uid_pool_max"`
+
+	/*
+	 * SweepInterval, sürüklenme süpürmesinin periyodu. 0 ise SÜPÜRME HİÇ
+	 * KURULMUYOR — ve varsayılanı bu.
+	 *
+	 * ⚠️ KAPALI OLMASININ SEBEBİ: süpürme her turda filodaki HER hedefe
+	 * bir yönetim bağlantısı açıyor. Yükseltmeyle birlikte sessizce
+	 * başlamak, okunmadan yapılan bir yükseltmenin üretimde yapabileceği
+	 * en görünür sürpriz olurdu — ve ağ grafiğine bakan kişi sebebini
+	 * arardı.
+	 *
+	 * ⚠️ NEYİ YAKALADIĞI: sıcak yol yalnızca kişi bağlandığında, itme
+	 * yolu yalnızca postern'in kendi kaydına bakarak koşuyor. HEDEFTE
+	 * elle yapılan değişiklik ikisine de görünmez: silinen bir sudoers
+	 * dosyası, ya da postern'in `postern-<grup>` grubuna ELLE EKLENEN bir
+	 * hesap — ki o hesap, postern'in yazdığı sudo kuralını postern'in
+	 * hiç tanımadığı birine verir.
+	 */
+	SweepInterval time.Duration `yaml:"sweep_interval"`
+
+	/*
+	 * PrecreateAccounts, süpürmenin hesabı kişi bağlanmadan AÇMASI.
+	 *
+	 * ⚠️ VARSAYILAN KAPALI VE BU BİR ÜRÜN KARARI. Manifestonun cümlesi
+	 * "hesap kullanıldığı yerde vardır": postern'in var olma sebebi, N
+	 * kullanıcıyı M makineye basmamak. Bazı kurumların gerçek ihtiyacı
+	 * (dosya sahipliği, cron, mail) ama varsayılan olsaydı ürün tam da
+	 * yerine geçtiği şeye dönerdi.
+	 *
+	 * ⚠️ SweepInterval OLMADAN ANLAMSIZ: önden açmayı koşturan döngü
+	 * süpürmenin kendisi. config.Validate bu bileşimi reddediyor.
+	 */
+	PrecreateAccounts bool `yaml:"precreate_accounts"`
 }
 
 // Havuzun varsayılan sınırları — gerekçesi UIDPoolMin'in yanında.

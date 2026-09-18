@@ -25,10 +25,13 @@ import (
 	"github.com/Warewave-Technology/postern/internal/model"
 	"github.com/Warewave-Technology/postern/internal/provision"
 	"github.com/Warewave-Technology/postern/internal/store"
+	"github.com/Warewave-Technology/postern/internal/sudoers"
 	"github.com/Warewave-Technology/postern/internal/testdb"
 )
 
-func hostAcctFixture(t *testing.T) (*store.Store, model.Target, *provision.SSHRunner, func(context.Context, model.User, model.Target) error, *hostacct.Worker) {
+func hostAcctFixture(t *testing.T) (*store.Store, model.Target, *provision.SSHRunner,
+	func(context.Context, model.User, model.Target) error, *hostacct.Worker, *hostacct.Sweeper,
+) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -64,6 +67,8 @@ func hostAcctFixture(t *testing.T) (*store.Store, model.Target, *provision.SSHRu
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	hook := hostacct.Hook(db, authority, logger, 60000, 64999)
 	worker := hostacct.NewLockWorker(db, authority, logger, time.Minute)
+	// Önden açma AÇIK: süpürmenin iki işi de tek kurulumda ölçülebilsin.
+	sweeper := hostacct.NewSweepWorker(db, authority, logger, time.Hour, true, 60000, 64999)
 
 	r, err := provision.Connect(ctx, target, authority, "test", "host account integration")
 	if err != nil {
@@ -71,7 +76,7 @@ func hostAcctFixture(t *testing.T) (*store.Store, model.Target, *provision.SSHRu
 	}
 	t.Cleanup(func() { _ = r.Close() })
 
-	return db, target, r, hook, worker
+	return db, target, r, hook, worker, sweeper
 }
 
 func ask(t *testing.T, r *provision.SSHRunner, cmd string) string {
@@ -94,7 +99,7 @@ func ask(t *testing.T, r *provision.SSHRunner, cmd string) string {
  * kullanılamaz yapar.
  */
 func TestAnAccountIsCreatedOnTheFirstConnectAndSkippedOnTheSecond(t *testing.T) {
-	db, target, r, hook, _ := hostAcctFixture(t)
+	db, target, r, hook, _, _ := hostAcctFixture(t)
 	ctx := context.Background()
 
 	u, err := db.User(ctx, "ayse")
@@ -113,7 +118,7 @@ func TestAnAccountIsCreatedOnTheFirstConnectAndSkippedOnTheSecond(t *testing.T) 
 	if got := ask(t, r, "id -Gn acctayse"); !strings.Contains(got, "postern-dba") {
 		t.Errorf("group üyeliği kurulmadı: %q", got)
 	}
-	if got := ask(t, r, "sudo -n cat /etc/sudoers.d/postern-dba"); got != "" {
+	if got := ask(t, r, "sudo -n cat "+provision.SudoPath("postern-dba")); got != "" {
 		t.Logf("grup sudoers dosyası: %q", got)
 	}
 
@@ -144,7 +149,7 @@ func TestAnAccountIsCreatedOnTheFirstConnectAndSkippedOnTheSecond(t *testing.T) 
  * kopardı.
  */
 func TestAnExistingAccountKeepsItsUIDAndShell(t *testing.T) {
-	db, target, r, hook, _ := hostAcctFixture(t)
+	db, target, r, hook, _, _ := hostAcctFixture(t)
 	ctx := context.Background()
 
 	// Hesabı POSTERN'DEN ÖNCE, başka bir araç açmış gibi kur.
@@ -182,7 +187,7 @@ func TestAnExistingAccountKeepsItsUIDAndShell(t *testing.T) {
  * postern'in kendi iddiasını kendisiyle doğrulamak olurdu.
  */
 func TestLosingTheLastGroupLocksTheAccountOnTheHost(t *testing.T) {
-	db, target, r, hook, worker := hostAcctFixture(t)
+	db, target, r, hook, worker, _ := hostAcctFixture(t)
 	ctx := context.Background()
 
 	u, err := db.User(ctx, "ayse")
@@ -236,7 +241,7 @@ func TestLosingTheLastGroupLocksTheAccountOnTheHost(t *testing.T) {
  * ve sonucu ancak ikinci bir makinede, dosya sahipliği tutmayınca görülür.
  */
 func TestACreatedAccountCarriesTheFleetNumber(t *testing.T) {
-	db, target, r, hook, _ := hostAcctFixture(t)
+	db, target, r, hook, _, _ := hostAcctFixture(t)
 	ctx := context.Background()
 
 	u, err := db.User(ctx, "ayse")
@@ -268,7 +273,7 @@ func TestACreatedAccountCarriesTheFleetNumber(t *testing.T) {
  * kapıyı kapatmak ise K6'ya aykırı olurdu.
  */
 func TestATakenNumberIsNotForcedOnTheHost(t *testing.T) {
-	db, target, r, hook, _ := hostAcctFixture(t)
+	db, target, r, hook, _, _ := hostAcctFixture(t)
 	ctx := context.Background()
 
 	// Havuzun ilk vereceği numarayı postern'den önce başkası tutuyor.
@@ -300,5 +305,165 @@ func TestATakenNumberIsNotForcedOnTheHost(t *testing.T) {
 	}
 	if got == "60000" {
 		t.Errorf("dolu numara zorlandı: acctayse = %q", got)
+	}
+}
+
+/*
+ * ⚠️ AYNI MAKİNEDE İKİNCİ KİŞİ DE HESAP ALABİLMELİ.
+ *
+ * İlk kişi postern-managed grubunu açıyor. İkincisi için istenen durum
+ * aynı grubu yeniden istiyor; o grubun hedefte ZATEN VAR olduğu
+ * görülmezse plan bir `groupadd` daha üretir, hedef "grup var" diye
+ * reddeder ve ikinci kişi o makinede hiç hesap alamaz — geri çekilmeyle,
+ * sonsuza kadar.
+ */
+func TestASecondPersonAlsoGetsAnAccountOnTheSameHost(t *testing.T) {
+	db, target, r, hook, _, _ := hostAcctFixture(t)
+	ctx := context.Background()
+
+	if _, err := db.CreateUser(ctx, "veli", "veli@warewave.io", "acctveli"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AssignGroup(ctx, "veli", "dba", time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, name := range []string{"ayse", "veli"} {
+		u, err := db.User(ctx, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := hook(ctx, u, target); err != nil {
+			t.Fatalf("%s hazırlanamadı: %v", name, err)
+		}
+	}
+
+	for _, acct := range []string{"acctayse", "acctveli"} {
+		if got := ask(t, r, "getent passwd "+acct); got == "" {
+			t.Errorf("%s açılmadı", acct)
+		}
+		if got := ask(t, r, "id -Gn "+acct); !strings.Contains(got, "postern-managed") {
+			t.Errorf("%s marker grubunda değil: %q", acct, got)
+		}
+	}
+}
+
+/*
+ * ⚠️ SÜPÜRMENİN ASIL BULGUSU: postern'in grubuna ELLE EKLENEN HESAP.
+ *
+ * O hesap, postern'in o gruba yazdığı sudo kuralını alıyor ve postern'in
+ * hiçbir kaydında görünmüyor — yani postern'in verdiği yetki, postern'in
+ * bilmediği birinde. Ne sıcak yol ne itme yolu bunu görebiliyor: biri
+ * yalnızca kişi bağlandığında koşuyor, öbürü yalnızca postern'in kendi
+ * kaydına bakıyor. Ölçü makinenin cevabı: `id -Gn`.
+ */
+func TestTheSweepTakesAHandAddedAccountOutOfPosternsGroup(t *testing.T) {
+	db, target, r, hook, _, sweeper := hostAcctFixture(t)
+	ctx := context.Background()
+
+	u, err := db.User(ctx, "ayse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := hook(ctx, u, target); err != nil {
+		t.Fatalf("hazırlama: %v", err)
+	}
+
+	// Başka biri, elle, postern'in grubuna giriyor.
+	if _, err := r.Exec(ctx, "sudo -n useradd -m -s /bin/sh sizan", ""); err != nil {
+		t.Fatalf("hazırlık hesabı: %v", err)
+	}
+	if _, err := r.Exec(ctx, "sudo -n usermod -a -G postern-dba sizan", ""); err != nil {
+		t.Fatalf("elle ekleme: %v", err)
+	}
+	if got := ask(t, r, "id -Gn sizan"); !strings.Contains(got, "postern-dba") {
+		t.Fatalf("test varsayımı bozuldu, elle ekleme tutmadı: %q", got)
+	}
+
+	sweeper.Tick(ctx)
+
+	if got := ask(t, r, "id -Gn sizan"); strings.Contains(got, "postern-dba") {
+		t.Errorf("elle eklenen hesap grupta kaldı: %q", got)
+	}
+	// Hesabın kendisine dokunulmuyor: giden tek şey postern'in yetkisi.
+	if got := ask(t, r, "getent passwd sizan"); got == "" {
+		t.Error("süpürme hesabı sildi; yalnızca üyeliği kaldırmalıydı")
+	}
+	// Meşru üye yerinde.
+	if got := ask(t, r, "id -Gn acctayse"); !strings.Contains(got, "postern-dba") {
+		t.Errorf("meşru üye de atıldı: %q", got)
+	}
+}
+
+/*
+ * ⚠️ SİLİNEN SUDOERS DOSYASI GERİ GELİYOR.
+ *
+ * Sıcak yol bunu göremez: parmak izi postern'in İSTEDİĞİ durumdan
+ * türüyor ve hedefte elle silinen bir dosya o izi değiştirmiyor — yani
+ * kişi bağlansa bile hızlı şerit hedefe hiç uğramaz ve yetki sessizce
+ * kaybolmuş kalır.
+ */
+func TestTheSweepPutsBackASudoersFileSomebodyDeleted(t *testing.T) {
+	db, target, r, hook, _, sweeper := hostAcctFixture(t)
+	ctx := context.Background()
+
+	if err := db.SetGroupSudo(ctx, "dba", sudoers.Rule{
+		Commands: []sudoers.Command{{Path: "/usr/bin/uptime"}},
+	}, "test"); err != nil {
+		t.Fatal(err)
+	}
+	u, err := db.User(ctx, "ayse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := hook(ctx, u, target); err != nil {
+		t.Fatalf("hazırlama: %v", err)
+	}
+	// Yol provision'dan: SudoPath öneki kendisi ekliyor ve elle yazılan
+	// bir yol, testi hep "dosya yok" gösterirdi.
+	path := provision.SudoPath("postern-dba")
+	if got := ask(t, r, "sudo -n cat "+path); got == "" {
+		t.Fatalf("test varsayımı bozuldu: %s hiç yazılmadı", path)
+	}
+
+	if _, err := r.Exec(ctx, "sudo -n rm -f "+path, ""); err != nil {
+		t.Fatalf("silme: %v", err)
+	}
+
+	sweeper.Tick(ctx)
+
+	if got := ask(t, r, "sudo -n cat "+path); got == "" {
+		t.Errorf("süpürme silinen %s dosyasını geri getirmedi", path)
+	}
+}
+
+/*
+ * ⚠️ ÖNDEN AÇMA: KİŞİ HİÇ BAĞLANMADAN HESAP AÇILIYOR.
+ *
+ * Varsayılan değil ve olmaması bilinçli ("hesap kullanıldığı yerde
+ * vardır"), ama açıldığında gerçekten açması gerekiyor — dosya
+ * sahipliği, cron ve mail bunu isteyen kurumların sebebi.
+ */
+func TestTheSweepCanOpenAnAccountBeforeAnybodyConnects(t *testing.T) {
+	db, _, r, _, _, sweeper := hostAcctFixture(t)
+	ctx := context.Background()
+
+	if _, err := db.CreateUser(ctx, "veli", "veli@warewave.io", "acctveli"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AssignGroup(ctx, "veli", "dba", time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := ask(t, r, "getent passwd acctveli"); got != "" {
+		t.Fatalf("test varsayımı bozuldu: hesap zaten var (%q)", got)
+	}
+
+	sweeper.Tick(ctx)
+
+	if got := ask(t, r, "getent passwd acctveli"); got == "" {
+		t.Fatal("önden açma hesabı açmadı")
+	}
+	if got := ask(t, r, "id -Gn acctveli"); !strings.Contains(got, "postern-dba") {
+		t.Errorf("grup üyeliği kurulmadı: %q", got)
 	}
 }

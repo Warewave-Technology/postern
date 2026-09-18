@@ -553,6 +553,18 @@ manage:
   # some NFS servers and container runtimes.
   uid_pool_min: 60000
   uid_pool_max: 64999
+
+  # ⚠️ ALSO DEFAULT OFF (unset = the sweep is never started). On a timer,
+  # postern connects to every target, repairs what drifted, and takes
+  # accounts out of its own postern-* groups when nothing in postern
+  # puts them there. Neither the connect-time path nor the lock loop can see a
+  # change made by hand on the machine — this is the one that can.
+  # sweep_interval: 1h
+
+  # ⚠️ DEFAULT OFF AND MEANT TO STAY OFF for most installs. With this on,
+  # the sweep opens an account before anybody connects. It needs
+  # sweep_interval, and postern refuses to start without it.
+  # precreate_accounts: false
 ```
 
 ### Accounts, when postern owns them
@@ -591,6 +603,36 @@ Sessions are never refused because of this. If a host cannot be managed,
 provisioning is skipped and the session is attempted exactly as before; if
 the dial then fails, the reason postern could not prepare the account is
 carried in the error, rather than left in a log on the other machine.
+
+### The sweep, and what only it can see
+
+The connect-time path runs when somebody connects, and skips the target
+entirely when nothing postern knows about has changed. The lock loop reads
+postern's own records. **Neither can see a change made by hand on the
+machine** — a deleted sudoers file, a membership somebody removed, or the
+one that matters: an account added by hand to a `postern-<group>` group.
+That account holds the sudo rule postern wrote for that group, and appears
+in none of postern's records.
+
+Set `manage.sweep_interval` and postern walks the fleet on a timer: one
+management connection per target, everyone on that machine reconciled in a
+single pass. It repairs what drifted, and it **takes out** any account in
+one of its own `postern-*` groups that nothing in postern puts there. Only
+the membership goes — the account, its home and its other groups are
+untouched, and every removal is written to the audit log naming the person
+and the group. The marker groups (`postern-managed`, `postern-jit`) are
+deliberately left alone: they are what permits a delete, and getting that
+wrong in the removal direction would leave an account postern created
+impossible to remove. If one target would lose more than ten memberships
+in a single pass, **none** of them go and the reason is logged — a partial
+enforcement would do the damage and hide the cause.
+
+With `manage.precreate_accounts` the same pass also opens accounts nobody
+has connected with yet. It is off by default, and that is the product
+sentence rather than an oversight: the account exists where it is used.
+Some estates genuinely need it anyway — file ownership, cron, mail — so it
+is a switch and not an argument. An account a person decided should go is
+never reopened by it.
 
 Going the other way is not lazy, because it cannot be: somebody who loses
 a group never connects again. A loop closes those accounts — it expires

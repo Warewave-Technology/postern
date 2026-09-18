@@ -42,6 +42,17 @@ import (
  * KENDİ hakkını listeliyor; çıktı doluysa hem sudo çalışıyor hem de
  * kuralımızın okunduğu kanıtlanmış oluyor.
  */
+/*
+ * ToolProbe, araçları arayan komut.
+ *
+ * ⚠️ AYRI BİR SABİT, ÇÜNKÜ TESTLER BU DİZEYİ ANAHTAR OLARAK KULLANIYOR.
+ * Aynı metni bir de testte tutmak, listeye yeni bir araç eklendiğinde
+ * ilgisiz bir testi "hiçbir araç bulunamadı" diye düşürüyor — ve düşen
+ * test, eklenen aracın değil, kopyalanmış dizenin hatasını gösteriyor.
+ */
+const ToolProbe = "for n in useradd adduser groupadd addgroup usermod userdel " +
+	"groupdel gpasswd delgroup visudo bash; do command -v $n; done"
+
 var CapabilityCommands = []string{
 	"sudo -n -l",
 	/*
@@ -55,7 +66,7 @@ var CapabilityCommands = []string{
 	 * bu dizeye girmiyor, dolayısıyla "değişken içerik kabuğa
 	 * verilmez" kuralı korunuyor.
 	 */
-	"for n in useradd adduser groupadd addgroup usermod userdel groupdel visudo bash; do command -v $n; done",
+	ToolProbe,
 	/*
 	 * ⚠️ sshd'YE SORULUYOR, YAPILANDIRMA DOSYASINA DEĞİL. Sertifikayla
 	 * giriş, hesabın principals dosyasında principal'ı bulmaya bağlı ve o
@@ -87,6 +98,24 @@ type ManageCapabilities struct {
 	DelUser  string
 	DelGroup string
 	Visudo   string
+
+	/*
+	 * DelMember, bir hesabı bir gruptan ÇIKARAN araç (gpasswd ya da
+	 * busybox delgroup). "" ise bu hedefte çıkarma yapılamıyor.
+	 *
+	 * ⚠️ Missing'E GİRMİYOR, YANİ YOKLUĞU HEDEFİ YÖNETİLEMEZ YAPMIYOR.
+	 * Yalnızca süpürmenin üyelik zorlaması buna ihtiyaç duyuyor; hesap
+	 * açmak, sudo yazmak ve kilitlemek onsuz da tamam. Zorunlu kılmak,
+	 * bugün sorunsuz yönetilen bir hedefi yükseltmeden sonra
+	 * "yönetilemiyor" göstermek olurdu.
+	 *
+	 * ⚠️ `usermod -G` KULLANILMIYOR: -a olmadan hesabın BÜTÜN yan grup
+	 * listesini verilen listeyle değiştiriyor. postern'in görmediği bir
+	 * üyelik (docker, wheel, uygulamanın kendi grubu) o komutla sessizce
+	 * siliniyor — yani tek bir üyelik düzeltmesi, kişinin makinedeki
+	 * başka her şeyini götürebilirdi.
+	 */
+	DelMember string
 
 	// Family, os-release'den çıkan aile ("debian", "rhel", "alpine"…).
 	Family string
@@ -176,6 +205,15 @@ func ParseCapabilities(sudoOut, whichOut, osRelease, sshdPrincipals string) Mana
 			c.DelUser = p
 		case "groupdel":
 			c.DelGroup = p
+		case "gpasswd":
+			c.DelMember = p
+		case "delgroup":
+			// busybox'ta gpasswd yok; delgroup <user> <group> aynı işi
+			// yapıyor. gpasswd varsa o kazanıyor (aynı komut satırı her
+			// yerde).
+			if c.DelMember == "" {
+				c.DelMember = p
+			}
 		case "visudo":
 			c.Visudo = p
 		case "bash":

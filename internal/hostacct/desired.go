@@ -29,8 +29,12 @@ import (
  * yazmak, verilen yetkiyi onlara da vermek olurdu. Önekli ad uzayı
  * postern'in kendi ilanı: oraya yazdığı kural yalnızca oraya koyduğu
  * kişilere işliyor.
+ *
+ * ⚠️ TEK KAYNAK: provision.OwnedPrefix. Süpürmenin üyelik zorlaması aynı
+ * öneke bakıyor ve iki ayrı sabit, birinin değişip öbürünün kalmasıyla
+ * "zorlama hiç koşmayan bir ad uzayı" üretirdi.
  */
-const HostGroupPrefix = "postern-"
+const HostGroupPrefix = provision.OwnedPrefix
 
 // GroupRule, hedefte açılacak bir grup ve taşıdığı sudo kuralı.
 type GroupRule struct {

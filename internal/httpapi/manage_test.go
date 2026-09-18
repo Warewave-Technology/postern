@@ -33,6 +33,7 @@ import (
 	"github.com/Warewave-Technology/postern/internal/auth"
 	"github.com/Warewave-Technology/postern/internal/ca"
 	"github.com/Warewave-Technology/postern/internal/model"
+	"github.com/Warewave-Technology/postern/internal/upstream"
 )
 
 func manageCA(t *testing.T) *ca.CA {
@@ -179,7 +180,7 @@ func serveManaged(c net.Conn, cfg *ssh.ServerConfig, answers map[string]string) 
 func debianAnswers() map[string]string {
 	return map[string]string{
 		"sudo -n -l": "User postern may run the following commands on web01:\n    (ALL) NOPASSWD: ALL\n",
-		"for n in useradd adduser groupadd addgroup usermod userdel groupdel visudo bash; do command -v $n; done": "/usr/sbin/useradd\n/usr/sbin/adduser\n/usr/sbin/groupadd\n" +
+		upstream.ToolProbe: "/usr/sbin/useradd\n/usr/sbin/adduser\n/usr/sbin/groupadd\n" +
 			"/usr/sbin/addgroup\n/usr/sbin/usermod\n/usr/sbin/userdel\n/usr/sbin/groupdel\n/usr/sbin/visudo\n",
 		"cat /etc/os-release": "ID=debian\n",
 	}

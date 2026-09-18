@@ -165,6 +165,22 @@ func Ensure(ctx context.Context, d Deps, u model.User, t model.Target) Outcome {
 		UID:    want.UID,
 	}}
 
+	/*
+	 * ⚠️ KAYNAK BİLİNMİYORKEN MARKER GRUBU DA SORULUYOR — ÖLÇÜLDÜ.
+	 *
+	 * Kaynak Observe'dan SONRA çözülüyor, yani ilk Compute marker'sız
+	 * çalışıyor ve grup istenen durumda hiç görünmüyor. Sorulmazsa
+	 * o.Groups[postern-managed] false kalıyor ve plan bir `groupadd`
+	 * üretiyor. Aynı makinedeki İKİNCİ kişide o komut "grup zaten var"
+	 * diye düşüyor ve hesap hiç açılmıyor: entegrasyon testi "1 of 5
+	 * steps did not finish" dedi, yani bir makinede postern yalnızca tek
+	 * kişiye hesap açabiliyordu. Bir `getent` daha, bu bedelin yanında
+	 * hiçbir şey.
+	 */
+	if row.Origin == "" {
+		desired.Groups = append(desired.Groups, provision.Group{Name: provision.ManagedGroup})
+	}
+
 	observed, oerr := provision.Observe(ctx, runner, desired)
 	if oerr != nil {
 		return d.fail(ctx, row, want, "could not read the target: "+oerr.Error())

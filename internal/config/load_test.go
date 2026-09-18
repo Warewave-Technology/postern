@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Gerçek (parse edilebilir) test anahtarları. Private yarıları üretildikleri
@@ -665,5 +666,56 @@ func TestTheUIDPoolMustStayOutOfTheSystemRange(t *testing.T) {
 	}
 	if lo, hi := c.Manage.UIDPool(); lo != DefaultUIDPoolMin || hi != DefaultUIDPoolMax {
 		t.Errorf("varsayılan havuz = %d-%d", lo, hi)
+	}
+}
+
+/*
+ * ⚠️ ÖNDEN AÇMAYI KOŞTURAN DÖNGÜ SÜPÜRMENİN KENDİSİ.
+ *
+ * Süpürme kapalıyken bu anahtarı yazan operatör hesapların önden
+ * açılacağını sanır ve bunu ancak "neden açılmadı" diye arayınca öğrenir.
+ * Aynı gerekçe propagate_accounts/enabled çiftinde de var.
+ */
+func TestPrecreatingWithoutASweepIsRefusedAtStartup(t *testing.T) {
+	c := validConfig()
+	c.Manage.Enabled = true
+	c.Manage.PropagateAccounts = true
+	c.Manage.PrecreateAccounts = true
+
+	err := c.Validate()
+	if err == nil {
+		t.Fatal("süpürmesiz önden açma kabul edildi")
+	}
+	for _, want := range []string{"manage.precreate_accounts", "manage.sweep_interval"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("cümle %q anahtarını söylemiyor: %v", want, err)
+		}
+	}
+
+	c.Manage.SweepInterval = time.Hour
+	if err := c.Validate(); err != nil {
+		t.Errorf("geçerli bileşim reddedildi: %v", err)
+	}
+}
+
+/*
+ * ⚠️ SÜPÜRÜLECEK BİR ŞEY OLMADAN SÜPÜRME KURULMUYOR. propagate_accounts
+ * kapalıyken postern'in hedefte açtığı hiçbir hesap yok; her turda bütün
+ * filoya bağlanan bir döngü, hiçbir işe yaramadan ağ trafiği üretirdi.
+ */
+func TestSweepingWithoutPropagationIsRefusedAtStartup(t *testing.T) {
+	c := validConfig()
+	c.Manage.Enabled = true
+	c.Manage.PropagateAccounts = false
+	c.Manage.SweepInterval = time.Hour
+
+	err := c.Validate()
+	if err == nil {
+		t.Fatal("dağıtımsız süpürme kabul edildi")
+	}
+	for _, want := range []string{"manage.sweep_interval", "manage.propagate_accounts"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("cümle %q anahtarını söylemiyor: %v", want, err)
+		}
 	}
 }

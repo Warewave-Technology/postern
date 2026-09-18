@@ -57,6 +57,10 @@ type Server struct {
 	// lockWorker, group'u düşen hesapları hedefte kapatan döngü.
 	lockWorker *hostacct.Worker
 
+	// sweeper, hedefte ELLE yapılan değişikliği yakalayan döngü. nil ise
+	// süpürme kapalı (varsayılan).
+	sweeper *hostacct.Sweeper
+
 	// logins nil değilse keyboard-interactive OOB girişi açık: anahtarı
 	// olmayan insanlar tarayıcıda OIDC ile girer. Public key yolu her
 	// durumda çalışmaya devam eder (makineler/otomasyon).
@@ -306,6 +310,7 @@ func New(cfg *config.Config, db *store.Store, logger *slog.Logger) (*Server, err
 	 */
 	var ensure func(context.Context, model.User, model.Target) error
 	var locker *hostacct.Worker
+	var sweeper *hostacct.Sweeper
 	if cfg.Manage.Enabled && cfg.Manage.PropagateAccounts {
 		poolMin, poolMax := cfg.Manage.UIDPool()
 		ensure = hostacct.Hook(db, caAuthority, logger, poolMin, poolMax)
@@ -319,6 +324,23 @@ func New(cfg *config.Config, db *store.Store, logger *slog.Logger) (*Server, err
 		logger.Warn("account propagation is enabled: postern creates and adopts " +
 			"OS accounts on targets as people connect, and locks them when the " +
 			"last group that granted the target goes")
+
+		/*
+		 * ⚠️ SÜPÜRME AYRI BİR ANAHTAR VE VARSAYILAN KAPALI. Her turda
+		 * filodaki HER hedefe bağlanıyor; yükseltmeyle birlikte sessizce
+		 * başlaması, ağ grafiğine bakan kişiyi sebebini aramaya
+		 * gönderirdi. Ne yaptığı açılışta bir kez yazılıyor: sıcak yol
+		 * ve itme yolu hedefte ELLE yapılan değişikliği göremiyor.
+		 */
+		if cfg.Manage.SweepInterval > 0 {
+			sweeper = hostacct.NewSweepWorker(db, caAuthority, logger,
+				cfg.Manage.SweepInterval, cfg.Manage.PrecreateAccounts, poolMin, poolMax)
+			logger.Warn("the account sweep is enabled: postern connects to every target "+
+				"on a timer, repairs what drifted, and takes accounts out of its own "+
+				"postern-* groups when no postern group puts them there",
+				"interval", cfg.Manage.SweepInterval,
+				"precreate", cfg.Manage.PrecreateAccounts)
+		}
 	}
 
 	return &Server{
@@ -326,6 +348,7 @@ func New(cfg *config.Config, db *store.Store, logger *slog.Logger) (*Server, err
 		cfg:  cfg, signer: signer, logger: logger,
 		rStore: recStore, recordMinFree: minFree, db: db, authority: caAuthority,
 		groups: auth.ClaimGroups{}, ensureAccount: ensure, lockWorker: locker,
+		sweeper: sweeper,
 
 		limiter: newConnLimiter(
 			cfg.Listen.MaxConnsOrDefault(),
@@ -372,6 +395,9 @@ func (s *Server) Serve(ctx context.Context, l net.Listener) error {
 	 * onu unutan bir kurulumda hesap açan ama hiç kapatmayan bir bastion
 	 * bırakırdı — ve bu, özelliğin var olma sebebinin tersi.
 	 */
+	if s.sweeper != nil {
+		go s.sweeper.Run(ctx)
+	}
 	if s.lockWorker != nil {
 		go s.lockWorker.Run(ctx)
 	}

@@ -303,3 +303,77 @@ func (s *Store) RemoveHostAccount(ctx context.Context, target, username string) 
 
 	return translateErr(op, err)
 }
+
+/*
+ * ActiveHostAccountRows, hedefte açık olan bütün satırlar, hedefe göre
+ * sıralı.
+ *
+ * ⚠️ SIRALAMA SÜPÜRMENİN TEK BAĞLANTI BÜTÇESİ. Süpürme hedef başına BİR
+ * yönetim bağlantısı açıyor; satırlar hedefe göre kümelenmemiş gelseydi
+ * aynı makineye bir turda onlarca kez bağlanılırdı ve özellik ilk büyük
+ * filoda kapatılırdı.
+ */
+func (s *Store) ActiveHostAccountRows(ctx context.Context) ([]HostAccount, error) {
+	const op = "store.ActiveHostAccountRows"
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT `+hostAccountColumns+` FROM host_accounts ha
+		 WHERE ha.state = 'active'
+		 ORDER BY ha.target_name, ha.username;`)
+	if err != nil {
+		return nil, translateErr(op, err)
+	}
+	defer rows.Close()
+
+	return scanHostAccounts(op, rows)
+}
+
+// Grant, bir grubun verdiği (kişi, hedef) çifti.
+type Grant struct {
+	Username   string
+	TargetName string
+}
+
+/*
+ * GrantsWithoutAccounts, bir grubun verdiği ama hedefte hiç satırı
+ * olmayan (kişi, hedef) çiftleri — önden açmanın iş listesi.
+ *
+ * ⚠️ TÜRETİLMİŞ, İŞARETLİ DEĞİL. İtme yolundaki gerekçenin aynısı: bir
+ * `pending` sütunu, onu yazmayı unutan her yeni grup/hedef yazma yolunda
+ * sessiz bir boşluk açardı. Burada boşluğun anlamı "önden açılması
+ * gereken hesap hiç açılmadı" olurdu ve kimse fark etmezdi.
+ *
+ * ⚠️ SİLİNMİŞ SATIR YENİDEN AÇILMIYOR. host_accounts satırı 'removed'
+ * olarak duruyor (silinmiyor) ve burada "satır yok" şartı onu dışarıda
+ * bırakıyor: bir insan o hesabın gitmesine karar verdiyse, süpürme onu
+ * ertesi sabah geri açmamalı.
+ */
+func (s *Store) GrantsWithoutAccounts(ctx context.Context, now time.Time) ([]Grant, error) {
+	const op = "store.GrantsWithoutAccounts"
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT u.username, t.name
+		FROM users u
+		JOIN user_groups   ug ON ug.user_id = u.id
+		                     AND (ug.expires_at IS NULL OR ug.expires_at > $1)
+		JOIN group_targets gt ON gt.group_id = ug.group_id
+		JOIN targets       t  ON t.id = gt.target_id
+		WHERE NOT EXISTS (
+			SELECT 1 FROM host_accounts ha
+			WHERE ha.username = u.username AND ha.target_name = t.name
+		)
+		ORDER BY t.name, u.username;`, now.Unix())
+	if err != nil {
+		return nil, translateErr(op, err)
+	}
+	defer rows.Close()
+
+	var out []Grant
+	for rows.Next() {
+		var g Grant
+		if err := rows.Scan(&g.Username, &g.TargetName); err != nil {
+			return nil, translateErr(op, err)
+		}
+		out = append(out, g)
+	}
+
+	return out, translateErr(op, rows.Err())
+}

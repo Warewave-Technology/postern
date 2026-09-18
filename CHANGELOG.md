@@ -79,6 +79,35 @@ number and the clash is written to the audit log with the name of whoever
 holds it, because forcing it would hand that account's home, logs and keys
 to the new person.
 
+**A sweep, for what nothing else can see.** The connect-time path runs
+only when somebody connects and skips the target when nothing postern
+knows about has changed; the lock loop reads postern's own records.
+Neither sees a change made by hand on the machine. Set
+`manage.sweep_interval` (unset by default, and it needs
+`manage.propagate_accounts`) and postern walks the fleet on a timer — one
+management connection per target, everyone on that machine reconciled in a
+single pass. It puts back a sudoers file somebody deleted, and it takes
+any account out of its own `postern-*` groups when nothing in postern
+puts them there: that account was holding the sudo rule postern wrote for the
+group while appearing in none of postern's records. Only the membership
+goes; the account, its home and its other groups are untouched, and every
+removal is written to the audit log. If one target would lose more than
+ten memberships in a pass, none of them go and the reason is logged.
+`postern-managed` and `postern-jit` are never enforced — they are what
+permits a delete, and removing one by mistake would strand an account
+postern created.
+
+`manage.precreate_accounts` makes the same pass open accounts before
+anybody connects. Off by default on purpose — the account exists where it
+is used — and postern refuses to start if you set it without
+`sweep_interval`. An account somebody decided should go is never reopened.
+
+**Fixed: only the first person on a machine got an account.** The second
+person's run tried to create the `postern-managed` group again, the target
+refused because it already existed, and the whole preparation failed —
+every time, with backoff, so it never recovered. Nobody hit this in a
+release; it is fixed before the feature ships.
+
 Run `postern db migrate` before starting this version.
 
 ### Needs action if you call the API or use the CLI

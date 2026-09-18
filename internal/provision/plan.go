@@ -115,6 +115,16 @@ type Observed struct {
 	 * olur. Numaranın filo boyunca aynı olması bu riske değmiyor.
 	 */
 	UIDOwner map[int]string
+	/*
+	 * GroupMembers, var olan grupların YAN üye listesi (grup adı →
+	 * hesaplar), getent'in verdiği hâliyle.
+	 *
+	 * ⚠️ BİRİNCİL GRUP BURADA GÖRÜNMÜYOR. getent group yalnızca yan
+	 * üyeleri listeliyor; birincil grubu o grup olan bir hesap listede
+	 * yok. Üyelik zorlaması bunu bilmek zorunda, yoksa "fazla üye yok"
+	 * derken gerçekten fazla olan birini kaçırır.
+	 */
+	GroupMembers map[string][]string
 }
 
 // StepKind, adımın türü.
@@ -129,6 +139,7 @@ const (
 	StepSudoInstall StepKind = "sudo.install"
 	StepPrincipal   StepKind = "principal.write"
 	StepUserUnlock  StepKind = "user.unlock"
+	StepUserUngroup StepKind = "user.ungroup"
 )
 
 /*

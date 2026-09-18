@@ -47,7 +47,7 @@ func Observe(ctx context.Context, r Runner, d Desired) (Observed, error) {
 	o := Observed{
 		Groups: map[string]bool{}, GIDs: map[string]int{}, Users: map[string][]string{},
 		PosternSudoers: map[string]string{}, Principals: map[string]string{},
-		UIDOwner: map[int]string{},
+		UIDOwner: map[int]string{}, GroupMembers: map[string][]string{},
 	}
 
 	groups := append([]Group(nil), d.Groups...)
@@ -76,6 +76,14 @@ func Observe(ctx context.Context, r Runner, d Desired) (Observed, error) {
 				return Observed{}, fmt.Errorf("provision.Observe: group %s: %w", g.Name, err)
 			}
 			o.GIDs[g.Name] = info.GID
+			/*
+			 * ⚠️ ÜYE LİSTESİ DE OKUNUYOR. Süpürme, postern'in kendi ad
+			 * uzayındaki bir grupta postern'in koymadığı bir hesap olup
+			 * olmadığına bakıyor; bu soru yalnızca üye listesiyle
+			 * cevaplanabiliyor. "Grup var" bilgisi, o grubun kime sudo
+			 * verdiğini söylemiyor.
+			 */
+			o.GroupMembers[g.Name] = info.Members
 		}
 
 		if len(g.Sudo.Commands) == 0 {

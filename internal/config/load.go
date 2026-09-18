@@ -132,6 +132,23 @@ func (c *Config) Validate() error {
 			"manage.uid_pool_min/max is %d-%d: the pool must stay within 1000-65533 and start below its end", lo, hi)
 	}
 
+	/*
+	 * ⚠️ ÖNDEN AÇMAYI KOŞTURAN DÖNGÜ SÜPÜRMENİN KENDİSİ. Süpürme
+	 * kapalıyken bu anahtarı yazan operatör hesapların önden açılacağını
+	 * sanır ve bunu ancak "neden açılmadı" diye arayınca öğrenir —
+	 * propagate_accounts/enabled çiftindeki gerekçenin aynısı.
+	 */
+	if c.Manage.PrecreateAccounts && c.Manage.SweepInterval <= 0 {
+		return fmt.Errorf(
+			"manage.precreate_accounts is on but manage.sweep_interval is not set: " +
+				"the sweep is the loop that opens accounts ahead of time")
+	}
+	if c.Manage.SweepInterval > 0 && !c.Manage.PropagateAccounts {
+		return fmt.Errorf(
+			"manage.sweep_interval is set but manage.propagate_accounts is off: " +
+				"there are no postern-owned accounts to sweep")
+	}
+
 	if c.Recording.Dir == "" {
 		return fmt.Errorf("recording.dir is empty")
 	}

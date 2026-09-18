@@ -81,6 +81,8 @@ var shownConfig = map[string]string{
 	"manage.propagate_accounts":                "creating and adopting OS accounts on targets as people connect",
 	"manage.uid_pool_min":                      "lowest number postern hands out when the directory gives none",
 	"manage.uid_pool_max":                      "highest number postern hands out when the directory gives none",
+	"manage.sweep_interval":                    "how often postern checks targets for changes made by hand",
+	"manage.precreate_accounts":                "opening accounts before anybody connects",
 	"secret_key_file":                          "the key sealed secrets are encrypted with",
 	"recording.dir":                            "where session recordings are written",
 	"recording.record_input":                   "recording what users type, not just what they see",

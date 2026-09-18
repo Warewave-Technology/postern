@@ -204,3 +204,53 @@ func (rm *Remover) Remove(ctx context.Context, targetName, username, actor strin
 
 	return rm.db.RemoveHostAccount(ctx, targetName, username)
 }
+
+/*
+ * NewSweeper, sürüklenme süpürücüsünü kurar.
+ *
+ * precreate false ise Grants BAĞLANMIYOR — yani önden açma kodu hiç
+ * koşmuyor, bir bayrağın içinde "hayır" diye durmuyor. Manifestonun
+ * cümlesi varsayılanda kodun şeklinde görünsün diye.
+ */
+func NewSweepWorker(db *store.Store, authority *ca.CA, logger *slog.Logger,
+	interval time.Duration, precreate bool, poolMin, poolMax int,
+) *Sweeper {
+	d := SweepDeps{
+		Rows:   db.ActiveHostAccountRows,
+		User:   db.User,
+		Target: db.Target,
+		Rules:  db.GroupSudoRules,
+		Save:   db.SaveHostAccount,
+		UID: func(ctx context.Context, u model.User) (int, error) {
+			row, err := db.AllocateUIDFromPool(ctx, u.Name, poolMin, poolMax)
+			if err != nil {
+				return 0, err
+			}
+
+			return row.UID, nil
+		},
+		Connect: func(ctx context.Context, t model.Target, reason string) (Runner, error) {
+			return provision.Connect(ctx, t, authority, "system", reason)
+		},
+		Caps: func(ctx context.Context, r Runner) (upstream.ManageCapabilities, error) {
+			sr, ok := r.(*provision.SSHRunner)
+			if !ok {
+				return upstream.ManageCapabilities{}, errNotSSH
+			}
+
+			return sr.Conn().Capabilities(ctx)
+		},
+		Audit: func(ctx context.Context, target, detail string) error {
+			return db.LogAdmin(ctx, store.AdminLogEntry{
+				At: time.Now(), Actor: "system", Via: "sync",
+				Action: "account.sweep", Entity: target, Details: detail,
+			})
+		},
+		Logger: logger,
+	}
+	if precreate {
+		d.Grants = db.GrantsWithoutAccounts
+	}
+
+	return NewSweeper(d, interval)
+}
