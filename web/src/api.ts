@@ -594,6 +594,22 @@ export type ConfigView = {
   withheld: ConfigEntry[];
 };
 
+/*
+ * LockedAccount, hedefte kilitlenmiş ve karar bekleyen bir hesap.
+ *
+ * ⚠️ origin ekranda görünmek zorunda: postern'in açtığı bir hesabı silmek
+ * onu geri almak, başka bir aracın açtığını silmek o aracın sahibi olduğu
+ * bir şeyi yok etmek. İkisi aynı düğme olamaz.
+ */
+export type LockedAccount = {
+  target: string;
+  username: string;
+  os_user: string;
+  origin: "created" | "adopted";
+  locked_at: string;
+  last_error?: string;
+};
+
 export type GrantResult = {
   grant: Grant;
   summary: string;
@@ -1360,6 +1376,21 @@ export const api = {
   allGrants: () => req<{ grants: Grant[]; now: string }>("GET", "/api/admin/grants"),
 
   discovery: () => req<DiscoveryOverview>("GET", "/api/admin/discovery"),
+  /** Hedeflerde kilitlenmiş, karar bekleyen hesaplar. */
+  lockedAccounts: () => req<{ accounts: LockedAccount[] }>("GET", "/api/admin/host-accounts"),
+  /** "Kilitli kalsın": hesap açılmıyor, yalnızca listeden çıkıyor. */
+  keepLockedAccount: (target: string, username: string) =>
+    req<void>(
+      "POST",
+      `/api/admin/host-accounts/${encodeURIComponent(target)}/${encodeURIComponent(username)}/keep`,
+    ),
+  /** Hesabı ve ev dizinini hedeften siler — geri alınamaz. */
+  deleteLockedAccount: (target: string, username: string) =>
+    req<void>(
+      "POST",
+      `/api/admin/host-accounts/${encodeURIComponent(target)}/${encodeURIComponent(username)}/delete`,
+    ),
+
   /** Host'taki yapılandırma dosyasının salt-okunur görünümü. */
   config: () => req<ConfigView>("GET", "/api/admin/config"),
   /** Bekleyen işler — üst çubuktaki çan ve listesi. */

@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/Warewave-Technology/postern/internal/model"
+	"github.com/Warewave-Technology/postern/internal/provision"
 	"github.com/Warewave-Technology/postern/internal/store"
 	"github.com/Warewave-Technology/postern/internal/sudoers"
 )
@@ -61,8 +62,19 @@ type Want struct {
  * makineye yazmak, postern'i tam da yerine geçtiği şeye — N kullanıcıyı
  * M makineye basan bir dağıtıcıya — çevirirdi.
  */
-func Compute(u model.User, t model.Target, rules map[string]store.GroupSudo) Want {
+func Compute(u model.User, t model.Target, rules map[string]store.GroupSudo, managed bool) Want {
 	w := Want{OSUser: u.OSUser, Groups: []GroupRule{}}
+
+	/*
+	 * ⚠️ MARKER GRUBU YALNIZCA POSTERN'İN AÇTIĞI HESAPTA.
+	 *
+	 * postern-managed, "bu hesabı ben açtım"ın makine üstündeki hâli ve
+	 * silmenin ön koşulu. Devralınan bir hesaba koymak, postern'den önce
+	 * var olan bir hesabı silinebilir yapardı — ayrımın tamamı bu.
+	 */
+	if managed {
+		w.Groups = append(w.Groups, GroupRule{Name: provision.ManagedGroup})
+	}
 
 	names := make([]string, 0, len(u.Groups))
 	for _, g := range u.Groups {
@@ -79,6 +91,14 @@ func Compute(u model.User, t model.Target, rules map[string]store.GroupSudo) Wan
 	sb.WriteString("os_user=")
 	sb.WriteString(u.OSUser)
 	sb.WriteString("\n")
+	/*
+	 * Marker da izin içinde: hesabın postern tarafından mı açıldığı,
+	 * hedefte duran durumun parçası. İzin dışında kalsaydı, marker'ı
+	 * eksik bir hesap hiç düzelmezdi.
+	 */
+	if managed {
+		sb.WriteString("managed\n")
+	}
 
 	for _, n := range names {
 		gr := GroupRule{Name: HostGroupPrefix + n}

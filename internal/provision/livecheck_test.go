@@ -201,7 +201,7 @@ func TestRevokeAgainstARealTarget(t *testing.T) {
 	}
 
 	steps, err := RevokePlan(caps, Revoke{
-		User: user, Mode: ModeDelete, UID: facts.UID, InJITGroup: facts.InJITGroup(),
+		User: user, Mode: ModeDelete, UID: facts.UID, CreatedByPostern: facts.CreatedByPostern(),
 		Home:      facts.Home,
 		SudoFiles: []string{UserSudoPath(user)},
 	})

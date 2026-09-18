@@ -11,6 +11,7 @@ package hostacct
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -111,4 +112,79 @@ func NewLockWorker(db *store.Store, authority *ca.CA, logger *slog.Logger, inter
 		},
 		Logger: logger,
 	}, interval)
+}
+
+/*
+ * Remover, kilitli bir hesabı hedeften silen taraf (panelin kararı).
+ *
+ * ⚠️ SİLME KANIT İSTİYOR VE KANIT HEDEFTE. postern'in açmadığı bir
+ * hesabı silmek geri alınamaz ve o hesap postern'in değil; kanıt,
+ * makinedeki postern-managed (ya da geçici hesapta postern-jit)
+ * üyeliği. Veritabanındaki kaynak kaydı yetmiyor: host yeniden kurulmuş
+ * ya da aynı adla başka biri hesap açmış olabilir.
+ */
+type Remover struct {
+	db        *store.Store
+	authority *ca.CA
+	logger    *slog.Logger
+}
+
+func NewRemover(db *store.Store, authority *ca.CA, logger *slog.Logger) *Remover {
+	return &Remover{db: db, authority: authority, logger: logger}
+}
+
+func (rm *Remover) Remove(ctx context.Context, targetName, username, actor string) error {
+	row, err := rm.db.HostAccountFor(ctx, targetName, username)
+	if err != nil {
+		return err
+	}
+	target, terr := rm.db.Target(ctx, targetName)
+	if terr != nil {
+		return terr
+	}
+
+	runner, cerr := provision.Connect(ctx, target, rm.authority, actor, "deleting "+username+"'s account")
+	if cerr != nil {
+		return errReason("could not reach the target: " + cerr.Error())
+	}
+	defer func() { _ = runner.Close() }()
+
+	caps, kerr := runner.Conn().Capabilities(ctx)
+	if kerr != nil {
+		return errReason("could not measure the target: " + kerr.Error())
+	}
+	facts, ferr := provision.Account(ctx, runner, row.OSUser)
+	if ferr != nil {
+		return errReason("could not read the account on the target: " + ferr.Error())
+	}
+	if !facts.Exists {
+		// Hedefte zaten yok: kayıt buna göre kapanıyor.
+		return rm.db.RemoveHostAccount(ctx, targetName, username)
+	}
+
+	principals := provision.PrincipalsPatternFor(ctx, runner, row.OSUser, caps.PrincipalsFile)
+	var file string
+	if principals != "" {
+		if p, perr := provision.PrincipalsPath(principals, row.OSUser); perr == nil {
+			file = p
+		}
+	}
+
+	steps, perr := provision.RevokePlan(caps, provision.Revoke{
+		User: row.OSUser, Mode: provision.ModeDelete,
+		UID: facts.UID, Home: facts.Home,
+		CreatedByPostern: facts.CreatedByPostern(),
+		PrincipalsFile:   file,
+	})
+	if perr != nil {
+		return errReason(perr.Error())
+	}
+
+	rep := provision.Apply(ctx, runner, steps)
+	if rep.Failed() > 0 || rep.Unreachable() > 0 {
+		return errReason(fmt.Sprintf("%d of %d steps did not finish on the target",
+			rep.Failed()+rep.Unreachable(), len(steps)))
+	}
+
+	return rm.db.RemoveHostAccount(ctx, targetName, username)
 }

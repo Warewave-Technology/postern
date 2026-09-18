@@ -95,6 +95,12 @@ type Server struct {
 	 * config, okunmuş yapılandırmanın KOPYASI ve dosyanın yolu — salt
 	 * okunur ekran için. nil ise /api/admin/config rotası hiç kurulmuyor.
 	 */
+	/*
+	 * hostAccounts, kilitli hesabı hedeften silen taraf. nil ise ekranın
+	 * uçları HİÇ kurulmuyor — kapalı özellik, kapalı yüzey.
+	 */
+	hostAccounts HostAccountRemover
+
 	config     *config.Config
 	configPath string
 

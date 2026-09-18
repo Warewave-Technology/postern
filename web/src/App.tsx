@@ -14,6 +14,7 @@ import Users from "./admin/Users";
 import Targets from "./admin/Targets";
 import Configuration from "./admin/Configuration";
 import Discovery from "./admin/Discovery";
+import LockedAccounts from "./admin/LockedAccounts";
 import Notifications from "./Notifications";
 import UserMenu from "./UserMenu";
 import Groups from "./admin/Groups";
@@ -69,7 +70,8 @@ type Section =
   | "sessions"
   | "files"
   | "log"
-  | "config";
+  | "config"
+  | "hostaccounts";
 
 /*
  * Kenar listesi GRUPLANMIŞ.
@@ -87,6 +89,14 @@ const NAV: { title?: string; items: [Section, string, ReactNode][] }[] = [
       ["groups", "Groups", <RolesIcon key="i" />],
       ["mappings", "Mappings", <MapIcon key="i" />],
       ["pending", "Pending", <UsersIcon key="i" />],
+      /*
+       * ⚠️ ACCESS ALTINDA, AUDIT'te DEĞİL. Bu liste olmuş bir şeyin
+       * kaydı değil, BEKLEYEN bir karar: hesabın hedefte kalıp
+       * kalmayacağına buradan karar veriliyor. Audit'e koymak, üzerinde
+       * iş yapılacak bir listeyi okunacak bir listenin yanına koymak
+       * olurdu.
+       */
+      ["hostaccounts", "Locked accounts", <UsersIcon key="i" />],
     ],
   },
   {
@@ -1066,6 +1076,7 @@ export default function App() {
                   {section === "oidc" && <OIDCSettingsScreen />}
                   {section === "ldap" && <Settings meName={me.name} />}
                   {section === "config" && <Configuration />}
+                  {section === "hostaccounts" && <LockedAccounts />}
                   {section === "sessions" && <Sessions theme={resolved} />}
                   {section === "files" && <FileHistory />}
                   {section === "log" && <AdminLog />}

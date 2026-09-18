@@ -252,7 +252,7 @@ func TestTheManagementAccountIsNeverPlanned(t *testing.T) {
 		}
 		for _, mode := range []RevokeMode{ModeLock, ModeDelete} {
 			if _, err := RevokePlan(able(), Revoke{
-				User: name, Mode: mode, UID: 998, InJITGroup: true,
+				User: name, Mode: mode, UID: 998, CreatedByPostern: true,
 			}); err == nil {
 				t.Errorf("%q için %v sökme planı üretildi — postern kendini kilitlerdi", name, mode)
 			}
@@ -475,7 +475,7 @@ func TestAPerUserSudoRuleIsWrittenAndRemovable(t *testing.T) {
 	}
 
 	if _, err := RevokePlan(able(), Revoke{
-		User: "jit-ayse", Mode: ModeDelete, UID: 1001, InJITGroup: true,
+		User: "jit-ayse", Mode: ModeDelete, UID: 1001, CreatedByPostern: true,
 		SudoFiles: []string{UserSudoPath("jit-ayse")},
 	}); err != nil {
 		t.Errorf("sökme planı kullanıcı dosyasını reddetti: %v", err)

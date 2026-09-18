@@ -280,6 +280,19 @@ type AccountFacts struct {
 func (a AccountFacts) InJITGroup() bool { return hasName(a.Groups, JITGroup) }
 
 /*
+ * CreatedByPostern, hesabı postern'in açtığının makine üstündeki kanıtı:
+ * geçici hesapta postern-jit, kalıcı hesapta postern-managed üyeliği.
+ *
+ * ⚠️ VERİTABANINA BAKMIYOR. Silinecek olan makinedeki hesap; kanıtın da
+ * orada durması gerekiyor. Host yeniden kurulmuş ya da aynı adla başka
+ * biri hesap açmış olabilir ve o hâlde postern'in kaydı hâlâ "ben
+ * açmıştım" der.
+ */
+func (a AccountFacts) CreatedByPostern() bool {
+	return hasName(a.Groups, JITGroup) || hasName(a.Groups, ManagedGroup)
+}
+
+/*
  * Account, bir hesabın numarasını, evini ve gruplarını hedeften okur —
  * sökme planının varsayım değil ölçüm istediği üç şey.
  *

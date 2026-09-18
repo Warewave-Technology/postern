@@ -38,7 +38,7 @@ func commands(steps []Step) string {
  */
 func TestProcessesDieBeforeTheAccount(t *testing.T) {
 	steps := revokeSteps(t, Revoke{
-		User: "jit-ayse", Mode: ModeDelete, UID: 1001, InJITGroup: true,
+		User: "jit-ayse", Mode: ModeDelete, UID: 1001, CreatedByPostern: true,
 		Home: "/home/jit-ayse",
 	})
 
@@ -63,7 +63,7 @@ func TestProcessesDieBeforeTheAccount(t *testing.T) {
 // yeni bir yükseltme yapılamasın.
 func TestSudoIsTakenAwayFirst(t *testing.T) {
 	steps := revokeSteps(t, Revoke{
-		User: "jit-ayse", Mode: ModeDelete, UID: 1001, InJITGroup: true,
+		User: "jit-ayse", Mode: ModeDelete, UID: 1001, CreatedByPostern: true,
 		Home: "/home/jit-ayse", SudoFiles: []string{"/etc/sudoers.d/postern-jit-7f3a"},
 	})
 
@@ -82,7 +82,7 @@ func TestSudoIsTakenAwayFirst(t *testing.T) {
  */
 func TestAccountPosternDidNotCreateIsNeverDeleted(t *testing.T) {
 	_, err := RevokePlan(able(), Revoke{
-		User: "postgres", Mode: ModeDelete, UID: 1001, InJITGroup: false, Home: "/var/lib/postgresql",
+		User: "postgres", Mode: ModeDelete, UID: 1001, CreatedByPostern: false, Home: "/var/lib/postgresql",
 	})
 	if err == nil {
 		t.Fatal("POSTERN'İN AÇMADIĞI HESAP İÇİN SİLME PLANI ÜRETİLDİ")
@@ -156,7 +156,7 @@ func TestScratchPathsThatWouldDestroyTheMachineAreRefused(t *testing.T) {
 		"/srv/build/ünite",
 	} {
 		_, err := RevokePlan(able(), Revoke{
-			User: "jit-ayse", Mode: ModeDelete, UID: 1001, InJITGroup: true,
+			User: "jit-ayse", Mode: ModeDelete, UID: 1001, CreatedByPostern: true,
 			Home: "/home/jit-ayse", Scratch: []string{p},
 		})
 		if err == nil {
@@ -168,7 +168,7 @@ func TestScratchPathsThatWouldDestroyTheMachineAreRefused(t *testing.T) {
 // Geçerli bir çalışma alanı kabul ediliyor: kural yasak değil, sınır.
 func TestADeclaredScratchPathIsAccepted(t *testing.T) {
 	steps := revokeSteps(t, Revoke{
-		User: "jit-ayse", Mode: ModeDelete, UID: 1001, InJITGroup: true,
+		User: "jit-ayse", Mode: ModeDelete, UID: 1001, CreatedByPostern: true,
 		Home: "/home/jit-ayse", Scratch: []string{"/srv/build/jit-ayse"},
 	})
 
@@ -191,7 +191,7 @@ func TestOnlyPosternsOwnSudoFilesAreRemoved(t *testing.T) {
 		"/etc/sudoers.d/postern-$(id)", "/etc/sudoers.d/postern-a>b",
 	} {
 		_, err := RevokePlan(able(), Revoke{
-			User: "jit-ayse", Mode: ModeDelete, UID: 1001, InJITGroup: true,
+			User: "jit-ayse", Mode: ModeDelete, UID: 1001, CreatedByPostern: true,
 			Home: "/home/jit-ayse", SudoFiles: []string{f},
 		})
 		if err == nil {
@@ -208,7 +208,7 @@ func TestOnlyPosternsOwnSudoFilesAreRemoved(t *testing.T) {
  */
 func TestLeftoverFilesAreReportedNotDeleted(t *testing.T) {
 	steps := revokeSteps(t, Revoke{
-		User: "jit-ayse", Mode: ModeDelete, UID: 1001, InJITGroup: true, Home: "/home/jit-ayse",
+		User: "jit-ayse", Mode: ModeDelete, UID: 1001, CreatedByPostern: true, Home: "/home/jit-ayse",
 	})
 
 	var report string
@@ -254,7 +254,7 @@ func TestRevokeRefusesNamesThatWouldBecomeCommands(t *testing.T) {
  */
 func TestLeftoverReportDoesNotDependOnTheNameStillResolving(t *testing.T) {
 	steps := revokeSteps(t, Revoke{
-		User: "jit-ayse", Mode: ModeDelete, UID: 1042, InJITGroup: true,
+		User: "jit-ayse", Mode: ModeDelete, UID: 1042, CreatedByPostern: true,
 		Home: "/home/jit-ayse",
 	})
 
@@ -279,7 +279,7 @@ func TestLeftoverReportDoesNotDependOnTheNameStillResolving(t *testing.T) {
 func TestSystemAccountsAreNeverRevoked(t *testing.T) {
 	for _, uid := range []int{0, -1} {
 		if _, err := RevokePlan(able(), Revoke{
-			User: "root", Mode: ModeDelete, UID: uid, InJITGroup: true,
+			User: "root", Mode: ModeDelete, UID: uid, CreatedByPostern: true,
 		}); err == nil {
 			t.Errorf("uid %d için sökme planı üretildi", uid)
 		}
@@ -316,7 +316,7 @@ func TestSudoFilesOfAGoneAccountAreRemovedThroughTheSameGate(t *testing.T) {
  */
 func TestRevokeRemovesThePrincipalsFileBeforeKillingProcesses(t *testing.T) {
 	steps := revokeSteps(t, Revoke{
-		User: "jit-ayse", Mode: ModeDelete, UID: 1001, InJITGroup: true,
+		User: "jit-ayse", Mode: ModeDelete, UID: 1001, CreatedByPostern: true,
 		Home: "/home/jit-ayse", PrincipalsFile: "/etc/ssh/auth_principals/jit-ayse",
 	})
 	got := commandsOf(steps)
@@ -328,7 +328,7 @@ func TestRevokeRemovesThePrincipalsFileBeforeKillingProcesses(t *testing.T) {
 	}
 
 	if _, err := RevokePlan(able(), Revoke{
-		User: "jit-ayse", Mode: ModeDelete, UID: 1001, InJITGroup: true,
+		User: "jit-ayse", Mode: ModeDelete, UID: 1001, CreatedByPostern: true,
 		Home: "/home/jit-ayse", PrincipalsFile: "/etc/ssh/auth_principals/veli",
 	}); err == nil {
 		t.Error("başka hesabın principals dosyasını silen plan kabul edildi")
@@ -347,7 +347,7 @@ func TestRevokeRemovesThePrincipalsFileBeforeKillingProcesses(t *testing.T) {
  */
 func TestRevokeDeletesTheGroupsPosternCreatedAfterTheAccount(t *testing.T) {
 	steps := revokeSteps(t, Revoke{
-		User: "jit-ayse", Mode: ModeDelete, UID: 1001, InJITGroup: true,
+		User: "jit-ayse", Mode: ModeDelete, UID: 1001, CreatedByPostern: true,
 		Home: "/home/jit-ayse", DeleteGroups: []string{"gecici"},
 	})
 	got := commandsOf(steps)
@@ -358,7 +358,7 @@ func TestRevokeDeletesTheGroupsPosternCreatedAfterTheAccount(t *testing.T) {
 		t.Errorf("grup hesaptan önce siliniyor:\n%s", got)
 	}
 	if _, err := RevokePlan(able(), Revoke{
-		User: "jit-ayse", Mode: ModeDelete, UID: 1001, InJITGroup: true,
+		User: "jit-ayse", Mode: ModeDelete, UID: 1001, CreatedByPostern: true,
 		Home: "/home/jit-ayse", DeleteGroups: []string{JITGroup},
 	}); err == nil {
 		t.Error("postern-jit grubunu silen plan kabul edildi")

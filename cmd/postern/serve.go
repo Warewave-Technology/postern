@@ -24,6 +24,7 @@ import (
 	"github.com/Warewave-Technology/postern/internal/config"
 	"github.com/Warewave-Technology/postern/internal/discover"
 	"github.com/Warewave-Technology/postern/internal/events"
+	"github.com/Warewave-Technology/postern/internal/hostacct"
 	"github.com/Warewave-Technology/postern/internal/httpapi"
 	"github.com/Warewave-Technology/postern/internal/jit"
 	"github.com/Warewave-Technology/postern/internal/ldap"
@@ -753,6 +754,14 @@ func newServeCmd() *cobra.Command {
 				 * açılması, bu ekranın tek kuralını (hiçbir şey değişmiyor)
 				 * bir gözden kaçmaya bağlardı.
 				 */
+				/*
+				 * Kilitli hesap ekranı: yalnızca dağıtım açıkken. Kapalıyken
+				 * kilitlenen hesap da olmuyor, dolayısıyla gösterecek bir şey
+				 * yok — ve uçlar HİÇ kurulmuyor.
+				 */
+				if cfg.Manage.Enabled && cfg.Manage.PropagateAccounts {
+					webAPI.UseHostAccounts(hostacct.NewRemover(db, s.Authority(), logger))
+				}
 				webAPI.UseConfig(*cfg, configPath)
 				webAPI.UseArchive(cfg.Recording.Archive, archiveHostSecret)
 

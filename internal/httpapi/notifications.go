@@ -23,6 +23,8 @@ import (
 	"net/http"
 	"sort"
 	"time"
+
+	"github.com/Warewave-Technology/postern/internal/store"
 )
 
 func (s *Server) registerNotificationRoutes(mux *http.ServeMux) {
@@ -127,6 +129,34 @@ func (s *Server) adminNotifications(w http.ResponseWriter, r *http.Request) {
 				Detail: fmt.Sprintf("The access expired but the account is still there after %d attempt(s): %s",
 					g.RevokeAttempts, g.RevokeError),
 				Section: "jit",
+			})
+		}
+	}
+
+	/*
+	 * ⚠️ KİLİTLENEN HESAP DA BEKLEYEN BİR İŞ. Otomatik yol hesabı
+	 * kilitliyor ama silmiyor (K3); kararı verecek kişi bunu görmezse
+	 * kilitli hesaplar veritabanında birikir ve kimse onlara dönmez —
+	 * yani "kapattık" denen şey yarım kalır.
+	 */
+	if locked, err := s.store.HostAccountsAwaitingDecision(ctx); err != nil {
+		out = append(out, notification{
+			Kind: "error", At: time.Now(),
+			Summary: "Locked accounts could not be read",
+			Detail:  err.Error(), Section: "hostaccounts",
+		})
+	} else {
+		for _, a := range locked {
+			origin := "postern opened this account"
+			if a.Origin == store.OriginAdopted {
+				origin = "the account was already there when postern first saw it"
+			}
+			out = append(out, notification{
+				Kind: "account.locked", At: a.UpdatedAt,
+				Summary: a.OSUser + " is locked on " + a.TargetName,
+				Detail: "No group grants this target any more, so the account was locked. " +
+					origin + "; the home directory is untouched until someone decides.",
+				Section: "hostaccounts",
 			})
 		}
 	}

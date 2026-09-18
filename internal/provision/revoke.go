@@ -47,6 +47,25 @@ const (
  */
 const JITGroup = "postern-jit"
 
+/*
+ * ManagedGroup, postern'in AÇTIĞI kalıcı hesapların üye olduğu grup.
+ *
+ * ⚠️ NEDEN AYRI BİR GRUP VE NEDEN VERİTABANI YETMİYOR. Silmenin ön koşulu
+ * "bunu ben açtım" kanıtı; veritabanındaki satır bunu söyleyebilir ama
+ * makineyle aynı fikirde olmayabilir — host yeniden kurulmuş, yedekten
+ * dönülmüş ya da aynı adla başka biri bir hesap açmış olabilir. Kanıtın
+ * silinecek makinenin ÜSTÜNDE durması gerekiyor.
+ *
+ * ⚠️ DEVRALINAN HESAP BU GRUBA GİRMİYOR. Ayrımın tamamı bu: postern'den
+ * önce var olan bir hesabı silmek geri alınamaz ve o hesap postern'in
+ * değil. Grup yalnızca postern'in kendi açtıklarına konuyor.
+ *
+ * postern-jit'ten ayrı, çünkü JIT sökümü yalnızca kendi grubuna bakıyor:
+ * tek bir grup olsaydı, süresi dolan bir geçici hak kalıcı hesapları da
+ * toplardı.
+ */
+const ManagedGroup = "postern-managed"
+
 // Revoke, geri alınacak hak.
 type Revoke struct {
 	User string
@@ -77,8 +96,12 @@ type Revoke struct {
 	 */
 	UID int
 
-	// InJITGroup, hesabın postern tarafından açıldığının kanıtı.
-	InJITGroup bool
+	/*
+	 * CreatedByPostern, hesabı postern'in açtığının MAKİNE ÜSTÜNDEKİ
+	 * kanıtı: postern-jit (geçici) ya da postern-managed (kalıcı)
+	 * üyeliği. Çağıran bunu hedeften okuyor, veritabanından değil.
+	 */
+	CreatedByPostern bool
 
 	// SudoFiles, bu hesap için yazılmış postern sudo dosyaları.
 	SudoFiles []string
@@ -213,10 +236,10 @@ func RevokePlan(caps upstream.ManageCapabilities, r Revoke) ([]Step, error) {
 	 * sahip, makineye postern'den önce konmuş bir hesabı silmek geri
 	 * alınamaz; üyelik "bunu ben açtım" demenin tek güvenilir hâli.
 	 */
-	if !r.InJITGroup {
+	if !r.CreatedByPostern {
 		return nil, fmt.Errorf(
-			"provision.RevokePlan: %q is not in %s; postern only deletes accounts it created",
-			r.User, JITGroup)
+			"provision.RevokePlan: %q is in neither %s nor %s; postern only deletes accounts it created",
+			r.User, JITGroup, ManagedGroup)
 	}
 
 	for _, p := range r.Scratch {

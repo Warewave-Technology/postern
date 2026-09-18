@@ -131,17 +131,33 @@ func TestEverySourceThatCannotBeReadLeavesItsOwnRow(t *testing.T) {
 	}
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
 
-	var errs int
+	/*
+	 * ⚠️ SAYI DEĞİL KÜMEsi ölçülüyor. Sabit bir sayı, dördüncü bir
+	 * kaynak eklendiğinde testi kırar ve düzeltmenin en kolay yolu
+	 * sayıyı büyütmek olur — yani iddia, yeni kaynağın da satır bıraktığı
+	 * OLMAKTAN çıkar. Burada beklenen bölümler adlarıyla yazılı: yeni bir
+	 * kaynak eklenince bu listeye de eklenmesi gerekiyor, ve bu bilinçli
+	 * bir adım.
+	 */
+	want := map[string]bool{"discovery": false, "pending": false, "jit": false, "hostaccounts": false}
 	for _, it := range body.Items {
-		if it["kind"] == "error" {
-			errs++
-			if d, _ := it["detail"].(string); d == "" {
-				t.Error("okunamayan kaynağın sebebi yazılmamış")
+		if it["kind"] != "error" {
+			continue
+		}
+		if d, _ := it["detail"].(string); d == "" {
+			t.Error("okunamayan kaynağın sebebi yazılmamış")
+		}
+		if sec, _ := it["section"].(string); sec != "" {
+			if _, known := want[sec]; !known {
+				t.Errorf("bilinmeyen bölüm satır bıraktı: %q", sec)
 			}
+			want[sec] = true
 		}
 	}
-	if errs != 3 {
-		t.Errorf("okunamayan kaynak satırı: %d, üçü de beklenirdi — %+v", errs, body.Items)
+	for sec, seen := range want {
+		if !seen {
+			t.Errorf("%q kaynağı okunamadı ama satır bırakmadı", sec)
+		}
 	}
 }
 

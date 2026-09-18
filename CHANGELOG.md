@@ -41,6 +41,22 @@ group for each group that grants that target, and writes that group's sudo
 rule. When the last group granting a target goes away, a loop expires and
 locks the account on the host.
 
+There is a **Locked accounts** screen under Access for the decision that
+follows. An account postern locked is waiting for a person to say whether
+it goes for good, and every row says who opened it — postern, or something
+that was there first. Deleting one postern opened takes back what postern
+made; deleting one it adopted destroys something another tool owns, and
+postern cannot put it back, so the two are confirmed with different words.
+Keeping an account locked asks nothing: it is not destructive, and a
+confirmation on every button is a confirmation nobody reads. The bell
+counts these too.
+
+A deletion still needs proof on the machine, not in the database. An
+account postern created joins a `postern-managed` group when it is made,
+and that membership is what permits a delete — the row in postern's
+database can disagree with the host after a rebuild or a restore, and the
+account being deleted is the one on the host.
+
 This changes a sentence that used to be true: postern only wrote to a
 machine when you asked it to open a temporary account. It still installs
 nothing — no agent, sshd and sudo only — but with this on it writes as

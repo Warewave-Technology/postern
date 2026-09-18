@@ -517,6 +517,28 @@ const adminLog: LogEntry[] = Array.from({ length: 18 }, (_, i) => {
 const base: Fixtures = {
   me: meAdmin,
   /*
+   * Kilitli hesaplar: iki kaynak da temsil ediliyor, çünkü satırın
+   * anlamı ve silme onayı kaynağa göre değişiyor.
+   */
+  lockedAccounts: {
+    accounts: [
+      {
+        target: "db-primary",
+        username: "ayse.yilmaz-demirtas",
+        os_user: "ayse",
+        origin: "created",
+        locked_at: T(8),
+      },
+      {
+        target: "prod-eu-west-1-database-replica-02.internal.example.com",
+        username: "mehmet.kaya",
+        os_user: "mkaya",
+        origin: "adopted",
+        locked_at: T(11),
+      },
+    ],
+  },
+  /*
    * Salt-okunur yapılandırma: uzun bir yol, yazılmamış bir ayar ve
    * gizlenen iki alan — üçü de satırın biçimini farklı zorluyor.
    */
@@ -876,6 +898,7 @@ describe("sayfa düzeyinde görsel çıktı", { timeout: 30_000 }, () => {
       ["files", "File history"],
       ["log", "Admin log"],
       ["config", "Configuration"],
+      ["hostaccounts", "Locked accounts"],
     ];
     for (const [name, label] of sections) {
       mockAll(base);

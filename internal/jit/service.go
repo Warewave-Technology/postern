@@ -318,7 +318,7 @@ func (s *Service) Revoke(ctx context.Context, id, actor, via string) (Outcome, e
 	if facts.Exists {
 		steps, err = provision.RevokePlan(caps, provision.Revoke{
 			User: g.OSUser, Mode: provision.ModeDelete, UID: facts.UID,
-			InJITGroup: facts.InJITGroup(), Home: facts.Home, SudoFiles: sudoFiles,
+			CreatedByPostern: facts.CreatedByPostern(), Home: facts.Home, SudoFiles: sudoFiles,
 			PrincipalsFile: principals, DeleteGroups: deleteGroups,
 		})
 		if err != nil {

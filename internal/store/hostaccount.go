@@ -14,6 +14,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -256,4 +257,49 @@ func (s *Store) ActiveHostAccounts(ctx context.Context) (int, error) {
 	}
 
 	return n, nil
+}
+
+/*
+ * DecideHostAccount, karar bekleyen satırı kapatır.
+ *
+ * ⚠️ YALNIZCA BAYRAĞI DÜŞÜRÜYOR, DURUMU DEĞİL. "Kalsın" diyen yönetici
+ * hesabın kilitli kalmasını istiyor; satırı active yapmak, hedefte
+ * kilitli duran bir hesabı kayıtta açık göstermek olurdu.
+ */
+func (s *Store) DecideHostAccount(ctx context.Context, target, username string) error {
+	const op = "store.DecideHostAccount"
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE host_accounts SET awaiting_decision = FALSE, updated_at = $1
+		WHERE target_name = $2 AND username = $3 AND awaiting_decision;`,
+		time.Now().Unix(), target, username)
+	if err != nil {
+		return translateErr(op, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return translateErr(op, err)
+	}
+	if n == 0 {
+		return fmt.Errorf("%s: %w", op, ErrNotFound)
+	}
+
+	return nil
+}
+
+/*
+ * RemoveHostAccount, satırı "silindi" olarak işaretler.
+ *
+ * ⚠️ SATIR SİLİNMİYOR, İŞARETLENİYOR. "Bu makinede bu kişinin hesabı
+ * vardı ve kaldırıldı" cümlesi denetimin parçası; satırı yok etmek, o
+ * cümleyi de yok ederdi.
+ */
+func (s *Store) RemoveHostAccount(ctx context.Context, target, username string) error {
+	const op = "store.RemoveHostAccount"
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE host_accounts
+		SET state = 'removed', awaiting_decision = FALSE, applied_fp = '', updated_at = $1
+		WHERE target_name = $2 AND username = $3;`,
+		time.Now().Unix(), target, username)
+
+	return translateErr(op, err)
 }

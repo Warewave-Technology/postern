@@ -81,9 +81,16 @@ func Ensure(ctx context.Context, d Deps, u model.User, t model.Target) Outcome {
 	if err != nil {
 		return Outcome{Skipped: true, Reason: "the groups' sudo rules could not be read: " + err.Error()}
 	}
-	want := Compute(u, t, rules)
-
 	row, rerr := d.Row(ctx, t.Name, u.Name)
+
+	/*
+	 * ⚠️ MARKER, KAYITLI KAYNAKTAN GELİYOR. İlk koşuda kaynak henüz
+	 * bilinmiyor (satır yok) ve marker'sız hesaplanıyor; Observe hesabın
+	 * orada olmadığını söylerse kaynak "created" olur ve satıra YAZILAN
+	 * fingerprint marker'lı hesaplanır. Sonraki koşular kayıtlı kaynakla
+	 * aynı değeri üretir, yani fast lane tutar.
+	 */
+	want := Compute(u, t, rules, rerr == nil && row.Origin == store.OriginCreated)
 	switch {
 	case rerr == nil:
 		/*
@@ -151,6 +158,17 @@ func Ensure(ctx context.Context, d Deps, u model.User, t model.Target) Outcome {
 		} else {
 			row.Origin = store.OriginCreated
 		}
+		/*
+		 * Kaynak yeni çözüldü: istenen durumu ONA GÖRE yeniden kur.
+		 * postern açıyorsa hesap marker grubuna giriyor ve fingerprint
+		 * de onu içeriyor; devralıyorsa ikisi de yok.
+		 */
+		want = Compute(u, t, rules, row.Origin == store.OriginCreated)
+		desired.Groups = desired.Groups[:0]
+		for _, g := range want.Groups {
+			desired.Groups = append(desired.Groups, provision.Group{Name: g.Name, Sudo: g.Sudo})
+		}
+		desired.Users[0].Groups = groupNames(want.Groups)
 	}
 
 	steps, perr := provision.Plan(caps, desired, observed)

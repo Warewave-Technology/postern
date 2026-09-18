@@ -63,6 +63,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	s.registerGroupSudoRoutes(mux)
 	s.registerNotificationRoutes(mux)
 	s.registerConfigRoutes(mux)
+	s.registerHostAccountRoutes(mux)
 	mux.Handle("GET /api/admin/groups/{name}/paths", admin(s.adminListGroupPaths))
 	mux.Handle("POST /api/admin/groups/{name}/paths", admin(s.adminSetGroupPath))
 	mux.Handle("DELETE /api/admin/groups/{name}/paths", admin(s.adminDeleteGroupPath))
