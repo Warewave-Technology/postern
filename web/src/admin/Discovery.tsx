@@ -134,7 +134,20 @@ export default function Discovery() {
    * aratırdı; durum durum açmak, ne açtığını da söylüyor.
    */
   const [alsoShow, setAlsoShow] = useState<string[]>([]);
+  /*
+   * ⚠️ KAYIT PENCERESİ AÇILDIĞI ANDAKİ LİSTEYİ TUTUYOR, CANLI OLANI
+   * DEĞİL — EKRANDA GÖRÜLDÜ.
+   *
+   * Başlık ve sihirbaz `registrable`ı okuyordu; kayıt bitince onDone
+   * seçimi temizliyor ve listeyi yeniden okuyor, kaydedilenler de artık
+   * "kaydedilebilir" olmadığı için o sayı SIFIRA düşüyordu. Yönetici
+   * yedi makineyi kaydediyor ve pencerenin başlığında "Register 0
+   * machine(s)" yazıyordu — gövdede yedi satır sonuç dururken. Pencere
+   * açıldığı andaki KÜMEYE ait; altından değişen bir liste onu
+   * yeniden yazamamalı.
+   */
   const [registering, setRegistering] = useState(false);
+  const [registerSet, setRegisterSet] = useState<DiscoveredMachine[]>([]);
   const [round, setRound] = useState(0);
 
   const load = useCallback(
@@ -351,6 +364,7 @@ export default function Discovery() {
             <ActionButton
               variant="primary"
               onClick={() => {
+                setRegisterSet(registrable);
                 setRound((r) => r + 1);
                 setRegistering(true);
               }}
@@ -388,29 +402,41 @@ export default function Discovery() {
               onChange={setAlsoShow}
             />
           )}
-          <DataTable
-            rows={listed}
-            columns={columns}
-            rowKey={keyOf}
-            selection={{
-              selected,
-              onChange: setSelected,
-              label: (m) => `select ${m.name}`,
-            }}
-            initialSort={{ key: "name", dir: "asc" }}
-            searchLabel="Search machines"
-            searchPlaceholder="Search by name, address, source, tag or state…"
-            extraSearch={(m) =>
-              `${m.tags.join(" ")} ${m.problem ?? ""} ${m.target ?? ""}`
-            }
-            noun="machine"
-          />
+          {/*
+            ⚠️ BOŞ BİR TABLO YERİNE CÜMLE. Hepsi kaydedilince varsayılan
+            liste boşalıyor ama makineler duruyor; başlıkları olan boş bir
+            tablo, yöneticiye yaptığı işin kaybolduğunu düşündürür.
+          */}
+          {listed.length === 0 ? (
+            <p className="muted">
+              Nothing is waiting for a decision. Every machine the sources found
+              is in one of the states above.
+            </p>
+          ) : (
+            <DataTable
+              rows={listed}
+              columns={columns}
+              rowKey={keyOf}
+              selection={{
+                selected,
+                onChange: setSelected,
+                label: (m) => `select ${m.name}`,
+              }}
+              initialSort={{ key: "name", dir: "asc" }}
+              searchLabel="Search machines"
+              searchPlaceholder="Search by name, address, source, tag or state…"
+              extraSearch={(m) =>
+                `${m.tags.join(" ")} ${m.problem ?? ""} ${m.target ?? ""}`
+              }
+              noun="machine"
+            />
+          )}
         </>
       )}
 
       <Modal
         open={registering}
-        title={`Register ${registrable.length} machine(s)`}
+        title={`Register ${registerSet.length} machine(s)`}
         description="Each becomes a target with the host key discovery read, joins the groups you pick, and carries the labels you add. Nothing is written until the last step."
         onClose={() => setRegistering(false)}
         wide
@@ -418,7 +444,7 @@ export default function Discovery() {
         {registering && (
           <RegisterWizard
             key={round}
-            machines={registrable}
+            machines={registerSet}
             onDone={async () => {
               setSelected([]);
               await load();

@@ -292,6 +292,70 @@ it("seçilenleri yok sayıyor ve yok saymayı kaldırıyor", async () => {
 });
 
 /*
+ * ⚠️ KAYIT BİTİNCE PENCERENİN BAŞLIĞI SIFIRA DÜŞMÜYOR — EKRANDA GÖRÜLDÜ.
+ *
+ * Başlık canlı "kaydedilebilir" sayısını okuyordu; kayıt bitince seçim
+ * temizleniyor ve liste yeniden okunuyor, kaydedilenler de artık
+ * kaydedilebilir olmadığı için sayı sıfırlanıyordu. Yönetici yedi makineyi
+ * kaydediyor ve başlıkta "Register 0 machine(s)" görüyordu — gövdede yedi
+ * satır sonuç dururken. Pencere, açıldığı andaki kümeye ait.
+ */
+it("kayıt bittikten sonra da kaç makine kaydedildiğini söylüyor", async () => {
+  vi.spyOn(api, "discovery").mockResolvedValue(overview);
+  vi.spyOn(api, "registerDiscovered").mockResolvedValue({
+    results: [
+      {
+        source_id: "s1",
+        ref: "qemu/101",
+        name: "web-01",
+        target: "web-01",
+        groups: ["web"],
+        created_roles: [],
+      },
+    ],
+  });
+  render(<Discovery />);
+  await screen.findByText("web-01");
+
+  fireEvent.click(screen.getByRole("checkbox", { name: /select web-01/i }));
+  fireEvent.click(screen.getByRole("button", { name: /register 1 selected/i }));
+  await screen.findByText(/step 1 of 3/i);
+  expect(screen.getByText("Register 1 machine(s)")).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("button", { name: /^next$/i }));
+  await screen.findByText(/step 2 of 3/i);
+  fireEvent.click(screen.getByRole("button", { name: /^next$/i }));
+  await screen.findByText(/step 3 of 3/i);
+  fireEvent.click(screen.getByRole("button", { name: /register 1 machine/i }));
+
+  // Sonuçlar geldi: başlık HÂLÂ kaç makine olduğunu söylüyor.
+  expect(await screen.findByText(/registered as/)).toBeTruthy();
+  expect(screen.getByText("Register 1 machine(s)")).toBeTruthy();
+});
+
+/*
+ * ⚠️ HEPSİ GİZLİ BİR DURUMDAYSA "hiç makine yok" DEMİYOR.
+ *
+ * Hepsi kaydedilince varsayılan liste boşalıyor ama makineler duruyor;
+ * "no machine yet" demek, yöneticiye yaptığı işin kaybolduğunu düşündürür.
+ */
+it("karar bekleyen kalmayınca ne olduğunu söylüyor", async () => {
+  vi.spyOn(api, "discovery").mockResolvedValue({
+    ...overview,
+    machines: [
+      machine({ target: "web-01" }),
+      machine({ ref: "qemu/105", name: "ign-01", ignored: true }),
+    ],
+  });
+  render(<Discovery />);
+
+  expect(await screen.findByText(/2 machines not listed/i)).toBeTruthy();
+  // "hiç makine yok" değil; makineler duruyor, karar bekleyen yok.
+  expect(screen.queryByText(/machines appear here after/i)).toBeNull();
+  expect(screen.getByText(/nothing is waiting for a decision/i)).toBeTruthy();
+});
+
+/*
  * ⚠️ ETİKETİN SÖYLEDİĞİ ROL SEÇİLİ GELİYOR ve özet onu İKİ KEZ yazmıyor.
  * Platformda "role_web" yazan bir makineyi kaydederken aynı rolü elle
  * seçtirmek, verilmiş bir bilgiyi ikinci kez sormaktı; seçilen rol ile
