@@ -1,142 +1,119 @@
-import { useEffect, useRef, useState } from "react";
-import { Notification, api } from "./api";
-import { Timestamp } from "./admin/common";
+import { useCallback, useEffect, useState } from "react";
+import { api } from "./api";
 
 /**
- * Notifications — üst çubuktaki çan ve bekleyen işlerin listesi.
+ * Notifications — üst çubuktaki çan.
  *
- * ⚠️ ÇAN BİR YERE ATMIYOR, AÇIYOR. İlk hâli doğrudan keşif ekranına
- * gidiyordu: sayı üç kaynaktan besleniyorsa (bekleyen makine, onay
- * bekleyen kimlik, geri alınamamış hak) tek bir ekrana atmak, üçte
- * ikisini görünmez yapar — ve tıklayan kişi beklediği şeyi bulamayınca
- * rozete bir daha bakmaz (kullanıcı söyledi). Liste burada açılıyor,
- * satır işin yapılacağı yere götürüyor.
+ * ⚠️ ÇAN ARTIK BİR KAPI, AÇILIR BİR LİSTE DEĞİL. Önceki hâli üst çubukta
+ * bir açılır panel çiziyordu: liste orada okunuyor, kapanınca hiçbir iz
+ * kalmıyordu — yani "bunu görmüştüm" diye bir şey yoktu ve aynı satırlar
+ * her açılışta aynı aciliyetle duruyordu. Şimdi çan bildirim SAYFASINA
+ * götürüyor, ve götürdüğü anda bakış damgası ileri alınıyor.
  *
- * ⚠️ HER SATIR NE ZAMANDAN BERİ BEKLEDİĞİNİ SÖYLÜYOR. "Bir şey var"
- * ile "bu üç gündür duruyor" aynı cümle değil; ikincisi bir karar
- * gerektiriyor.
+ * ⚠️ ROZET YALNIZCA YENİLERİ SAYIYOR, VE SAYIYI SUNUCU VERİYOR. Rozetin
+ * sayısı ile sayfanın içeriği aynı kuraldan çıkmak zorunda; istemcide
+ * ikinci bir kural yazmak, "rozet üç diyor ama sayfada iki satır var"
+ * hâlini üretirdi ve o noktadan sonra rozete kimse güvenmez.
  *
- * ⚠️ HATA SESSİZ. Sayı alınamıyorsa çan hiç çizilmiyor: üst çubuk
- * hiçbir şey yapamayacağın bir yer ve oraya konan kırmızı bir satır,
- * her sayfada duran bir alarm olurdu. Sunucu, okunamayan bir kaynağı
- * zaten listenin İÇİNDE bir satır olarak söylüyor.
+ * ⚠️ BEKLEYEN HİÇ YOKKEN ÇAN YİNE DURUYOR, ROZET DURMUYOR. Çanın
+ * kaybolması, okunmuş bildirimlere dönmenin yolunu da kapatırdı. Sıfır
+ * yazan bir rozet ise bakılacak bir şey olmadığında da göz çeker ve bir
+ * süre sonra dolu hâli de fark edilmez.
+ *
+ * ⚠️ HATA SESSİZ. Sayı alınamıyorsa rozet çizilmiyor: üst çubuk hiçbir
+ * şey yapamayacağın bir yer ve oraya konan kırmızı bir satır, her
+ * sayfada duran bir alarm olurdu. Sunucu, okunamayan bir kaynağı zaten
+ * listenin İÇİNDE bir satır olarak söylüyor.
  */
 export default function Notifications({
   onGo,
+  refresh = 0,
 }: {
   onGo: (section: string) => void;
+  /** Değiştiğinde sayı yeniden okunur (sayfa bildirimleri okunmuş yapınca). */
+  refresh?: number;
 }) {
-  const [items, setItems] = useState<Notification[]>([]);
-  const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
-  const button = useRef<HTMLButtonElement>(null);
+  const [unread, setUnread] = useState(0);
+  const [total, setTotal] = useState(0);
 
-  useEffect(() => {
-    let alive = true;
-    const read = () =>
+  const read = useCallback(
+    (alive: () => boolean) =>
       api
         .notifications()
         .then((r) => {
-          if (alive) setItems(r.items);
+          if (!alive()) return;
+          setUnread(r.unread);
+          setTotal(r.count);
         })
         .catch(() => {
-          if (alive) setItems([]);
-        });
-    read();
-    // Dakikada bir: keşfin en sık koşusu beş dakikada bir, daha sık
-    // sormanın söyleyeceği yeni bir şey yok.
-    const t = setInterval(read, 60_000);
-
-    return () => {
-      alive = false;
-      clearInterval(t);
-    };
-  }, []);
+          if (!alive()) return;
+          setUnread(0);
+          setTotal(0);
+        }),
+    [],
+  );
 
   useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!root.current?.contains(e.target as Node)) setOpen(false);
+    let live = true;
+    const alive = () => live;
+    read(alive);
+    // Dakikada bir: keşfin en sık koşusu beş dakikada bir, daha sık
+    // sormanın söyleyeceği yeni bir şey yok.
+    const t = setInterval(() => read(alive), 60_000);
+
+    return () => {
+      live = false;
+      clearInterval(t);
     };
-    document.addEventListener("mousedown", onDown);
+  }, [read, refresh]);
 
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
-
-  // Bekleyen yokken çan da yok: sıfır yazan bir rozet, bakılacak bir şey
-  // olmadığında da göz çeker ve bir süre sonra dolu hâli de fark edilmez.
-  if (items.length === 0) return null;
-
-  const label = `${items.length} thing${items.length === 1 ? "" : "s"} waiting for you`;
+  const label =
+    unread > 0
+      ? `${unread} new notification${unread === 1 ? "" : "s"}`
+      : total > 0
+        ? `Notifications — ${total} waiting, none new`
+        : "Notifications";
 
   return (
-    <div
-      className="notifications"
-      ref={root}
-      onKeyDown={(e) => {
-        if (e.key === "Escape" && open) {
-          e.stopPropagation();
-          setOpen(false);
-          button.current?.focus();
-        }
+    <button
+      className="bell"
+      title={label}
+      aria-label={label}
+      onClick={() => {
+        /*
+         * Damga ÖNCE ileri alınıyor, sonra sayfaya gidiliyor: sayfanın
+         * kendisi de damgayı alıyor ama ağ yavaşsa rozet birkaç saniye
+         * dolu kalırdı ve kullanıcı tıklamanın işe yaramadığını sanırdı.
+         */
+        void api
+          .markNotificationsRead()
+          .catch(() => {})
+          .finally(() => setUnread(0));
+        onGo("notifications");
       }}
     >
-      <button
-        ref={button}
-        className="bell"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        title={label}
-        aria-label={label}
-        onClick={() => setOpen((v) => !v)}
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 16 16"
+        fill="none"
+        aria-hidden="true"
       >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 16 16"
-          fill="none"
-          aria-hidden="true"
-        >
-          <path
-            d="M8 1.6a3.6 3.6 0 0 0-3.6 3.6v2.2L3.2 10.2h9.6l-1.2-2.8V5.2A3.6 3.6 0 0 0 8 1.6Z"
-            stroke="currentColor"
-            strokeWidth="1.3"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M6.4 12.1a1.7 1.7 0 0 0 3.2 0"
-            stroke="currentColor"
-            strokeWidth="1.3"
-          />
-        </svg>
-        <span className="bell-count">
-          {items.length > 99 ? "99+" : items.length}
-        </span>
-      </button>
-
-      {open && (
-        <div className="notify-panel" role="menu">
-          <p className="notify-head">Waiting for you</p>
-          {items.map((n, i) => (
-            <button
-              key={`${n.kind}-${n.at}-${i}`}
-              role="menuitem"
-              onClick={() => {
-                setOpen(false);
-                onGo(n.section);
-              }}
-            >
-              <span className="notify-summary">{n.summary}</span>
-              <span className="notify-detail">{n.detail}</span>
-              <span className="notify-at">
-                {/* Damga kısa biçimde ve başlığında tam hâliyle: denetim
-                    ekranlarındaki aynı bileşen. */}
-                since <Timestamp value={n.at} />
-              </span>
-            </button>
-          ))}
-        </div>
+        <path
+          d="M8 1.6a3.6 3.6 0 0 0-3.6 3.6v2.2L3.2 10.2h9.6l-1.2-2.8V5.2A3.6 3.6 0 0 0 8 1.6Z"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M6.4 12.1a1.7 1.7 0 0 0 3.2 0"
+          stroke="currentColor"
+          strokeWidth="1.3"
+        />
+      </svg>
+      {unread > 0 && (
+        <span className="bell-count">{unread > 99 ? "99+" : unread}</span>
       )}
-    </div>
+    </button>
   );
 }

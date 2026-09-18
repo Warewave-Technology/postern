@@ -4097,71 +4097,50 @@ a.tcard-name:focus-visible {
  * okunmuyordu. Panel geniş: 26rem'in altında sebep cümlesi dört satıra
  * bölünüyor ve liste bir metin bloğuna dönüşüyor.
  */
-.notifications {
-  position: relative;
+/*
+ * ⚠️ AÇILIR PANEL KALDIRILDI. Çan artık kendi sayfasına götürüyor; üst
+ * çubuktaki dar panel, okunması bir karar gerektiren satırları kesiyordu.
+ */
+.notify-list {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
 }
-.notify-panel {
-  position: absolute;
-  top: calc(100% + 0.4rem);
-  right: 0;
-  width: 26rem;
-  max-width: calc(100vw - 2rem);
-  max-height: 24rem;
-  overflow-x: hidden;
-  overflow-y: auto;
-  z-index: 30;
-  background: var(--raised);
+.notify-list li {
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  box-shadow: var(--shadow-md);
-  padding: 0.3rem;
-}
-.notify-head {
-  margin: 0.25rem 0.55rem 0.3rem;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--label);
-}
-.notify-panel button {
+  background: var(--raised);
+  padding: 0.7rem 0.85rem;
   display: grid;
-  /*
-   * ⚠️ minmax(0, 1fr), sade `auto` DEĞİL — ölçüldü. Izgara çocuğunun
-   * varsayılan `min-width: auto`su sütunu içeriğin en geniş hâline
-   * kadar büyütüyor: sebep cümlesi sarmak yerine panelin sağından
-   * taşıyor ve `overflow: auto` onu sessizce kesiyordu. Ekranda
-   * görüldü; tarama da bunu "kaydırıcı" sayıp bir kusur olarak
-   * bildirmiyordu, çünkü kaydırma o kapta tasarımın kendisi.
-   */
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.15rem;
-  width: 100%;
-  /*
-   * ⚠️ GENEL `button` KURALI nowrap VERİYOR ve burada yanlış. O kural
-   * bir düğme ETİKETİNİN ortadan bölünmemesi için var ("Add source" iki
-   * satıra düşmesin); bildirim satırı ise bir etiket değil, iki cümle.
-   * nowrap kalınca sebep cümlesi sarmıyor, panelin sağından taşıyor ve
-   * kesiliyordu — ekranda görüldü. Izgara düzeltmesi (minmax) tek başına
-   * yetmedi, çünkü sarmayı engelleyen şey sütun genişliği değil metnin
-   * kendisiydi.
-   */
-  white-space: normal;
-  padding: 0.5rem 0.55rem;
-  border: 0;
-  border-radius: calc(var(--radius) - 2px);
-  background: transparent;
-  color: var(--ink);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
+  gap: 0.3rem;
 }
-.notify-panel button + button {
-  border-top: 1px solid var(--line-soft);
-  border-radius: 0;
+/*
+ * ⚠️ YENİ OLAN SOLDAN İŞARETLİ, ARKA PLANI DEĞİŞMİYOR. Renkli bir zemin,
+ * okunmuşla okunmamışı ayırırken satırın kendi rozetlerini (badge-danger,
+ * badge-warn) bastırırdı; asıl aciliyet o rozetlerde.
+ */
+.notify-list li.is-new {
+  border-left: 3px solid var(--accent);
 }
-.notify-panel button:hover {
-  background: var(--hover);
+.notify-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem 0.8rem;
+}
+.notify-list .notify-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.notify-list .notify-detail {
+  margin: 0;
+}
+.notify-list .btn-quiet {
+  justify-self: start;
 }
 .notify-summary {
   font-weight: 550;
@@ -4171,3 +4150,48 @@ a.tcard-name:focus-visible {
   font-size: 12px;
   color: var(--muted);
 }
+
+/*
+ * ⚠️ AÇILIR BAŞLIK, SESSİZ BİR BAĞLANTI DEĞİL. Gizlenen makineleri
+ * gösteren kontrol metnin içine gömülü bir düğmeydi ve düğme olduğu
+ * anlaşılmıyordu (kullanıcı söyledi).
+ */
+.state-filter {
+  margin: 0.6rem 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--raised);
+  padding: 0.5rem 0.75rem;
+}
+.state-filter > summary {
+  cursor: pointer;
+  font-weight: 550;
+  /* list-item: üçgen her tarayıcıda çizilsin (Safari default'u none). */
+  display: list-item;
+}
+.state-filter > summary:hover {
+  color: var(--accent);
+}
+.state-filter ul {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+/*
+ * ⚠️ label.check ÜSTÜNE YALNIZCA HİZA VE İMLEÇ. Satırın yön kuralı
+ * .check'ten geliyor; burada yeniden yazmak, iki yerde iki kural demek
+ * olurdu.
+ */
+.state-filter label.check {
+  align-items: center;
+  cursor: pointer;
+  max-width: none;
+}
+.state-filter li > p {
+  /* Açıklama kutucuğun altında hizalı: onay kutusu + rozet genişliği. */
+  margin: 0.15rem 0 0 1.4rem;
+  max-width: 62ch;
+}
+

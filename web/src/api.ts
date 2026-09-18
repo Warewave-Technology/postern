@@ -580,7 +580,19 @@ export type Notification = {
   section: string;
 };
 
-export type NotificationList = { items: Notification[]; count: number };
+/*
+ * NotificationList — liste, ve kişinin en son ne zaman baktığı.
+ *
+ * ⚠️ "unread" SUNUCUDAN GELİYOR. Rozetin sayısı ile listenin içeriği
+ * aynı kuraldan çıkmak zorunda; istemcide ikinci bir kural yazmak,
+ * "rozet üç diyor ama listede iki satır var" hâlini üretirdi.
+ */
+export type NotificationList = {
+  items: Notification[];
+  count: number;
+  read_at: string;
+  unread: number;
+};
 
 /*
  * Yapılandırma, SALT-OKUNUR. Değerler host'taki dosyadan geliyor ve
@@ -1395,6 +1407,8 @@ export const api = {
   config: () => req<ConfigView>("GET", "/api/admin/config"),
   /** Bekleyen işler — üst çubuktaki çan ve listesi. */
   notifications: () => req<NotificationList>("GET", "/api/admin/notifications"),
+  /** Bakış damgasını şimdiye alır: bundan sonrakiler "yeni" olur. */
+  markNotificationsRead: () => req<void>("POST", "/api/admin/notifications/read"),
   /** Formdaki değerlerle kaynağa bağlanır; id verilirse ve sır boşsa kayıtlı sır. */
   testDiscoverySource: (s: DiscoverySourceInput & { id?: string }) =>
     req<DiscoveryProbe>("POST", "/api/admin/discovery/test", s),

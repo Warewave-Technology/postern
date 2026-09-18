@@ -10,6 +10,8 @@ afterEach(() => {
 
 const list = {
   count: 2,
+  unread: 1,
+  read_at: "2026-09-13T00:00:00Z",
   items: [
     {
       kind: "identity.pending",
@@ -29,47 +31,58 @@ const list = {
 };
 
 /*
- * ⚠️ ÇAN BİR YERE ATMIYOR, LİSTEYİ AÇIYOR — VE SATIR İŞİN YAPILACAĞI
- * YERE GÖTÜRÜYOR. Sayı üç kaynaktan besleniyorken doğrudan keşif
- * ekranına atmak, üçte ikisini görünmez yapardı: tıklayan kişi beklediği
- * şeyi bulamayınca rozete bir daha bakmaz.
+ * ⚠️ ÇAN ARTIK BİR KAPI: BİLDİRİM SAYFASINA GÖTÜRÜYOR. Üst çubuktaki
+ * açılır panel dar ve geçiciydi — kapanınca "bunu görmüştüm" diye bir
+ * şey kalmıyordu ve aynı satırlar her açılışta aynı aciliyetle duruyordu.
  */
-it("listeyi açıyor, satır kendi bölümüne götürüyor", async () => {
+it("sayfaya götürüyor ve rozet yalnızca yenileri sayıyor", async () => {
   vi.spyOn(api, "notifications").mockResolvedValue(list);
+  const mark = vi.spyOn(api, "markNotificationsRead").mockResolvedValue(undefined);
   const go = vi.fn();
   render(<Notifications onGo={go} />);
 
-  const bell = await screen.findByRole("button", { name: /2 things waiting for you/i });
-  expect(bell.textContent).toContain("2");
-  expect(screen.queryByRole("menuitem")).toBeNull();
+  const bell = await screen.findByRole("button", { name: /1 new notification/i });
+  // İki iş bekliyor ama yalnızca biri son bakıştan sonra geldi.
+  expect(bell.textContent).toContain("1");
 
   fireEvent.click(bell);
-  const rows = screen.getAllByRole("menuitem");
-  expect(rows).toHaveLength(2);
-  // Her satır: ne bekliyor, neden önemli, ne zamandan beri.
-  expect(rows[0].textContent).toContain("hasan.demir is waiting for approval");
-  expect(rows[0].textContent).toContain("approving one creates it");
-  expect(rows[0].textContent).toMatch(/since/i);
-  expect(rows[0].querySelector("time")?.getAttribute("datetime")).toBe("2026-09-12T08:00:00Z");
-
-  fireEvent.click(rows[1]);
-  expect(go).toHaveBeenCalledWith("jit");
-  // Gidince liste kapanıyor: açık kalan bir panel, götürdüğü sayfanın
-  // üstünde durur.
-  expect(screen.queryByRole("menuitem")).toBeNull();
+  expect(go).toHaveBeenCalledWith("notifications");
+  expect(mark).toHaveBeenCalled();
+  // Rozet beklemeden düşüyor: ağ yavaşken dolu kalsaydı kullanıcı
+  // tıklamanın işe yaramadığını sanardı.
+  await waitFor(() => expect(bell.textContent).not.toContain("1"));
 });
 
 /*
- * ⚠️ BEKLEYEN YOKSA ÇAN DA YOK. Sıfır yazan bir rozet, bakılacak bir şey
- * olmadığında da göz çeken bir işaret bırakır ve bir süre sonra dolu
- * hâli de fark edilmez.
+ * ⚠️ BEKLEYEN YOKKEN ÇAN DURUYOR, ROZET DURMUYOR. Çanın kaybolması,
+ * okunmuş bildirimlere dönmenin yolunu da kapatırdı; sıfır yazan bir
+ * rozet ise bakılacak bir şey olmadığında da göz çeker.
  */
-it("bekleyen yokken hiç çizilmiyor", async () => {
-  vi.spyOn(api, "notifications").mockResolvedValue({ items: [], count: 0 });
+it("bekleyen yokken çan duruyor ama rozet çizilmiyor", async () => {
+  vi.spyOn(api, "notifications").mockResolvedValue({
+    items: [],
+    count: 0,
+    unread: 0,
+    read_at: "2026-09-13T00:00:00Z",
+  });
   render(<Notifications onGo={vi.fn()} />);
 
+  const bell = await screen.findByRole("button", { name: /notifications/i });
   await waitFor(() => expect(api.notifications).toHaveBeenCalled());
-  expect(screen.queryByRole("button")).toBeNull();
+  expect(bell.querySelector(".bell-count")).toBeNull();
+});
+
+/*
+ * ⚠️ HEPSİ OKUNMUŞSA SAYI DEĞİL, CÜMLE. "3 waiting, none new" ile "3 new"
+ * aynı şey değil ve rozet ikisini ayırt edemezse bir süre sonra hiçbiri
+ * bakılmaz.
+ */
+it("hepsi okunmuşsa rozet yok ama etiket bekleyeni söylüyor", async () => {
+  vi.spyOn(api, "notifications").mockResolvedValue({ ...list, unread: 0 });
+  render(<Notifications onGo={vi.fn()} />);
+
+  const bell = await screen.findByRole("button", { name: /2 waiting, none new/i });
+  expect(bell.querySelector(".bell-count")).toBeNull();
 });
 
 /*
@@ -82,25 +95,8 @@ it("liste alınamazsa üst çubuğa hata basmıyor", async () => {
   render(<Notifications onGo={vi.fn()} />);
 
   await waitFor(() => expect(api.notifications).toHaveBeenCalled());
-  expect(screen.queryByRole("button")).toBeNull();
   expect(screen.queryByText(/database is down/)).toBeNull();
-});
-
-/*
- * ⚠️ ESC KAPATIR VE ODAK ÇANA DÖNER — kullanıcı menüsüyle aynı gerekçe:
- * odak belgenin başına düşerse klavyeyle gezen kişi en baştan başlar.
- */
-it("Esc kapatıyor ve odağı çana veriyor", async () => {
-  vi.spyOn(api, "notifications").mockResolvedValue(list);
-  render(<Notifications onGo={vi.fn()} />);
-
-  const bell = await screen.findByRole("button", { name: /waiting for you/i });
-  fireEvent.click(bell);
-  expect(screen.getAllByRole("menuitem")).toHaveLength(2);
-
-  fireEvent.keyDown(bell, { key: "Escape" });
-  expect(screen.queryByRole("menuitem")).toBeNull();
-  expect(document.activeElement).toBe(bell);
+  expect(screen.getByRole("button").querySelector(".bell-count")).toBeNull();
 });
 
 /* Dakikada bir tazeliyor, bileşen kalkınca duruyor. */
@@ -116,4 +112,14 @@ it("dakikada bir tazeliyor, kalkınca duruyor", async () => {
   unmount();
   await vi.advanceTimersByTimeAsync(180_000);
   expect(read).toHaveBeenCalledTimes(2);
+});
+
+/* Sayfa damgayı ileri alınca çan da tazeleniyor. */
+it("refresh değişince sayıyı yeniden okuyor", async () => {
+  const read = vi.spyOn(api, "notifications").mockResolvedValue(list);
+  const { rerender } = render(<Notifications onGo={vi.fn()} refresh={0} />);
+
+  await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+  rerender(<Notifications onGo={vi.fn()} refresh={1} />);
+  await waitFor(() => expect(read).toHaveBeenCalledTimes(2));
 });

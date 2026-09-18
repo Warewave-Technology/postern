@@ -1,4 +1,10 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
@@ -50,7 +56,9 @@ import {
  */
 
 vi.mock("../src/Terminal", () => ({
-  default: () => <div className="terminal-stub" style={{ flex: 1, minHeight: 480 }} />,
+  default: () => (
+    <div className="terminal-stub" style={{ flex: 1, minHeight: 480 }} />
+  ),
 }));
 
 // Kayıt oynatıcısı xterm kuruyor ve xterm jsdom'da matchMedia istiyor;
@@ -84,7 +92,8 @@ vi.mock("@xterm/addon-fit", () => ({
 vi.mock("@xterm/xterm/css/xterm.css", () => ({}));
 
 const OUT = path.resolve(process.cwd(), ".visual/pages");
-const css = () => fs.readFileSync(path.resolve(process.cwd(), "src/styles.css"), "utf8");
+const css = () =>
+  fs.readFileSync(path.resolve(process.cwd(), "src/styles.css"), "utf8");
 
 const written: string[] = [];
 const gaps: Record<string, string[]> = {};
@@ -222,7 +231,9 @@ function page(name: string) {
     );
   }
   const controls = Array.from(
-    document.querySelectorAll("button, a, [group=menuitem], input, select, textarea, summary"),
+    document.querySelectorAll(
+      "button, a, [group=menuitem], input, select, textarea, summary",
+    ),
   ).map((el) => {
     const tag = el.tagName.toLowerCase();
     const label =
@@ -232,10 +243,15 @@ function page(name: string) {
       "";
     return `${tag}: ${label}`;
   });
-  fs.writeFileSync(path.join(OUT, `${name}.controls.json`), JSON.stringify(controls, null, 1));
+  fs.writeFileSync(
+    path.join(OUT, `${name}.controls.json`),
+    JSON.stringify(controls, null, 1),
+  );
 
   const text = document.body.textContent ?? "";
-  const missing = Array.from(text.matchAll(/visual: (\w+) not mocked/g)).map((m) => m[1]);
+  const missing = Array.from(text.matchAll(/visual: (\w+) not mocked/g)).map(
+    (m) => m[1],
+  );
   if (missing.length > 0) gaps[name] = Array.from(new Set(missing));
   written.push(name);
 }
@@ -258,9 +274,13 @@ function mockAll(fix: Fixtures) {
     if (k in fix) {
       const v = fix[k as keyof typeof api];
       if (typeof v === "function") {
-        vi.spyOn(target, k).mockImplementation(v as (...a: unknown[]) => unknown);
+        vi.spyOn(target, k).mockImplementation(
+          v as (...a: unknown[]) => unknown,
+        );
       } else {
-        vi.spyOn(target, k).mockImplementation(() => Promise.resolve(structuredClone(v)));
+        vi.spyOn(target, k).mockImplementation(() =>
+          Promise.resolve(structuredClone(v)),
+        );
       }
     } else {
       vi.spyOn(target, k).mockImplementation(() =>
@@ -294,7 +314,13 @@ const showDialog = (re: RegExp) => {
 
 /** Varsa tıklar; yoksa sessizce false döner (düğme adı keşfediliyor). */
 const tryClick = (re: RegExp): boolean => {
-  const b = screen.queryAllByRole("button").find((el) => re.test(el.textContent ?? "") || re.test(el.getAttribute("aria-label") ?? ""));
+  const b = screen
+    .queryAllByRole("button")
+    .find(
+      (el) =>
+        re.test(el.textContent ?? "") ||
+        re.test(el.getAttribute("aria-label") ?? ""),
+    );
   if (!b) return false;
   fireEvent.click(b);
   return true;
@@ -307,7 +333,9 @@ const tryClick = (re: RegExp): boolean => {
  * sağındaki tek düğmede toplandı (bkz. UserMenu).
  */
 const goProfile = () => {
-  const button = screen.queryAllByRole("button").find((el) => /^(yigit|ayse)/.test(el.textContent ?? ""));
+  const button = screen
+    .queryAllByRole("button")
+    .find((el) => /^(yigit|ayse)/.test(el.textContent ?? ""));
   if (button) fireEvent.click(button);
   tryClick(/^profile$/i);
 };
@@ -316,7 +344,8 @@ const goProfile = () => {
 /* Fikstürler                                                          */
 /* ------------------------------------------------------------------ */
 
-const T = (h: number, m = 0) => `2026-09-13T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00Z`;
+const T = (h: number, m = 0) =>
+  `2026-09-13T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00Z`;
 
 const LONG_HOST = "prod-eu-west-1-database-replica-02.internal.example.com";
 const LONG_ERR =
@@ -339,7 +368,12 @@ const meAdmin: Me = {
   jit_enabled: true,
 };
 
-const meUser: Me = { ...meAdmin, name: "ayse.yilmaz-demirtas", os_user: "ayse", admin: false };
+const meUser: Me = {
+  ...meAdmin,
+  name: "ayse.yilmaz-demirtas",
+  os_user: "ayse",
+  admin: false,
+};
 
 const labelsBig = {
   env: "production",
@@ -351,17 +385,61 @@ const labelsBig = {
 };
 
 const myTargets = [
-  { name: "web-01", labels: { env: "prod", team: "web" }, server_version: "SSH-2.0-OpenSSH_9.6", last_seen_at: T(9, 12) },
-  { name: LONG_HOST, labels: labelsBig, server_version: "SSH-2.0-OpenSSH_8.0p1 Rocky Linux 8", last_seen_at: T(8, 3) },
-  { name: "db-primary", labels: { env: "prod", role: "database" }, server_version: "SSH-2.0-OpenSSH_9.3", last_seen_at: T(7), temporary: { until: T(21), granted_by: "ops", groups: ["dba"] } },
-  { name: "cache-03", labels: {}, server_version: undefined, last_seen_at: undefined },
-  { name: "build-runner-linux-amd64-07", labels: { env: "ci", pool: "linux-amd64-large-memory-runners" }, server_version: "SSH-2.0-OpenSSH_9.6", last_seen_at: T(6, 45) },
-  { name: "demo-a", labels: { env: "demo" }, server_version: "SSH-2.0-OpenSSH_9.9", last_seen_at: T(10, 1) },
-  { name: "demo-b", labels: { env: "demo" }, server_version: "SSH-2.0-OpenSSH_9.9" },
+  {
+    name: "web-01",
+    labels: { env: "prod", team: "web" },
+    server_version: "SSH-2.0-OpenSSH_9.6",
+    last_seen_at: T(9, 12),
+  },
+  {
+    name: LONG_HOST,
+    labels: labelsBig,
+    server_version: "SSH-2.0-OpenSSH_8.0p1 Rocky Linux 8",
+    last_seen_at: T(8, 3),
+  },
+  {
+    name: "db-primary",
+    labels: { env: "prod", role: "database" },
+    server_version: "SSH-2.0-OpenSSH_9.3",
+    last_seen_at: T(7),
+    temporary: { until: T(21), granted_by: "ops", groups: ["dba"] },
+  },
+  {
+    name: "cache-03",
+    labels: {},
+    server_version: undefined,
+    last_seen_at: undefined,
+  },
+  {
+    name: "build-runner-linux-amd64-07",
+    labels: { env: "ci", pool: "linux-amd64-large-memory-runners" },
+    server_version: "SSH-2.0-OpenSSH_9.6",
+    last_seen_at: T(6, 45),
+  },
+  {
+    name: "demo-a",
+    labels: { env: "demo" },
+    server_version: "SSH-2.0-OpenSSH_9.9",
+    last_seen_at: T(10, 1),
+  },
+  {
+    name: "demo-b",
+    labels: { env: "demo" },
+    server_version: "SSH-2.0-OpenSSH_9.9",
+  },
 ];
 
 const groups = [
-  { name: "sre", targets: ["web-01", LONG_HOST, "db-primary", "cache-03", "build-runner-linux-amd64-07"] },
+  {
+    name: "sre",
+    targets: [
+      "web-01",
+      LONG_HOST,
+      "db-primary",
+      "cache-03",
+      "build-runner-linux-amd64-07",
+    ],
+  },
   {
     name: "dba",
     targets: ["db-primary", LONG_HOST],
@@ -388,34 +466,202 @@ const groups = [
 ];
 
 const users: User[] = [
-  { name: "yigit.basalma", os_user: "ybasalma", admin: true, groups: ["sre", "dba", "web", "ci", "demo", "readonly-auditors-emea"], keys: 3, state: "active", last_confirmed: T(9) },
-  { name: "ayse.yilmaz-demirtas", os_user: "ayse", admin: false, groups: ["dba"], keys: 1, state: "active", last_confirmed: T(8) },
-  { name: "veli", os_user: "veli", admin: false, groups: [], keys: 0, state: "active" },
-  { name: "mehmet.kaya", os_user: "mkaya", admin: false, groups: ["web", "ci"], keys: 2, state: "inactive", last_confirmed: "2026-07-01T10:00:00Z" },
-  { name: "svc-backup-nightly-runner", os_user: "svcbackup", admin: false, groups: ["sre"], keys: 1, state: "active", last_confirmed: T(1) },
-  { name: "deleted.person", os_user: "dperson", admin: false, groups: [], keys: 0, state: "deleted" },
-  { name: "ops", os_user: "ops", admin: true, groups: ["sre"], keys: 1, state: "active", last_confirmed: T(9, 30) },
-  { name: "auditor.external.kpmg", os_user: "auditor", admin: false, groups: ["readonly-auditors-emea"], keys: 1, state: "active", last_confirmed: T(2) },
+  {
+    name: "yigit.basalma",
+    os_user: "ybasalma",
+    admin: true,
+    groups: ["sre", "dba", "web", "ci", "demo", "readonly-auditors-emea"],
+    keys: 3,
+    state: "active",
+    last_confirmed: T(9),
+  },
+  {
+    name: "ayse.yilmaz-demirtas",
+    os_user: "ayse",
+    admin: false,
+    groups: ["dba"],
+    keys: 1,
+    state: "active",
+    last_confirmed: T(8),
+  },
+  {
+    name: "veli",
+    os_user: "veli",
+    admin: false,
+    groups: [],
+    keys: 0,
+    state: "active",
+  },
+  {
+    name: "mehmet.kaya",
+    os_user: "mkaya",
+    admin: false,
+    groups: ["web", "ci"],
+    keys: 2,
+    state: "inactive",
+    last_confirmed: "2026-07-01T10:00:00Z",
+  },
+  {
+    name: "svc-backup-nightly-runner",
+    os_user: "svcbackup",
+    admin: false,
+    groups: ["sre"],
+    keys: 1,
+    state: "active",
+    last_confirmed: T(1),
+  },
+  {
+    name: "deleted.person",
+    os_user: "dperson",
+    admin: false,
+    groups: [],
+    keys: 0,
+    state: "deleted",
+  },
+  {
+    name: "ops",
+    os_user: "ops",
+    admin: true,
+    groups: ["sre"],
+    keys: 1,
+    state: "active",
+    last_confirmed: T(9, 30),
+  },
+  {
+    name: "auditor.external.kpmg",
+    os_user: "auditor",
+    admin: false,
+    groups: ["readonly-auditors-emea"],
+    keys: 1,
+    state: "active",
+    last_confirmed: T(2),
+  },
 ];
 
 const targets: Target[] = [
-  { name: "web-01", host: "10.0.1.11", port: 22, fingerprint: "SHA256:I3mJ5osOLjwSlMDq4UpW+nBcTtBCjux2CiFcN0Mudns", labels: { env: "prod", team: "web" } },
-  { name: LONG_HOST, host: LONG_HOST, port: 2222, fingerprint: "SHA256:aB3cD4eF5gH6iJ7kL8mN9oP0qR1sT2uV3wX4yZ5aB6c", labels: labelsBig },
-  { name: "db-primary", host: "10.0.2.5", port: 22, fingerprint: "SHA256:QwErTyUiOpAsDfGhJkLzXcVbNm1234567890abcdEFG", labels: { env: "prod", role: "database" } },
-  { name: "cache-03", host: "2001:db8:85a3::8a2e:370:7334", port: 22, fingerprint: "SHA256:zXcVbNmAsDfGhJkLqWeRtYuIoP1234567890QwErTyU", labels: {} },
-  { name: "build-runner-linux-amd64-07", host: "runner-07.ci.example.internal", port: 22, fingerprint: "SHA256:MnBvCxZlKjHgFdSaPoIuYtReWq0987654321LkJhGfD", labels: { env: "ci", pool: "linux-amd64-large-memory-runners" } },
-  { name: "demo-a", host: "demo-a", port: 22, fingerprint: "SHA256:demoAdemoAdemoAdemoAdemoAdemoAdemoAdemoAdem", labels: { env: "demo" } },
-  { name: "demo-b", host: "demo-b", port: 22, fingerprint: "SHA256:demoBdemoBdemoBdemoBdemoBdemoBdemoBdemoBdem", labels: { env: "demo" } },
+  {
+    name: "web-01",
+    host: "10.0.1.11",
+    port: 22,
+    fingerprint: "SHA256:I3mJ5osOLjwSlMDq4UpW+nBcTtBCjux2CiFcN0Mudns",
+    labels: { env: "prod", team: "web" },
+  },
+  {
+    name: LONG_HOST,
+    host: LONG_HOST,
+    port: 2222,
+    fingerprint: "SHA256:aB3cD4eF5gH6iJ7kL8mN9oP0qR1sT2uV3wX4yZ5aB6c",
+    labels: labelsBig,
+  },
+  {
+    name: "db-primary",
+    host: "10.0.2.5",
+    port: 22,
+    fingerprint: "SHA256:QwErTyUiOpAsDfGhJkLzXcVbNm1234567890abcdEFG",
+    labels: { env: "prod", role: "database" },
+  },
+  {
+    name: "cache-03",
+    host: "2001:db8:85a3::8a2e:370:7334",
+    port: 22,
+    fingerprint: "SHA256:zXcVbNmAsDfGhJkLqWeRtYuIoP1234567890QwErTyU",
+    labels: {},
+  },
+  {
+    name: "build-runner-linux-amd64-07",
+    host: "runner-07.ci.example.internal",
+    port: 22,
+    fingerprint: "SHA256:MnBvCxZlKjHgFdSaPoIuYtReWq0987654321LkJhGfD",
+    labels: { env: "ci", pool: "linux-amd64-large-memory-runners" },
+  },
+  {
+    name: "demo-a",
+    host: "demo-a",
+    port: 22,
+    fingerprint: "SHA256:demoAdemoAdemoAdemoAdemoAdemoAdemoAdemoAdem",
+    labels: { env: "demo" },
+  },
+  {
+    name: "demo-b",
+    host: "demo-b",
+    port: 22,
+    fingerprint: "SHA256:demoBdemoBdemoBdemoBdemoBdemoBdemoBdemoBdem",
+    labels: { env: "demo" },
+  },
 ];
 
 const sessions: Session[] = [
-  { id: "s-2026-09-13-0001", user: "yigit.basalma", target: "web-01", os_user: "ybasalma", src_ip: "192.168.1.23", started_at: T(9, 12), ended_at: null, running: true, denied: 0 },
-  { id: "s-2026-09-13-0002", user: "ayse.yilmaz-demirtas", target: LONG_HOST, os_user: "ayse", src_ip: "2001:db8:85a3::8a2e:370:7334", started_at: T(9, 2), ended_at: null, running: true, denied: 3, lost: 1 },
-  { id: "s-2026-09-13-0003", user: "veli", target: "db-primary", os_user: "veli", src_ip: "10.8.0.4", started_at: T(8, 40), ended_at: T(8, 58), denied: 12 },
-  { id: "s-2026-09-13-0004", user: "svc-backup-nightly-runner", target: "cache-03", os_user: "svcbackup", src_ip: "10.0.9.9", started_at: T(1), ended_at: T(1, 4) },
-  { id: "s-2026-09-13-0005", user: "ops", target: "demo-a", os_user: "ops", src_ip: "192.168.1.50", started_at: T(7, 30), ended_at: null },
-  { id: "s-2026-09-12-0342", user: "auditor.external.kpmg", target: "web-01", os_user: "auditor", src_ip: "203.0.113.77", started_at: "2026-09-12T16:05:00Z", ended_at: "2026-09-12T18:41:00Z", denied: 0, lost: 0 },
-  { id: "s-2026-09-12-0341", user: "mehmet.kaya", target: "build-runner-linux-amd64-07", os_user: "mkaya", src_ip: "10.0.3.31", started_at: "2026-09-12T15:00:00Z", ended_at: "2026-09-12T15:02:00Z" },
+  {
+    id: "s-2026-09-13-0001",
+    user: "yigit.basalma",
+    target: "web-01",
+    os_user: "ybasalma",
+    src_ip: "192.168.1.23",
+    started_at: T(9, 12),
+    ended_at: null,
+    running: true,
+    denied: 0,
+  },
+  {
+    id: "s-2026-09-13-0002",
+    user: "ayse.yilmaz-demirtas",
+    target: LONG_HOST,
+    os_user: "ayse",
+    src_ip: "2001:db8:85a3::8a2e:370:7334",
+    started_at: T(9, 2),
+    ended_at: null,
+    running: true,
+    denied: 3,
+    lost: 1,
+  },
+  {
+    id: "s-2026-09-13-0003",
+    user: "veli",
+    target: "db-primary",
+    os_user: "veli",
+    src_ip: "10.8.0.4",
+    started_at: T(8, 40),
+    ended_at: T(8, 58),
+    denied: 12,
+  },
+  {
+    id: "s-2026-09-13-0004",
+    user: "svc-backup-nightly-runner",
+    target: "cache-03",
+    os_user: "svcbackup",
+    src_ip: "10.0.9.9",
+    started_at: T(1),
+    ended_at: T(1, 4),
+  },
+  {
+    id: "s-2026-09-13-0005",
+    user: "ops",
+    target: "demo-a",
+    os_user: "ops",
+    src_ip: "192.168.1.50",
+    started_at: T(7, 30),
+    ended_at: null,
+  },
+  {
+    id: "s-2026-09-12-0342",
+    user: "auditor.external.kpmg",
+    target: "web-01",
+    os_user: "auditor",
+    src_ip: "203.0.113.77",
+    started_at: "2026-09-12T16:05:00Z",
+    ended_at: "2026-09-12T18:41:00Z",
+    denied: 0,
+    lost: 0,
+  },
+  {
+    id: "s-2026-09-12-0341",
+    user: "mehmet.kaya",
+    target: "build-runner-linux-amd64-07",
+    os_user: "mkaya",
+    src_ip: "10.0.3.31",
+    started_at: "2026-09-12T15:00:00Z",
+    ended_at: "2026-09-12T15:02:00Z",
+  },
 ];
 
 const sessionDetail = (id: string): SessionDetail => ({
@@ -423,16 +669,63 @@ const sessionDetail = (id: string): SessionDetail => ({
   recording: {
     state: "complete",
     size: 4823905,
-    chain: "sha256:9f2c1e0b7d4a6c8e1f3b5d7a9c2e4f6081a3c5e7f9b1d3a5c7e9f1b3d5a7c9e1",
+    chain:
+      "sha256:9f2c1e0b7d4a6c8e1f3b5d7a9c2e4f6081a3c5e7f9b1d3a5c7e9f1b3d5a7c9e1",
     links: 143,
   },
   files: [
-    { id: "f1", at: T(8, 41), op: "open", path: "/var/log/nginx/access.log", read: 1048576, wrote: 0, ok: true, in_recording: true },
-    { id: "f2", at: T(8, 42), op: "denied.remove", path: "/etc/shadow", read: 0, wrote: 0, ok: false, detail: "group dba: /etc is not allowed", in_recording: true },
-    { id: "f3", at: T(8, 44), op: "rename", path: "/srv/app/releases/2026-09-13-1/config.yaml", new_path: "/srv/app/releases/2026-09-13-1/config.yaml.bak", read: 0, wrote: 0, ok: true, in_recording: true },
-    { id: "f4", at: T(8, 50), op: "open", path: "/srv/app/releases/2026-09-13-1/very/deeply/nested/directory/structure/that/keeps/going/for/a/while/artifact-linux-amd64.tar.gz", flags: "w", read: 0, wrote: 73400320, ok: true, in_recording: true },
+    {
+      id: "f1",
+      at: T(8, 41),
+      op: "open",
+      path: "/var/log/nginx/access.log",
+      read: 1048576,
+      wrote: 0,
+      ok: true,
+      in_recording: true,
+    },
+    {
+      id: "f2",
+      at: T(8, 42),
+      op: "denied.remove",
+      path: "/etc/shadow",
+      read: 0,
+      wrote: 0,
+      ok: false,
+      detail: "group dba: /etc is not allowed",
+      in_recording: true,
+    },
+    {
+      id: "f3",
+      at: T(8, 44),
+      op: "rename",
+      path: "/srv/app/releases/2026-09-13-1/config.yaml",
+      new_path: "/srv/app/releases/2026-09-13-1/config.yaml.bak",
+      read: 0,
+      wrote: 0,
+      ok: true,
+      in_recording: true,
+    },
+    {
+      id: "f4",
+      at: T(8, 50),
+      op: "open",
+      path: "/srv/app/releases/2026-09-13-1/very/deeply/nested/directory/structure/that/keeps/going/for/a/while/artifact-linux-amd64.tar.gz",
+      flags: "w",
+      read: 0,
+      wrote: 73400320,
+      ok: true,
+      in_recording: true,
+    },
   ],
-  journal: { state: "intact", events: 4, rows: 4, lost: 0, detail: "4 events sealed, 4 rows in the ledger", digest_checked: true },
+  journal: {
+    state: "intact",
+    events: 4,
+    rows: 4,
+    lost: 0,
+    detail: "4 events sealed, 4 rows in the ledger",
+    digest_checked: true,
+  },
 });
 
 const userDetail = (name: string): UserDetail => {
@@ -449,12 +742,37 @@ const userDetail = (name: string): UserDetail => {
     dir_bound: true,
     groups: groups.filter((r) => u.groups.includes(r.name)),
     keys: [
-      { fingerprint: "SHA256:I3mJ5osOLjwSlMDq4UpW+nBcTtBCjux2CiFcN0Mudns", comment: "yigit@macbook-pro-16-2025 work laptop (ed25519)", added_at: "2026-08-01T10:00:00Z" },
-      { fingerprint: "SHA256:aB3cD4eF5gH6iJ7kL8mN9oP0qR1sT2uV3wX4yZ5aB6c", comment: "", added_at: "2026-08-20T10:00:00Z" },
-      { fingerprint: "SHA256:QwErTyUiOpAsDfGhJkLzXcVbNm1234567890abcdEFG", comment: "yubikey-5c-nano-backup-key-kept-in-the-office-safe", added_at: T(3) },
+      {
+        fingerprint: "SHA256:I3mJ5osOLjwSlMDq4UpW+nBcTtBCjux2CiFcN0Mudns",
+        comment: "yigit@macbook-pro-16-2025 work laptop (ed25519)",
+        added_at: "2026-08-01T10:00:00Z",
+      },
+      {
+        fingerprint: "SHA256:aB3cD4eF5gH6iJ7kL8mN9oP0qR1sT2uV3wX4yZ5aB6c",
+        comment: "",
+        added_at: "2026-08-20T10:00:00Z",
+      },
+      {
+        fingerprint: "SHA256:QwErTyUiOpAsDfGhJkLzXcVbNm1234567890abcdEFG",
+        comment: "yubikey-5c-nano-backup-key-kept-in-the-office-safe",
+        added_at: T(3),
+      },
     ].slice(0, Math.max(u.keys, 0)),
-    sessions: sessions.filter((s) => s.user === u.name).map((s) => ({ id: s.id, target: s.target, started: s.started_at, ended: s.ended_at ?? undefined })),
-    credential: { kind: "issued", must_change: true, created_at: T(6), created_by: "ops", last_used_at: undefined },
+    sessions: sessions
+      .filter((s) => s.user === u.name)
+      .map((s) => ({
+        id: s.id,
+        target: s.target,
+        started: s.started_at,
+        ended: s.ended_at ?? undefined,
+      })),
+    credential: {
+      kind: "issued",
+      must_change: true,
+      created_at: T(6),
+      created_by: "ops",
+      last_used_at: undefined,
+    },
     totp: { enrolled: true, last_used_at: T(9) },
   };
 };
@@ -475,7 +793,16 @@ const targetDetail = (name: string): TargetDetail => {
       probed_at: T(8, 3),
     },
     granted_by: ["sre", "dba", "readonly-auditors-emea"],
-    recent_sessions: sessions.slice(0, 5).map((s) => ({ id: s.id, user: s.user, os_user: s.os_user, src_ip: s.src_ip, started_at: s.started_at, ended_at: s.ended_at ?? undefined })),
+    recent_sessions: sessions
+      .slice(0, 5)
+      .map((s) => ({
+        id: s.id,
+        user: s.user,
+        os_user: s.os_user,
+        src_ip: s.src_ip,
+        started_at: s.started_at,
+        ended_at: s.ended_at ?? undefined,
+      })),
     recent_partial: true,
     recent_scanned: 200,
     manage_enabled: true,
@@ -484,34 +811,133 @@ const targetDetail = (name: string): TargetDetail => {
 
 const grants: Grant[] = (() => {
   const g = (over: Partial<Grant>): Grant => ({
-    id: "g", username: "ayse.yilmaz-demirtas", target: LONG_HOST, os_user: "ayse", groups: ["dba"],
-    granted_by: "yigit.basalma", granted_at: T(10), expires_at: T(18), applied_at: T(10, 1), revoke_attempts: 0, ...over,
+    id: "g",
+    username: "ayse.yilmaz-demirtas",
+    target: LONG_HOST,
+    os_user: "ayse",
+    groups: ["dba"],
+    granted_by: "yigit.basalma",
+    granted_at: T(10),
+    expires_at: T(18),
+    applied_at: T(10, 1),
+    revoke_attempts: 0,
+    ...over,
   });
   return [
     g({ id: "1" }),
-    g({ id: "2", username: "veli", os_user: "veli", groups: ["dba", "docker", "systemd-journal"], expires_at: T(11) }),
-    g({ id: "3", applied_at: undefined, apply_report: "1 applied, 1 failed, 2 not attempted" }),
-    g({ id: "4", expires_at: "2026-09-12T18:00:00Z", revoke_attempts: 4, revoke_error: "could not connect: " + LONG_ERR }),
+    g({
+      id: "2",
+      username: "veli",
+      os_user: "veli",
+      groups: ["dba", "docker", "systemd-journal"],
+      expires_at: T(11),
+    }),
+    g({
+      id: "3",
+      applied_at: undefined,
+      apply_report: "1 applied, 1 failed, 2 not attempted",
+    }),
+    g({
+      id: "4",
+      expires_at: "2026-09-12T18:00:00Z",
+      revoke_attempts: 4,
+      revoke_error: "could not connect: " + LONG_ERR,
+    }),
     g({ id: "5", revoked_at: T(11, 30), revoke_report: "5 applied" }),
   ];
 })();
 
 const pending: PendingUser[] = [
-  { id: "p1", subject: "a1b2c3d4-e5f6-7890-abcd-ef1234567890", source: "dir", username: "hasan.demir", email: "hasan.demir@very-long-corporate-domain-name.example.com", seen_groups: ["CN=SRE,OU=Groups,DC=example,DC=com", "CN=Platform Engineering EMEA,OU=Groups,DC=example,DC=com", "vpn-users", "all-staff"], state: "waiting", first_seen: T(6), last_seen: T(9, 55) },
-  { id: "p2", subject: "oidc|110234987234", source: "oidc", username: "j.doe", email: "j.doe@example.com", seen_groups: [], state: "waiting", first_seen: T(9, 50), last_seen: T(9, 50) },
-  { id: "p3", subject: "f0e1d2c3-b4a5-6789-0fed-cba987654321", source: "dir", username: "contractor.long.name.with.dots", email: "contractor@partner.example.org", seen_groups: ["contractors"], state: "rejected", first_seen: "2026-09-10T08:00:00Z", last_seen: "2026-09-11T08:00:00Z", decided_by: "ops", decided_at: "2026-09-11T09:00:00Z", reason: "Contract not yet countersigned by procurement; re-request once the SOW is on file." },
+  {
+    id: "p1",
+    subject: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    source: "dir",
+    username: "hasan.demir",
+    email: "hasan.demir@very-long-corporate-domain-name.example.com",
+    seen_groups: [
+      "CN=SRE,OU=Groups,DC=example,DC=com",
+      "CN=Platform Engineering EMEA,OU=Groups,DC=example,DC=com",
+      "vpn-users",
+      "all-staff",
+    ],
+    state: "waiting",
+    first_seen: T(6),
+    last_seen: T(9, 55),
+  },
+  {
+    id: "p2",
+    subject: "oidc|110234987234",
+    source: "oidc",
+    username: "j.doe",
+    email: "j.doe@example.com",
+    seen_groups: [],
+    state: "waiting",
+    first_seen: T(9, 50),
+    last_seen: T(9, 50),
+  },
+  {
+    id: "p3",
+    subject: "f0e1d2c3-b4a5-6789-0fed-cba987654321",
+    source: "dir",
+    username: "contractor.long.name.with.dots",
+    email: "contractor@partner.example.org",
+    seen_groups: ["contractors"],
+    state: "rejected",
+    first_seen: "2026-09-10T08:00:00Z",
+    last_seen: "2026-09-11T08:00:00Z",
+    decided_by: "ops",
+    decided_at: "2026-09-11T09:00:00Z",
+    reason:
+      "Contract not yet countersigned by procurement; re-request once the SOW is on file.",
+  },
 ];
 
 const adminLog: LogEntry[] = Array.from({ length: 18 }, (_, i) => {
   const actions = [
-    ["jit.grant", "target/" + LONG_HOST, JSON.stringify({ username: "ayse.yilmaz-demirtas", groups: ["dba"], duration: "8h", sudo: { commands: [{ path: "/usr/bin/systemctl", args: ["restart", "nginx"] }] } })],
-    ["user.delete", "user/mehmet.kaya", "{\"reason\":\"left the company\"}"],
-    ["target.create", "target/web-01", JSON.stringify({ host: "10.0.1.11", port: 22, fingerprint: "SHA256:I3mJ5osOLjwSlMDq4UpW+nBcTtBCjux2CiFcN0Mudns" })],
-    ["session.terminate", "session/s-2026-09-13-0003", "{\"by\":\"panel\"}"],
-    ["jit.revoke.failed", "target/" + LONG_HOST, JSON.stringify({ grant: "4", attempt: 4, error: "could not connect: " + LONG_ERR })],
-    ["retention.prune", "recordings", "{\"deleted\":12,\"bytes\":734003200}"],
+    [
+      "jit.grant",
+      "target/" + LONG_HOST,
+      JSON.stringify({
+        username: "ayse.yilmaz-demirtas",
+        groups: ["dba"],
+        duration: "8h",
+        sudo: {
+          commands: [
+            { path: "/usr/bin/systemctl", args: ["restart", "nginx"] },
+          ],
+        },
+      }),
+    ],
+    ["user.delete", "user/mehmet.kaya", '{"reason":"left the company"}'],
+    [
+      "target.create",
+      "target/web-01",
+      JSON.stringify({
+        host: "10.0.1.11",
+        port: 22,
+        fingerprint: "SHA256:I3mJ5osOLjwSlMDq4UpW+nBcTtBCjux2CiFcN0Mudns",
+      }),
+    ],
+    ["session.terminate", "session/s-2026-09-13-0003", '{"by":"panel"}'],
+    [
+      "jit.revoke.failed",
+      "target/" + LONG_HOST,
+      JSON.stringify({
+        grant: "4",
+        attempt: 4,
+        error: "could not connect: " + LONG_ERR,
+      }),
+    ],
+    ["retention.prune", "recordings", '{"deleted":12,"bytes":734003200}'],
   ][i % 6];
-  return { at: T(10 - Math.floor(i / 2), 59 - i), actor: i % 6 === 5 ? "postern" : i % 2 ? "ops" : "yigit.basalma", via: i % 6 === 5 ? "system" : i % 3 ? "web" : "cli", action: actions[0], entity: actions[1], details: actions[2] };
+  return {
+    at: T(10 - Math.floor(i / 2), 59 - i),
+    actor: i % 6 === 5 ? "postern" : i % 2 ? "ops" : "yigit.basalma",
+    via: i % 6 === 5 ? "system" : i % 3 ? "web" : "cli",
+    action: actions[0],
+    entity: actions[1],
+    details: actions[2],
+  };
 });
 
 const base: Fixtures = {
@@ -548,15 +974,31 @@ const base: Fixtures = {
       {
         title: "SSH listener",
         entries: [
-          { key: "listen.addr", value: ":2222", note: "where the bastion listens for SSH" },
-          { key: "listen.handshake_timeout", value: "30s", note: "how long a connection may take to authenticate" },
+          {
+            key: "listen.addr",
+            value: ":2222",
+            note: "where the bastion listens for SSH",
+          },
+          {
+            key: "listen.handshake_timeout",
+            value: "30s",
+            note: "how long a connection may take to authenticate",
+          },
         ],
       },
       {
         title: "Recording",
         entries: [
-          { key: "recording.dir", value: "/var/lib/postern/recordings", note: "where session recordings are written" },
-          { key: "recording.archive.endpoint", value: "(not set)", note: "where recordings are copied off the box" },
+          {
+            key: "recording.dir",
+            value: "/var/lib/postern/recordings",
+            note: "where session recordings are written",
+          },
+          {
+            key: "recording.archive.endpoint",
+            value: "(not set)",
+            note: "where recordings are copied off the box",
+          },
           {
             key: "recording.archive.prefix",
             value: "bastion/eu-west-1/prod/session-recordings",
@@ -577,25 +1019,31 @@ const base: Fixtures = {
    */
   notifications: {
     count: 3,
+    // İkisi son bakıştan sonra geldi: "new" işaretinin de taranması için.
+    unread: 2,
+    read_at: T(8),
     items: [
       {
         kind: "identity.pending",
         at: T(6),
         summary: "hasan.demir is waiting for approval",
-        detail: "Signed in through dir and has no account here yet; approving one creates it.",
+        detail:
+          "Signed in through dir and has no account here yet; approving one creates it.",
         section: "pending",
       },
       {
         kind: "discovery.new",
         at: T(10),
         summary: "web-01 is waiting to be registered",
-        detail: "Found by lab cluster. It becomes a target — and reachable — only once you register it.",
+        detail:
+          "Found by lab cluster. It becomes a target — and reachable — only once you register it.",
         section: "discovery",
       },
       {
         kind: "grant.revoke_failed",
         at: T(11),
-        summary: "ayse could not be removed from prod-eu-west-1-database-replica-02.internal.example.com",
+        summary:
+          "ayse could not be removed from prod-eu-west-1-database-replica-02.internal.example.com",
         detail:
           "The access expired but the account is still there after 4 attempt(s): dial tcp 10.42.7.19:22: connect: no route to host",
         section: "jit",
@@ -608,58 +1056,149 @@ const base: Fixtures = {
     stored: true,
     options: [
       { source: "local", eligible: true },
-      { source: "oidc", eligible: false, why: "OIDC is not configured: set an issuer and a client id under Identity → OIDC first" },
+      {
+        source: "oidc",
+        eligible: false,
+        why: "OIDC is not configured: set an issuer and a client id under Identity → OIDC first",
+      },
       { source: "ldap", eligible: true },
     ],
     unseen_mappings: ["CN=Ops Team,OU=Groups,DC=example,DC=com", "sre-oncall"],
   },
   myTargets,
-  myTarget: (name: string) => Promise.resolve({ ...(myTargets.find((t) => t.name === name) ?? myTargets[1]), temporary: { until: T(21), granted_by: "ops", groups: ["dba", "developer"] }, sessions: sessions.slice(0, 6).map((s) => ({ id: s.id, started: s.started_at, ended: s.ended_at ?? undefined, os_user: s.os_user })), sessions_partial: true, sessions_scanned: 200 }),
+  myTarget: (name: string) =>
+    Promise.resolve({
+      ...(myTargets.find((t) => t.name === name) ?? myTargets[1]),
+      temporary: {
+        until: T(21),
+        granted_by: "ops",
+        groups: ["dba", "developer"],
+      },
+      sessions: sessions
+        .slice(0, 6)
+        .map((s) => ({
+          id: s.id,
+          started: s.started_at,
+          ended: s.ended_at ?? undefined,
+          os_user: s.os_user,
+        })),
+      sessions_partial: true,
+      sessions_scanned: 200,
+    }),
   users,
   userDetail: (name: string) => Promise.resolve(userDetail(name)),
   groups,
   rolePaths: [
     { prefix: "/var/log", allow: true, can_write: false },
     { prefix: "/etc", allow: false, can_write: false },
-    { prefix: "/srv/app/releases/current/very/long/prefix/that/should/wrap/somewhere", allow: true, can_write: true },
+    {
+      prefix:
+        "/srv/app/releases/current/very/long/prefix/that/should/wrap/somewhere",
+      allow: true,
+      can_write: true,
+    },
   ],
   targets,
   targetDetail: (name: string) => Promise.resolve(targetDetail(name)),
   grants: { grants, now: T(12) },
-  allGrants: { grants: [...grants, { ...grants[0], id: "6", target: "web-01", username: "svc-backup-nightly-runner", os_user: "svcbackup", groups: ["backup-operators", "systemd-journal"] }], now: T(12) },
+  allGrants: {
+    grants: [
+      ...grants,
+      {
+        ...grants[0],
+        id: "6",
+        target: "web-01",
+        username: "svc-backup-nightly-runner",
+        os_user: "svcbackup",
+        groups: ["backup-operators", "systemd-journal"],
+      },
+    ],
+    now: T(12),
+  },
   targetGroups: (name: string) =>
     Promise.resolve({
-      target: name, min_gid: 1000, checked_at: T(12),
+      target: name,
+      min_gid: 1000,
+      checked_at: T(12),
       groups: [
         { name: "root", gid: 0, members: [], protected: true },
         { name: "wheel", gid: 10, members: ["ops"], protected: true },
         { name: "docker", gid: 998, members: ["veli"], protected: true },
         { name: "dba", gid: 1001, members: ["ayse"], protected: false },
         { name: "developer", gid: 1002, members: [], protected: false },
-        ...(name === "web-01" ? [{ name: "web-deployers-with-a-long-group-name", gid: 1003, members: ["mkaya", "ayse"], protected: false }] : []),
+        ...(name === "web-01"
+          ? [
+              {
+                name: "web-deployers-with-a-long-group-name",
+                gid: 1003,
+                members: ["mkaya", "ayse"],
+                protected: false,
+              },
+            ]
+          : []),
       ],
     }),
   checkManagement: {
-    target: LONG_HOST, stage: "done", manageable: true, ca_fingerprint: "SHA256:I3mJ5osOLjwSlMDq4UpW+nBcTtBCjux2CiFcN0Mudns", family: "rhel", missing: [],
-    tools: { add_user: "/usr/sbin/useradd", add_group: "/usr/sbin/groupadd", mod_user: "/usr/sbin/usermod", del_user: "/usr/sbin/userdel", del_group: "/usr/sbin/groupdel", visudo: "/usr/sbin/visudo" },
+    target: LONG_HOST,
+    stage: "done",
+    manageable: true,
+    ca_fingerprint: "SHA256:I3mJ5osOLjwSlMDq4UpW+nBcTtBCjux2CiFcN0Mudns",
+    family: "rhel",
+    missing: [],
+    tools: {
+      add_user: "/usr/sbin/useradd",
+      add_group: "/usr/sbin/groupadd",
+      mod_user: "/usr/sbin/usermod",
+      del_user: "/usr/sbin/userdel",
+      del_group: "/usr/sbin/groupdel",
+      visudo: "/usr/sbin/visudo",
+    },
     checked_at: T(10, 41),
   },
   mappings: [
-    { directory_group: "CN=SRE,OU=Groups,DC=example,DC=com", group: "sre", created_by: "yigit.basalma" },
-    { directory_group: "CN=Database Administrators EMEA,OU=Groups,DC=example,DC=com", group: "dba", created_by: "ops" },
+    {
+      directory_group: "CN=SRE,OU=Groups,DC=example,DC=com",
+      group: "sre",
+      created_by: "yigit.basalma",
+    },
+    {
+      directory_group:
+        "CN=Database Administrators EMEA,OU=Groups,DC=example,DC=com",
+      group: "dba",
+      created_by: "ops",
+    },
     { directory_group: "web-developers", group: "web", created_by: "ops" },
     { directory_group: "ci-runners", group: "ci", created_by: "yigit.basalma" },
-    { directory_group: "external-auditors", group: "readonly-auditors-emea", created_by: "ops" },
+    {
+      directory_group: "external-auditors",
+      group: "readonly-auditors-emea",
+      created_by: "ops",
+    },
   ],
   unmappedGroups: [
-    { name: "CN=Platform Engineering EMEA,OU=Groups,DC=example,DC=com", seen_count: 41, last_seen: T(9, 55) },
+    {
+      name: "CN=Platform Engineering EMEA,OU=Groups,DC=example,DC=com",
+      seen_count: 41,
+      last_seen: T(9, 55),
+    },
     { name: "vpn-users", seen_count: 380, last_seen: T(9, 58) },
     { name: "all-staff", seen_count: 412, last_seen: T(9, 58) },
     { name: "contractors", seen_count: 3, last_seen: "2026-09-11T08:00:00Z" },
   ],
   settings: [
-    { key: "ldap.url", value: "ldaps://ldap-primary.corp.example.internal:636", secret: false, updated_by: "yigit.basalma" },
-    { key: "ldap.bind_dn", value: "CN=svc-postern-readonly,OU=Service Accounts,OU=Infrastructure,DC=corp,DC=example,DC=internal", secret: false, updated_by: "yigit.basalma" },
+    {
+      key: "ldap.url",
+      value: "ldaps://ldap-primary.corp.example.internal:636",
+      secret: false,
+      updated_by: "yigit.basalma",
+    },
+    {
+      key: "ldap.bind_dn",
+      value:
+        "CN=svc-postern-readonly,OU=Service Accounts,OU=Infrastructure,DC=corp,DC=example,DC=internal",
+      secret: false,
+      updated_by: "yigit.basalma",
+    },
     /*
      * ⚠️ SAKLANMIŞ SIR "********" DÖNER, BOŞ DİZGE DEĞİL (store.Settings:
      * "maske boş bırakılmıyor ki arayüz 'değer var' ile 'değer yok'u
@@ -667,52 +1206,245 @@ const base: Fixtures = {
      * kurulmamış sayıyor ve kurulmuş hâli hiç taranmıyordu — teşhisi de
      * o yanılttı.
      */
-    { key: "ldap.bind_password", value: "********", secret: true, updated_by: "yigit.basalma" },
-    { key: "ldap.user_base", value: "OU=People,DC=corp,DC=example,DC=internal", secret: false, updated_by: "ops" },
-    { key: "ldap.user_filter", value: "(&(objectClass=person)(sAMAccountName=%s)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))", secret: false, updated_by: "ops" },
-    { key: "ldap.group_attribute", value: "memberOf", secret: false, updated_by: "ops" },
-    { key: "ldap.group_base", value: "OU=Groups,DC=corp,DC=example,DC=internal", secret: false, updated_by: "ops" },
-    { key: "ldap.group_filter", value: "(objectClass=group)", secret: false, updated_by: "ops" },
-    { key: "ldap.group_name_from", value: "cn", secret: false, updated_by: "ops" },
-    { key: "ldap.admin_group", value: "postern-admins", secret: false, updated_by: "yigit.basalma" },
-    { key: "auth.auto_create", value: "false", secret: false, updated_by: "ops" },
+    {
+      key: "ldap.bind_password",
+      value: "********",
+      secret: true,
+      updated_by: "yigit.basalma",
+    },
+    {
+      key: "ldap.user_base",
+      value: "OU=People,DC=corp,DC=example,DC=internal",
+      secret: false,
+      updated_by: "ops",
+    },
+    {
+      key: "ldap.user_filter",
+      value:
+        "(&(objectClass=person)(sAMAccountName=%s)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))",
+      secret: false,
+      updated_by: "ops",
+    },
+    {
+      key: "ldap.group_attribute",
+      value: "memberOf",
+      secret: false,
+      updated_by: "ops",
+    },
+    {
+      key: "ldap.group_base",
+      value: "OU=Groups,DC=corp,DC=example,DC=internal",
+      secret: false,
+      updated_by: "ops",
+    },
+    {
+      key: "ldap.group_filter",
+      value: "(objectClass=group)",
+      secret: false,
+      updated_by: "ops",
+    },
+    {
+      key: "ldap.group_name_from",
+      value: "cn",
+      secret: false,
+      updated_by: "ops",
+    },
+    {
+      key: "ldap.admin_group",
+      value: "postern-admins",
+      secret: false,
+      updated_by: "yigit.basalma",
+    },
+    {
+      key: "auth.auto_create",
+      value: "false",
+      secret: false,
+      updated_by: "ops",
+    },
     { key: "sync.enabled", value: "true", secret: false, updated_by: "ops" },
     { key: "sync.interval", value: "15m", secret: false, updated_by: "ops" },
   ],
   oidcSettings: {
-    issuer_url: "https://login.microsoftonline.com/9f8e7d6c-5b4a-3210-fedc-ba9876543210/v2.0",
+    issuer_url:
+      "https://login.microsoftonline.com/9f8e7d6c-5b4a-3210-fedc-ba9876543210/v2.0",
     client_id: "3c7a1f4e-9b2d-4e8f-a1c6-5d2e8f9a0b1c",
-    client_secret_set: true, groups_claim: "groups", scopes: "openid email profile groups", managed_in_db: true, configured: true, live: false,
+    client_secret_set: true,
+    groups_claim: "groups",
+    scopes: "openid email profile groups",
+    managed_in_db: true,
+    configured: true,
+    live: false,
   },
-  syncSettings: { enabled: true, dry_run: false, interval: "15m", grace: "72h", max_zero_fraction: 0.2, min_zero_floor: 3, max_unknown_fraction: 0.1, max_revoke_per_run: 20, overridden: ["sync.interval"] },
+  syncSettings: {
+    enabled: true,
+    dry_run: false,
+    interval: "15m",
+    grace: "72h",
+    max_zero_fraction: 0.2,
+    min_zero_floor: 3,
+    max_unknown_fraction: 0.1,
+    max_revoke_per_run: 20,
+    overridden: ["sync.interval"],
+  },
   syncRuns: [
-    { id: 61, started_at: T(9, 45), finished_at: T(9, 45), trigger: "timer", outcome: "ok", reason: "", considered: 42, unknown: 0, revoked: 0, roles_changed: 1, dry_run: false },
-    { id: 60, started_at: T(9, 30), finished_at: T(9, 30), trigger: "manual", outcome: "refused", reason: "38 of 42 accounts came back with zero groups (90%); the ceiling is 20%. Nothing was changed — check the group base and filter before running again.", considered: 42, unknown: 0, revoked: 0, roles_changed: 0, dry_run: false },
-    { id: 59, started_at: T(9, 15), finished_at: T(9, 16), trigger: "timer", outcome: "ok", reason: "", considered: 42, unknown: 2, revoked: 1, roles_changed: 3, dry_run: true },
-    { id: 58, started_at: T(9, 0), finished_at: T(9, 0), trigger: "timer", outcome: "error", reason: "LDAP Result Code 200 \"Network Error\": dial tcp 10.0.0.53:636: i/o timeout", considered: 0, unknown: 0, revoked: 0, roles_changed: 0, dry_run: false },
+    {
+      id: 61,
+      started_at: T(9, 45),
+      finished_at: T(9, 45),
+      trigger: "timer",
+      outcome: "ok",
+      reason: "",
+      considered: 42,
+      unknown: 0,
+      revoked: 0,
+      roles_changed: 1,
+      dry_run: false,
+    },
+    {
+      id: 60,
+      started_at: T(9, 30),
+      finished_at: T(9, 30),
+      trigger: "manual",
+      outcome: "refused",
+      reason:
+        "38 of 42 accounts came back with zero groups (90%); the ceiling is 20%. Nothing was changed — check the group base and filter before running again.",
+      considered: 42,
+      unknown: 0,
+      revoked: 0,
+      roles_changed: 0,
+      dry_run: false,
+    },
+    {
+      id: 59,
+      started_at: T(9, 15),
+      finished_at: T(9, 16),
+      trigger: "timer",
+      outcome: "ok",
+      reason: "",
+      considered: 42,
+      unknown: 2,
+      revoked: 1,
+      roles_changed: 3,
+      dry_run: true,
+    },
+    {
+      id: 58,
+      started_at: T(9, 0),
+      finished_at: T(9, 0),
+      trigger: "timer",
+      outcome: "error",
+      reason:
+        'LDAP Result Code 200 "Network Error": dial tcp 10.0.0.53:636: i/o timeout',
+      considered: 0,
+      unknown: 0,
+      revoked: 0,
+      roles_changed: 0,
+      dry_run: false,
+    },
   ],
-  adminGroup: { group: "postern-admins", holders: [{ username: "yigit.basalma", via: "group" }, { username: "ops", via: "cli" }], enumerable: true },
+  adminGroup: {
+    group: "postern-admins",
+    holders: [
+      { username: "yigit.basalma", via: "group" },
+      { username: "ops", via: "cli" },
+    ],
+    enumerable: true,
+  },
   pending,
   sessions,
   sessionDetail: (id: string) => Promise.resolve(sessionDetail(id)),
-  sessionRecording: '{"version":2,"width":80,"height":24}\n[0.5,"o","$ ls /srv/app\\r\\n"]\n[1.2,"o","releases  shared\\r\\n"]\n[39.0,"o","$ exit\\r\\n"]\n',
-  verifyRecording: { local: "verified", detail: "143 links, head matches the sealed chain", chain: "sha256:9f2c1e0b7d4a6c8e1f3b5d7a9c2e4f6081a3c5e7f9b1d3a5c7e9f1b3d5a7c9e1", stored_links: 143, links: 143, off_box: { state: "unchecked", detail: "no archive is configured on this bastion" } },
-  storage: { recordings: { files: 1482, bytes: 73400320000, skipped: 2 }, archive: { pending: 12, oldest_at: "2026-09-10T08:00:00Z", oldest_age_seconds: 3 * 86400 + 7200, failing: 2, lost: 1 } },
-  archiveStatus: { configured: true, endpoint: "https://s3.eu-central-1.amazonaws.com", bucket: "postern-recordings-production-eu-central-1", prefix: "bastion-1/", destination_managed_in: "postern.yaml", credential_source: "panel", access_key_id: "AKIAIOSFODNN7EXAMPLE", can_set_from_panel: true },
+  sessionRecording:
+    '{"version":2,"width":80,"height":24}\n[0.5,"o","$ ls /srv/app\\r\\n"]\n[1.2,"o","releases  shared\\r\\n"]\n[39.0,"o","$ exit\\r\\n"]\n',
+  verifyRecording: {
+    local: "verified",
+    detail: "143 links, head matches the sealed chain",
+    chain:
+      "sha256:9f2c1e0b7d4a6c8e1f3b5d7a9c2e4f6081a3c5e7f9b1d3a5c7e9f1b3d5a7c9e1",
+    stored_links: 143,
+    links: 143,
+    off_box: {
+      state: "unchecked",
+      detail: "no archive is configured on this bastion",
+    },
+  },
+  storage: {
+    recordings: { files: 1482, bytes: 73400320000, skipped: 2 },
+    archive: {
+      pending: 12,
+      oldest_at: "2026-09-10T08:00:00Z",
+      oldest_age_seconds: 3 * 86400 + 7200,
+      failing: 2,
+      lost: 1,
+    },
+  },
+  archiveStatus: {
+    configured: true,
+    endpoint: "https://s3.eu-central-1.amazonaws.com",
+    bucket: "postern-recordings-production-eu-central-1",
+    prefix: "bastion-1/",
+    destination_managed_in: "postern.yaml",
+    credential_source: "panel",
+    access_key_id: "AKIAIOSFODNN7EXAMPLE",
+    can_set_from_panel: true,
+  },
   adminLog,
   fileHistory: {
-    path: "/etc", under: true, user: "", target: "", limit: 200, truncated: true,
-    events: sessionDetail("s-2026-09-13-0003").files.map((f, i) => ({ ...f, session_id: "s-2026-09-13-0003", user: i % 2 ? "ayse.yilmaz-demirtas" : "", target: i % 2 ? LONG_HOST : "", os_user: "ayse", src_ip: "2001:db8:85a3::8a2e:370:7334" })),
+    path: "/etc",
+    under: true,
+    user: "",
+    target: "",
+    limit: 200,
+    truncated: true,
+    events: sessionDetail("s-2026-09-13-0003").files.map((f, i) => ({
+      ...f,
+      session_id: "s-2026-09-13-0003",
+      user: i % 2 ? "ayse.yilmaz-demirtas" : "",
+      target: i % 2 ? LONG_HOST : "",
+      os_user: "ayse",
+      src_ip: "2001:db8:85a3::8a2e:370:7334",
+    })),
   },
   myKeys: {
     keys: [
-      { fingerprint: "SHA256:I3mJ5osOLjwSlMDq4UpW+nBcTtBCjux2CiFcN0Mudns", comment: "yigit@macbook-pro-16-2025 work laptop (ed25519)", added_at: "2026-08-01T10:00:00Z" },
-      { fingerprint: "SHA256:QwErTyUiOpAsDfGhJkLzXcVbNm1234567890abcdEFG", comment: "", added_at: T(3) },
+      {
+        fingerprint: "SHA256:I3mJ5osOLjwSlMDq4UpW+nBcTtBCjux2CiFcN0Mudns",
+        comment: "yigit@macbook-pro-16-2025 work laptop (ed25519)",
+        added_at: "2026-08-01T10:00:00Z",
+      },
+      {
+        fingerprint: "SHA256:QwErTyUiOpAsDfGhJkLzXcVbNm1234567890abcdEFG",
+        comment: "",
+        added_at: T(3),
+      },
     ],
-    reauth_required: true, reauth_possible: true, reauth_totp: true,
+    reauth_required: true,
+    reauth_possible: true,
+    reauth_totp: true,
   },
-  webauthnList: { credentials: [{ id: "k1", name: "iş dizüstü — Touch ID", created_at: "2026-09-01T10:00:00Z", last_used_at: T(8, 30) }, { id: "k2", name: "YubiKey 5C NFC (kept in the office safe, second drawer)", created_at: "2026-09-05T10:00:00Z" }], only: false },
-  totpStatus: { enrolled: true, pending: false, can_begin: true, needs_fresh_login: false, confirmed_at: "2026-08-15T10:00:00Z", last_used_at: T(9) },
+  webauthnList: {
+    credentials: [
+      {
+        id: "k1",
+        name: "iş dizüstü — Touch ID",
+        created_at: "2026-09-01T10:00:00Z",
+        last_used_at: T(8, 30),
+      },
+      {
+        id: "k2",
+        name: "YubiKey 5C NFC (kept in the office safe, second drawer)",
+        created_at: "2026-09-05T10:00:00Z",
+      },
+    ],
+    only: false,
+  },
+  totpStatus: {
+    enrolled: true,
+    pending: false,
+    can_begin: true,
+    needs_fresh_login: false,
+    confirmed_at: "2026-08-15T10:00:00Z",
+    last_used_at: T(9),
+  },
 };
 
 /* ------------------------------------------------------------------ */
@@ -721,8 +1453,12 @@ const base: Fixtures = {
 
 beforeEach(() => {
   window.history.replaceState({}, "", "/");
-  (window as unknown as { PublicKeyCredential?: unknown }).PublicKeyCredential = function () {};
-  Object.defineProperty(navigator, "credentials", { configurable: true, value: { create: vi.fn(), get: vi.fn() } });
+  (window as unknown as { PublicKeyCredential?: unknown }).PublicKeyCredential =
+    function () {};
+  Object.defineProperty(navigator, "credentials", {
+    configurable: true,
+    value: { create: vi.fn(), get: vi.fn() },
+  });
 });
 
 afterEach(() => {
@@ -753,21 +1489,35 @@ const openSettings = async (section?: string | RegExp) => {
  */
 describe("sayfa düzeyinde görsel çıktı", { timeout: 30_000 }, () => {
   it("oturum öncesi ekranlar", async () => {
-    mockAll({ ...base, me: () => Promise.reject(new ApiError(401, "unauthenticated")), authMethods: { source: "local", oidc: false, local: true, ldap: false } });
+    mockAll({
+      ...base,
+      me: () => Promise.reject(new ApiError(401, "unauthenticated")),
+      authMethods: { source: "local", oidc: false, local: true, ldap: false },
+    });
     render(<App />);
     await settle();
     page("signin-local");
     cleanup();
     vi.restoreAllMocks();
 
-    mockAll({ ...base, me: () => Promise.reject(new ApiError(401, "unauthenticated")), authMethods: { source: "oidc", oidc: true, local: false, ldap: false } });
+    mockAll({
+      ...base,
+      me: () => Promise.reject(new ApiError(401, "unauthenticated")),
+      authMethods: { source: "oidc", oidc: true, local: false, ldap: false },
+    });
     render(<App />);
     await settle();
     page("signin-oidc");
     cleanup();
     vi.restoreAllMocks();
 
-    mockAll({ ...base, me: () => Promise.reject(new ApiError(500, "pq: the database system is shutting down")) });
+    mockAll({
+      ...base,
+      me: () =>
+        Promise.reject(
+          new ApiError(500, "pq: the database system is shutting down"),
+        ),
+    });
     render(<App />);
     await settle();
     page("unreachable");
@@ -790,17 +1540,14 @@ describe("sayfa düzeyinde görsel çıktı", { timeout: 30_000 }, () => {
      * artık tek bir düğme ve menüsü, yani orada bir yerleşim kusuru
      * ancak menü açıkken görünür.
      */
-    // Bildirim listesi açık hâliyle de taranıyor: rozetin rengi ve üç
-    // satırlık düzeni ancak burada görünüyor.
-    const bellButton = screen.queryAllByRole("button").find((el) => /waiting for you/i.test(el.getAttribute("aria-label") ?? ""));
-    if (bellButton) {
-      fireEvent.click(bellButton);
-      await settle();
-      page("home-notifications");
-      fireEvent.click(bellButton);
-      await settle();
-    }
-    const userButton = screen.queryAllByRole("button").find((el) => /^yigit/.test(el.textContent ?? ""));
+    /*
+     * Çan artık açılır bir liste değil, bir kapı: dolu rozeti üst
+     * çubukta "home" sayfasında zaten taranıyor, listenin kendisi de
+     * "bildirimler" sayfasında.
+     */
+    const userButton = screen
+      .queryAllByRole("button")
+      .find((el) => /^yigit/.test(el.textContent ?? ""));
     if (userButton) {
       fireEvent.click(userButton);
       await settle();
@@ -808,7 +1555,9 @@ describe("sayfa düzeyinde görsel çıktı", { timeout: 30_000 }, () => {
       fireEvent.click(userButton);
       await settle();
     }
-    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "env: staging" } });
+    fireEvent.change(screen.getByRole("searchbox"), {
+      target: { value: "env: staging" },
+    });
     await settle();
     page("home-nomatch");
     cleanup();
@@ -821,7 +1570,10 @@ describe("sayfa düzeyinde görsel çıktı", { timeout: 30_000 }, () => {
     cleanup();
     vi.restoreAllMocks();
 
-    mockAll({ ...base, me: { ...meUser, terminal_enabled: false, ssh_host: undefined } });
+    mockAll({
+      ...base,
+      me: { ...meUser, terminal_enabled: false, ssh_host: undefined },
+    });
     render(<App />);
     await settle();
     tryClick(/shell options for web-01/i);
@@ -831,14 +1583,21 @@ describe("sayfa düzeyinde görsel çıktı", { timeout: 30_000 }, () => {
     vi.restoreAllMocks();
 
     mockAll(base);
-    window.history.pushState({}, "", "/target/" + encodeURIComponent(LONG_HOST));
+    window.history.pushState(
+      {},
+      "",
+      "/target/" + encodeURIComponent(LONG_HOST),
+    );
     render(<App />);
     await settle();
     page("target-page");
   });
 
   it("profil ve zorunlu ekranlar", async () => {
-    mockAll({ ...base, authMethods: { source: "local", oidc: false, local: true, ldap: false } });
+    mockAll({
+      ...base,
+      authMethods: { source: "local", oidc: false, local: true, ldap: false },
+    });
     render(<App />);
     await settle();
     goProfile();
@@ -847,7 +1606,11 @@ describe("sayfa düzeyinde görsel çıktı", { timeout: 30_000 }, () => {
     cleanup();
     vi.restoreAllMocks();
 
-    mockAll({ ...base, me: { ...meUser, can_change_password: false, public_key_login: false }, myKeys: { keys: [], reauth_required: false, reauth_possible: false } });
+    mockAll({
+      ...base,
+      me: { ...meUser, can_change_password: false, public_key_login: false },
+      myKeys: { keys: [], reauth_required: false, reauth_possible: false },
+    });
     render(<App />);
     await settle();
     goProfile();
@@ -863,14 +1626,39 @@ describe("sayfa düzeyinde görsel çıktı", { timeout: 30_000 }, () => {
     cleanup();
     vi.restoreAllMocks();
 
-    mockAll({ ...base, me: { ...meAdmin, must_enrol_totp: true }, totpStatus: { enrolled: false, pending: false, can_begin: true, needs_fresh_login: false } });
+    mockAll({
+      ...base,
+      me: { ...meAdmin, must_enrol_totp: true },
+      totpStatus: {
+        enrolled: false,
+        pending: false,
+        can_begin: true,
+        needs_fresh_login: false,
+      },
+    });
     render(<App />);
     await settle();
     page("must-enrol-totp");
     cleanup();
     vi.restoreAllMocks();
 
-    mockAll({ ...base, me: { ...meAdmin, setup_required: true }, authSource: { source: "local", stored: false, options: [{ source: "local", eligible: true }, { source: "oidc", eligible: false, why: "OIDC is not configured" }, { source: "ldap", eligible: false, why: "the directory settings are incomplete: ldap.url, ldap.bind_dn" }] } });
+    mockAll({
+      ...base,
+      me: { ...meAdmin, setup_required: true },
+      authSource: {
+        source: "local",
+        stored: false,
+        options: [
+          { source: "local", eligible: true },
+          { source: "oidc", eligible: false, why: "OIDC is not configured" },
+          {
+            source: "ldap",
+            eligible: false,
+            why: "the directory settings are incomplete: ldap.url, ldap.bind_dn",
+          },
+        ],
+      },
+    });
     render(<App />);
     await settle();
     page("setup-wizard");
@@ -978,14 +1766,31 @@ describe("sayfa düzeyinde görsel çıktı", { timeout: 30_000 }, () => {
     vi.restoreAllMocks();
 
     // Hata hâli: listeler çekilemedi.
-    mockAll({ ...base, users: () => Promise.reject(new ApiError(500, "pq: canceling statement due to statement timeout")), groups: () => Promise.reject(new ApiError(403, "forbidden")) });
+    mockAll({
+      ...base,
+      users: () =>
+        Promise.reject(
+          new ApiError(500, "pq: canceling statement due to statement timeout"),
+        ),
+      groups: () => Promise.reject(new ApiError(403, "forbidden")),
+    });
     await openSettings("Users");
     page("settings-users-error");
     cleanup();
     vi.restoreAllMocks();
 
     // Boş hâller.
-    mockAll({ ...base, users: [], targets: [], groups: [], mappings: [], unmappedGroups: [], pending: [], sessions: [], adminLog: [] });
+    mockAll({
+      ...base,
+      users: [],
+      targets: [],
+      groups: [],
+      mappings: [],
+      unmappedGroups: [],
+      pending: [],
+      sessions: [],
+      adminLog: [],
+    });
     await openSettings("Users");
     page("settings-users-empty");
     click("Targets");
@@ -1006,16 +1811,22 @@ describe("sayfa düzeyinde görsel çıktı", { timeout: 30_000 }, () => {
     click("Temporary access");
     await settle();
     page("jit");
-    fireEvent.click(screen.getByRole("checkbox", { name: "select all grants" }));
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "select all grants" }),
+    );
     await settle();
     page("jit-selected");
 
     click(/new temporary access/i);
     await settle();
-    fireEvent.change(screen.getByLabelText(/^Person/), { target: { value: "ayse.yilmaz-demirtas" } });
+    fireEvent.change(screen.getByLabelText(/^Person/), {
+      target: { value: "ayse.yilmaz-demirtas" },
+    });
     fireEvent.focus(screen.getByRole("combobox", { name: "Hosts" }));
     fireEvent.click(screen.getByRole("option", { name: /^web-01/ }));
-    fireEvent.click(screen.getByRole("option", { name: new RegExp("^" + LONG_HOST) }));
+    fireEvent.click(
+      screen.getByRole("option", { name: new RegExp("^" + LONG_HOST) }),
+    );
     fireEvent.mouseDown(document.body);
     click(/load groups from the selected hosts/i);
     await settle();
@@ -1028,11 +1839,15 @@ describe("sayfa düzeyinde görsel çıktı", { timeout: 30_000 }, () => {
     fireEvent.change(screen.getByLabelText(/sudo command 1/i), {
       target: { value: "/usr/bin/systemctl restart nginx" },
     });
-    fireEvent.change(screen.getByLabelText(/runs as 1/i), { target: { value: "root" } });
+    fireEvent.change(screen.getByLabelText(/runs as 1/i), {
+      target: { value: "root" },
+    });
     fireEvent.change(screen.getByLabelText(/sudo command 2/i), {
       target: { value: "/usr/bin/pg_ctl reload" },
     });
-    fireEvent.change(screen.getByLabelText(/runs as 2/i), { target: { value: "postgres" } });
+    fireEvent.change(screen.getByLabelText(/runs as 2/i), {
+      target: { value: "postgres" },
+    });
     await settle();
     page("jit-new");
     cleanup();
@@ -1048,34 +1863,120 @@ describe("sayfa düzeyinde görsel çıktı", { timeout: 30_000 }, () => {
 
   it("keşif", async () => {
     const run = {
-      id: 7, source_id: "s1", trigger: "timer", actor: "system", started_at: T(11), finished_at: T(11),
-      outcome: "ok", seen: 5, new_machines: 1, missing: 1, key_changed: 1, unreachable: 1,
+      id: 7,
+      source_id: "s1",
+      trigger: "timer",
+      actor: "system",
+      started_at: T(11),
+      finished_at: T(11),
+      outcome: "ok",
+      seen: 5,
+      new_machines: 1,
+      missing: 1,
+      key_changed: 1,
+      unreachable: 1,
     };
     const src = {
-      id: "s1", name: "lab cluster", kind: "proxmox", url: "https://pve.example:8006", username: "postern@pve!d",
-      secret_set: true, ca_pem: "", insecure: false, node: "", tag_key: "group", name_pattern: "web-*, db-*", port: 22,
-      interval_seconds: 3600, enabled: true, created_by: "ops", created_at: T(10), updated_at: T(10), last_run: run, running: false,
+      id: "s1",
+      name: "lab cluster",
+      kind: "proxmox",
+      url: "https://pve.example:8006",
+      username: "postern@pve!d",
+      secret_set: true,
+      ca_pem: "",
+      insecure: false,
+      node: "",
+      tag_key: "group",
+      name_pattern: "web-*, db-*",
+      port: 22,
+      interval_seconds: 3600,
+      enabled: true,
+      created_by: "ops",
+      created_at: T(10),
+      updated_at: T(10),
+      last_run: run,
+      running: false,
     };
-    const m = (ref: string, name: string, over: Record<string, unknown> = {}) => ({
-      source_id: "s1", source: "lab cluster", ref, name, host: "10.0.0.5", tags: ["role_web", "env_prod"], running: true,
-      group: "web", fingerprint: "SHA256:8eQzq1pRZo9hZ3ZC6uYb3f0mI2c9c7Ck4v3n2a1b0cd", ignored: false,
-      first_seen: T(10), last_seen: T(11), ...over,
+    const m = (
+      ref: string,
+      name: string,
+      over: Record<string, unknown> = {},
+    ) => ({
+      source_id: "s1",
+      source: "lab cluster",
+      ref,
+      name,
+      host: "10.0.0.5",
+      tags: ["role_web", "env_prod"],
+      running: true,
+      group: "web",
+      fingerprint: "SHA256:8eQzq1pRZo9hZ3ZC6uYb3f0mI2c9c7Ck4v3n2a1b0cd",
+      ignored: false,
+      first_seen: T(10),
+      last_seen: T(11),
+      ...over,
     });
     const discovery = {
-      sources: [src, { ...src, id: "s2", name: "vcenter", kind: "vsphere", url: "https://vcenter.example", insecure: true, last_run: undefined, running: true, interval_seconds: 0 }],
-      machines: [
-        m("qemu/101", "web-01"), m("qemu/102", "db-01", { target: "db-01", group: "dba" }),
-        m("lxc/200", "old-01", { missing_since: T(11) }),
-        m("qemu/104", "bad-01", { fingerprint: undefined, problem: "no host key from 10.0.0.9:22 (dial tcp 10.0.0.9:22: i/o timeout)" }),
-        m("qemu/105", "ign-01", { ignored: true }),
-        m("qemu/106", "moved-01", { target: "moved-01", problem: "its host key SHA256:x differs from SHA256:y pinned on target moved-01; the target was left untouched" }),
-        m("qemu/107", "off-01", { running: false }), m("qemu/108", "off-02", { running: false }),
+      sources: [
+        src,
+        {
+          ...src,
+          id: "s2",
+          name: "vcenter",
+          kind: "vsphere",
+          url: "https://vcenter.example",
+          insecure: true,
+          last_run: undefined,
+          running: true,
+          interval_seconds: 0,
+        },
       ],
-      secrets_available: true, min_interval_seconds: 300,
+      machines: [
+        m("qemu/101", "web-01"),
+        m("qemu/102", "db-01", { target: "db-01", group: "dba" }),
+        m("lxc/200", "old-01", { missing_since: T(11) }),
+        m("qemu/104", "bad-01", {
+          fingerprint: undefined,
+          problem:
+            "no host key from 10.0.0.9:22 (dial tcp 10.0.0.9:22: i/o timeout)",
+        }),
+        m("qemu/105", "ign-01", { ignored: true }),
+        m("qemu/106", "moved-01", {
+          target: "moved-01",
+          problem:
+            "its host key SHA256:x differs from SHA256:y pinned on target moved-01; the target was left untouched",
+        }),
+        /*
+         * Kapalı makinenin host anahtarı OKUNAMIYOR: fingerprint yok ve
+         * sebebi satırda. Fikstürde anahtarlı bırakmak, onları
+         * "kaydedilebilir" gösterip süzgecin ölçtüğü şeyi kaçırırdı.
+         */
+        m("qemu/107", "off-01", {
+          running: false,
+          fingerprint: undefined,
+          problem: "not running, so its host key cannot be read",
+        }),
+        m("qemu/108", "off-02", {
+          running: false,
+          fingerprint: undefined,
+          problem: "not running, so its host key cannot be read",
+        }),
+      ],
+      secrets_available: true,
+      min_interval_seconds: 300,
     };
     mockAll({ ...base, discovery });
     await openSettings("Discovery");
     page("settings-discovery");
+    /*
+     * ⚠️ GİZLENEN DURUMLAR DA TARANIYOR. Varsayılan liste yalnızca karar
+     * bekleyenleri gösteriyor; açılır kutunun içindeki açıklamalar
+     * hiçbir sayfada görünmezse, düzeni bozulduğunda kimsenin haberi
+     * olmaz.
+     */
+    fireEvent.click(screen.getByText(/machines not listed/i));
+    await settle();
+    page("settings-discovery-states");
     fireEvent.click(screen.getByRole("checkbox", { name: /select web-01/i }));
     click(/register 1 selected/i);
     await settle();
@@ -1083,15 +1984,20 @@ describe("sayfa düzeyinde görsel çıktı", { timeout: 30_000 }, () => {
     page("settings-discovery-register");
     click(/^next$/i);
     await settle();
-    fireEvent.change(screen.getByLabelText(/label key 1/i), { target: { value: "env" } });
-    fireEvent.change(screen.getByLabelText(/label value 1/i), { target: { value: "prod" } });
+    fireEvent.change(screen.getByLabelText(/label key 1/i), {
+      target: { value: "env" },
+    });
+    fireEvent.change(screen.getByLabelText(/label value 1/i), {
+      target: { value: "prod" },
+    });
     await settle();
     page("settings-discovery-labels");
     cleanup();
     vi.restoreAllMocks();
 
     mockAll({ ...base, discovery });
-    await openSettings("Discovery");
+    await openSettings("Discovery sources");
+    page("settings-discovery-sources");
     click(/^add source$/i);
     await settle();
     showDialog(/add a discovery source/i);
@@ -1099,9 +2005,29 @@ describe("sayfa düzeyinde görsel çıktı", { timeout: 30_000 }, () => {
     cleanup();
     vi.restoreAllMocks();
 
-    mockAll({ ...base, discovery: { sources: [], machines: [], secrets_available: false, min_interval_seconds: 300 } });
-    await openSettings("Discovery");
+    mockAll({
+      ...base,
+      discovery: {
+        sources: [],
+        machines: [],
+        secrets_available: false,
+        min_interval_seconds: 300,
+      },
+    });
+    await openSettings("Discovery sources");
     page("settings-discovery-empty");
+  });
+
+  /*
+   * ⚠️ BİLDİRİMLER ARTIK KENDİ SAYFASI. Üst çubuktaki açılır panel dar ve
+   * geçiciydi; sayfa düzeninin bozulması ancak burada görünür.
+   */
+  it("bildirimler", async () => {
+    mockAll(base);
+    await openSettings("Overview");
+    fireEvent.click(screen.getByRole("button", { name: /notification/i }));
+    await settle();
+    page("settings-notifications");
   });
 
   /*
@@ -1135,7 +2061,12 @@ describe("sayfa düzeyinde görsel çıktı", { timeout: 30_000 }, () => {
   });
 
   it("ekleme pencereleri", async () => {
-    for (const [name, label] of [["users", "Users"], ["targets", "Targets"], ["groups", "Groups"], ["mappings", "Mappings"]] as const) {
+    for (const [name, label] of [
+      ["users", "Users"],
+      ["targets", "Targets"],
+      ["groups", "Groups"],
+      ["mappings", "Mappings"],
+    ] as const) {
       mockAll(base);
       await openSettings(label);
       if (tryClick(/^(add|new|create|map)\b/i)) {
@@ -1149,8 +2080,14 @@ describe("sayfa düzeyinde görsel çıktı", { timeout: 30_000 }, () => {
 
   it("dizin yazıldı", () => {
     fs.mkdirSync(OUT, { recursive: true });
-    fs.writeFileSync(path.join(OUT, "_index.json"), JSON.stringify(written, null, 1));
-    fs.writeFileSync(path.join(OUT, "_gaps.json"), JSON.stringify(gaps, null, 1));
+    fs.writeFileSync(
+      path.join(OUT, "_index.json"),
+      JSON.stringify(written, null, 1),
+    );
+    fs.writeFileSync(
+      path.join(OUT, "_gaps.json"),
+      JSON.stringify(gaps, null, 1),
+    );
     /*
      * Koşucu: bütün sayfaları verilen genişliklerde iframe'e yükleyip her
      * birinin __check()'ini toplar. Dizin bir statik sunucudan açılınca

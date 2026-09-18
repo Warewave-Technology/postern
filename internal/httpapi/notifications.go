@@ -32,6 +32,23 @@ func (s *Server) registerNotificationRoutes(mux *http.ServeMux) {
 		return noStore(s.requireSession(s.requireAdmin(s.sameOrigin(h))))
 	}
 	mux.Handle("GET /api/admin/notifications", admin(s.adminNotifications))
+	mux.Handle("POST /api/admin/notifications/read", admin(s.adminNotificationsRead))
+}
+
+/*
+ * adminNotificationsRead: POST /api/admin/notifications/read
+ *
+ * ⚠️ DEFTERE YAZILMIYOR. "Baktım" bir yönetim eylemi değil, bir okuma;
+ * her açılışta bir denetim satırı bırakmak, defteri gerçek
+ * değişikliklerin görünmez olduğu bir gürültüyle doldururdu.
+ */
+func (s *Server) adminNotificationsRead(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.MarkNotificationsRead(r.Context(), sessionUser(r), time.Now()); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 /*
@@ -165,5 +182,30 @@ func (s *Server) adminNotifications(w http.ResponseWriter, r *http.Request) {
 	// gereken iş.
 	sort.SliceStable(out, func(i, j int) bool { return out[i].At.Before(out[j].At) })
 
-	writeJSON(w, http.StatusOK, map[string]any{"items": out, "count": len(out)})
+	/*
+	 * ⚠️ "YENİ" SAYISI SUNUCUDA HESAPLANIYOR, İSTEMCİDE DEĞİL. Rozetin
+	 * sayısı ile listenin içeriği aynı kuraldan çıkmak zorunda; iki
+	 * yerde iki kural, "rozet üç diyor ama listede iki satır var"
+	 * demektir ve o noktadan sonra rozete kimse güvenmez.
+	 *
+	 * ⚠️ HATA ROZETİ SUSTURMUYOR. Damga okunamazsa sıfır zaman
+	 * kullanılıyor, yani HER ŞEY yeni sayılıyor. Ters yön —
+	 * okunamayınca hepsini okunmuş saymak — bekleyen işi sessizce
+	 * gizlerdi.
+	 */
+	readAt, rerr := s.store.NotificationsReadAt(ctx, sessionUser(r))
+	if rerr != nil {
+		readAt = time.Time{}
+	}
+	fresh := 0
+	for _, n := range out {
+		if n.At.After(readAt) {
+			fresh++
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": out, "count": len(out),
+		"read_at": readAt, "unread": fresh,
+	})
 }

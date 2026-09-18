@@ -14,8 +14,10 @@ import Users from "./admin/Users";
 import Targets from "./admin/Targets";
 import Configuration from "./admin/Configuration";
 import Discovery from "./admin/Discovery";
+import DiscoverySources from "./admin/DiscoverySources";
 import LockedAccounts from "./admin/LockedAccounts";
 import Notifications from "./Notifications";
+import NotificationsScreen from "./admin/NotificationsScreen";
 import UserMenu from "./UserMenu";
 import Groups from "./admin/Groups";
 import { AdminLog, Sessions } from "./admin/Audit";
@@ -64,6 +66,8 @@ type Section =
   | "pending"
   | "targets"
   | "discovery"
+  | "discoverysources"
+  | "notifications"
   | "signin"
   | "oidc"
   | "ldap"
@@ -103,7 +107,15 @@ const NAV: { title?: string; items: [Section, string, ReactNode][] }[] = [
     title: "Infrastructure",
     items: [
       ["targets", "Targets", <TargetIcon key="i" />],
+      /*
+       * ⚠️ MAKİNELER VE KAYNAKLAR AYRI SATIR. Tek ekranda alt alta iki
+       * tablo duruyordu ve hangisinin ne olduğu karışıyordu (kullanıcı
+       * söyledi): biri postern'in OKUDUĞU yer, öbürü orada BULDUĞU şey.
+       * Aynı başlığın altında olmaları ilişkiyi anlatıyor, ayrı satır
+       * olmaları da neye baktığını.
+       */
       ["discovery", "Discovery", <TargetIcon key="i" />],
+      ["discoverysources", "Discovery sources", <TargetIcon key="i" />],
     ],
   },
   {
@@ -542,6 +554,12 @@ export default function App() {
   const [methods, setMethods] = useState<AuthMethods | null>(null);
   const [top, setTop] = useState<Top>("home");
   const [section, setSection] = useState<Section>("overview");
+  /*
+   * ⚠️ ÇAN İLE SAYFA AYNI SAYIYI GÖSTERMELİ. Sayfa damgayı ileri
+   * aldığında çanın bundan haberi olmazsa rozet bir dakika daha dolu
+   * kalır ve kullanıcı okuduğu şeyin okunmadığını sanır.
+   */
+  const [notifyRound, setNotifyRound] = useState(0);
 
   /*
    * ⚠️ KURULUM YAPILMAMIŞSA PANEL SADECE SİHİRBAZDAN İBARET.
@@ -809,6 +827,7 @@ export default function App() {
                 bir iş için uyarı olurdu. */}
             {me.admin && (
               <Notifications
+                refresh={notifyRound}
                 onGo={(s) => {
                   /*
                    * ⚠️ HER BÖLÜM Settings'İN ALTINDA DEĞİL. Geçici erişim
@@ -1072,6 +1091,20 @@ export default function App() {
                   {section === "pending" && <Pending />}
                   {section === "targets" && <Targets />}
                   {section === "discovery" && <Discovery />}
+                  {section === "discoverysources" && <DiscoverySources />}
+                  {section === "notifications" && (
+                    <NotificationsScreen
+                      onRead={() => setNotifyRound((n) => n + 1)}
+                      onGo={(t) => {
+                        if (t === "jit") {
+                          setTop("jit");
+
+                          return;
+                        }
+                        setSection(t as Section);
+                      }}
+                    />
+                  )}
                   {section === "signin" && <AuthSource />}
                   {section === "oidc" && <OIDCSettingsScreen />}
                   {section === "ldap" && <Settings meName={me.name} />}

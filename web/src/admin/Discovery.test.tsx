@@ -2,7 +2,12 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
 import Discovery, { labelsOf, machineState } from "./Discovery";
-import { api, type DiscoveredMachine, type DiscoveryOverview, type DiscoverySource } from "../api";
+import {
+  api,
+  type DiscoveredMachine,
+  type DiscoveryOverview,
+  type DiscoverySource,
+} from "../api";
 
 const source = (over: Partial<DiscoverySource> = {}): DiscoverySource => ({
   id: "s1",
@@ -61,10 +66,25 @@ const overview: DiscoveryOverview = {
   machines: [
     machine(),
     machine({ ref: "qemu/102", name: "db-01", target: "db-01" }),
-    machine({ ref: "qemu/103", name: "old-01", missing_since: "2026-09-13T11:00:00Z" }),
-    machine({ ref: "qemu/104", name: "bad-01", fingerprint: undefined, problem: "no host key from 10.0.0.9:22 (timeout)" }),
+    machine({
+      ref: "qemu/103",
+      name: "old-01",
+      missing_since: "2026-09-13T11:00:00Z",
+    }),
+    machine({
+      ref: "qemu/104",
+      name: "bad-01",
+      fingerprint: undefined,
+      problem: "no host key from 10.0.0.9:22 (timeout)",
+    }),
     machine({ ref: "qemu/105", name: "ign-01", ignored: true }),
-    machine({ ref: "qemu/106", name: "moved-01", target: "moved-01", problem: "its host key SHA256:x differs from SHA256:y pinned on target moved-01; the target was left untouched" }),
+    machine({
+      ref: "qemu/106",
+      name: "moved-01",
+      target: "moved-01",
+      problem:
+        "its host key SHA256:x differs from SHA256:y pinned on target moved-01; the target was left untouched",
+    }),
   ],
   secrets_available: true,
   min_interval_seconds: 300,
@@ -81,11 +101,19 @@ it("durumu satırdan türetiyor: yalnızca yeni ve anahtarlı makine kaydedilebi
   expect(machineState(machine()).text).toBe("new");
   expect(machineState(machine()).registrable).toBe(true);
   expect(machineState(machine({ target: "web-01" })).text).toBe("registered");
-  expect(machineState(machine({ target: "web-01", problem: "differs" })).text).toBe("key changed");
+  expect(
+    machineState(machine({ target: "web-01", problem: "differs" })).text,
+  ).toBe("key changed");
   expect(machineState(machine({ missing_since: "x" })).text).toBe("missing");
-  expect(machineState(machine({ ignored: true, missing_since: "x" })).text).toBe("ignored");
-  expect(machineState(machine({ fingerprint: undefined })).text).toBe("blocked");
-  expect(machineState(machine({ problem: "bad name" })).registrable).toBe(false);
+  expect(
+    machineState(machine({ ignored: true, missing_since: "x" })).text,
+  ).toBe("ignored");
+  expect(machineState(machine({ fingerprint: undefined })).text).toBe(
+    "blocked",
+  );
+  expect(machineState(machine({ problem: "bad name" })).registrable).toBe(
+    false,
+  );
   expect(
     labelsOf([
       { key: "env", value: "prod" },
@@ -96,7 +124,9 @@ it("durumu satırdan türetiyor: yalnızca yeni ve anahtarlı makine kaydedilebi
   // ⚠️ SUNUCUNUN KURALIYLA AYNI: panelde daha gevşek bir kural, yazdırıp
   // sonra reddedilen bir etiket demek.
   expect(labelsOf([{ key: "", value: "prod" }]).error).toMatch(/has no key/);
-  expect(labelsOf([{ key: "env prod", value: "x" }]).error).toMatch(/not allowed/);
+  expect(labelsOf([{ key: "env prod", value: "x" }]).error).toMatch(
+    /not allowed/,
+  );
   expect(
     labelsOf([
       { key: "env", value: "a" },
@@ -105,20 +135,65 @@ it("durumu satırdan türetiyor: yalnızca yeni ve anahtarlı makine kaydedilebi
   ).toMatch(/written twice/);
 });
 
-it("kaynakları son koşularıyla, makineleri durumlarıyla listeliyor", async () => {
+/*
+ * ⚠️ VARSAYILAN LİSTE YALNIZCA KARAR BEKLEYENLER. Altı durum birden tek
+ * tabloda duruyordu; kaydedilmiş olanlar zaten Targets'ta, yok sayılmış,
+ * kayıp ve engelli olanların ise bu ekranda yapılacak bir işi yok.
+ * Yirmi dört makinelik bir kümede yirmi ikisi onlardı ve aranan iki
+ * satır aralarında kayboluyordu (kullanıcı ekrana bakıp söyledi).
+ */
+it("varsayılanda yalnızca karar bekleyen makineleri listeliyor", async () => {
   vi.spyOn(api, "discovery").mockResolvedValue(overview);
   render(<Discovery />);
 
-  await screen.findByText("Every hour");
-  expect(screen.getAllByText("lab").length).toBeGreaterThan(1);
-  expect(screen.getByText(/5 seen, 1 new, 1 missing, 0 key changed, 1 unreachable/)).toBeTruthy();
-  for (const st of ["new", "registered", "missing", "blocked", "ignored", "key changed"]) {
-    expect(screen.getByText(st).className).toContain("badge");
-  }
+  expect(await screen.findByText("web-01")).toBeTruthy();
+  expect(screen.getByText("moved-01")).toBeTruthy();
   expect(screen.getByText("key changed").className).toContain("badge-danger");
   expect(screen.getByText(/differs from SHA256:y/)).toBeTruthy();
+
+  for (const hiddenName of ["db-01", "old-01", "bad-01", "ign-01"]) {
+    expect(screen.queryByText(hiddenName)).toBeNull();
+  }
   // Seçim yokken kayıt düğmesi kapalı.
-  expect((screen.getByRole("button", { name: /register selected/i }) as HTMLButtonElement).disabled).toBe(true);
+  expect(
+    (
+      screen.getByRole("button", {
+        name: /register selected/i,
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
+});
+
+/*
+ * ⚠️ GİZLEMEK, ANLAMINI DA GİZLEMEK OLMAMALI. "ignored" ile "blocked"ın
+ * ne demek olduğunu kimse bilmiyordu (kullanıcı söyledi) — ve "blocked"
+ * için akla gelen ilk anlam "postern bunu engelledi", oysa engelleyen
+ * makinenin kendisi. Her durum, açıklamasıyla birlikte duruyor.
+ */
+it("gizlenen durumlar ne demek olduğuyla birlikte açılıyor", async () => {
+  vi.spyOn(api, "discovery").mockResolvedValue(overview);
+  render(<Discovery />);
+  await screen.findByText("web-01");
+
+  // Açılır başlık: gömülü bir bağlantı değil, gerçekten açılan bir şey.
+  const summary = screen.getByText(/4 machines not listed/i);
+  expect(summary.tagName.toLowerCase()).toBe("summary");
+
+  expect(
+    screen.getByText(/never offered for registration again/i),
+  ).toBeTruthy();
+  // "blocked" makinenin durumu, postern'in kararı DEĞİL.
+  expect(
+    screen.getByText(
+      /this is the machine's state, not a decision postern made/i,
+    ),
+  ).toBeTruthy();
+  expect(screen.getByText(/they are on the Targets screen/i)).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("checkbox", { name: /ignored/i }));
+  expect(await screen.findByText("ign-01")).toBeTruthy();
+  // Yalnızca açılan durum geliyor; kalanlar hâlâ dışarıda.
+  expect(screen.queryByText("bad-01")).toBeNull();
 });
 
 /*
@@ -129,14 +204,25 @@ it("kaynakları son koşularıyla, makineleri durumlarıyla listeliyor", async (
 it("seçili yeni makineleri roller ve etiketlerle kaydediyor", async () => {
   vi.spyOn(api, "discovery").mockResolvedValue(overview);
   const register = vi.spyOn(api, "registerDiscovered").mockResolvedValue({
-    results: [{ source_id: "s1", ref: "qemu/101", name: "web-01", target: "web-01", groups: ["web"], created_roles: ["web"] }],
+    results: [
+      {
+        source_id: "s1",
+        ref: "qemu/101",
+        name: "web-01",
+        target: "web-01",
+        groups: ["web"],
+        created_roles: ["web"],
+      },
+    ],
   });
   render(<Discovery />);
   await screen.findByText("web-01");
 
   fireEvent.click(screen.getByRole("checkbox", { name: /select web-01/i }));
-  fireEvent.click(screen.getByRole("checkbox", { name: /select db-01/i }));
-  expect(screen.getByText(/1 of the selected cannot be registered/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("checkbox", { name: /select moved-01/i }));
+  expect(
+    screen.getByText(/1 of the selected cannot be registered/),
+  ).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: /register 1 selected/i }));
 
   expect(await screen.findByText(/step 1 of 3/i)).toBeTruthy();
@@ -173,118 +259,36 @@ it("seçili yeni makineleri roller ve etiketlerle kaydediyor", async () => {
 
 it("seçilenleri yok sayıyor ve yok saymayı kaldırıyor", async () => {
   vi.spyOn(api, "discovery").mockResolvedValue(overview);
-  const ignore = vi.spyOn(api, "ignoreDiscovered").mockResolvedValue({ changed: 1 });
+  const ignore = vi
+    .spyOn(api, "ignoreDiscovered")
+    .mockResolvedValue({ changed: 1 });
   render(<Discovery />);
-  await screen.findByText("bad-01");
+  await screen.findByText("web-01");
 
-  fireEvent.click(screen.getByRole("checkbox", { name: /select bad-01/i }));
+  // Engelli ve yok sayılmış makineler varsayılanda listede değil: yok
+  // sayma kararı da onları görerek veriliyor.
+  fireEvent.click(screen.getByRole("checkbox", { name: /blocked/i }));
+  fireEvent.click(screen.getByRole("checkbox", { name: /ignored/i }));
+
+  fireEvent.click(
+    await screen.findByRole("checkbox", { name: /select bad-01/i }),
+  );
   fireEvent.click(screen.getByRole("button", { name: /ignore selected/i }));
-  await waitFor(() => expect(ignore).toHaveBeenCalledWith([{ source_id: "s1", ref: "qemu/104" }], true));
+  await waitFor(() =>
+    expect(ignore).toHaveBeenCalledWith(
+      [{ source_id: "s1", ref: "qemu/104" }],
+      true,
+    ),
+  );
 
   fireEvent.click(screen.getByRole("checkbox", { name: /select ign-01/i }));
   fireEvent.click(screen.getByRole("button", { name: /stop ignoring/i }));
-  await waitFor(() => expect(ignore).toHaveBeenCalledWith([{ source_id: "s1", ref: "qemu/105" }], false));
-});
-
-/*
- * ⚠️ FORM SIRRI YALNIZCA YAZILDIYSA GÖNDERİYOR; düzenlemede boş sır
- * "değiştirmedim" demek ve tür değiştirilemiyor. Anahtarsız bastion'da
- * form hiç açılmıyor ve sebebi yazıyor.
- */
-it("kaynak formu sırrı yalnızca yazıldığında gönderiyor", async () => {
-  vi.spyOn(api, "discovery").mockResolvedValue(overview);
-  const create = vi.spyOn(api, "createDiscoverySource").mockResolvedValue({ id: "s2" });
-  const update = vi.spyOn(api, "updateDiscoverySource").mockResolvedValue({ ok: true });
-  const test = vi
-    .spyOn(api, "testDiscoverySource")
-    .mockResolvedValueOnce({ machines: 3, running: 2, with_address: 1, matching: 3, tagged: 2, groups: ["ops", "dba"], tags: ["role_ops"], took_ms: 40 })
-    .mockResolvedValueOnce({ machines: 3, running: 2, with_address: 1, matching: 3, tagged: 0, groups: [], tags: ["rol_ops", "env_prod"], took_ms: 40 });
-  render(<Discovery />);
-  await screen.findByText("Every hour");
-
-  fireEvent.click(screen.getByRole("button", { name: /^add source$/i }));
-  await userEvent.type(screen.getByLabelText(/^name$/i), "prod cluster");
-  await userEvent.type(screen.getByLabelText(/^address$/i), "https://pve.prod:8006");
-  await userEvent.type(screen.getByLabelText(/api token id/i), "postern@pve!prod");
-  await userEvent.type(screen.getByLabelText(/api token secret/i), "gizli");
-
-  // Test kaydetmeden bağlanıyor: sayımlar ve roller; anahtar tutmayınca sarı ve görülen etiketler.
-  fireEvent.click(screen.getByRole("button", { name: /test connection/i }));
-  await waitFor(() => expect(test).toHaveBeenCalledTimes(1));
-  expect(test.mock.calls[0][0]).toMatchObject({ url: "https://pve.prod:8006", secret: "gizli", id: undefined });
-  const first = await screen.findByText(/reached proxmox/i);
-  expect(first.textContent).toMatch(/3 machine\(s\), 2 running, 1 with an address\. 2 carry a "group" tag \(groups: ops, dba\)/);
-  expect(first.className).toContain("msg-ok");
-  expect(create).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: /test connection/i }));
-  await waitFor(() => expect(screen.getByText(/reached proxmox/i).className).toContain("msg-warn"));
-  expect(screen.getByText(/reached proxmox/i).textContent).toMatch(/tags actually seen were rol_ops, env_prod/);
-
-  fireEvent.click(screen.getByRole("button", { name: /save source/i }));
-  await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
-  expect(create.mock.calls[0][0]).toMatchObject({
-    name: "prod cluster",
-    kind: "proxmox",
-    url: "https://pve.prod:8006",
-    username: "postern@pve!prod",
-    secret: "gizli",
-    tag_key: "group",
-    port: 22,
-    interval_seconds: 3600,
-    enabled: true,
-    insecure: false,
-  });
-
-  fireEvent.click(screen.getByRole("button", { name: /edit lab/i }));
-  const kind = (await screen.findByLabelText(/^kind$/i)) as HTMLSelectElement;
-  expect(kind.disabled).toBe(true);
-  expect((screen.getByLabelText(/api token secret/i) as HTMLInputElement).placeholder).toMatch(/unchanged/);
-  // Düzenlemede test kayıtlı sırla: id gidiyor, sır boş.
-  test.mockResolvedValueOnce({ machines: 1, running: 1, with_address: 1, matching: 1, tagged: 1, groups: ["web"], tags: ["role_web"], took_ms: 5 });
-  fireEvent.click(screen.getByRole("button", { name: /test connection/i }));
-  await waitFor(() => expect(test).toHaveBeenCalledTimes(3));
-  expect(test.mock.calls[2][0]).toMatchObject({ id: "s1", secret: "" });
-
-  fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
-  await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
-  expect(update.mock.calls[0][0]).toBe("s1");
-  expect(update.mock.calls[0][1]).toMatchObject({ secret: "", name: "lab" });
-});
-
-it("mühür anahtarı yokken kaynak eklenemiyor ve sebebi yazıyor", async () => {
-  vi.spyOn(api, "discovery").mockResolvedValue({ ...overview, sources: [], machines: [], secrets_available: false });
-  render(<Discovery />);
-  expect(await screen.findByText(/no secret key/)).toBeTruthy();
-  expect((screen.getByRole("button", { name: /^add source$/i }) as HTMLButtonElement).disabled).toBe(true);
-});
-
-/*
- * ⚠️ KAPALI MAKİNELER LİSTEDE DEĞİL, SAYIDA. Anahtarı okunamayan bir
- * makine kaydedilemiyor; yapılabilecek hiçbir şeyi olmayan satırlar,
- * yirmi dört makinelik bir kümede yirmi ikisi oldukları için asıl
- * bakılacakları boğuyordu (kullanıcı ekrana bakıp söyledi). Saklamak
- * sessizce silmek değil: sayı yazıyor ve tek tıkla geliyorlar.
- */
-it("kapalı makineleri listelemiyor ama sayıyor", async () => {
-  vi.spyOn(api, "discovery").mockResolvedValue({
-    ...overview,
-    machines: [
-      machine(),
-      machine({ ref: "qemu/200", name: "kapali-01", running: false, fingerprint: "", problem: "not running, so its host key cannot be read" }),
-      machine({ ref: "qemu/201", name: "kapali-02", running: false, fingerprint: "", problem: "not running, so its host key cannot be read" }),
-    ],
-  });
-  render(<Discovery />);
-
-  expect(await screen.findByText("web-01")).toBeTruthy();
-  expect(screen.queryByText("kapali-01")).toBeNull();
-  expect(screen.getByText(/2 machines are powered off/i)).toBeTruthy();
-
-  fireEvent.click(screen.getByRole("button", { name: /show them anyway/i }));
-  expect(await screen.findByText("kapali-01")).toBeTruthy();
-  // Satıra "kapalı olduğu için okunamadı" cümlesi yazılmıyor: sütun o
-  // cümleyi yirmi kez tekrar ediyordu.
-  expect(screen.queryByText(/so its host key cannot be read/)).toBeNull();
+  await waitFor(() =>
+    expect(ignore).toHaveBeenCalledWith(
+      [{ source_id: "s1", ref: "qemu/105" }],
+      false,
+    ),
+  );
 });
 
 /*
@@ -306,7 +310,9 @@ it("etiket rolünü seçili getiriyor ve özette tekrar etmiyor", async () => {
   fireEvent.click(screen.getByRole("button", { name: /register 1 selected/i }));
 
   // 1. adım: rol kutusunda etiketin rolü çip olarak duruyor.
-  expect(await screen.findByRole("button", { name: "remove web" })).toBeTruthy();
+  expect(
+    await screen.findByRole("button", { name: "remove web" }),
+  ).toBeTruthy();
 
   fireEvent.click(screen.getByRole("button", { name: /^next$/i }));
   await userEvent.type(await screen.findByLabelText(/label key 1/i), "env");
@@ -333,7 +339,9 @@ it("etiket rolünü seçili getiriyor ve özette tekrar etmiyor", async () => {
  */
 it("etiket tablosu doldukça büyüyor ve bozuk anahtarı ilerletmiyor", async () => {
   vi.spyOn(api, "discovery").mockResolvedValue(overview);
-  const register = vi.spyOn(api, "registerDiscovered").mockResolvedValue({ results: [] });
+  const register = vi
+    .spyOn(api, "registerDiscovered")
+    .mockResolvedValue({ results: [] });
   render(<Discovery />);
   await screen.findByText("web-01");
 
@@ -351,11 +359,16 @@ it("etiket tablosu doldukça büyüyor ve bozuk anahtarı ilerletmiyor", async (
   // Bozuk anahtar: sebebiyle söyleniyor ve ileri gidilmiyor.
   await userEvent.type(screen.getByLabelText(/label key 3/i), "env prod");
   expect(screen.getByText(/not allowed/i)).toBeTruthy();
-  expect((screen.getByRole("button", { name: /^next$/i }) as HTMLButtonElement).disabled).toBe(true);
+  expect(
+    (screen.getByRole("button", { name: /^next$/i }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
 
   fireEvent.click(screen.getByRole("button", { name: /remove label row 3/i }));
   fireEvent.click(screen.getByRole("button", { name: /^next$/i }));
-  fireEvent.click(await screen.findByRole("button", { name: /register 1 machine/i }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: /register 1 machine/i }),
+  );
 
   await waitFor(() =>
     expect(register).toHaveBeenCalledWith(

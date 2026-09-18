@@ -184,20 +184,25 @@ describe("rozet okunurluğu", () => {
 });
 
 /*
- * ⚠️ GENEL `button` KURALI nowrap VERİYOR; bildirim satırı ondan
- * MUAF olmak zorunda.
+ * ⚠️ AÇILIR BAŞLIĞIN ÜÇGENİ ÇİZİLMEK ZORUNDA.
  *
- * Ölçüldü: muafiyet yokken sebep cümlesi sarmıyor, panelin sağından
- * taşıyor ve kesiliyordu. Görsel tarama bunu bir kusur olarak da
- * bildirmiyordu — kap `overflow` taşıdığı için taşma orada "tasarımın
- * kendisi" sayılıyor. Yani bu satırı koruyan tek şey burası.
+ * Bu kontrolün önceki hâli metnin içine gömülü bir düğmeydi ve tıklanır
+ * olduğu anlaşılmıyordu (kullanıcı söyledi). <summary> bunu kendisi
+ * çözüyor — ama yalnızca işareti çizildiğinde: Safari'de varsayılan
+ * `display: block` ve pek çok reset `list-style: none` veriyor; ikisinde
+ * de üçgen kaybolur ve elimizde yine tıklanır olduğu anlaşılmayan bir
+ * satır kalır.
+ *
+ * Eski test burada `.notify-panel button`ın nowrap muafiyetini
+ * koruyordu; o kural, bildirim satırları düğmeden <li> içine taşınınca
+ * kalktı — cümleler artık bir düğme etiketi değil, paragraf.
  */
-describe("bildirim satırı", () => {
-  it("düğme olmasına rağmen metni sarıyor", () => {
-    const rule = css.slice(css.indexOf(".notify-panel button {"));
+describe("açılır durum süzgeci", () => {
+  it("üçgeni çizen display kuralını taşıyor", () => {
+    const rule = css.slice(css.indexOf(".state-filter > summary {"));
     const body = rule.slice(0, rule.indexOf("}"));
-    expect(body).toMatch(/white-space:\s*normal/);
-    expect(body).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\)/);
+    expect(body).toMatch(/display:\s*list-item/);
+    expect(body).toMatch(/cursor:\s*pointer/);
   });
 });
 

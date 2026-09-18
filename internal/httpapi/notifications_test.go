@@ -174,3 +174,97 @@ func TestNotificationsAreBehindTheAdminGate(t *testing.T) {
 		t.Errorf("oturumsuz istek geçti: %d", w.Code)
 	}
 }
+
+/*
+ * ⚠️ "YENİ" SAYISI SUNUCUDA, LİSTEYLE AYNI KURALDAN ÇIKIYOR.
+ *
+ * Rozetin sayısı ile sayfanın içeriği ayrışırsa — "rozet üç diyor ama
+ * sayfada iki satır var" — rozete bir daha kimse güvenmez. Ölçülen şey:
+ * bakış damgasından SONRA beklemeye başlayan satırlar yeni, öncekiler
+ * değil; ve liste her iki hâlde de eksiksiz dönüyor.
+ */
+func TestOnlyWhatStartedWaitingSinceYouLookedCountsAsNew(t *testing.T) {
+	s, db := dbServer(t)
+	ctx := t.Context()
+
+	if _, err := db.CreateUser(ctx, "ops", "", "ops"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.RecordPending(ctx, store.PendingUser{
+		Subject: "oidc|1", Source: "oidc", Username: "hasan", Email: "hasan@example.com",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Hiç bakılmamış: bekleyen her şey yeni.
+	if _, unread, _ := notificationCounts(t, s); unread != 1 {
+		t.Fatalf("hiç bakılmamışken unread = %d, 1 bekleniyordu", unread)
+	}
+
+	// Bakıldı: satır DURUYOR ama artık yeni değil.
+	r := httptest.NewRequest(http.MethodPost, "/api/admin/notifications/read", nil)
+	w := httptest.NewRecorder()
+	s.adminNotificationsRead(w, asAdmin(r))
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("read ucu %d döndü", w.Code)
+	}
+
+	count, unread, _ := notificationCounts(t, s)
+	if count != 1 {
+		t.Errorf("bakınca satır kayboldu: count = %d", count)
+	}
+	if unread != 0 {
+		t.Errorf("bakıldıktan sonra unread = %d", unread)
+	}
+}
+
+/*
+ * ⚠️ BİR KİŞİNİN BAKMASI ÖBÜRÜNÜN ROZETİNİ SÖNDÜRMÜYOR. Damga kişi
+ * başına; ortak olsaydı, listeyi hiç görmemiş bir yönetici onu hiç
+ * göremezdi çünkü rozet çoktan sıfırlanmış olurdu.
+ */
+func TestOneAdminLookingDoesNotClearAnothersBadge(t *testing.T) {
+	s, db := dbServer(t)
+	ctx := t.Context()
+
+	for _, n := range []string{"ops", "veli"} {
+		if _, err := db.CreateUser(ctx, n, "", n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.RecordPending(ctx, store.PendingUser{
+		Subject: "oidc|1", Source: "oidc", Username: "hasan", Email: "hasan@example.com",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	r := httptest.NewRequest(http.MethodPost, "/api/admin/notifications/read", nil)
+	s.adminNotificationsRead(httptest.NewRecorder(), asAdmin(r))
+
+	// Öbür yönetici hâlâ yeni görüyor.
+	get := httptest.NewRequest(http.MethodGet, "/api/admin/notifications", nil)
+	w := httptest.NewRecorder()
+	s.adminNotifications(w, get.WithContext(context.WithValue(get.Context(), ctxUser, "veli")))
+	var body struct{ Unread int }
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if body.Unread != 1 {
+		t.Errorf("öbür yöneticinin rozeti söndü: unread = %d", body.Unread)
+	}
+}
+
+// notificationCounts, listeyi ve iki sayacı okur.
+func notificationCounts(t *testing.T, s *Server) (int, int, []map[string]any) {
+	t.Helper()
+	r := httptest.NewRequest(http.MethodGet, "/api/admin/notifications", nil)
+	w := httptest.NewRecorder()
+	s.adminNotifications(w, asAdmin(r))
+
+	var body struct {
+		Items  []map[string]any `json:"items"`
+		Count  int              `json:"count"`
+		Unread int              `json:"unread"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+
+	return body.Count, body.Unread, body.Items
+}
