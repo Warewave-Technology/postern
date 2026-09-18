@@ -219,6 +219,7 @@
     <h4>Access control</h4>
     <a href="#groups">Users and groups</a>
     <a href="#sources">Where identities come from</a>
+    <a href="#accounts">Accounts on the targets</a>
     <a href="#mappings">Group mappings</a>
     <a href="#sync">Directory sync</a>
     <a href="#totp">Second factor</a>
@@ -696,6 +697,38 @@ $ postern settings list --config postern.yaml          <span class="c"># secrets
         pending queue for an administrator to approve — keyed by their stable
         identity, so renaming does not let anyone apply twice. Either way, a user
         with no mapped group is refused and no account appears.
+      </p>
+    </section>
+
+    <section id="accounts">
+      <h2>Accounts on the targets</h2>
+      <p>
+        With <code>manage.propagate_accounts</code> on — it is off by default and
+        needs <code>manage.enabled</code>, and postern refuses to start if you set
+        one without the other — postern owns the OS accounts of the people it lets
+        in.
+      </p>
+      <p>
+        The account exists where it is used. Nothing is pushed across the fleet:
+        the first time somebody opens a session on a target, postern creates their
+        account there, adds them to a <code>postern-&lt;group&gt;</code> group for
+        each group that grants that target, and writes that group's sudo rule. An
+        account that is already there is <b>adopted, not recreated</b> — its UID,
+        shell and home are untouched — which is how this slides under a fleet whose
+        accounts came from configuration management.
+      </p>
+      <p>
+        A session is never refused because of this. On a host postern cannot
+        manage, provisioning is skipped and the session is attempted exactly as
+        before.
+      </p>
+      <p>
+        Going the other way cannot wait for a connection, because somebody who
+        lost their access never opens one: a loop expires and locks those accounts
+        on the host, leaves the home directory alone, and marks them for a person
+        to decide whether they go for good. Losing one group out of several is
+        corrected at the next connection instead. Both directions carry the same
+        blast-radius cap as directory sync.
       </p>
     </section>
 

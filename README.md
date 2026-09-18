@@ -535,7 +535,49 @@ On the bastion:
 # management account — root — on every target that has one.
 manage:
   enabled: true
+
+  # ⚠️ ALSO DEFAULT OFF, and it changes what postern is. With this on,
+  # postern owns the OS accounts of the people it lets in: it creates or
+  # adopts an account on a target the first time somebody connects there,
+  # and locks it when the last group that granted that target goes away.
+  # Without it, postern behaves as it always has — the account has to be
+  # there already.
+  #
+  # It cannot be set without `enabled`, and postern refuses to start on
+  # that combination rather than leaving you to find out later.
+  propagate_accounts: true
 ```
+
+### Accounts, when postern owns them
+
+With `propagate_accounts` on, the account exists where it is used. Nothing
+is pushed across the fleet: the first time a person opens a session on a
+target, postern creates their account there, puts them in a
+`postern-<group>` group for each group that grants that target, and writes
+the group's sudo rule. A person who never opens a session on a machine
+never gets an account on it.
+
+An account that is already there is **adopted, not recreated**: its UID,
+its shell and its home directory are left alone, and postern only adds the
+group membership and the principals entry. That is how this slides under a
+fleet whose accounts came from Ansible — and postern records which of the
+two happened, because a deletion has to be able to say whether the account
+was postern's to begin with.
+
+Sessions are never refused because of this. If a host cannot be managed,
+provisioning is skipped and the session is attempted exactly as before; if
+the dial then fails, the reason postern could not prepare the account is
+carried in the error, rather than left in a log on the other machine.
+
+Going the other way is not lazy, because it cannot be: somebody who loses
+a group never connects again. A loop closes those accounts — it expires
+and locks them, leaves the home directory alone, and marks them for a
+person to decide whether they go for good. Losing *one* group out of
+several is different: the person still reaches the host, so the membership
+is corrected at their next connection. Both directions have the same
+blast-radius cap as directory sync: if one run would close more than a
+quarter of the accounts, and more than five, nothing happens and the
+reason is logged.
 
 The target page then has a **Management** card. *Check management access*
 signs a two-minute certificate in memory, signs in as `postern`, and reads

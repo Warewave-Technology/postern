@@ -30,27 +30,30 @@ audit rows into a shape it does not understand.
 
 ## Unreleased
 
-### Fixed
+### Needs action if you manage accounts with something else
 
-- **The LDAP screen could say every step was done and still refuse to use
-  the directory, without saying why.** A configuration that reads groups
-  from `memberOf` and has a leftover group filter is rejected — the filter
-  has no `%s`, so it cannot be run — and postern keeps falling back to
-  whatever the token carries. All four wizard steps showed a tick, the
-  screen stayed in setup mode, and the one sentence explaining it was
-  inside the last step, which nobody had a reason to open. The reason is
-  now stated above the steps, the step holding the broken field is marked,
-  and the wording says what it costs: stored, but not in use yet. Nothing
-  is shown on a fresh install, where "nothing is stored" is the whole
-  story and the first step already says it.
+**postern can now own the OS accounts of the people it lets in, and it is
+off until you say otherwise.** With `manage.propagate_accounts: true` (it
+requires `manage.enabled`, and postern refuses to start if you set one
+without the other), the first time somebody opens a session on a target
+postern creates their account there, puts them in a `postern-<group>`
+group for each group that grants that target, and writes that group's sudo
+rule. When the last group granting a target goes away, a loop expires and
+locks the account on the host.
 
-- **The LDAP fields were laid out for prose, not for what they hold.** The
-  form was capped at a comfortable reading width, which is right for
-  sentences and wrong for a bind DN: in a 960-pixel panel the inputs were
-  544 wide, half the panel sat empty, and a real DN ran past the edge of
-  the box. Fields now fill the panel, the short ones share a row, and each
-  field's "stored / Clear" pair moved onto its label line instead of
-  adding a fourth row under every one of the nine fields.
+This changes a sentence that used to be true: postern only wrote to a
+machine when you asked it to open a temporary account. It still installs
+nothing — no agent, sshd and sudo only — but with this on it writes as
+people connect. Leave the key unset and nothing changes.
+
+Two things it deliberately does not do. An account that already exists is
+**adopted**, not recreated: UID, shell and home are left alone, and which
+of the two happened is recorded, because a deletion has to know. And a
+failure to prepare an account **never refuses the session** — a host
+postern cannot manage behaves exactly as it does today, and the reason
+travels in the dial error instead of a log on the far machine.
+
+Run `postern db migrate` before starting this version.
 
 ### Needs action if you call the API or use the CLI
 
@@ -86,6 +89,28 @@ Three different things are now called a group, and the screens say which
 is which: a **directory group** is what your IdP or LDAP sends, a
 **group** is postern's object, and a **host group** is a Unix group that
 already exists on a target.
+
+### Fixed
+
+- **The LDAP screen could say every step was done and still refuse to use
+  the directory, without saying why.** A configuration that reads groups
+  from `memberOf` and has a leftover group filter is rejected — the filter
+  has no `%s`, so it cannot be run — and postern keeps falling back to
+  whatever the token carries. All four wizard steps showed a tick, the
+  screen stayed in setup mode, and the one sentence explaining it was
+  inside the last step, which nobody had a reason to open. The reason is
+  now stated above the steps, the step holding the broken field is marked,
+  and the wording says what it costs: stored, but not in use yet. Nothing
+  is shown on a fresh install, where "nothing is stored" is the whole
+  story and the first step already says it.
+
+- **The LDAP fields were laid out for prose, not for what they hold.** The
+  form was capped at a comfortable reading width, which is right for
+  sentences and wrong for a bind DN: in a 960-pixel panel the inputs were
+  544 wide, half the panel sat empty, and a real DN ran past the edge of
+  the box. Fields now fill the panel, the short ones share a row, and each
+  field's "stored / Clear" pair moved onto its label line instead of
+  adding a fourth row under every one of the nine fields.
 
 ## 1.3.0 — 2026-09-16
 
