@@ -192,6 +192,15 @@ already exists on a target.
 
 ### Fixed
 
+- **A session's SFTP list hid the two columns an auditor reads.** A path
+  is one unbroken run of characters, and the column holding it could not
+  break anywhere: a single release path held that column open at 641
+  pixels of the 958 a 1280-wide panel has, pushed the table to 1204, and
+  put "Wrote" and "Result" — the bytes that actually crossed, and the
+  reason a transfer was denied — behind a horizontal scrollbar. The path
+  column now wraps the way the panel's other long-value columns already
+  do, and the table fits without scrolling.
+
 - **The LDAP screen could say every step was done and still refuse to use
   the directory, without saying why.** A configuration that reads groups
   from `memberOf` and has a leftover group filter is rejected — the filter
