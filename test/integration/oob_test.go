@@ -29,9 +29,9 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/Warewave-Technology/postern/internal/auth"
-	"github.com/Warewave-Technology/postern/internal/httpapi"
-	"github.com/Warewave-Technology/postern/internal/store"
+	"github.com/Warewave-Technology/postern/v2/internal/auth"
+	"github.com/Warewave-Technology/postern/v2/internal/httpapi"
+	"github.com/Warewave-Technology/postern/v2/internal/store"
 )
 
 // oobBastion, OOB'si açık TAM bir düzenek kurar: CA → hedef konteyner →

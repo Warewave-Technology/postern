@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Warewave-Technology/postern/internal/notices"
+	"github.com/Warewave-Technology/postern/v2/internal/notices"
 )
 
 func main() {

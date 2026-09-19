@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Warewave-Technology/postern/internal/model"
-	"github.com/Warewave-Technology/postern/internal/store"
+	"github.com/Warewave-Technology/postern/v2/internal/model"
+	"github.com/Warewave-Technology/postern/v2/internal/store"
 )
 
 // evidenceEnv, oturum kurabilen bir ortam hazırlar.

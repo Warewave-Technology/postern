@@ -9,8 +9,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/Warewave-Technology/postern/internal/config"
-	"github.com/Warewave-Technology/postern/internal/store"
+	"github.com/Warewave-Technology/postern/v2/internal/config"
+	"github.com/Warewave-Technology/postern/v2/internal/store"
 )
 
 // Bu dosya, ÖLÇÜLMÜŞ bir boşluğun kapandığını doğruluyor.

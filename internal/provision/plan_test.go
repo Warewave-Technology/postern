@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Warewave-Technology/postern/internal/sudoers"
-	"github.com/Warewave-Technology/postern/internal/upstream"
+	"github.com/Warewave-Technology/postern/v2/internal/sudoers"
+	"github.com/Warewave-Technology/postern/v2/internal/upstream"
 )
 
 // able, yönetilebilir bir hedefin yetenekleri.

@@ -29,9 +29,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Warewave-Technology/postern/internal/qr"
-	"github.com/Warewave-Technology/postern/internal/store"
-	"github.com/Warewave-Technology/postern/internal/totp"
+	"github.com/Warewave-Technology/postern/v2/internal/qr"
+	"github.com/Warewave-Technology/postern/v2/internal/store"
+	"github.com/Warewave-Technology/postern/v2/internal/totp"
 )
 
 /*

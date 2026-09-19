@@ -10,10 +10,10 @@ import (
 
 	"time"
 
-	"github.com/Warewave-Technology/postern/internal/model"
-	"github.com/Warewave-Technology/postern/internal/record"
-	"github.com/Warewave-Technology/postern/internal/store"
-	"github.com/Warewave-Technology/postern/internal/verify"
+	"github.com/Warewave-Technology/postern/v2/internal/model"
+	"github.com/Warewave-Technology/postern/v2/internal/record"
+	"github.com/Warewave-Technology/postern/v2/internal/store"
+	"github.com/Warewave-Technology/postern/v2/internal/verify"
 )
 
 // endedAt, bitmemiş oturum için nil döner — adminListSessions ile aynı

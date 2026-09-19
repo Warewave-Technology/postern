@@ -9,7 +9,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/Warewave-Technology/postern/internal/sftpaudit"
+	"github.com/Warewave-Technology/postern/v2/internal/sftpaudit"
 )
 
 // startPolicySession, politikalı bir SFTP kanalı kurar.

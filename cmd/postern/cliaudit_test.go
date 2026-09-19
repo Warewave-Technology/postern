@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Warewave-Technology/postern/internal/ldap"
-	"github.com/Warewave-Technology/postern/internal/store"
+	"github.com/Warewave-Technology/postern/v2/internal/ldap"
+	"github.com/Warewave-Technology/postern/v2/internal/store"
 )
 
 // ledger, deftere düşmüş eylemleri döner.

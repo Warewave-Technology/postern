@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Warewave-Technology/postern/internal/store"
+	"github.com/Warewave-Technology/postern/v2/internal/store"
 )
 
 /*

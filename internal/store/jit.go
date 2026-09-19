@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Warewave-Technology/postern/internal/sudoers"
+	"github.com/Warewave-Technology/postern/v2/internal/sudoers"
 )
 
 // JITGrant, bir hedefte süreli açılmış hesap.

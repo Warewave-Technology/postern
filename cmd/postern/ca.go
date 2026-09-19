@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/Warewave-Technology/postern/internal/ca"
+	"github.com/Warewave-Technology/postern/v2/internal/ca"
 	"github.com/spf13/cobra"
 )
 

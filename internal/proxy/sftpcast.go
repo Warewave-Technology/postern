@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Warewave-Technology/postern/internal/sftpaudit"
-	"github.com/Warewave-Technology/postern/internal/sftpcast"
+	"github.com/Warewave-Technology/postern/v2/internal/sftpaudit"
+	"github.com/Warewave-Technology/postern/v2/internal/sftpcast"
 )
 
 /*

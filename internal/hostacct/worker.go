@@ -26,10 +26,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/Warewave-Technology/postern/internal/model"
-	"github.com/Warewave-Technology/postern/internal/provision"
-	"github.com/Warewave-Technology/postern/internal/store"
-	"github.com/Warewave-Technology/postern/internal/upstream"
+	"github.com/Warewave-Technology/postern/v2/internal/model"
+	"github.com/Warewave-Technology/postern/v2/internal/provision"
+	"github.com/Warewave-Technology/postern/v2/internal/store"
+	"github.com/Warewave-Technology/postern/v2/internal/upstream"
 )
 
 // WorkerDeps, döngünün dışarıya bağlandığı yerler.

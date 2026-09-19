@@ -1,7 +1,7 @@
 package proxy
 
 import (
-	"github.com/Warewave-Technology/postern/internal/record"
+	"github.com/Warewave-Technology/postern/v2/internal/record"
 	"log/slog"
 	"strings"
 	"testing"

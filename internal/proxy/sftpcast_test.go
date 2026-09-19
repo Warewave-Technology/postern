@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Warewave-Technology/postern/internal/record"
-	"github.com/Warewave-Technology/postern/internal/sftpaudit"
+	"github.com/Warewave-Technology/postern/v2/internal/record"
+	"github.com/Warewave-Technology/postern/v2/internal/sftpaudit"
 )
 
 // stderrCast, SFTP açıkken hedefin stderr'ini kayda verip sonucu döner.

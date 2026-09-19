@@ -5,8 +5,8 @@ package policy
 import (
 	"strings"
 
-	"github.com/Warewave-Technology/postern/internal/model"
-	"github.com/Warewave-Technology/postern/internal/sftpaudit"
+	"github.com/Warewave-Technology/postern/v2/internal/model"
+	"github.com/Warewave-Technology/postern/v2/internal/sftpaudit"
 )
 
 /*

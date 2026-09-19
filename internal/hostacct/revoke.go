@@ -13,8 +13,8 @@ package hostacct
 import (
 	"strings"
 
-	"github.com/Warewave-Technology/postern/internal/model"
-	"github.com/Warewave-Technology/postern/internal/provision"
+	"github.com/Warewave-Technology/postern/v2/internal/model"
+	"github.com/Warewave-Technology/postern/v2/internal/provision"
 )
 
 // Effect, bir grup kaybının bu hedefteki sonucu.

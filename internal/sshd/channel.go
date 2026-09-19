@@ -5,8 +5,8 @@ import (
 	"errors"
 	"net"
 
-	"github.com/Warewave-Technology/postern/internal/model"
-	"github.com/Warewave-Technology/postern/internal/proxy"
+	"github.com/Warewave-Technology/postern/v2/internal/model"
+	"github.com/Warewave-Technology/postern/v2/internal/proxy"
 	"golang.org/x/crypto/ssh"
 )
 

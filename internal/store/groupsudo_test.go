@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Warewave-Technology/postern/internal/sudoers"
+	"github.com/Warewave-Technology/postern/v2/internal/sudoers"
 )
 
 // restartRule, kaçış riski taşımayan bir kural. systemctl BİLEREK

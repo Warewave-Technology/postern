@@ -16,13 +16,13 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/Warewave-Technology/postern/internal/ca"
-	"github.com/Warewave-Technology/postern/internal/config"
-	"github.com/Warewave-Technology/postern/internal/model"
-	"github.com/Warewave-Technology/postern/internal/secret"
-	"github.com/Warewave-Technology/postern/internal/sshd"
-	"github.com/Warewave-Technology/postern/internal/store"
-	"github.com/Warewave-Technology/postern/internal/testdb"
+	"github.com/Warewave-Technology/postern/v2/internal/ca"
+	"github.com/Warewave-Technology/postern/v2/internal/config"
+	"github.com/Warewave-Technology/postern/v2/internal/model"
+	"github.com/Warewave-Technology/postern/v2/internal/secret"
+	"github.com/Warewave-Technology/postern/v2/internal/sshd"
+	"github.com/Warewave-Technology/postern/v2/internal/store"
+	"github.com/Warewave-Technology/postern/v2/internal/testdb"
 )
 
 // newTestCA, hem bastion'ın kullanacağı anahtar YOLUNU hem hedefin

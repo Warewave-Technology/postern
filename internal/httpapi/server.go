@@ -12,17 +12,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Warewave-Technology/postern/internal/auth"
-	"github.com/Warewave-Technology/postern/internal/ca"
-	"github.com/Warewave-Technology/postern/internal/config"
-	"github.com/Warewave-Technology/postern/internal/discover"
-	"github.com/Warewave-Technology/postern/internal/events"
-	"github.com/Warewave-Technology/postern/internal/groupsync"
-	"github.com/Warewave-Technology/postern/internal/jit"
-	"github.com/Warewave-Technology/postern/internal/proxy"
-	"github.com/Warewave-Technology/postern/internal/record"
-	"github.com/Warewave-Technology/postern/internal/store"
-	"github.com/Warewave-Technology/postern/internal/verify"
+	"github.com/Warewave-Technology/postern/v2/internal/auth"
+	"github.com/Warewave-Technology/postern/v2/internal/ca"
+	"github.com/Warewave-Technology/postern/v2/internal/config"
+	"github.com/Warewave-Technology/postern/v2/internal/discover"
+	"github.com/Warewave-Technology/postern/v2/internal/events"
+	"github.com/Warewave-Technology/postern/v2/internal/groupsync"
+	"github.com/Warewave-Technology/postern/v2/internal/jit"
+	"github.com/Warewave-Technology/postern/v2/internal/proxy"
+	"github.com/Warewave-Technology/postern/v2/internal/record"
+	"github.com/Warewave-Technology/postern/v2/internal/store"
+	"github.com/Warewave-Technology/postern/v2/internal/verify"
 )
 
 // Server, HTTP uçlarını taşır. TLS/dinleme çağıranın işi (serve kuruyor);

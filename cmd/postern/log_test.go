@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Warewave-Technology/postern/internal/store"
+	"github.com/Warewave-Technology/postern/v2/internal/store"
 )
 
 func seedLog(t *testing.T, e *testEnv, entries ...store.AdminLogEntry) {

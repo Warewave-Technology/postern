@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Warewave-Technology/postern/internal/version"
+	"github.com/Warewave-Technology/postern/v2/internal/version"
 )
 
 /*

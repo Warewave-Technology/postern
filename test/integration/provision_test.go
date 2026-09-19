@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Warewave-Technology/postern/internal/auth"
+	"github.com/Warewave-Technology/postern/v2/internal/auth"
 )
 
 // JIT sağlamanın uçtan uca kanıtı: postern'de "yigit" diye bir kullanıcı

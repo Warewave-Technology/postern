@@ -10,7 +10,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/Warewave-Technology/postern/internal/model"
+	"github.com/Warewave-Technology/postern/v2/internal/model"
 )
 
 // tgtStub, hiç bağlanılmayacak testler için geçerli görünümlü hedef tanımı.

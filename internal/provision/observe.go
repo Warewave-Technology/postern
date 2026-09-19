@@ -19,7 +19,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Warewave-Technology/postern/internal/upstream"
+	"github.com/Warewave-Technology/postern/v2/internal/upstream"
 )
 
 // absent, hedefin "yok" cevabını cevapsızlıktan ayırır.

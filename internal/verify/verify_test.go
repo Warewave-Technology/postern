@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Warewave-Technology/postern/internal/objstore"
-	"github.com/Warewave-Technology/postern/internal/store"
+	"github.com/Warewave-Technology/postern/v2/internal/objstore"
+	"github.com/Warewave-Technology/postern/v2/internal/store"
 )
 
 /*

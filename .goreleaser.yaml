@@ -75,7 +75,7 @@ builds:
       #
       # Boş bırakılınca version paketi "dev" diyor ve etiketsizliği
       # cümleyle yazıyor — zaten tam bunun için ayrı bir alanı var.
-      - -X github.com/Warewave-Technology/postern/internal/version.version={{ if .IsSnapshot }}{{ else }}{{ .Tag }}{{ end }}
+      - -X github.com/Warewave-Technology/postern/v2/internal/version.version={{ if .IsSnapshot }}{{ else }}{{ .Tag }}{{ end }}
 
     # ⚠️ HEDEFLER: bastion Linux'ta çalışıyor. macOS ikilileri CLI için
     # var — `postern log`, `postern user ...` gibi komutlar bastion

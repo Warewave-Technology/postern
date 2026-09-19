@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Warewave-Technology/postern/internal/model"
+	"github.com/Warewave-Technology/postern/v2/internal/model"
 )
 
 // UserByDirSubject, dizin kimliğine bağlı kullanıcıyı döner.

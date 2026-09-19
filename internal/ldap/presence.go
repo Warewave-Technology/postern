@@ -6,7 +6,7 @@ import (
 
 	goldap "github.com/go-ldap/ldap/v3"
 
-	"github.com/Warewave-Technology/postern/internal/auth"
+	"github.com/Warewave-Technology/postern/v2/internal/auth"
 )
 
 // Dizinde VARLIK sorusu — üç değerli.

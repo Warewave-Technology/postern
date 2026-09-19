@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Warewave-Technology/postern/internal/sftpaudit"
+	"github.com/Warewave-Technology/postern/v2/internal/sftpaudit"
 )
 
 func ev(op sftpaudit.Op, path string, mod ...func(*sftpaudit.Event)) sftpaudit.Event {

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Warewave-Technology/postern/internal/store"
+	"github.com/Warewave-Technology/postern/v2/internal/store"
 )
 
 // keyed, anahtarı olan bir hesap kurar ve sunucuyu döner.

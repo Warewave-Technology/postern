@@ -11,7 +11,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/Warewave-Technology/postern/internal/model"
+	"github.com/Warewave-Technology/postern/v2/internal/model"
 )
 
 // rsaHostSigner, RSA bir sunucu anahtarı üretir.

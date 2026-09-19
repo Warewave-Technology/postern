@@ -25,8 +25,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Warewave-Technology/postern/internal/qr"
-	"github.com/Warewave-Technology/postern/internal/totp"
+	"github.com/Warewave-Technology/postern/v2/internal/qr"
+	"github.com/Warewave-Technology/postern/v2/internal/totp"
 )
 
 // meReq, oturumlu bir JSON isteği yollar.

@@ -8,7 +8,7 @@ import (
 
 	goldap "github.com/go-ldap/ldap/v3"
 
-	"github.com/Warewave-Technology/postern/internal/store"
+	"github.com/Warewave-Technology/postern/v2/internal/store"
 )
 
 /*

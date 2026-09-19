@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/Warewave-Technology/postern/internal/ldap/ldaptest"
+	"github.com/Warewave-Technology/postern/v2/internal/ldap/ldaptest"
 )
 
 /*

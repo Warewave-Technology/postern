@@ -18,13 +18,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Warewave-Technology/postern/internal/ca"
-	"github.com/Warewave-Technology/postern/internal/jit"
-	"github.com/Warewave-Technology/postern/internal/provision"
-	"github.com/Warewave-Technology/postern/internal/store"
-	"github.com/Warewave-Technology/postern/internal/sudoers"
-	"github.com/Warewave-Technology/postern/internal/testdb"
-	"github.com/Warewave-Technology/postern/internal/upstream"
+	"github.com/Warewave-Technology/postern/v2/internal/ca"
+	"github.com/Warewave-Technology/postern/v2/internal/jit"
+	"github.com/Warewave-Technology/postern/v2/internal/provision"
+	"github.com/Warewave-Technology/postern/v2/internal/store"
+	"github.com/Warewave-Technology/postern/v2/internal/sudoers"
+	"github.com/Warewave-Technology/postern/v2/internal/testdb"
+	"github.com/Warewave-Technology/postern/v2/internal/upstream"
 )
 
 // jitFixture, hedefi, veritabanını ve hizmeti birlikte kurar.

@@ -19,9 +19,9 @@ import (
 	tcexec "github.com/testcontainers/testcontainers-go/exec"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"github.com/Warewave-Technology/postern/internal/ca"
-	"github.com/Warewave-Technology/postern/internal/model"
-	"github.com/Warewave-Technology/postern/internal/upstream"
+	"github.com/Warewave-Technology/postern/v2/internal/ca"
+	"github.com/Warewave-Technology/postern/v2/internal/model"
+	"github.com/Warewave-Technology/postern/v2/internal/upstream"
 )
 
 // certTarget, SERTİFİKA kabul eden bir hedef: authorized_keys'inde tek bir

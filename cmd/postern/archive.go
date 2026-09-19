@@ -11,11 +11,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Warewave-Technology/postern/internal/archive"
-	"github.com/Warewave-Technology/postern/internal/config"
-	"github.com/Warewave-Technology/postern/internal/objstore"
-	"github.com/Warewave-Technology/postern/internal/secret"
-	"github.com/Warewave-Technology/postern/internal/store"
+	"github.com/Warewave-Technology/postern/v2/internal/archive"
+	"github.com/Warewave-Technology/postern/v2/internal/config"
+	"github.com/Warewave-Technology/postern/v2/internal/objstore"
+	"github.com/Warewave-Technology/postern/v2/internal/secret"
+	"github.com/Warewave-Technology/postern/v2/internal/store"
 )
 
 /*

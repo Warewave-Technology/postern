@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Warewave-Technology/postern/internal/verify"
+	"github.com/Warewave-Technology/postern/v2/internal/verify"
 )
 
 /*

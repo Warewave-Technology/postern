@@ -18,11 +18,11 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/Warewave-Technology/postern/internal/auth"
-	"github.com/Warewave-Technology/postern/internal/jit"
-	"github.com/Warewave-Technology/postern/internal/model"
-	"github.com/Warewave-Technology/postern/internal/sshalg"
-	"github.com/Warewave-Technology/postern/internal/store"
+	"github.com/Warewave-Technology/postern/v2/internal/auth"
+	"github.com/Warewave-Technology/postern/v2/internal/jit"
+	"github.com/Warewave-Technology/postern/v2/internal/model"
+	"github.com/Warewave-Technology/postern/v2/internal/sshalg"
+	"github.com/Warewave-Technology/postern/v2/internal/store"
 )
 
 func (s *Server) registerAdminRoutes(mux *http.ServeMux) {

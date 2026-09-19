@@ -15,9 +15,9 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/Warewave-Technology/postern/internal/model"
-	"github.com/Warewave-Technology/postern/internal/proxy"
-	"github.com/Warewave-Technology/postern/internal/upstream"
+	"github.com/Warewave-Technology/postern/v2/internal/model"
+	"github.com/Warewave-Technology/postern/v2/internal/proxy"
+	"github.com/Warewave-Technology/postern/v2/internal/upstream"
 )
 
 // handleTerminal, tarayıcıya hedefte bir kabuk açar.

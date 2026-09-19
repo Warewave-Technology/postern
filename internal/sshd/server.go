@@ -6,7 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/Warewave-Technology/postern/internal/sshalg"
+	"github.com/Warewave-Technology/postern/v2/internal/sshalg"
 	"log/slog"
 	"net"
 	"os"
@@ -16,15 +16,15 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/Warewave-Technology/postern/internal/auth"
-	"github.com/Warewave-Technology/postern/internal/ca"
-	"github.com/Warewave-Technology/postern/internal/config"
-	"github.com/Warewave-Technology/postern/internal/events"
-	"github.com/Warewave-Technology/postern/internal/hostacct"
-	"github.com/Warewave-Technology/postern/internal/model"
-	"github.com/Warewave-Technology/postern/internal/proxy"
-	"github.com/Warewave-Technology/postern/internal/record"
-	"github.com/Warewave-Technology/postern/internal/store"
+	"github.com/Warewave-Technology/postern/v2/internal/auth"
+	"github.com/Warewave-Technology/postern/v2/internal/ca"
+	"github.com/Warewave-Technology/postern/v2/internal/config"
+	"github.com/Warewave-Technology/postern/v2/internal/events"
+	"github.com/Warewave-Technology/postern/v2/internal/hostacct"
+	"github.com/Warewave-Technology/postern/v2/internal/model"
+	"github.com/Warewave-Technology/postern/v2/internal/proxy"
+	"github.com/Warewave-Technology/postern/v2/internal/record"
+	"github.com/Warewave-Technology/postern/v2/internal/store"
 )
 
 // oobTimeout, tarayıcı onayı için üst sınır. Çok kısa olursa insan

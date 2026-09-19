@@ -16,10 +16,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Warewave-Technology/postern/internal/jit"
-	"github.com/Warewave-Technology/postern/internal/provision"
-	"github.com/Warewave-Technology/postern/internal/store"
-	"github.com/Warewave-Technology/postern/internal/sudoers"
+	"github.com/Warewave-Technology/postern/v2/internal/jit"
+	"github.com/Warewave-Technology/postern/v2/internal/provision"
+	"github.com/Warewave-Technology/postern/v2/internal/store"
+	"github.com/Warewave-Technology/postern/v2/internal/sudoers"
 )
 
 // UseJIT, geçici erişim hizmetini bağlar. Dinlemeye başlamadan ÖNCE.

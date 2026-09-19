@@ -20,8 +20,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Warewave-Technology/postern/internal/discover"
-	"github.com/Warewave-Technology/postern/internal/store"
+	"github.com/Warewave-Technology/postern/v2/internal/discover"
+	"github.com/Warewave-Technology/postern/v2/internal/store"
 )
 
 // UseDiscovery, keşif hizmetini bağlar. Dinlemeye başlamadan ÖNCE.

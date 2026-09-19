@@ -6,7 +6,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/Warewave-Technology/postern/internal/model"
+	"github.com/Warewave-Technology/postern/v2/internal/model"
 )
 
 // osUserNamePatternRegex, hedefte hesap adı olarak kabul ettiğimiz biçim.

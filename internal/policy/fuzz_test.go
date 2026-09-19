@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Warewave-Technology/postern/internal/model"
+	"github.com/Warewave-Technology/postern/v2/internal/model"
 )
 
 // refValidOSUserName is a hand-written model of the OS-user name rule.

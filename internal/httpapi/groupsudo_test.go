@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Warewave-Technology/postern/internal/auth"
+	"github.com/Warewave-Technology/postern/v2/internal/auth"
 )
 
 func callGroupSudo(t *testing.T, s *Server, h http.HandlerFunc, method, group, body string) *httptest.ResponseRecorder {

@@ -1,4 +1,4 @@
-module github.com/Warewave-Technology/postern
+module github.com/Warewave-Technology/postern/v2
 
 go 1.26.6
 

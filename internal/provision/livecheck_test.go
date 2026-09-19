@@ -34,10 +34,10 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/Warewave-Technology/postern/internal/ca"
-	"github.com/Warewave-Technology/postern/internal/model"
-	"github.com/Warewave-Technology/postern/internal/sudoers"
-	"github.com/Warewave-Technology/postern/internal/upstream"
+	"github.com/Warewave-Technology/postern/v2/internal/ca"
+	"github.com/Warewave-Technology/postern/v2/internal/model"
+	"github.com/Warewave-Technology/postern/v2/internal/sudoers"
+	"github.com/Warewave-Technology/postern/v2/internal/upstream"
 )
 
 // liveRunner, ortam değişkenlerinden gerçek hedefe yönetim bağlantısı kurar.

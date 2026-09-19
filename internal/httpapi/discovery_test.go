@@ -17,10 +17,10 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/Warewave-Technology/postern/internal/auth"
-	"github.com/Warewave-Technology/postern/internal/discover"
-	"github.com/Warewave-Technology/postern/internal/secret"
-	"github.com/Warewave-Technology/postern/internal/store"
+	"github.com/Warewave-Technology/postern/v2/internal/auth"
+	"github.com/Warewave-Technology/postern/v2/internal/discover"
+	"github.com/Warewave-Technology/postern/v2/internal/secret"
+	"github.com/Warewave-Technology/postern/v2/internal/store"
 )
 
 func discoveryServer(t *testing.T, withBox bool) (*Server, *store.Store) {

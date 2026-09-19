@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Warewave-Technology/postern/internal/sudoers"
+	"github.com/Warewave-Technology/postern/v2/internal/sudoers"
 )
 
 // GroupSudo, bir grubun sudo kuralı ve onu en son kimin yazdığı.

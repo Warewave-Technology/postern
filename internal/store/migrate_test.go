@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Warewave-Technology/postern/internal/testdb"
+	"github.com/Warewave-Technology/postern/v2/internal/testdb"
 )
 
 // newTestStore, boş bir şemada açılmış ve migrate edilmiş bir Store döner.

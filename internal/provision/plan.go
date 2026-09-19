@@ -20,9 +20,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Warewave-Technology/postern/internal/model"
-	"github.com/Warewave-Technology/postern/internal/sudoers"
-	"github.com/Warewave-Technology/postern/internal/upstream"
+	"github.com/Warewave-Technology/postern/v2/internal/model"
+	"github.com/Warewave-Technology/postern/v2/internal/sudoers"
+	"github.com/Warewave-Technology/postern/v2/internal/upstream"
 )
 
 // Group, hedefte bulunması istenen grup ve onun sudo kuralı.

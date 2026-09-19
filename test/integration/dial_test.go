@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Warewave-Technology/postern/internal/model"
-	"github.com/Warewave-Technology/postern/internal/upstream"
+	"github.com/Warewave-Technology/postern/v2/internal/model"
+	"github.com/Warewave-Technology/postern/v2/internal/upstream"
 )
 
 // tarpit, TCP bağlantısını kabul eden ama SSH banner'ı hiç göndermeyen bir

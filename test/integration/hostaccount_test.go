@@ -21,12 +21,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Warewave-Technology/postern/internal/hostacct"
-	"github.com/Warewave-Technology/postern/internal/model"
-	"github.com/Warewave-Technology/postern/internal/provision"
-	"github.com/Warewave-Technology/postern/internal/store"
-	"github.com/Warewave-Technology/postern/internal/sudoers"
-	"github.com/Warewave-Technology/postern/internal/testdb"
+	"github.com/Warewave-Technology/postern/v2/internal/hostacct"
+	"github.com/Warewave-Technology/postern/v2/internal/model"
+	"github.com/Warewave-Technology/postern/v2/internal/provision"
+	"github.com/Warewave-Technology/postern/v2/internal/store"
+	"github.com/Warewave-Technology/postern/v2/internal/sudoers"
+	"github.com/Warewave-Technology/postern/v2/internal/testdb"
 )
 
 func hostAcctFixture(t *testing.T) (*store.Store, model.Target, *provision.SSHRunner,

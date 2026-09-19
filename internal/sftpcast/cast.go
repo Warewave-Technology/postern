@@ -34,7 +34,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/Warewave-Technology/postern/internal/sftpaudit"
+	"github.com/Warewave-Technology/postern/v2/internal/sftpaudit"
 )
 
 // MaxField, kayda yazılan tek bir alanın tavanı.

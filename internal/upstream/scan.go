@@ -10,7 +10,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/Warewave-Technology/postern/internal/sshalg"
+	"github.com/Warewave-Technology/postern/v2/internal/sshalg"
 )
 
 // scanTimeout, host key taraması için üst sınır.

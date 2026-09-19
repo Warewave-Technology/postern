@@ -19,7 +19,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Warewave-Technology/postern/internal/config"
+	"github.com/Warewave-Technology/postern/v2/internal/config"
 )
 
 func TestEveryConfigFieldIsClassifiedAsShownOrWithheld(t *testing.T) {

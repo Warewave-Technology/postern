@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Warewave-Technology/postern/internal/model"
+	"github.com/Warewave-Technology/postern/v2/internal/model"
 )
 
 // TestCaseInsensitive, harf duyarsız sayılan her yolu koşturur.

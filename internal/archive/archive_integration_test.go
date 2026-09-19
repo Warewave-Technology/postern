@@ -20,11 +20,11 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"github.com/Warewave-Technology/postern/internal/model"
-	"github.com/Warewave-Technology/postern/internal/objstore"
-	"github.com/Warewave-Technology/postern/internal/record"
-	"github.com/Warewave-Technology/postern/internal/store"
-	"github.com/Warewave-Technology/postern/internal/testdb"
+	"github.com/Warewave-Technology/postern/v2/internal/model"
+	"github.com/Warewave-Technology/postern/v2/internal/objstore"
+	"github.com/Warewave-Technology/postern/v2/internal/record"
+	"github.com/Warewave-Technology/postern/v2/internal/store"
+	"github.com/Warewave-Technology/postern/v2/internal/testdb"
 )
 
 // fixedArchiver, sabit bir istemciyle arşivleyici kurar (testler için).

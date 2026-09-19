@@ -19,12 +19,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Warewave-Technology/postern/internal/auth"
-	"github.com/Warewave-Technology/postern/internal/groupsync"
-	"github.com/Warewave-Technology/postern/internal/ldap"
-	"github.com/Warewave-Technology/postern/internal/model"
-	"github.com/Warewave-Technology/postern/internal/store"
-	"github.com/Warewave-Technology/postern/internal/testdb"
+	"github.com/Warewave-Technology/postern/v2/internal/auth"
+	"github.com/Warewave-Technology/postern/v2/internal/groupsync"
+	"github.com/Warewave-Technology/postern/v2/internal/ldap"
+	"github.com/Warewave-Technology/postern/v2/internal/model"
+	"github.com/Warewave-Technology/postern/v2/internal/store"
+	"github.com/Warewave-Technology/postern/v2/internal/testdb"
 )
 
 // syncFixture, gerçek bir LDAP ve gerçek bir veritabanıyla senkronizasyon

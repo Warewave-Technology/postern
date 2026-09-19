@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Warewave-Technology/postern/internal/sudoers"
+	"github.com/Warewave-Technology/postern/v2/internal/sudoers"
 )
 
 func aGrant(expiresIn time.Duration) JITGrant {

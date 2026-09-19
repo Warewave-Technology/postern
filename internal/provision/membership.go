@@ -22,7 +22,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Warewave-Technology/postern/internal/upstream"
+	"github.com/Warewave-Technology/postern/v2/internal/upstream"
 )
 
 /*

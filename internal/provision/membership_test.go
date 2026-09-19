@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Warewave-Technology/postern/internal/upstream"
+	"github.com/Warewave-Technology/postern/v2/internal/upstream"
 )
 
 func observedWith(members map[string][]string) Observed {

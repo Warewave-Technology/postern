@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Warewave-Technology/postern/internal/secret"
+	"github.com/Warewave-Technology/postern/v2/internal/secret"
 )
 
 /*

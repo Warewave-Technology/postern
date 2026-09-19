@@ -9,7 +9,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/Warewave-Technology/postern/internal/record"
+	"github.com/Warewave-Technology/postern/v2/internal/record"
 )
 
 /*

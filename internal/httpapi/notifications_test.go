@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Warewave-Technology/postern/internal/store"
+	"github.com/Warewave-Technology/postern/v2/internal/store"
 )
 
 func notifications(t *testing.T, s *Server) (*httptest.ResponseRecorder, []map[string]any) {

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Warewave-Technology/postern/internal/record"
-	"github.com/Warewave-Technology/postern/internal/store"
+	"github.com/Warewave-Technology/postern/v2/internal/record"
+	"github.com/Warewave-Technology/postern/v2/internal/store"
 )
 
 // Liste ve ayrıntı, oturumu grubun değil süreli hakkın açtığını söylüyor;
