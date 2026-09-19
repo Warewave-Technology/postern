@@ -3801,8 +3801,16 @@ a.tcard-name:focus-visible {
 }
 
 /* Kayıt zinciri durumu (admin/ChainStatus.tsx). */
-.chain-card {
-  margin-top: 1rem;
+/*
+ * ⚠️ KART DEĞİL. Zincir durumu modalın İÇİNDE duruyor ve modalın kendi
+ * başlığı var; bileşen bir de kendi kartını ve "Recording chain"
+ * başlığını çizince ekranda iç içe iki pencere görünüyordu (kullanıcı
+ * ekran görüntüsüyle gösterdi). Kalan tek iş, satırların arasını açmak.
+ */
+.chain-status {
+  display: grid;
+  gap: 0.2rem;
+  justify-items: start;
 }
 .chain-line {
   display: flex;

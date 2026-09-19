@@ -616,10 +616,15 @@ describe("açılan kayıt", () => {
    * yer kaplıyordu.
    */
   it("zincir kontrolünü düğmeyle açıyor", async () => {
+    /*
+     * ⚠️ GEÇERLİ BİR VerifyResult. Kontrol artık modal açılır açılmaz
+     * koşuyor; uydurma bir gövde, bileşeni modalın İÇİNDE düşürüyor ve
+     * test "modal hiç açılmadı" diye okunuyordu.
+     */
     vi.spyOn(api, "verifyRecording").mockResolvedValue({
-      ok: true,
-      links: 3,
-    } as never);
+      local: "verified",
+      off_box: { state: "unchecked", detail: "archiving is not configured" },
+    });
     await openRecord();
 
     // Açılışta kart yok.
