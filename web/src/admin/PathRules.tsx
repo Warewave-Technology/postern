@@ -86,7 +86,8 @@ export default function PathRules({ group }: { group: string }) {
     {
       key: "access",
       header: "Access",
-      value: (r) => (!r.allow ? "denied" : r.can_write ? "read-write" : "read-only"),
+      value: (r) =>
+        !r.allow ? "denied" : r.can_write ? "read-write" : "read-only",
       render: (r) =>
         !r.allow ? (
           <span className="badge badge-danger">denied</span>
@@ -165,9 +166,9 @@ export default function PathRules({ group }: { group: string }) {
       <p className="pathrules-hint">
         The longest matching prefix wins, so <code>/home/dev/.ssh</code> as a
         deny carves a hole in an allowed <code>/home/dev</code>. Rules from all
-        of a user's groups are pooled, and at equal length a deny beats an allow.
-        A group with <strong>no rules at all is unrestricted</strong>, and one
-        such group among a user's groups switches every rule here off.{" "}
+        of a user's groups are pooled, and at equal length a deny beats an
+        allow. A group with <strong>no rules at all is unrestricted</strong>,
+        and one such group among a user's groups switches every rule here off.{" "}
         <strong>Links are resolved by the target, not by postern</strong>: a
         rule constrains the path the client writes, so a link inside an allowed
         directory can still lead somewhere no rule names.
@@ -185,10 +186,26 @@ export default function PathRules({ group }: { group: string }) {
             Prefix
             <input
               value={prefix}
-              placeholder="/var/log"
+              placeholder="/var/log or ~/uploads"
               onChange={(e) => setPrefix(e.target.value)}
             />
           </label>
+          {/*
+            ⚠️ İPUCU LABEL'IN DIŞINDA. İçine koyunca input'un erişilebilir
+            adı "Prefix" olmaktan çıkıp bütün cümleyi kapsıyor — testler
+            alanı bulamadı, yani ekran okuyucu da alanın adını iki
+            cümlelik bir açıklama olarak okuyacaktı.
+
+            ⚠️ AMA FORMDA DURUYOR. Bir grubun kuralında bir KİŞİNİN evini
+            adıyla yazmak, o grubun geri kalan her üyesi için yanlış kural
+            demek — demoda ölçüldü. Token'ı bilmeyen yönetici, bulacağı
+            tek çözüm olarak kişi başına kural yazardı.
+          */}
+          <span className="hint span-all">
+            <code>~</code> is each person&apos;s own home on that host, read
+            from the host itself — one rule that is right for everyone in the
+            group.
+          </span>
           <label>
             Access
             <select

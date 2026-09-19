@@ -404,10 +404,22 @@ func (s *Store) loadGroupPaths(ctx context.Context, groups []model.Group) error 
  * kısıtın yerine geçmek için değil.
  */
 func (s *Store) SetGroupPath(ctx context.Context, roleName, prefix string, allow, canWrite bool) error {
-	if !strings.HasPrefix(prefix, "/") {
-		return fmt.Errorf("store.SetGroupPath: prefix must be absolute: %q", prefix)
+	/*
+	 * ⚠️ "~" MUTLAK SAYILIYOR, ÇÜNKÜ ÇÖZÜMÜ BİZDE. Göreli bir yolun neye
+	 * göre olduğunu bilemiyoruz — istemcinin çalışma dizini hedefte,
+	 * bizde değil — ama ev token'ı oturum açılırken hedeften okunan
+	 * mutlak bir yola çevriliyor (policy.ExpandHome). Onu da reddetmek,
+	 * bir grubun bütün üyeleri için tek bir kural yazmanın tek doğru
+	 * yolunu kapatırdı.
+	 */
+	if model.IsHomeRule(prefix) {
+		prefix = path.Clean(prefix)
+	} else {
+		if !strings.HasPrefix(prefix, "/") {
+			return fmt.Errorf("store.SetGroupPath: prefix must be absolute or start with ~: %q", prefix)
+		}
+		prefix = path.Clean(prefix)
 	}
-	prefix = path.Clean(prefix)
 
 	res, err := s.db.ExecContext(ctx, `
 		INSERT INTO group_paths (group_id, prefix, allow, can_write)

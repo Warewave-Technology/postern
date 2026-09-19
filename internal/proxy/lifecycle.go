@@ -727,10 +727,31 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 		return nil, fmt.Errorf("proxy.Open: %w", ErrUnavailable)
 	}
 
+	/*
+	 * ⚠️ EV YALNIZCA BİR KURAL ONU İSTİYORSA SORULUYOR.
+	 *
+	 * Bu satır SICAK YOLDA: her oturuma bir exec kanalı eklemek, ev
+	 * token'ı kullanmayan her kuruluma bedelsiz bir gecikme yüklerdi.
+	 * UsesHome, o bedeli yalnızca kuralında `~` yazanlara bırakıyor.
+	 *
+	 * ⚠️ OKUNAMAZSA OTURUM KESİLMİYOR, SFTP KAPANIYOR. SFTPDecider boş
+	 * ev gördüğünde her isteği reddediyor: değerlendirilemeyen bir
+	 * politikayı yok saymak, `~/.ssh` gibi bir RET kuralını sessizce
+	 * düşürmek olurdu.
+	 */
+	var home string
+	if policy.UsesHome(u.Groups) {
+		home = readHome(ctx, conn, d.OSUser)
+		if home == "" {
+			log.Warn("home directory unreadable; path rules that use ~ will refuse",
+				"os_user", d.OSUser)
+		}
+	}
+
 	opened = true
 	return &Session{
 		ID: id, OSUser: d.OSUser, Log: log,
-		sftpPolicy: policy.SFTPDecider(u.Groups),
+		sftpPolicy: policy.SFTPDecider(u.Groups, home),
 		deps:       deps, conn: conn, up: up, upR: upR, rec: rec, start: start,
 		user: req.Username, target: req.TargetName, src: req.SrcIP,
 	}, nil
@@ -1191,4 +1212,40 @@ func denialRow(id, sessionID, reqType, reason string, at time.Time) store.Sessio
 		ID: id, SessionID: sessionID, At: at,
 		Op: "denied." + sftpcast.Safe(reqType), OK: false, Detail: sftpcast.Safe(reason),
 	}
+}
+
+/*
+ * readHome, hesabın ev dizinini HEDEFTEN okur; okunamazsa boş döner.
+ *
+ * ⚠️ "/home/<ad>" VARSAYILMIYOR. Bu depo o varsayımı başka bir yerde
+ * (provision.Account) açıkça reddediyor: evi başka yerde olan bir
+ * hesapta kural, o hesabın sahibi olmadığı bir dizini gösterirdi.
+ *
+ * ⚠️ KOMUT KİŞİNİN KENDİ BAĞLANTISINDAN GİDİYOR, sudo YOK. `getent
+ * passwd` herkesin çalıştırabildiği bir okuma ve sorulan şey zaten
+ * "benim evim nerede". Yönetim hesabını buna karıştırmak, yönetimi
+ * kurulmamış bir hedefte kuralı çalışmaz yapardı.
+ *
+ * ⚠️ AD KOMUTA GİRMEDEN ÖNCE DOĞRULANIYOR. policy.Authorize onu zaten
+ * doğruladı; buradaki kontrol, veritabanına elle dokunulmuş bir satıra
+ * karşı son savunma — komut bir KABUĞA gidiyor.
+ */
+func readHome(ctx context.Context, conn *upstream.Conn, osUser string) string {
+	if !model.ValidOSUserName(osUser) {
+		return ""
+	}
+	out, err := conn.Exec(ctx, "getent passwd "+osUser, "")
+	if err != nil {
+		return ""
+	}
+	fields := strings.Split(strings.TrimSpace(out), ":")
+	if len(fields) < 6 {
+		return ""
+	}
+	home := strings.TrimSpace(fields[5])
+	if !strings.HasPrefix(home, "/") {
+		return ""
+	}
+
+	return home
 }

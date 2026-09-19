@@ -108,6 +108,23 @@ refused because it already existed, and the whole preparation failed —
 every time, with backoff, so it never recovered. Nobody hit this in a
 release; it is fixed before the feature ships.
 
+**A path rule can say `~`, meaning each person's own home.** A rule naming
+one person's home is a rule for one person: a group allowing `/home/ayse`
+sends every other member of that group to a refusal, which is what the
+demo did. `postern group path set --group dev --prefix ~ --write` is one
+rule that is right for all of them, and `~/.ssh --deny` still carves out
+of it. The token is resolved per session from the home the **target**
+reports — postern asks with `getent passwd` over the person's own
+connection, no sudo, rather than assuming `/home/<name>`. If a rule uses
+`~` and the home cannot be read, SFTP is refused for that session and says
+why; the shell is untouched. Ignoring the rule instead would leave a
+`~/.ssh` denial silently open.
+
+Sessions also record which door they came through — an SSH client, the
+panel's terminal, or the panel's file browser. Opening the file browser on
+a host somebody is already in creates a second session, and those two rows
+used to be identical in every column the panel shows.
+
 Run `postern db migrate` before starting this version.
 
 ### Needs action if you call the API or use the CLI

@@ -123,7 +123,8 @@ func newGroupPathSetCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&configPath, "config", "postern.yaml", "path to the config file")
 	cmd.Flags().StringVar(&group, "group", "", "group name (required)")
-	cmd.Flags().StringVar(&prefix, "prefix", "", "absolute path prefix, e.g. /home/dev (required)")
+	cmd.Flags().StringVar(&prefix, "prefix", "",
+		"absolute path prefix, or ~ for each person's own home, e.g. /srv/app or ~/uploads (required)")
 	cmd.Flags().BoolVar(&write, "write", false, "allow writes as well as reads")
 	cmd.Flags().BoolVar(&deny, "deny", false, "refuse this prefix instead of allowing it")
 	_ = cmd.MarkFlagRequired("group")
