@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/Warewave-Technology/postern/v2/internal/model"
+	"github.com/Warewave-Technology/postern/v2/internal/provision"
 	"github.com/Warewave-Technology/postern/v2/internal/store"
+	"github.com/Warewave-Technology/postern/v2/internal/sudoers"
 	"github.com/Warewave-Technology/postern/v2/internal/upstream"
 )
 
@@ -204,5 +206,97 @@ func TestPrecreationBringsInPairsWithNoRow(t *testing.T) {
 	}
 	if saved[0].Origin != store.OriginCreated {
 		t.Errorf("kaynak = %q", saved[0].Origin)
+	}
+}
+
+/*
+ * ⚠️ ZATEN İSTENEN HÂLDEKİ HEDEF YALNIZCA OKUNUR, HİÇ YAZILMAZ.
+ *
+ * Defterde iki kez "swept demo-a: repaired 5 drifted step(s)" gördüm ve
+ * beş, o hesabın ilk kurulumunun adım sayısıydı: süpürme bütün planı her
+ * turda yeniden koşuyor sandım. Ölçüm başka şey söyledi — iki satır
+ * ardışık iki tur değil, İKİ AYRI KONTEYNER NESLİNİN ilk turuydu; demo
+ * hedefi her tazelemede sıfırdan doğuyor ve postern'in yazdığı her şeyi
+ * (grup, üyelik, sudoers) götürüyor. Aradaki üç tur hedefe bağlandı,
+ * hiçbir şey yazmadı: sudoers dosyasının mtime'ı ilk turda kaldı.
+ *
+ * Yani hata yoktu; TESTİ yoktu. Bu özellik saatte bir filodaki her
+ * makinede root komutu çalıştırabilecek tek yol, ve her turda "onardım"
+ * diyen bir defter, gerçekten sürüklenen bir şeyi de görünmez yapar.
+ *
+ * Ölçü defterin cümlesi değil, TELE ÇIKAN KOMUT: taklit hedefin
+ * cevapladığı okumaların dışında tek bir komut bile gitmemeli.
+ */
+func TestASweepOnlyReadsATargetAlreadyInShape(t *testing.T) {
+	group := HostGroupPrefix + "dba"
+	rule := sudoers.Rule{Commands: []sudoers.Command{{Path: "/usr/bin/pg_ctl"}}}
+	// Hedefteki dosya, planın yazacağı metnin AYNISI: Plan bayt bayt
+	// karşılaştırıyor, dolayısıyla test de aynı yerden üretmeli.
+	sudoText, err := sudoers.Render("%"+group, rule, "group "+group+" — written by postern")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	principals := "/etc/ssh/auth_principals/%u"
+	// Hedef TAM OLARAK istenen hâlde: iki grup var, hesap ikisinin de
+	// üyesi, sudo dosyası ve principals dosyası yerinde.
+	answers := map[string]string{
+		"getent group " + group:                         group + ":x:5000:acctayse\n",
+		"getent group " + provision.ManagedGroup:        provision.ManagedGroup + ":x:5001:acctayse\n",
+		"id -Gn acctayse":                               "acctayse " + group + " " + provision.ManagedGroup + "\n",
+		"sudo -n cat " + provision.SudoPath(group):      sudoText,
+		"sudo -n cat /etc/ssh/auth_principals/acctayse": "acctayse\n",
+		"sudo -n sshd -T -C user=acctayse 2>/dev/null | " +
+			"awk 'tolower($1)==\"authorizedprincipalsfile\"{print $2}'": principals + "\n",
+	}
+
+	host := &fakeRunner{answers: answers}
+	dialed := 0
+	d := sweepDeps(&dialed, answers, nil)
+	d.Rows = func(context.Context) ([]store.HostAccount, error) {
+		return []store.HostAccount{{
+			TargetName: "db01", Username: "ayse", OSUser: "acctayse",
+			Origin: store.OriginCreated, State: store.HostAccountActive,
+		}}, nil
+	}
+	d.Rules = func(context.Context) (map[string]store.GroupSudo, error) {
+		return map[string]store.GroupSudo{"dba": {Rule: rule}}, nil
+	}
+	d.Connect = func(context.Context, model.Target, string) (Runner, error) {
+		dialed++
+
+		return host, nil
+	}
+	d.Caps = func(context.Context, Runner) (upstream.ManageCapabilities, error) {
+		return upstream.ManageCapabilities{
+			Sudo: true, AddUser: "/usr/sbin/useradd", AddGroup: "/usr/sbin/groupadd",
+			ModUser: "/usr/sbin/usermod", Visudo: "/usr/sbin/visudo",
+			Shell: "/bin/sh", DelMember: "/usr/bin/gpasswd",
+			PrincipalsFile: principals,
+		}, nil
+	}
+	var details []string
+	d.Audit = func(_ context.Context, _, detail string) error {
+		details = append(details, detail)
+
+		return nil
+	}
+
+	NewSweeper(d, time.Hour).Tick(t.Context())
+
+	var wrote []string
+	for _, c := range host.seen {
+		if _, isRead := answers[c]; !isRead {
+			wrote = append(wrote, c)
+		}
+	}
+	if len(wrote) > 0 {
+		t.Errorf("istenen hâldeki hedefe %d komut gitti:\n  %s",
+			len(wrote), strings.Join(wrote, "\n  "))
+	}
+	for _, s := range details {
+		if strings.Contains(s, "repaired") {
+			t.Errorf("onaracak bir şey yokken defter onarım yazdı: %q", s)
+		}
 	}
 }
