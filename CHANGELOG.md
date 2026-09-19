@@ -28,6 +28,8 @@ audit rows into a shape it does not understand.
   commit after the tag — RELEASING.md says the same thing at the end.
 -->
 
+## Unreleased
+
 ## 2.0.0 — 2026-09-19
 
 ### The panel moved some things
