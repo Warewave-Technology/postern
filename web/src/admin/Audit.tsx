@@ -705,7 +705,6 @@ export function Sessions({ theme }: { theme: Resolved }) {
         title="Recording chain"
         description="postern re-reads the recording and compares it with the seal it wrote. Nothing is changed."
         onClose={() => setCheckingChain(false)}
-        wide
       >
         {checkingChain && chainOf && (
           <ChainStatus sessionId={chainOf.id} chain={chainOf.chain} />

@@ -165,7 +165,9 @@ describe("değişken atıfları", () => {
 describe("rozet okunurluğu", () => {
   const lum = (hex: string) => {
     const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
-    const [r, g, b] = c.map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    const [r, g, b] = c.map((v) =>
+      v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4,
+    );
 
     return 0.2126 * r + 0.7152 * g + 0.0722 * b;
   };
@@ -216,7 +218,9 @@ describe("açılır durum süzgeci", () => {
 describe("bölüm etiketi okunurluğu", () => {
   const lum = (hex: string) => {
     const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
-    const [r, g, b] = c.map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    const [r, g, b] = c.map((v) =>
+      v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4,
+    );
 
     return 0.2126 * r + 0.7152 * g + 0.0722 * b;
   };
@@ -233,5 +237,47 @@ describe("bölüm etiketi okunurluğu", () => {
       expect(ratio(t["--label"], t["--surface"])).toBeGreaterThan(4.5);
       expect(ratio(t["--label"], t["--raised"])).toBeGreaterThan(4.5);
     }
+  });
+});
+
+/*
+ * ⚠️ İLETİŞİM KUTUSUNUN EYLEMLERİ SAĞ ALTTA.
+ *
+ * Bu panelde her düğme satırı sola yaslıydı ve bir modalın eylemleri
+ * hemen her arayüzde sağ altta aranıyor (kullanıcı söyledi).
+ *
+ * ⚠️ SAYFA FORMLARI BU KURALIN DIŞINDA. Orada desen başka: solda
+ * birincil eylem, sağa itilmiş yıkıcı eylem. İkisini de sağa toplamak,
+ * "Add command" ile "Remove rule"u yan yana getirirdi — yanlışlıkla
+ * basılması en pahalı olan iki düğmeyi.
+ */
+describe("modal düğme satırı", () => {
+  it("sağa yaslı, ama yalnızca modal içinde", () => {
+    const inModal = css.slice(css.indexOf(".modal .form-actions,"));
+    expect(inModal.slice(0, inModal.indexOf("}"))).toMatch(
+      /justify-content:\s*flex-end/,
+    );
+
+    // Sihirbazın satırı da (.page-actions) modal içinde sağa yaslı.
+    expect(inModal.slice(0, inModal.indexOf("}"))).toMatch(
+      /\.modal \.page-actions/,
+    );
+
+    // Sayfa formundaki satırlar sola yaslı KALIYOR.
+    for (const sel of ["\n.form-actions {", "\n.page-actions {"]) {
+      const plain = css.slice(css.indexOf(sel));
+      expect(plain.slice(0, plain.indexOf("}"))).not.toMatch(/justify-content/);
+    }
+  });
+
+  /*
+   * Sağa yaslı bir satırda "sağa it" anlamını kaybediyor: yıkıcı eylem
+   * SOLA itiliyor, yani birincil eylemden yine uzak duruyor.
+   */
+  it("yıkıcı eylemi birincil eylemden ayırmaya devam ediyor", () => {
+    const rule = css.slice(css.indexOf(".modal .form-actions > .form-push {"));
+    const body = rule.slice(0, rule.indexOf("}"));
+    expect(body).toMatch(/margin-right:\s*auto/);
+    expect(body).toMatch(/margin-left:\s*0/);
   });
 });

@@ -209,9 +209,16 @@ export default function ChainStatus({
             </p>
           )}
 
-          <ActionButton onClick={run} disabled={busy}>
-            {busy ? "Checking…" : "Check again"}
-          </ActionButton>
+          {/*
+            ⚠️ STANDART DÜĞME SATIRI. Çıplak bir düğme, modalın
+            "eylemler sağ altta" kuralının dışında kalırdı; kural satırın
+            kendisine yazılı.
+          */}
+          <div className="form-actions">
+            <ActionButton onClick={run} disabled={busy}>
+              {busy ? "Checking…" : "Check again"}
+            </ActionButton>
+          </div>
         </>
       )}
     </div>

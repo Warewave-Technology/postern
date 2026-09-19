@@ -2103,7 +2103,9 @@ label.check input[type="checkbox"] {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 1rem 1.15rem 0.5rem;
+  /* ⚠️ ÜST BOŞLUK BAŞLIĞIN NEFESİ. 1rem'de başlık pencerenin kenarına
+     yapışık duruyordu (kullanıcı ekran görüntüsüyle gösterdi). */
+  padding: 1.4rem 1.4rem 0.5rem;
 }
 .modal-head h3 {
   font-size: 15px;
@@ -2122,13 +2124,36 @@ label.check input[type="checkbox"] {
    kapsayıcının içinde duruyor, yani modalın kendi stili nereye
    takıldığından BAĞIMSIZ olmak zorunda. */
 .modal .modal-sub {
-  margin: 0 1.15rem 1rem;
+  margin: 0 1.4rem 1rem;
   color: var(--muted);
   font-size: 12.5px;
   max-width: 60ch;
 }
 .modal .modal-body {
-  padding: 0 1.15rem 1.15rem;
+  padding: 0 1.4rem 1.4rem;
+}
+
+/*
+ * ⚠️ MODALIN DÜĞMELERİ SAĞ ALTTA. Bu panelde her düğme satırı sola
+ * yaslıydı ve bir iletişim kutusunun eylemleri hemen her arayüzde sağ
+ * altta aranıyor (kullanıcı söyledi).
+ *
+ * ⚠️ SAYFA FORMLARI DEĞİŞMİYOR, VE BU BİLİNÇLİ. Orada desen başka:
+ * solda birincil eylem, sağa itilmiş yıkıcı eylem (.form-push). İkisini
+ * de sağa toplamak, "Add command" ile "Remove rule"u yan yana getirirdi
+ * — yani yanlışlıkla basılması en pahalı olan iki düğmeyi.
+ */
+.modal .form-actions,
+.modal .page-actions {
+  justify-content: flex-end;
+}
+/*
+ * Sağa yaslı bir satırda "sağa it" anlamını kaybediyor: yıkıcı eylem
+ * artık SOLA itiliyor, yani birincil eylemden yine uzak duruyor.
+ */
+.modal .form-actions > .form-push {
+  margin-left: 0;
+  margin-right: auto;
 }
 /* Tek bir kısa alan için 44rem çok geniş: altı haneli bir kod kutusu
    ekranı boydan boya kaplıyordu. Yönetim formları (birkaç alan yan yana)
@@ -3810,7 +3835,15 @@ a.tcard-name:focus-visible {
 .chain-status {
   display: grid;
   gap: 0.2rem;
-  justify-items: start;
+}
+/*
+ * ⚠️ NOT KUTUSU MODALI DOLDURUYOR. 62ch sınırı geniş bir SAYFADA
+ * okunurluk için; modalın içinde o sınır, kutuyu pencerenin ortasında
+ * dar bir şerit hâlinde bırakıyordu (kullanıcı ekran görüntüsüyle
+ * gösterdi) — modal zaten satır uzunluğunu kendi genişliğiyle sınırlıyor.
+ */
+.chain-status .chain-note {
+  max-width: none;
 }
 .chain-line {
   display: flex;
