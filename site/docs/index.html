@@ -1332,12 +1332,12 @@ $ postern admin issue  --name admin --config postern.yaml
         <li><b>No port forwarding</b>, by design.</li>
         <li><b>What the recording chain proves is narrow.</b> Every session — shell and SFTP alike — is sealed with a SHA-256 chain, and an SFTP session is recorded as a decoded narrative (<code>postern sftp: get rapor.pdf (1.2 MiB)</code>) rather than as raw protocol; file contents are never recorded. What the chain shows is that a file was not altered after it was written. Anyone with root on the bastion can rewrite the file <em>and</em> the head stored beside it. The copy that narrows that is the head each archived recording carries as object metadata, which <code>postern session verify</code> and the panel both read back.</li>
         <li><b>The journal check runs on this host's own database.</b> A recording's seal line counts the session's file events and carries a digest of the lines it counted; both <code>postern session verify</code> and the session view compare that count with the rows still in <code>session_files</code> and recompute the digest from them — so a deleted row no longer leaves a complete-looking file list under a recording that still verifies, and an edited row is reported rather than read as an audit trail. The rows, the count and the digest all live here and root here can rewrite them together; what this closes is that editing a row used to cost nothing. Sessions that closed before this feature landed have no stored seal and are reported as <em>not checked</em>, never as verified.</li>
-        <li><b>Closing a session reaches only this process.</b> A second postern against the same database is not asked and cannot be told; the panel answers "not running on this instance" rather than pretending. That startup sweep would also close the other instance's live rows — one more reason 1.1 means one node.</li>
+        <li><b>Closing a session reaches only this process.</b> A second postern against the same database is not asked and cannot be told; the panel answers "not running on this instance" rather than pretending. That startup sweep would also close the other instance's live rows — one more reason this release means one node.</li>
         <li><b>The panel speaks HTTP</b>; TLS is your reverse proxy's job.</li>
         <li><b>Certificate login only on targets.</b> postern does not carry a user's own key or a password through to a server that does not trust the CA.</li>
       </ul>
       <p>
-        1.1 means the paths above are built and tested against real OpenSSH,
+        1.3 means the paths above are built and tested against real OpenSSH,
         Keycloak, OpenLDAP and PostgreSQL on every change. It does not mean years
         of production behind it. Treat it as a careful new tool, and keep the
         second way in.
@@ -1398,13 +1398,13 @@ $ postern admin issue  --name admin --config postern.yaml
           </tr>
           <tr>
             <td>Recording tamper-evidence</td>
-            <td><b>None</b> &mdash; <a href="#roadmap">1.3</a></td><td>None documented<sup>3</sup></td>
+            <td><b>Hash chain, verified on demand</b></td><td>None documented<sup>3</sup></td>
             <td>None documented</td><td><b>Sum and signature</b></td>
             <td>None documented</td><td>Nothing recorded</td>
           </tr>
           <tr>
             <td>Per-command allow or deny</td>
-            <td><b>None</b> &mdash; <a href="#roadmap">1.2</a></td><td>None documented<sup>4</sup></td>
+            <td><b>None</b> &mdash; <a href="#roadmap">not planned</a></td><td>None documented<sup>4</sup></td>
             <td>None &mdash; &ldquo;an audit aid, not a security boundary&rdquo;</td>
             <td>None documented</td><td>Whole predefined commands</td>
             <td><code>ForceCommand</code>, one command</td>
@@ -1489,95 +1489,69 @@ $ postern admin issue  --name admin --config postern.yaml
         true, and a few say plainly what we will <em>not</em> build even though
         people ask.
       </p>
-
-      <h3>1.2 — Saying which commands may run</h3>
       <p>
-        The largest gap between postern and a tool an auditor is happy with.
-        Today every session is recorded; none is constrained. 1.2 adds a
-        command policy attached to a group, and it is deliberately built around
-        what SSH lets a proxy actually enforce.
+        Three entries have come off it since: recordings you can prove were not
+        edited, second factors that are not codes, and access that expires on
+        its own all shipped in 1.2 and 1.3. A fourth &mdash; a per-command
+        allow-list &mdash; moved the other way, into
+        <a href="#roadmap">what we will not build</a>, once it was clear which
+        half of it SSH lets a proxy actually enforce.
+      </p>
+
+      <h3>2.0 &mdash; postern owns the accounts</h3>
+      <p>
+        Today a person can only reach a machine that already has an account for
+        them, which means something else put it there: Ansible, a golden image,
+        a ticket. postern stands in front of the door and has nothing to say
+        about who is behind it. 2.0 closes that: <b>the account exists where it
+        is used.</b>
       </p>
       <ul>
         <li>
-          <b>An allow-list or deny-list on <code>exec</code>.</b> When a client
-          runs <code>ssh you:web-01@bastion systemctl restart nginx</code>, the
-          command arrives as the payload of an <code>exec</code> request, and
-          postern reads that payload before anything reaches the target. A
-          refusal there is a real refusal: the command never runs. The
-          <a href="#refuse">request filter</a> is already the place this belongs —
-          it defaults to deny and parses payloads today.
+          <b>The account is created on the first connection, not pushed to the
+          fleet.</b> Access is already defined by directory groups mapping to
+          postern groups; a group that grants a machine can also mean an account
+          on it. Ansible writes N people onto M hosts; postern writes the one
+          pair somebody actually uses.
         </li>
         <li>
-          <b>Interactive shells become a separate permission.</b> A group can be
-          marked exec-only, and then <code>shell</code> is refused outright.
-          This is the enforceable half of command control, and it is the half
-          that matters: if a person has an interactive shell, they have a shell.
+          <b>An account that is already there is adopted, not recreated.</b> Its
+          uid, shell and home are left alone, and which of the two happened is
+          recorded &mdash; a deletion has to be able to say whether the account
+          was postern's to begin with.
         </li>
         <li>
-          <b>Refusals are recorded as refusals</b>, the way the SFTP audit
-          already keeps a denied transfer as a denied transfer rather than
-          dropping it.
+          <b>Losing the last group that granted a machine locks the account
+          there</b>, and a person decides whether it goes for good. Nothing is
+          deleted on a timer.
+        </li>
+        <li>
+          <b>A sweep catches what was changed by hand</b>, including an account
+          added to one of postern's own groups on the host &mdash; which would
+          otherwise hold the sudo rule postern wrote while appearing in none of
+          its records.
         </li>
       </ul>
       <div class="stop">
-        <b>What we will not ship: a deny-list for interactive shells</b>
+        <b>It is off unless you turn it on</b>
         <p>
-          Inside an interactive session postern sees a byte stream, not
-          commands. A pattern match on that stream is defeated by an alias, a
-          shell builtin, a here-doc, <code>base64 -d | sh</code>, or a slow
-          typist splitting a word across two packets. Shipping it would put a
-          control in the panel that reads as enforcement and is not — the exact
-          failure this project spends its time removing. Deny the shell, or
-          record it and read the recording. We would rather say that than sell
-          a filter that a determined person walks past.
+          An upgrade does not start writing accounts on your machines. Both
+          switches default off, and the one that opens accounts refuses to start
+          without the management account it needs. Turning them on makes postern
+          the source of the OS accounts on your fleet; that is the point of the
+          feature and not a line to copy into a config without reading it.
         </p>
       </div>
 
-      <h3>1.3 — Recordings you can prove were not edited</h3>
-      <p>
-        <a href="#limits">Limits of 1.1</a> is blunt that there is no integrity
-        seal, and the reasoning stands: a hash chain computed and stored on the
-        bastion is one that whoever owns the bastion can recompute. The way out
-        is not a better chain, it is an anchor somewhere the bastion cannot
-        reach.
-      </p>
-      <ul>
-        <li>A hash chain over each finished recording, with the head written to
-          the archive bucket under Object Lock and, optionally, pushed to an
-          endpoint outside the machine.</li>
-        <li>Verification that names what it proves: a recording matches its
-          chain, and the chain head matches the copy the bastion could not
-          rewrite. Anything weaker gets said out loud rather than implied.</li>
-      </ul>
-
-      <h3>1.4 — Second factors that are not TOTP</h3>
-      <p>
-        WebAuthn and passkeys, alongside the TOTP that 1.1 made
-        mandatory for local accounts. A hardware key or a platform
-        authenticator is phishing-resistant in a way a six-digit code is not,
-        and it removes the case TOTP handles worst: the person who has their
-        password and their laptop but not their phone.
-      </p>
-
-      <h3>1.5 — Access that expires on its own</h3>
-      <ul>
-        <li><b>Time-boxed grants.</b> A group on a person, or a target on a group,
-          with an end time — so "for this incident" does not quietly become
-          permanent. Today revocation is a decision somebody has to remember to
-          make.</li>
-        <li><b>Approval before a class of target.</b> A second administrator
-          releases the grant, and both names land in the audit trail.</li>
-      </ul>
-
-      <h3>1.6 — Telling the systems that watch</h3>
+      <h3>2.1 — Telling the systems that watch</h3>
       <p>
         The audit ledger and session events are readable from the panel and
-        <code>postern log</code>. 1.6 pushes them out: a webhook and a syslog
+        <code>postern log</code>. 2.1 pushes them out: a webhook and a syslog
         writer, with the same rule the ledger already follows — a delivery that
         cannot be made is reported, never silently dropped.
       </p>
 
-      <h3>1.7 — A command that checks the install</h3>
+      <h3>2.2 — A command that checks the install</h3>
       <p>
         One preflight that answers what <a href="#trouble">Troubleshooting</a>
         currently answers by hand: is the schema current, is the CA readable, is
@@ -1587,7 +1561,7 @@ $ postern admin issue  --name admin --config postern.yaml
         run before an outage rather than during one.
       </p>
 
-      <h3>2.0 — More than one node</h3>
+      <h3>3.0 — More than one node</h3>
       <p>
         Single node is the limit with the longest shadow: closing a session
         reaches only the process holding it, the startup sweep assumes it is
@@ -1603,6 +1577,14 @@ $ postern admin issue  --name admin --config postern.yaml
           to record faithfully and a second way to be wrong about what happened.
           <a href="#limits">One protocol, done properly</a> is the whole idea.</li>
         <li><b>An agent on the target.</b> The absence of one is the product.</li>
+        <li><b>A deny-list for commands inside an interactive shell.</b> Inside
+          an interactive session postern sees a byte stream, not commands. A
+          pattern match on that stream is defeated by an alias, a shell builtin,
+          a here-doc, <code>base64 -d | sh</code>, or a slow typist splitting a
+          word across two packets. Shipping it would put a control in the panel
+          that reads as enforcement and is not &mdash; the exact failure this
+          project spends its time removing. Deny the shell, or record it and
+          read the recording.</li>
         <li><b>Port forwarding.</b> A tunnel postern cannot record is a tunnel
           it will not carry. If this ever changes it will be a narrow, recorded,
           named-destination form — not <code>-L</code> as you know it.</li>
