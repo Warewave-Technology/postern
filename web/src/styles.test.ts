@@ -263,20 +263,10 @@ describe("düğme satırı", () => {
       /justify-content:\s*flex-end/,
     );
 
-    const wizard = css.slice(css.indexOf(".modal .page-actions {"));
-    expect(wizard.slice(0, wizard.indexOf("}"))).toMatch(
+    const bar = css.slice(css.indexOf("\n.page-actions {"));
+    expect(bar.slice(0, bar.indexOf("}"))).toMatch(
       /justify-content:\s*flex-end/,
     );
-  });
-
-  /*
-   * ⚠️ SAYFA BAŞLIĞINDAKİ ARAÇ ÇUBUĞU SOLDA KALIYOR. page-actions iki
-   * ayrı iş görüyor; sayfanın üstündeki hâli altındaki tabloya ait ve
-   * onu sağa itmek, eylemi üzerinde çalıştığı listeden uzaklaştırırdı.
-   */
-  it("sayfa başlığındaki araç çubuğu tabloya yakın kalıyor", () => {
-    const plain = css.slice(css.indexOf("\n.page-actions {"));
-    expect(plain.slice(0, plain.indexOf("}"))).not.toMatch(/justify-content/);
   });
 
   /*

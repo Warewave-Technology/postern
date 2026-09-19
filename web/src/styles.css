@@ -576,9 +576,20 @@ section > .page-head:not(:first-child) {
 .page-bar .page-head {
   margin-bottom: 0;
 }
-/* Sayfa çubuğunun sağındaki düğme öbeği (Kapat + Yenile gibi). */
+/*
+ * Düğme öbeği: sayfa çubuğunun sağında (Kapat + Yenile), bir tablonun
+ * üstünde (seçime uygulanan eylemler) ve modal sihirbazlarının adım
+ * düğmelerinde.
+ *
+ * ⚠️ SAĞA YASLI — HER ÜÇÜNDE DE. Bu panelde her düğme satırı sola
+ * yaslıydı; eylemler hemen her arayüzde sağ altta/üstte aranıyor
+ * (kullanıcı söyledi). Sayfa çubuğundaki hâli zaten sağdaydı (.page-bar
+ * space-between veriyor), bu kural onu değiştirmiyor; değişen, tablonun
+ * üstündeki ve sihirbazdaki satırlar.
+ */
 .page-actions {
   display: flex;
+  justify-content: flex-end;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
@@ -2133,17 +2144,7 @@ label.check input[type="checkbox"] {
   padding: 0 1.4rem 1.4rem;
 }
 
-/*
- * ⚠️ SİHİRBAZIN SATIRI DA SAĞA — AMA YALNIZCA MODAL İÇİNDE.
- *
- * page-actions iki ayrı işte kullanılıyor: modal içindeki sihirbaz
- * adımlarının düğmeleri, ve sayfa BAŞLIĞINDAKİ araç çubuğu. İkincisi
- * üstte ve altındaki tabloya ait; onu sağa itmek, eylemi üzerinde
- * çalıştığı listeden uzaklaştırırdı.
- */
-.modal .page-actions {
-  justify-content: flex-end;
-}
+
 /* Tek bir kısa alan için 44rem çok geniş: altı haneli bir kod kutusu
    ekranı boydan boya kaplıyordu. Yönetim formları (birkaç alan yan yana)
    geniş hâli istiyor, bu yüzden varsayılan değişmiyor. */
