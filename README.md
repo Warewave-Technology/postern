@@ -481,14 +481,15 @@ so it is always clear which answers cost a command and which did not.
 
 ### Discovering machines from a hypervisor
 
-Under **Settings → Discovery** an administrator adds a *source*: a
+Under **Settings → Discovery sources** an administrator adds a *source*: a
 Proxmox cluster or a vCenter, with a read-only API token or account,
 the tag key that names the group (`role_ops` on Proxmox, whose tags
 cannot contain `=` or `:`; a tag category on vSphere), an optional name
 pattern, the SSH port, and a schedule. postern reads the source on that
 schedule, or when you press **Run now**, reads the host key of every
-running machine it reports, and lists the machines with what stands in
-the way of registering each one. The credentials are sealed with the
+running machine it reports, and lists what it found under
+**Settings → Discovery** — the machines waiting for a decision, with
+what stands in the way of registering each one. The credentials are sealed with the
 bastion's secret key and never shown again. **Test connection** in the
 form signs in with what you typed and counts what the platform reports —
 machines, running ones, those matching the name pattern, those carrying

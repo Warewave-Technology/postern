@@ -30,6 +30,40 @@ audit rows into a shape it does not understand.
 
 ## Unreleased
 
+### The panel moved some things
+
+**Adding a discovery source is on its own screen.** Sources and the
+machines they found were two tables under one heading, and which was which
+did not read — the more so because one of the buttons on that page removes
+a source along with every machine it found. They are two entries under
+Infrastructure now: **Discovery sources** for what postern reads,
+**Discovery** for what it found.
+
+**The machine list shows what is waiting for a decision.** It used to show
+six states at once; four of them had nothing to do on that screen, and on
+a cluster where twenty-two of twenty-four machines were in those states
+the two that needed an answer were lost among them. The rest are one click
+away, each with a sentence saying what the state means — `blocked` in
+particular reads as a decision postern made, and it is the machine's
+state.
+
+**Notifications have a page.** The bell opened a dropdown that cut its own
+sentences and left nothing behind when it closed, so there was no such
+thing as having seen something. It opens a page now and marks everything
+seen; the badge counts only what started waiting since *you* last looked,
+and that stamp is per person, so one admin reading does not clear a
+colleague's badge. Nothing is stored but that timestamp — the list is
+still derived, so a line disappears when its work is done.
+
+**A session record says which door it came through** — an SSH client, the
+panel's terminal, or the panel's file browser. Opening the file browser on
+a host somebody is already in creates a second session, and those two rows
+used to be identical in every column the panel shows.
+
+**Dialog and form buttons are at the bottom right**, where they are in
+almost every other interface. A destructive action still sits apart from
+the primary one rather than next to it.
+
 ### The home screen groups by application and environment
 
 **Targets carrying an `app` label are grouped under it, and split by
@@ -147,11 +181,6 @@ them only to its log and the live event stream. Logs rotate and a stream
 is gone once you look away, so the audit screen showed a session an admin
 cut and a session the person exited as the same row. The Sessions list
 marks a cut one, and the record says who did it.
-
-Sessions also record which door they came through — an SSH client, the
-panel's terminal, or the panel's file browser. Opening the file browser on
-a host somebody is already in creates a second session, and those two rows
-used to be identical in every column the panel shows.
 
 Run `postern db migrate` before starting this version.
 
