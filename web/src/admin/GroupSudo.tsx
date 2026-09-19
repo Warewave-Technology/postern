@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { api, ApiError, GroupSudoCommand, GroupSudoRule, toMessage } from "../api";
+import {
+  api,
+  ApiError,
+  GroupSudoCommand,
+  GroupSudoRule,
+  toMessage,
+} from "../api";
 import { ActionButton, ErrorLine } from "./common";
 import DataTable, { Column } from "./DataTable";
 import Modal from "./Modal";
@@ -79,7 +85,9 @@ export default function GroupSudo({
   const removeCommand = async (c: GroupSudoCommand) => {
     try {
       await write(
-        commands.filter((x) => !(x.command === c.command && x.run_as === c.run_as)),
+        commands.filter(
+          (x) => !(x.command === c.command && x.run_as === c.run_as),
+        ),
         rule?.acknowledged ?? false,
       );
     } catch (e: unknown) {
@@ -151,24 +159,24 @@ export default function GroupSudo({
       className: "actions",
       render: (c) => (
         <>
-        <ActionButton
-          onClick={() => setEditing(c)}
-          label={`edit command ${c.command} of group ${group}`}
-        >
-          Edit
-        </ActionButton>
-        <ActionButton
-          variant="danger"
-          onClick={() => removeCommand(c)}
-          confirm={
-            commands.length === 1
-              ? `Remove "${c.command}"? It is the only command in the rule, so the rule itself goes and the group stops granting sudo.`
-              : `Remove "${c.command}" (as ${c.run_as}) from the sudo rule of "${group}"? Everyone in the group loses it.`
-          }
-          label={`remove command ${c.command} from group ${group}`}
-        >
-          Remove
-        </ActionButton>
+          <ActionButton
+            onClick={() => setEditing(c)}
+            label={`edit command ${c.command} of group ${group}`}
+          >
+            Edit
+          </ActionButton>
+          <ActionButton
+            variant="danger"
+            onClick={() => removeCommand(c)}
+            confirm={
+              commands.length === 1
+                ? `Remove "${c.command}"? It is the only command in the rule, so the rule itself goes and the group stops granting sudo.`
+                : `Remove "${c.command}" (as ${c.run_as}) from the sudo rule of "${group}"? Everyone in the group loses it.`
+            }
+            label={`remove command ${c.command} from group ${group}`}
+          >
+            Remove
+          </ActionButton>
         </>
       ),
     },
@@ -178,10 +186,10 @@ export default function GroupSudo({
     <>
       <p className="muted small">
         Written on each host as <code>%{group}</code> in{" "}
-        <code>/etc/sudoers.d/postern-{group}</code>. Everyone in this group draws
-        it from the group; what a temporary grant adds on top stays with that
-        account and leaves with it. Each command names the account it runs as —
-        <code>root</code> unless you say otherwise.
+        <code>/etc/sudoers.d/postern-{group}</code>. Everyone in this group
+        draws it from the group; what a temporary grant adds on top stays with
+        that account and leaves with it. Each command names the account it runs
+        as —<code>root</code> unless you say otherwise.
       </p>
 
       <ErrorLine msg={error} />
@@ -218,12 +226,17 @@ export default function GroupSudo({
         />
       )}
 
+      {/*
+        ⚠️ YIKICI EYLEM ÖNCE GELİYOR VE SOLA İTİLİYOR. Satır sağa yaslı;
+        son çocuğa "sola it" vermek boşluğu yutup bütün grubu sola
+        kaydırıyordu ve "Add command" ile "Remove rule" yan yana
+        kalıyordu — yanlışlıkla basılması en pahalı olan iki düğme
+        (ekranda görüldü). DOM sırası görünen sırayla aynı, yani klavyeyle
+        gezen de aynı şeyi yaşıyor.
+      */}
       <div className="form-actions">
-        <ActionButton variant="primary" onClick={() => setAdding(true)}>
-          Add command
-        </ActionButton>
         {rule && (
-          <span className="form-push">
+          <span className="form-pull">
             <ActionButton
               variant="danger"
               onClick={removeRule}
@@ -234,6 +247,9 @@ export default function GroupSudo({
             </ActionButton>
           </span>
         )}
+        <ActionButton variant="primary" onClick={() => setAdding(true)}>
+          Add command
+        </ActionButton>
       </div>
 
       <Modal
@@ -273,7 +289,9 @@ export default function GroupSudo({
             onSave={async (next, ack) => {
               await write(
                 commands.map((c) =>
-                  c.command === editing.command && c.run_as === editing.run_as ? next : c,
+                  c.command === editing.command && c.run_as === editing.run_as
+                    ? next
+                    : c,
                 ),
                 ack,
               );
@@ -379,7 +397,11 @@ function RuleForm({
       )}
 
       <div className="form-actions">
-        <ActionButton variant="primary" onClick={save} disabled={command.command === ""}>
+        <ActionButton
+          variant="primary"
+          onClick={save}
+          disabled={command.command === ""}
+        >
           {submitLabel}
         </ActionButton>
         <span className="muted small">

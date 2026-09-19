@@ -251,33 +251,49 @@ describe("bölüm etiketi okunurluğu", () => {
  * "Add command" ile "Remove rule"u yan yana getirirdi — yanlışlıkla
  * basılması en pahalı olan iki düğmeyi.
  */
-describe("modal düğme satırı", () => {
-  it("sağa yaslı, ama yalnızca modal içinde", () => {
-    const inModal = css.slice(css.indexOf(".modal .form-actions,"));
-    expect(inModal.slice(0, inModal.indexOf("}"))).toMatch(
+describe("düğme satırı", () => {
+  /*
+   * ⚠️ FORM EYLEMLERİ SAĞ ALTTA. Bu panelde her düğme satırı sola
+   * yaslıydı; bir formun eylemleri hemen her arayüzde sağ altta
+   * aranıyor (kullanıcı söyledi).
+   */
+  it("form eylemleri her yerde sağa yaslı", () => {
+    const rule = css.slice(css.indexOf("\n.form-actions {"));
+    expect(rule.slice(0, rule.indexOf("}"))).toMatch(
       /justify-content:\s*flex-end/,
     );
 
-    // Sihirbazın satırı da (.page-actions) modal içinde sağa yaslı.
-    expect(inModal.slice(0, inModal.indexOf("}"))).toMatch(
-      /\.modal \.page-actions/,
+    const wizard = css.slice(css.indexOf(".modal .page-actions {"));
+    expect(wizard.slice(0, wizard.indexOf("}"))).toMatch(
+      /justify-content:\s*flex-end/,
     );
-
-    // Sayfa formundaki satırlar sola yaslı KALIYOR.
-    for (const sel of ["\n.form-actions {", "\n.page-actions {"]) {
-      const plain = css.slice(css.indexOf(sel));
-      expect(plain.slice(0, plain.indexOf("}"))).not.toMatch(/justify-content/);
-    }
   });
 
   /*
-   * Sağa yaslı bir satırda "sağa it" anlamını kaybediyor: yıkıcı eylem
-   * SOLA itiliyor, yani birincil eylemden yine uzak duruyor.
+   * ⚠️ SAYFA BAŞLIĞINDAKİ ARAÇ ÇUBUĞU SOLDA KALIYOR. page-actions iki
+   * ayrı iş görüyor; sayfanın üstündeki hâli altındaki tabloya ait ve
+   * onu sağa itmek, eylemi üzerinde çalıştığı listeden uzaklaştırırdı.
    */
-  it("yıkıcı eylemi birincil eylemden ayırmaya devam ediyor", () => {
-    const rule = css.slice(css.indexOf(".modal .form-actions > .form-push {"));
-    const body = rule.slice(0, rule.indexOf("}"));
-    expect(body).toMatch(/margin-right:\s*auto/);
-    expect(body).toMatch(/margin-left:\s*0/);
+  it("sayfa başlığındaki araç çubuğu tabloya yakın kalıyor", () => {
+    const plain = css.slice(css.indexOf("\n.page-actions {"));
+    expect(plain.slice(0, plain.indexOf("}"))).not.toMatch(/justify-content/);
+  });
+
+  /*
+   * ⚠️ "İT" ARTIK SOLA İTİYOR. Satır sağa yaslıyken sağa itmenin anlamı
+   * kalmıyor; bu sınıfın var olma sebebi YIKICI eylemi birincilden uzak
+   * tutmak ve bunu şimdi karşı kenara iterek yapıyor.
+   */
+  /*
+   * ⚠️ İKİ YÖN, İKİ SINIF. Sağa yaslı bir satırın SON çocuğuna "sola it"
+   * vermek boşluğu yutup bütün grubu sola kaydırıyor — ekranda görüldü:
+   * ayırmak istediğimiz iki düğme yan yana kalmıştı.
+   */
+  it("iki itme yönü de var ve birbirinin tersi", () => {
+    const push = css.slice(css.indexOf(".form-actions > .form-push {"));
+    expect(push.slice(0, push.indexOf("}"))).toMatch(/margin-left:\s*auto/);
+
+    const pull = css.slice(css.indexOf(".form-actions > .form-pull {"));
+    expect(pull.slice(0, pull.indexOf("}"))).toMatch(/margin-right:\s*auto/);
   });
 });

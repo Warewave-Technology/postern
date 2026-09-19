@@ -2134,26 +2134,15 @@ label.check input[type="checkbox"] {
 }
 
 /*
- * ⚠️ MODALIN DÜĞMELERİ SAĞ ALTTA. Bu panelde her düğme satırı sola
- * yaslıydı ve bir iletişim kutusunun eylemleri hemen her arayüzde sağ
- * altta aranıyor (kullanıcı söyledi).
+ * ⚠️ SİHİRBAZIN SATIRI DA SAĞA — AMA YALNIZCA MODAL İÇİNDE.
  *
- * ⚠️ SAYFA FORMLARI DEĞİŞMİYOR, VE BU BİLİNÇLİ. Orada desen başka:
- * solda birincil eylem, sağa itilmiş yıkıcı eylem (.form-push). İkisini
- * de sağa toplamak, "Add command" ile "Remove rule"u yan yana getirirdi
- * — yani yanlışlıkla basılması en pahalı olan iki düğmeyi.
+ * page-actions iki ayrı işte kullanılıyor: modal içindeki sihirbaz
+ * adımlarının düğmeleri, ve sayfa BAŞLIĞINDAKİ araç çubuğu. İkincisi
+ * üstte ve altındaki tabloya ait; onu sağa itmek, eylemi üzerinde
+ * çalıştığı listeden uzaklaştırırdı.
  */
-.modal .form-actions,
 .modal .page-actions {
   justify-content: flex-end;
-}
-/*
- * Sağa yaslı bir satırda "sağa it" anlamını kaybediyor: yıkıcı eylem
- * artık SOLA itiliyor, yani birincil eylemden yine uzak duruyor.
- */
-.modal .form-actions > .form-push {
-  margin-left: 0;
-  margin-right: auto;
 }
 /* Tek bir kısa alan için 44rem çok geniş: altı haneli bir kod kutusu
    ekranı boydan boya kaplıyordu. Yönetim formları (birkaç alan yan yana)
@@ -3985,8 +3974,15 @@ a.tcard-name:focus-visible {
   margin-bottom: 0.9rem;
 }
 
+/*
+ * ⚠️ FORM EYLEMLERİ SAĞ ALTTA — HER YERDE.
+ *
+ * Bu panelde her düğme satırı sola yaslıydı; bir formun eylemleri hemen
+ * her arayüzde sağ altta aranıyor (kullanıcı söyledi).
+ */
 .form-actions {
   display: flex;
+  justify-content: flex-end;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.6rem;
@@ -3994,8 +3990,26 @@ a.tcard-name:focus-visible {
   padding-top: 0.9rem;
   border-top: 1px solid var(--line);
 }
+/*
+ * form-push, ögeyi SAĞ kenara iter; form-pull SOL kenara.
+ *
+ * ⚠️ İKİ SINIF, ÇÜNKÜ İKİ FARKLI İŞ VAR VE TEK SINIF İKİSİNİ BİRDEN
+ * YAPAMAZ. Kaynak formunda itilen şey BİRİNCİL eylem ("Save source"),
+ * yanındaki ikincil eylem ve açıklamasıyla arasında boşluk kalsın diye.
+ * Sudo kartında itilen şey YIKICI eylem ("Remove rule"), birincilden
+ * uzak dursun diye. Satır sağa yaslandıktan sonra ikisi ters yönlere
+ * bakıyor.
+ *
+ * ⚠️ SOLA İTİLEN ÖGE DOM'DA DA ÖNDE OLMAK ZORUNDA. Sağa yaslı bir
+ * satırın SON çocuğuna margin-right:auto vermek, boşluğu yutup BÜTÜN
+ * grubu sola kaydırıyor — ekranda görüldü: "Add command" ile "Remove
+ * rule" yan yana kaldı, yani tam da ayırmak istediğimiz iki düğme.
+ */
 .form-actions > .form-push {
   margin-left: auto;
+}
+.form-actions > .form-pull {
+  margin-right: auto;
 }
 
 /*
