@@ -579,6 +579,24 @@ export function Sessions({ theme }: { theme: Resolved }) {
               ← Back to all sessions
             </ActionButton>
           )}
+          {/*
+            ⚠️ ZİNCİR KONTROLÜ BİR EYLEM, KENDİLİĞİNDEN ÇİZİLEN BİR KART
+            DEĞİL. Her kayıt açılışında görünen kart, okunacak bir şey
+            olmadığında da yer kaplıyordu.
+
+            ⚠️ ÖBÜR İKİ DÜĞMENİN ARASINDA. Aşağıda kendi başına duran bir
+            eylem çubuğu, sayfada ikinci bir düğme bölgesi açıyordu;
+            açılan kaydın üstünde yapılabilecek her şey tek yerde
+            toplanıyor.
+          */}
+          {chainOf && (
+            <ActionButton
+              onClick={() => setCheckingChain(true)}
+              label={`check the recording chain of session ${chainOf.id}`}
+            >
+              Check recording chain
+            </ActionButton>
+          )}
           <ActionButton onClick={refresh} label="refresh the session list">
             Refresh
           </ActionButton>
@@ -682,22 +700,6 @@ export function Sessions({ theme }: { theme: Resolved }) {
         olduğu için oynatıcı hiç açılmayabiliyor; tabloyu oynatıcının
         içine koymak, tam da onun gerektiği oturumlarda gizlerdi.
       */}
-      {/*
-        ⚠️ ZİNCİR KONTROLÜ ARTIK İSTENDİĞİNDE. Her kayıt açılışında
-        kendiliğinden çizilen bir kart, okunacak bir şey olmadığında da
-        yer kaplıyordu; kontrolün kendisi bir EYLEM ve düğmesi olmalı.
-      */}
-      {chainOf && (
-        <div className="page-actions">
-          <ActionButton
-            onClick={() => setCheckingChain(true)}
-            label={`check the recording chain of session ${chainOf.id}`}
-          >
-            Check recording chain
-          </ActionButton>
-        </div>
-      )}
-
       <Modal
         open={checkingChain && chainOf !== null}
         title="Recording chain"

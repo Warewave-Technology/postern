@@ -625,6 +625,22 @@ describe("açılan kayıt", () => {
     // Açılışta kart yok.
     expect(screen.queryByRole("dialog")).toBeNull();
 
+    /*
+     * ⚠️ DÜĞMENİN YERİ DE ÖLÇÜLÜYOR. Aşağıda kendi başına duran bir
+     * eylem çubuğu sayfada ikinci bir düğme bölgesi açıyordu; açılan
+     * kaydın üstünde yapılabilecek her şey tek çubukta ve bu sırada
+     * (kullanıcı ekran görüntüsüyle gösterdi).
+     */
+    const bar = document.querySelector(".page-actions");
+    const labels = Array.from(bar?.querySelectorAll("button") ?? []).map((b) =>
+      (b.textContent ?? "").trim(),
+    );
+    expect(labels).toEqual([
+      "← Back to all sessions",
+      "Check recording chain",
+      "Refresh",
+    ]);
+
     await userEvent.click(
       await screen.findByRole("button", { name: /check the recording chain/i }),
     );
