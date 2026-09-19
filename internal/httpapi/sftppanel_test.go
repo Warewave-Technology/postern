@@ -12,6 +12,7 @@ import (
 	"github.com/coder/websocket"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/Warewave-Technology/postern/internal/model"
 	"github.com/Warewave-Technology/postern/internal/proxy"
 )
 
@@ -145,5 +146,32 @@ func TestTerminalChannelStillAsksForAShell(t *testing.T) {
 	}
 	if r2 := <-reqs; r2.Type != "shell" {
 		t.Fatalf("ikinci istek %q", r2.Type)
+	}
+}
+
+/*
+ * ⚠️ PANELİN İKİ KAPISI KAYITTA AYRIŞIYOR.
+ *
+ * Biri bir makinede dururken dosya tarayıcısını açmak İKİNCİ bir oturum
+ * açıyor; kapı yazılmasaydı iki satır, yöneticinin görebildiği her
+ * sütunda birbirinin aynısı olurdu (kullanıcı ekrana bakıp söyledi).
+ * Ölçülen şey, kanalın açılıp açılmadığı değil: proxy.Request'e HANGİ
+ * kapının yazıldığı.
+ */
+func TestThePanelsTwoDoorsAreRecordedApart(t *testing.T) {
+	if got := kindOf(true); got != model.SessionFromFiles {
+		t.Errorf("dosya tarayıcısı = %q, %q bekleniyordu", got, model.SessionFromFiles)
+	}
+	if got := kindOf(false); got != model.SessionFromWeb {
+		t.Errorf("terminal = %q, %q bekleniyordu", got, model.SessionFromWeb)
+	}
+	if kindOf(true) == kindOf(false) {
+		t.Fatal("iki kapı aynı değeri yazıyor")
+	}
+	// SSH istemcisi üçüncü bir değer: panelin iki kapısıyla karışmamalı.
+	for _, k := range []string{kindOf(true), kindOf(false)} {
+		if k == model.SessionFromSSH {
+			t.Errorf("panel kapısı SSH olarak yazılıyor: %q", k)
+		}
 	}
 }

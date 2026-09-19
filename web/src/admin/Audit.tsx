@@ -103,7 +103,8 @@ function SessionFiles({
    * görünüyordu. Uyarıyı tablonun içine koymak, tam da o oturumda
    * gizlerdi — `files.length === 0` dalı aşağıda hiçbir şey çizmiyor.
    */
-  const gap = journal && journal.state !== "intact" && journal.state !== "unmeasured";
+  const gap =
+    journal && journal.state !== "intact" && journal.state !== "unmeasured";
 
   if (files.length === 0) {
     return gap ? <WarnLine msg={journalMsg(journal)} /> : null;
@@ -129,57 +130,57 @@ function SessionFiles({
           dar bir ekranda yine sığmayabilir; sığmazsa tablo kayar,
           kart onu kesmez. */}
       <div className="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Time</th>
-            <th>Op</th>
-            <th>Path</th>
-            <th>Read</th>
-            <th>Wrote</th>
-            {/* ⚠️ SARIYOR: td varsayılanı nowrap ve ret gerekçesi uzun
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Op</th>
+              <th>Path</th>
+              <th>Read</th>
+              <th>Wrote</th>
+              {/* ⚠️ SARIYOR: td varsayılanı nowrap ve ret gerekçesi uzun
                 bir cümle ("postern: this path is explicitly denied").
                 Sarmayınca cümlenin sonu kesiliyordu — yani denetçinin
                 okuması gereken tek şey görünmüyordu. */}
-            <th className="wrap">Result</th>
-          </tr>
-        </thead>
-        <tbody>
-          {files.map((f) => (
-            <tr key={f.id}>
-              <td>
-                <Timestamp value={f.at} />
-              </td>
-              <td>{f.op}</td>
-              <td>
-                <code title={f.path}>{f.path}</code>
-                {f.new_path && (
-                  <>
-                    {" → "}
-                    <code title={f.new_path}>{f.new_path}</code>
-                  </>
-                )}
-              </td>
-              <td>{bytes(f.read)}</td>
-              <td>{bytes(f.wrote)}</td>
-              <td className="wrap">
-                {/*
+              <th className="wrap">Result</th>
+            </tr>
+          </thead>
+          <tbody>
+            {files.map((f) => (
+              <tr key={f.id}>
+                <td>
+                  <Timestamp value={f.at} />
+                </td>
+                <td>{f.op}</td>
+                <td>
+                  <code title={f.path}>{f.path}</code>
+                  {f.new_path && (
+                    <>
+                      {" → "}
+                      <code title={f.new_path}>{f.new_path}</code>
+                    </>
+                  )}
+                </td>
+                <td>{bytes(f.read)}</td>
+                <td>{bytes(f.wrote)}</td>
+                <td className="wrap">
+                  {/*
                   Başarısız satırlar SİLİNMİYOR, işaretleniyor: reddedilen
                   bir silme denemesi engelin çalıştığının kanıtı ve
                   denetimin göstermesi gereken tam olarak bu.
                 */}
-                {f.ok ? (
-                  "ok"
-                ) : (
-                  <span className="bad" title={f.detail}>
-                    denied{f.detail ? ` — ${f.detail}` : ""}
-                  </span>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                  {f.ok ? (
+                    "ok"
+                  ) : (
+                    <span className="bad" title={f.detail}>
+                      denied{f.detail ? ` — ${f.detail}` : ""}
+                    </span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -396,7 +397,10 @@ export function Sessions({ theme }: { theme: Resolved }) {
           {s.temporary && (
             <>
               {" "}
-              <span className="badge badge-warn" title="admitted by a temporary access grant, not by a group">
+              <span
+                className="badge badge-warn"
+                title="admitted by a temporary access grant, not by a group"
+              >
                 temporary
               </span>
             </>
@@ -406,7 +410,54 @@ export function Sessions({ theme }: { theme: Resolved }) {
     },
     // wrap: hostname'ler tek parça; 55 karakterlik bir ad sarmadan
     // tabloyu 1280'de 330px kaydırıyordu (ölçüldü).
-    { key: "target", header: "Target", className: "wrap", value: (s) => s.target },
+    {
+      key: "target",
+      header: "Target",
+      className: "wrap",
+      /*
+       * ⚠️ OTURUMUN HANGİ KAPIDAN AÇILDIĞI SATIRDA YAZIYOR.
+       *
+       * Biri bir makinede dururken panelin dosya tarayıcısını açmak
+       * İKİNCİ bir oturum açıyor ve iki satır, panelin gösterdiği her
+       * sütunda birbirinin aynısıydı: aynı kişi, aynı hedef, aynı
+       * saniye (kullanıcı ekrana bakıp söyledi). "İki oturum açık" ama
+       * hangisinin ne olduğu belli değil, tek satırdan kötü — kopya
+       * gibi okunuyor.
+       *
+       * ⚠️ SSH ROZETSİZ. Olağan olan o; her satıra rozet koymak,
+       * ayırt etmesi gereken ikisini yine gürültüye gömerdi. Rozet
+       * aramada da bulunuyor.
+       */
+      value: (s) =>
+        `${s.target}${s.kind && s.kind !== "ssh" ? " " + s.kind : ""}`,
+      render: (s) => (
+        <>
+          {s.target}
+          {s.kind === "web" && (
+            <>
+              {" "}
+              <span
+                className="badge badge-mono"
+                title="opened from the panel's terminal"
+              >
+                web terminal
+              </span>
+            </>
+          )}
+          {s.kind === "files" && (
+            <>
+              {" "}
+              <span
+                className="badge badge-mono"
+                title="opened from the panel's file browser"
+              >
+                file browser
+              </span>
+            </>
+          )}
+        </>
+      ),
+    },
     /*
      * ⚠️ "OS user" VE "Src" SÜTUNDAN ÇIKTI, VERİDEN ÇIKMADI. İlk bakışın
      * cevaplaması gereken soru "hangisini açayım"; hedefteki hesap ve
@@ -537,6 +588,21 @@ export function Sessions({ theme }: { theme: Resolved }) {
                 <dt>From</dt>
                 <dd className="mono">{opened.src_ip}</dd>
               </div>
+              {/*
+                ⚠️ HANGİ KAPIDAN AÇILDIĞI BURADA DA YAZIYOR. Listedeki
+                rozet "hangisini açayım" sorusunu cevaplıyor; bu satır,
+                açtıktan sonra "bu ne oturumuydu" sorusunu.
+              */}
+              <div>
+                <dt>Opened from</dt>
+                <dd>
+                  {opened.kind === "files"
+                    ? "the panel's file browser"
+                    : opened.kind === "web"
+                      ? "the panel's terminal"
+                      : "an SSH client"}
+                </dd>
+              </div>
               <div>
                 <dt>Started</dt>
                 <dd>
@@ -545,7 +611,13 @@ export function Sessions({ theme }: { theme: Resolved }) {
               </div>
               <div>
                 <dt>Ended</dt>
-                <dd>{opened.ended_at ? <Timestamp value={opened.ended_at} /> : "still open"}</dd>
+                <dd>
+                  {opened.ended_at ? (
+                    <Timestamp value={opened.ended_at} />
+                  ) : (
+                    "still open"
+                  )}
+                </dd>
               </div>
               <div>
                 <dt>Session</dt>
@@ -592,16 +664,17 @@ export function Sessions({ theme }: { theme: Resolved }) {
           searchLabel="search sessions by user, target or address"
           searchPlaceholder="Search sessions…"
           // Sütundan çıkanlar aramada KALIYOR (bkz. os_user/src notu).
-          extraSearch={(s) => `${s.os_user} ${s.src_ip} ${s.id}`}
+          extraSearch={(s) =>
+            `${s.os_user} ${s.src_ip} ${s.id} ${s.kind ?? ""}`
+          }
           foot={
             <p>
               An empty <b>Evidence</b> cell means neither of two things was
               flagged: postern losing audit events, and postern refusing a
               request. It is not a verdict on the recording or the journal —
-              open a session and press <b>Verify</b> for that.
-              {" "}
-              postern lists at most the {SESSION_CAP} most recent sessions, and
-              sorting and search work on what was returned.
+              open a session and press <b>Verify</b> for that. postern lists at
+              most the {SESSION_CAP} most recent sessions, and sorting and
+              search work on what was returned.
               {items.length >= SESSION_CAP &&
                 " This list is at that limit, so older sessions exist and are not shown here."}
             </p>
@@ -638,7 +711,12 @@ export function AdminLog() {
       render: (e) => <code>{e.action}</code>,
     },
     // wrap: "target/<uzun hostname>" tek parça; sarmazsa sütun 460px.
-    { key: "entity", header: "Entity", className: "wrap", value: (e) => e.entity },
+    {
+      key: "entity",
+      header: "Entity",
+      className: "wrap",
+      value: (e) => e.entity,
+    },
     {
       key: "details",
       header: "Details",

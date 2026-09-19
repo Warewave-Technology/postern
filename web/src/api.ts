@@ -234,6 +234,15 @@ export type Session = {
   target: string;
   os_user: string;
   src_ip: string;
+  /**
+   * Oturumun açıldığı kapı: "ssh" bir SSH istemcisi, "web" panelin
+   * terminali, "files" panelin dosya tarayıcısı.
+   *
+   * ⚠️ AYNI GÖRÜNEN İKİ SATIR DENETİM KAYDI DEĞİL. Biri makinede
+   * dururken dosya tarayıcısını açmak İKİNCİ bir oturum açıyor; bu alan
+   * olmadan iki satır, panelin gösterdiği her sütunda aynıydı.
+   */
+  kind?: string;
   /** Oturumu rol değil süreli hak açtı; yoksa alan gelmiyor. */
   temporary?: boolean;
   started_at: string;
@@ -409,7 +418,11 @@ export type Grant = {
   target: string;
   os_user: string;
   groups: string[];
-  sudo?: { run_as?: string; commands: { path: string; args?: string[] }[]; acknowledged?: boolean };
+  sudo?: {
+    run_as?: string;
+    commands: { path: string; args?: string[] }[];
+    acknowledged?: boolean;
+  };
   granted_by: string;
   granted_at: string;
   expires_at: string;
@@ -656,7 +669,11 @@ export type TargetGroups = {
  * sağdaki postern'in kendi nesnesi. İkisine de "group" demek, ekranın
  * anlattığı eşlemeyi anlamsız kılardı.
  */
-export type Mapping = { directory_group: string; group: string; created_by: string };
+export type Mapping = {
+  directory_group: string;
+  group: string;
+  created_by: string;
+};
 export type UnmappedGroup = {
   name: string;
   seen_count: number;
@@ -1046,7 +1063,8 @@ export type SessionDetail = Session & {
  *   unmeasured  — karşılaştıracak sayı yok; ALARM DEĞİL, ama onay da değil
  */
 export type SessionJournal = {
-  state: "intact" | "incomplete" | "missing" | "altered" | "extra" | "unmeasured";
+  state:
+    "intact" | "incomplete" | "missing" | "altered" | "extra" | "unmeasured";
   events: number;
   rows: number;
   lost: number;
@@ -1316,9 +1334,13 @@ export const api = {
   deleteRole: (name: string) =>
     req<void>("DELETE", `/api/admin/groups/${encodeURIComponent(name)}`),
   grantTarget: (group: string, target: string) =>
-    req<void>("POST", `/api/admin/groups/${encodeURIComponent(group)}/targets`, {
-      target,
-    }),
+    req<void>(
+      "POST",
+      `/api/admin/groups/${encodeURIComponent(group)}/targets`,
+      {
+        target,
+      },
+    ),
   revokeTarget: (group: string, target: string) =>
     req<void>(
       "DELETE",
@@ -1333,7 +1355,11 @@ export const api = {
       acknowledged: boolean;
     },
   ) =>
-    req<{ ok: true }>("PUT", `/api/admin/groups/${encodeURIComponent(group)}/sudo`, rule),
+    req<{ ok: true }>(
+      "PUT",
+      `/api/admin/groups/${encodeURIComponent(group)}/sudo`,
+      rule,
+    ),
   /** Kuralı postern'den siler; hedeflerdeki dosya bir sonraki dokunuşa kadar kalıyor. */
   deleteRoleSudo: (group: string) =>
     req<{ ok: true; note?: string }>(
@@ -1358,9 +1384,13 @@ export const api = {
    * Uç da bu yüzden gövdeden okuyor.
    */
   deleteRolePath: (group: string, prefix: string) =>
-    req<void>("DELETE", `/api/admin/groups/${encodeURIComponent(group)}/paths`, {
-      prefix,
-    }),
+    req<void>(
+      "DELETE",
+      `/api/admin/groups/${encodeURIComponent(group)}/paths`,
+      {
+        prefix,
+      },
+    ),
 
   targets: () => req<Target[]>("GET", "/api/admin/targets"),
   myTargets: () => req<MyTarget[]>("GET", "/api/targets"),
@@ -1381,15 +1411,24 @@ export const api = {
       `/api/admin/targets/${encodeURIComponent(name)}/grants`,
     ),
   createGrant: (name: string, g: GrantRequest) =>
-    req<GrantResult>("POST", `/api/admin/targets/${encodeURIComponent(name)}/grants`, g),
+    req<GrantResult>(
+      "POST",
+      `/api/admin/targets/${encodeURIComponent(name)}/grants`,
+      g,
+    ),
   revokeGrant: (id: string) =>
-    req<GrantResult>("POST", `/api/admin/grants/${encodeURIComponent(id)}/revoke`),
+    req<GrantResult>(
+      "POST",
+      `/api/admin/grants/${encodeURIComponent(id)}/revoke`,
+    ),
   /** Bütün hedeflerin hakları, en yeni önce — sekmenin listesi. */
-  allGrants: () => req<{ grants: Grant[]; now: string }>("GET", "/api/admin/grants"),
+  allGrants: () =>
+    req<{ grants: Grant[]; now: string }>("GET", "/api/admin/grants"),
 
   discovery: () => req<DiscoveryOverview>("GET", "/api/admin/discovery"),
   /** Hedeflerde kilitlenmiş, karar bekleyen hesaplar. */
-  lockedAccounts: () => req<{ accounts: LockedAccount[] }>("GET", "/api/admin/host-accounts"),
+  lockedAccounts: () =>
+    req<{ accounts: LockedAccount[] }>("GET", "/api/admin/host-accounts"),
   /** "Kilitli kalsın": hesap açılmıyor, yalnızca listeden çıkıyor. */
   keepLockedAccount: (target: string, username: string) =>
     req<void>(
@@ -1408,25 +1447,42 @@ export const api = {
   /** Bekleyen işler — üst çubuktaki çan ve listesi. */
   notifications: () => req<NotificationList>("GET", "/api/admin/notifications"),
   /** Bakış damgasını şimdiye alır: bundan sonrakiler "yeni" olur. */
-  markNotificationsRead: () => req<void>("POST", "/api/admin/notifications/read"),
+  markNotificationsRead: () =>
+    req<void>("POST", "/api/admin/notifications/read"),
   /** Formdaki değerlerle kaynağa bağlanır; id verilirse ve sır boşsa kayıtlı sır. */
   testDiscoverySource: (s: DiscoverySourceInput & { id?: string }) =>
     req<DiscoveryProbe>("POST", "/api/admin/discovery/test", s),
   createDiscoverySource: (s: DiscoverySourceInput) =>
     req<{ id: string }>("POST", "/api/admin/discovery/sources", s),
   updateDiscoverySource: (id: string, s: DiscoverySourceInput) =>
-    req<{ ok: true }>("PUT", `/api/admin/discovery/sources/${encodeURIComponent(id)}`, s),
+    req<{ ok: true }>(
+      "PUT",
+      `/api/admin/discovery/sources/${encodeURIComponent(id)}`,
+      s,
+    ),
   deleteDiscoverySource: (id: string) =>
-    req<{ ok: true }>("DELETE", `/api/admin/discovery/sources/${encodeURIComponent(id)}`),
+    req<{ ok: true }>(
+      "DELETE",
+      `/api/admin/discovery/sources/${encodeURIComponent(id)}`,
+    ),
   /** Koşu arka planda başlıyor; 202 "başladı" demek. */
   runDiscoverySource: (id: string) =>
-    req<{ started: boolean }>("POST", `/api/admin/discovery/sources/${encodeURIComponent(id)}/run`),
+    req<{ started: boolean }>(
+      "POST",
+      `/api/admin/discovery/sources/${encodeURIComponent(id)}/run`,
+    ),
   discoveryRuns: (id: string) =>
-    req<{ runs: DiscoveryRun[] }>("GET", `/api/admin/discovery/sources/${encodeURIComponent(id)}/runs`),
+    req<{ runs: DiscoveryRun[] }>(
+      "GET",
+      `/api/admin/discovery/sources/${encodeURIComponent(id)}/runs`,
+    ),
   registerDiscovered: (r: RegisterRequest) =>
     req<{ results: Registered[] }>("POST", "/api/admin/discovery/register", r),
   ignoreDiscovered: (machines: MachineRef[], ignored: boolean) =>
-    req<{ changed: number }>("POST", "/api/admin/discovery/ignore", { machines, ignored }),
+    req<{ changed: number }>("POST", "/api/admin/discovery/ignore", {
+      machines,
+      ignored,
+    }),
   /** POST: hedefe yönetim sertifikasıyla bağlanıp defter satırı yazıyor;
    *  GET olsaydı bir <img> ile tetiklenebilirdi (manage/check ile aynı). */
   targetGroups: (name: string) =>
@@ -1457,7 +1513,10 @@ export const api = {
 
   mappings: () => req<Mapping[]>("GET", "/api/admin/mappings"),
   addMapping: (directoryGroup: string, group: string) =>
-    req<void>("POST", "/api/admin/mappings", { directory_group: directoryGroup, group }),
+    req<void>("POST", "/api/admin/mappings", {
+      directory_group: directoryGroup,
+      group,
+    }),
   removeMapping: (directoryGroup: string, group: string) =>
     req<void>(
       "DELETE",

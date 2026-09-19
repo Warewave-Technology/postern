@@ -35,7 +35,8 @@ func (s *Store) OpenSessions(ctx context.Context) ([]model.Session, error) {
 		       s.os_user,
 		       s.src_ip,
 		       s.started_at,
-		       s.recording_path
+		       s.recording_path,
+		       s.kind
 		FROM sessions s
 		JOIN users   u ON u.id = s.user_id
 		JOIN targets t ON t.id = s.target_id
@@ -54,7 +55,7 @@ func (s *Store) OpenSessions(ctx context.Context) ([]model.Session, error) {
 		var sess model.Session
 		var startedAt int64
 		if err := rows.Scan(&sess.ID, &sess.User, &sess.Target, &sess.OSUser,
-			&sess.SrcIP, &startedAt, &sess.RecordingPath); err != nil {
+			&sess.SrcIP, &startedAt, &sess.RecordingPath, &sess.Kind); err != nil {
 			return nil, translateErr("store.OpenSessions", err)
 		}
 		sess.StartedAt = time.Unix(startedAt, 0)

@@ -1049,11 +1049,16 @@ func (s *Server) adminListSessions(w http.ResponseWriter, r *http.Request) {
 	 * açardı — göç 037/038'in NULL kararının panele kadar taşınması.
 	 */
 	type row struct {
-		ID      string  `json:"id"`
-		User    string  `json:"user"`
-		Target  string  `json:"target"`
-		OSUser  string  `json:"os_user"`
-		SrcIP   string  `json:"src_ip"`
+		ID     string `json:"id"`
+		User   string `json:"user"`
+		Target string `json:"target"`
+		OSUser string `json:"os_user"`
+		SrcIP  string `json:"src_ip"`
+		// Kind, oturumun açıldığı kapı: ssh, web ya da files.
+		// ⚠️ LİSTEDE OLMAK ZORUNDA. Biri makinede dururken dosya
+		// tarayıcısını açmak ikinci bir satır bırakıyor ve o iki satır,
+		// bu alan olmadan birbirinin aynısı.
+		Kind    string  `json:"kind"`
 		Started string  `json:"started_at"`
 		Ended   *string `json:"ended_at"`
 		Running bool    `json:"running"`
@@ -1080,7 +1085,8 @@ func (s *Server) adminListSessions(w http.ResponseWriter, r *http.Request) {
 
 		out = append(out, row{
 			ID: sess.ID, User: sess.User, Target: sess.Target, OSUser: sess.OSUser,
-			SrcIP: sess.SrcIP, Started: sess.StartedAt.Format(time.RFC3339), Ended: ended,
+			SrcIP: sess.SrcIP, Kind: sess.Kind,
+			Started: sess.StartedAt.Format(time.RFC3339), Ended: ended,
 			Running: running[sess.ID], Temporary: sess.Temporary,
 			Denied: denied,
 			Lost:   sess.SFTPJournal.Lost,

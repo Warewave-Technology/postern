@@ -171,6 +171,7 @@ func (s *Server) adminSessionDetail(w http.ResponseWriter, r *http.Request) {
 		"os_user":    sess.OSUser,
 		"src_ip":     sess.SrcIP,
 		"temporary":  sess.Temporary,
+		"kind":       sess.Kind,
 		"started_at": sess.StartedAt.Format(time.RFC3339),
 		"ended_at":   endedAt(sess),
 		"recording":  recordingBlock(r, s, sess, state, size),

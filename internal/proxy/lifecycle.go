@@ -310,6 +310,18 @@ type Request struct {
 
 	TargetName string
 	SrcIP      string
+
+	/*
+	 * Kind, isteğin geldiği kapı (model.SessionFrom*). Boşsa "ssh".
+	 *
+	 * ⚠️ KANAL TÜRÜ DEĞİL, KAPI. SSH tarafında istek türü (shell,
+	 * subsystem) bu noktada HENÜZ GELMEMİŞ oluyor; burada onu uydurmak
+	 * yerine "bu bir SSH istemcisi" diyoruz. Panel iki kapıyı zaten
+	 * ayırt edebiliyor ve asıl karışan çift oydu: biri makinede
+	 * dururken dosya tarayıcısını açmak, ayırt edilemeyen ikinci bir
+	 * satır bırakıyordu.
+	 */
+	Kind string
 }
 
 // Session, açılmış ama henüz sürülmemiş bir oturum: hedefe bağlanılmış,
@@ -706,7 +718,7 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 	err = deps.Store.StartSession(ctx, store.SessionStart{
 		ID: id, Username: req.Username, TargetName: target.Name,
 		OSUser: d.OSUser, SrcIP: req.SrcIP, StartedAt: start,
-		RecordingPath: path, Temporary: d.Temporary,
+		RecordingPath: path, Temporary: d.Temporary, Kind: req.Kind,
 	})
 	if err != nil {
 		log.Error("start session failed", "error", err)

@@ -1,0 +1,14 @@
+-- How the session was opened.
+--
+-- ⚠️ TWO ROWS THAT LOOK THE SAME ARE NOT AN AUDIT TRAIL. Opening the
+-- panel's file browser on a host somebody is already in opens a second
+-- session, and until now the two rows were identical in every column an
+-- admin can see: same person, same target, same account, same second.
+-- "Two sessions are open" with no way to say which is which is worse
+-- than one row, because it reads as a duplicate.
+--
+-- ⚠️ DEFAULT 'ssh' FOR WHAT IS ALREADY WRITTEN. Rows recorded before
+-- this column existed were overwhelmingly SSH clients, and the honest
+-- alternative — leaving them empty — would put a blank in the one column
+-- that exists to answer a question.
+ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'ssh';
