@@ -24,6 +24,14 @@ hand gets them wrong on the release where it matters.
    `releases/latest/download/` with the version baked into the filename,
    it started returning 404 the moment 1.0.2 was published.
 
+   `release-docs-check` also refuses a version the module path cannot
+   carry. v2.0.0 was tagged on a path ending in `postern`, and Go will
+   not take a v2 tag without `/v2` on the end: the release ran the whole
+   suite, then failed on a test that reads the version Go embeds, with
+   the binary calling itself `v1.3.1-0.<time>-<sha>` and "not built from
+   a release tag". `go list -m -versions` had been saying so all along.
+   The check now asks that question in a second, before the tag.
+
 3. **Check the configuration builds a release.**
 
    ```bash

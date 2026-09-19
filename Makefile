@@ -27,7 +27,7 @@ LDFLAGS := -X github.com/Warewave-Technology/postern/v2/internal/version.version
 GOSEC_VERSION        ?= v2.29.0
 GOVULNCHECK_VERSION  ?= v1.7.0
 
-.PHONY: build test test-race test-short test-images test-integration vet fmt lint sec vuln fuzz audit ci web web-test web-check notices notices-check release-snapshot release-check release-clean-check release-docs-check clean
+.PHONY: build test test-race test-short test-images test-integration vet fmt lint sec vuln fuzz audit ci web web-test web-check notices notices-check release-snapshot release-check release-clean-check release-docs-check release-module-check clean
 
 build:
 	$(GO) build -ldflags "$(LDFLAGS)" -o bin/postern ./cmd/postern
@@ -258,7 +258,33 @@ release-snapshot:
 # 404 vermeye başladı. İnsan hafızası bunu tutmuyor, kapı tutuyor.
 # Snapshot'ta atlanıyor: orada sürüm 1.0.1-SNAPSHOT-<sha> gibi bir şey ve
 # hiçbir belgede öyle yazmaz.
-release-docs-check:
+# ⚠️ ETİKETİN MAJOR'U MODÜL YOLUNUN İZİN VERDİĞİYLE UYUŞMALI.
+#
+# v2.0.0 bunu yaşadı: etiket atıldı, release.yml'in verify işi bütün
+# takımı koşturdu ve `go build`in gömdüğü sürümü okuyan test düştü —
+# ikili kendini "v1.3.1-0.<zaman>-<sha>, not built from a release tag"
+# ilan ediyordu. Go kazayla atlamamıştı: .../postern yolundaki bir modül
+# yalnızca v0 ve v1 olabilir, v2+ için yol /v2 ile bitmek zorunda.
+# `go list -m -versions` da aynı şeyi söylüyordu ve kimse sormamıştı.
+#
+# Bu kontrol etiketten ÖNCE, saniyeler içinde aynı cevabı veriyor —
+# o arıza ise tam takım koştuktan VE etiket herkese açık olduktan sonra
+# geliyor.
+release-module-check:
+	@case "$(VERSION)" in *SNAPSHOT*|"") exit 0;; esac; \
+		major=$$(echo "$(VERSION)" | sed 's/^v//' | cut -d. -f1); \
+		mod=$$(head -1 go.mod | awk '{print $$2}'); \
+		bad=""; \
+		case "$$major" in \
+		  0|1) case "$$mod" in */v[2-9]|*/v[1-9][0-9]) bad="yol /vN ile bitiyor ama etiket v$$major";; esac;; \
+		  *)   case "$$mod" in */v$$major) ;; *) bad="yolun /v$$major ile bitmesi gerekiyor";; esac;; \
+		esac; \
+		test -z "$$bad" || ( \
+		  echo "modül yolu $$mod, $(VERSION) etiketini taşıyamaz: $$bad"; \
+		  echo "Go, v2 ve üstü için modül yolunun /vN ile bitmesini şart koşuyor"; \
+		  echo "etiketten önce düzelt — RELEASING.md 'Before the tag'"; exit 1)
+
+release-docs-check: release-module-check
 	@case "$(VERSION)" in *SNAPSHOT*|"") exit 0;; esac; \
 		bad=""; \
 		for f in README.md site/docs/index.html; do \
