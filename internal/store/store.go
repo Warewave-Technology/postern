@@ -2213,7 +2213,15 @@ func (s *Store) MarkSFTPJournal(ctx context.Context, id string, j model.SFTPJour
 	return nil
 }
 
-func (s *Store) EndSession(ctx context.Context, id string, endedAt time.Time) error {
+/*
+ * EndSession, oturumu kapatır ve NEDEN kapandığını kaydeder.
+ *
+ * ⚠️ SEBEP KAYDA GİRİYOR, YALNIZCA LOGA DEĞİL. proxy bunu biliyordu ve
+ * yalnızca log satırına ve canlı akışa yazıyordu; log döner, akış
+ * geçicidir. Olaydan sonra bakan denetçi için "yönetici kesti" ile
+ * "kullanıcı çıktı" aynı satır görünüyordu.
+ */
+func (s *Store) EndSession(ctx context.Context, id string, endedAt time.Time, closedBy, terminatedBy string) error {
 	var sessionID string
 	queryStr := `
 		SELECT id
@@ -2226,7 +2234,9 @@ func (s *Store) EndSession(ctx context.Context, id string, endedAt time.Time) er
 		return translateErr("store.EndSession", err)
 	}
 
-	if _, err = s.db.ExecContext(ctx, `UPDATE sessions SET ended_at=$1 WHERE id=$2 AND ended_at IS NULL;`, endedAt.Unix(), sessionID); err != nil {
+	if _, err = s.db.ExecContext(ctx,
+		`UPDATE sessions SET ended_at=$1, closed_by=$3, terminated_by=$4 WHERE id=$2 AND ended_at IS NULL;`,
+		endedAt.Unix(), sessionID, closedBy, terminatedBy); err != nil {
 		return translateErr("store.EndSession", err)
 	}
 
@@ -2254,7 +2264,9 @@ func (s *Store) Session(ctx context.Context, id string) (model.Session, error) {
 	       s.sftp_digest,
 	       s.sftp_denied,
 	       s.temporary,
-	       s.kind
+	       s.kind,
+	       s.closed_by,
+	       s.terminated_by
 		FROM sessions s
 		JOIN users   u ON u.id = s.user_id
 		JOIN targets t ON t.id = s.target_id
@@ -2273,6 +2285,7 @@ func (s *Store) Session(ctx context.Context, id string) (model.Session, error) {
 		&session.RecordingChain, &session.RecordingLinks,
 		&sftpEvents, &session.SFTPJournal.Lost, &session.SFTPJournal.Digest,
 		&sftpDenied, &session.Temporary, &session.Kind,
+		&session.ClosedBy, &session.TerminatedBy,
 	)
 	if err != nil {
 		return model.Session{}, translateErr("store.Session", err)
@@ -2318,7 +2331,9 @@ func (s *Store) Sessions(ctx context.Context, username string, limit int) ([]mod
 	       s.sftp_lost,
 	       s.sftp_denied,
 	       s.temporary,
-	       s.kind
+	       s.kind,
+	       s.closed_by,
+	       s.terminated_by
 		FROM sessions s
 		JOIN users   u ON u.id = s.user_id
 		JOIN targets t ON t.id = s.target_id
@@ -2353,7 +2368,7 @@ func (s *Store) Sessions(ctx context.Context, username string, limit int) ([]mod
 			&session.OSUser, &session.SrcIP, &startedAt, &endedAt,
 			&session.RecordingPath, &session.RecordingChain,
 			&sftpEvents, &session.SFTPJournal.Lost, &sftpDenied, &session.Temporary,
-			&session.Kind); err != nil {
+			&session.Kind, &session.ClosedBy, &session.TerminatedBy); err != nil {
 			return nil, translateErr("store.Sessions", err)
 		}
 

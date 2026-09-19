@@ -38,7 +38,7 @@ func closed(t *testing.T, e *testEnv, id string, mark model.SFTPJournal) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.db.EndSession(ctx, id, time.Now()); err != nil {
+	if err := e.db.EndSession(ctx, id, time.Now(), "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.db.MarkSFTPJournal(ctx, id, mark); err != nil {

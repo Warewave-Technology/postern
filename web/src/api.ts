@@ -243,6 +243,13 @@ export type Session = {
    * olmadan iki satır, panelin gösterdiği her sütunda aynıydı.
    */
   kind?: string;
+  /**
+   * Oturumun NEDEN kapandığı: "terminated", "idle_timeout",
+   * "max_lifetime", "recording_failed". Boş/yok: kişi kendi çıktı.
+   */
+  closed_by?: string;
+  /** Kesen yöneticinin adı; yalnızca closed_by === "terminated" iken. */
+  terminated_by?: string;
   /** Oturumu rol değil süreli hak açtı; yoksa alan gelmiyor. */
   temporary?: boolean;
   started_at: string;

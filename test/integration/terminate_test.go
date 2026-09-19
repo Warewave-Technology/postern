@@ -106,6 +106,26 @@ func TestTerminateClosesALiveSession(t *testing.T) {
 		}
 	}
 
+	/*
+	 * ⚠️ KESİLDİĞİ OTURUMUN KENDİ SATIRINDA DA YAZIYOR.
+	 *
+	 * Bu bilgi proxy'de vardı ve yalnızca log satırıyla geçici olay
+	 * akışına gidiyordu; log döner. Denetim ekranına olaydan SONRA bakan
+	 * kişi için bir yöneticinin kestiği oturum ile kişinin kendi çıktığı
+	 * oturum birbirinin aynısıydı — ve o ekranın var olma sebebi tam
+	 * olarak bu farkı göstermek.
+	 */
+	ended, serr := db.Session(ctx, id)
+	if serr != nil {
+		t.Fatal(serr)
+	}
+	if ended.ClosedBy != "terminated" {
+		t.Errorf("closed_by = %q, \"terminated\" bekleniyordu", ended.ClosedBy)
+	}
+	if ended.TerminatedBy == "" {
+		t.Error("kesen yöneticinin adı oturum satırına yazılmadı")
+	}
+
 	// ⚠️ KİM KESTİ, DEFTERDE OLMALI. Yöneticinin izsiz iş yapabildiği
 	// bir yol, denetim iddiasının tamamını boşa çıkarır.
 	entries, err := db.AdminLog(ctx, 50)

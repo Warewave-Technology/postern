@@ -364,6 +364,17 @@ type Session struct {
 	start  time.Time
 	closed bool
 
+	/*
+	 * closedBy ve terminatedBy, Run'ın ölçtüğü kapanış sebebi.
+	 *
+	 * ⚠️ Run HESAPLIYOR, Close YAZIYOR. Sebep yalnızca bağlamın
+	 * iptal nedeni okunabildiği yerde belli oluyor; satırı kapatan ise
+	 * çağıranın defer'ı. İkisini bağlayan tek şey bu alanlar — ve
+	 * olmasalardı "yönetici kesti" bilgisi kayda hiç giremezdi.
+	 */
+	closedBy     string
+	terminatedBy string
+
 	// endDetail, Run'ın hesapladığı kapanış cümlesi. Yayını
 	// Close yapıyor: olay, ended_at yazıldıktan SONRA gitmeli.
 	endDetail string
@@ -624,7 +635,7 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 		if id != "" {
 			// Denetim satırı yazıldıysa kapat: yarıda kalan kurulum
 			// sonsuza dek "running" bir kayıt bırakmamalı.
-			if err := deps.Store.EndSession(context.WithoutCancel(ctx), id, time.Now()); err != nil &&
+			if err := deps.Store.EndSession(context.WithoutCancel(ctx), id, time.Now(), "", ""); err != nil &&
 				!errors.Is(err, store.ErrNotFound) {
 				log.Error("end session failed", "error", err)
 			}
@@ -1029,6 +1040,8 @@ func (s *Session) Run(ctx context.Context, down ssh.Channel, downR <-chan *ssh.R
 	 * yayın Close'da yapılıyor.
 	 */
 	s.endDetail = detail
+	s.closedBy = closedBy
+	s.terminatedBy = terminatedBy
 
 	return err
 }
@@ -1137,7 +1150,7 @@ func (s *Session) Close(ctx context.Context) {
 	// İptal edilmiş ctx ile yapılan kapanış, denetim satırını sonsuza dek
 	// "running" bırakır.
 	closeCtx := context.WithoutCancel(ctx)
-	if serr := s.deps.Store.EndSession(closeCtx, s.ID, time.Now()); serr != nil {
+	if serr := s.deps.Store.EndSession(closeCtx, s.ID, time.Now(), s.closedBy, s.terminatedBy); serr != nil {
 		s.Log.Error("end session failed", "error", serr)
 	}
 

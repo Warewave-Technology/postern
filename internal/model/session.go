@@ -48,6 +48,25 @@ type Session struct {
 	Kind string
 
 	/*
+	 * ClosedBy, oturumun NEDEN kapandığı — makine tarafından okunan bir
+	 * jeton: "terminated", "idle_timeout", "max_lifetime",
+	 * "recording_failed". Boş: kullanıcı kendi çıktı.
+	 *
+	 * TerminatedBy, KESEN yöneticinin adı; yalnızca ClosedBy
+	 * "terminated" iken dolu.
+	 *
+	 * ⚠️ İKİSİ AYRI, ÇÜNKÜ BİRİ JETON BİRİ İNSAN ADI. Tek alanda
+	 * birleştirmek, adında ": " geçen birini ayrıştırılamaz yapardı.
+	 *
+	 * ⚠️ BU BİLGİ VARDI VE KAYDA GİRMİYORDU (göç 053). proxy ikisini de
+	 * biliyor ve log satırına yazıyordu; log döner. Olaydan sonra
+	 * bakan denetçi için bir yöneticinin kestiği oturum ile kişinin
+	 * kendi çıktığı oturum birbirinin aynısıydı.
+	 */
+	ClosedBy     string
+	TerminatedBy string
+
+	/*
 	 * Temporary: oturumu bir ROL değil, SÜRELİ BİR HAK açtı (göç 044).
 	 *
 	 * ⚠️ KARAR ANINDA YAZILIYOR, SONRADAN TÜRETİLMİYOR. Hak geri

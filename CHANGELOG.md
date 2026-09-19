@@ -120,6 +120,14 @@ connection, no sudo, rather than assuming `/home/<name>`. If a rule uses
 why; the shell is untouched. Ignoring the rule instead would leave a
 `~/.ssh` denial silently open.
 
+**A session now records how it ended, and who ended it.** postern knew
+both — an administrator cutting a live session, an idle timeout, the
+maximum session length, a recording that could not be written — and wrote
+them only to its log and the live event stream. Logs rotate and a stream
+is gone once you look away, so the audit screen showed a session an admin
+cut and a session the person exited as the same row. The Sessions list
+marks a cut one, and the record says who did it.
+
 Sessions also record which door they came through — an SSH client, the
 panel's terminal, or the panel's file browser. Opening the file browser on
 a host somebody is already in creates a second session, and those two rows

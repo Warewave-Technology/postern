@@ -19,6 +19,7 @@ import {
 } from "./common";
 import CastPlayer from "./CastPlayer";
 import ChainStatus from "./ChainStatus";
+import Modal from "./Modal";
 import DataTable, { Column } from "./DataTable";
 import type { Resolved } from "../theme/mode";
 
@@ -214,6 +215,8 @@ export function Sessions({ theme }: { theme: Resolved }) {
    * içine koymak, tam da en çok merak edilen oturumlarda gizlerdi.
    */
   const [opened, setOpened] = useState<Session | null>(null);
+  // Zincir kontrolü bir EYLEM: kendiliğinden çizilmiyor, istendiğinde açılıyor.
+  const [checkingChain, setCheckingChain] = useState(false);
   const [chainOf, setChainOf] = useState<{ id: string; chain?: string } | null>(
     null,
   );
@@ -237,6 +240,7 @@ export function Sessions({ theme }: { theme: Resolved }) {
     setFilesFailed(false);
     setJournal(undefined);
     setChainOf(null);
+    setCheckingChain(false);
     setOpened(null);
   };
 
@@ -489,7 +493,31 @@ export function Sessions({ theme }: { theme: Resolved }) {
        */
       render: (s) =>
         s.ended_at ? (
-          <Timestamp value={s.ended_at} />
+          <>
+            <Timestamp value={s.ended_at} />
+            {/*
+              ⚠️ KESİLEN OTURUM SATIRDA BELLİ OLUYOR. Bir yöneticinin
+              kestiği oturum ile kişinin kendi çıktığı oturum burada
+              birbirinin aynısıydı; bilgi yalnızca log satırında ve
+              geçici olay akışındaydı, yani olaydan sonra bakan kimse
+              göremiyordu.
+            */}
+            {s.closed_by === "terminated" && (
+              <>
+                {" "}
+                <span
+                  className="badge badge-warn"
+                  title={
+                    s.terminated_by
+                      ? `cut by ${s.terminated_by}`
+                      : "cut by an administrator"
+                  }
+                >
+                  cut
+                </span>
+              </>
+            )}
+          </>
         ) : s.running === false ? (
           <span className="badge badge-info">open, not streaming</span>
         ) : (
@@ -532,16 +560,24 @@ export function Sessions({ theme }: { theme: Resolved }) {
             ⚠️ KAPATMA BURADA, oynatıcının içinde değil: kapanan şey
             yalnızca kayıt değil — künye, zincir durumu ve dosya olayları
             da; ve kullanıcı düğmeyi Refresh'in yanında aradı.
+
+            ⚠️ ADI "Close session" DEĞİL, VE BU BİR DÜZELTME. O ad bu
+            üründe GERÇEKTEN VAR OLAN bir eylemi anlatıyor: yöneticinin
+            akan bir oturumu kesmesi. Burada kapanan yalnızca ekrandaki
+            kayıt; ikisini aynı kelimeyle çağırmak, kesme niyetiyle
+            basılacak bir düğme bırakırdı.
+
+            ⚠️ btn-quiet DEĞİL. Sessiz biçim yalnızca hover'da kendini
+            gösteriyordu ve düğme olduğu anlaşılmıyordu (kullanıcı
+            söyledi) — üstelik bu, açılan kaydı kapatmanın TEK yolu.
           */}
           {opened && (
-            <button
-              type="button"
-              className="btn-quiet"
+            <ActionButton
               onClick={closeSession}
-              aria-label={`close session ${opened.id}`}
+              label={`stop viewing the record of session ${opened.id}`}
             >
-              Close session
-            </button>
+              ← Back to all sessions
+            </ActionButton>
           )}
           <ActionButton onClick={refresh} label="refresh the session list">
             Refresh
@@ -603,6 +639,17 @@ export function Sessions({ theme }: { theme: Resolved }) {
                       : "an SSH client"}
                 </dd>
               </div>
+              {/*
+                ⚠️ KESİLDİYSE KÜNYEDE YAZIYOR. "Kullanıcı çıktı" ile
+                "yönetici kesti" aynı olay değil ve ikincisi, olaydan
+                sonra kaydı okuyan için işin tamamı.
+              */}
+              {opened.closed_by && (
+                <div>
+                  <dt>How it ended</dt>
+                  <dd>{endedHow(opened)}</dd>
+                </div>
+              )}
               <div>
                 <dt>Started</dt>
                 <dd>
@@ -635,54 +682,115 @@ export function Sessions({ theme }: { theme: Resolved }) {
         olduğu için oynatıcı hiç açılmayabiliyor; tabloyu oynatıcının
         içine koymak, tam da onun gerektiği oturumlarda gizlerdi.
       */}
-      {chainOf && <ChainStatus sessionId={chainOf.id} chain={chainOf.chain} />}
+      {/*
+        ⚠️ ZİNCİR KONTROLÜ ARTIK İSTENDİĞİNDE. Her kayıt açılışında
+        kendiliğinden çizilen bir kart, okunacak bir şey olmadığında da
+        yer kaplıyordu; kontrolün kendisi bir EYLEM ve düğmesi olmalı.
+      */}
+      {chainOf && (
+        <div className="page-actions">
+          <ActionButton
+            onClick={() => setCheckingChain(true)}
+            label={`check the recording chain of session ${chainOf.id}`}
+          >
+            Check recording chain
+          </ActionButton>
+        </div>
+      )}
+
+      <Modal
+        open={checkingChain && chainOf !== null}
+        title="Recording chain"
+        description="postern re-reads the recording and compares it with the seal it wrote. Nothing is changed."
+        onClose={() => setCheckingChain(false)}
+        wide
+      >
+        {checkingChain && chainOf && (
+          <ChainStatus sessionId={chainOf.id} chain={chainOf.chain} />
+        )}
+      </Modal>
 
       <SessionFiles files={files} failed={filesFailed} journal={journal} />
 
-      <ListState
-        loading={loading}
-        denied={denied}
-        failed={failed}
-        empty={items.length === 0}
-        emptyText="No sessions recorded — nobody has connected through this bastion yet."
-      />
-
       {/*
+        ⚠️ BİR KAYIT AÇIKKEN BÜTÜN OTURUM LİSTESİ ÇİZİLMİYOR. Altta duran
+        liste ne o kişiye ne o makineye aitti (kullanıcı söyledi) ve
+        açılan kaydın parçası gibi okunuyordu. Üstteki künye yorumu
+        "liste aşağıda ve kayıt açıkken görünmüyor" diyordu — kod bunu
+        hiç yapmıyordu, yani yorum kendi başına bir iddiaydı.
+      */}
+      {!opened && (
+        <>
+          <ListState
+            loading={loading}
+            denied={denied}
+            failed={failed}
+            empty={items.length === 0}
+            emptyText="No sessions recorded — nobody has connected through this bastion yet."
+          />
+
+          {/*
         ⚠️ BOŞ HÜCRENİN NE DEMEK OLMADIĞINI YAZMAK ŞART. "Evidence"
         altında boşluk gören biri bunu kolayca "doğrulandı" diye
         okuyabilir; oysa listeden hesaplanabilen tek şey iki sayı.
         Yazmayan bir sütun, hak edilmemiş bir onay dağıtırdı — bu turda
         üç kez düzelttiğimiz hatanın aynısı. Notu tablonun eteğinde.
       */}
-      {items.length > 0 && (
-        <DataTable
-          rows={items}
-          columns={columns}
-          rowKey={(s) => s.id}
-          initialSort={{ key: "started", dir: "desc" }}
-          noun="session"
-          searchLabel="search sessions by user, target or address"
-          searchPlaceholder="Search sessions…"
-          // Sütundan çıkanlar aramada KALIYOR (bkz. os_user/src notu).
-          extraSearch={(s) =>
-            `${s.os_user} ${s.src_ip} ${s.id} ${s.kind ?? ""}`
-          }
-          foot={
-            <p>
-              An empty <b>Evidence</b> cell means neither of two things was
-              flagged: postern losing audit events, and postern refusing a
-              request. It is not a verdict on the recording or the journal —
-              open a session and press <b>Verify</b> for that. postern lists at
-              most the {SESSION_CAP} most recent sessions, and sorting and
-              search work on what was returned.
-              {items.length >= SESSION_CAP &&
-                " This list is at that limit, so older sessions exist and are not shown here."}
-            </p>
-          }
-        />
+          {items.length > 0 && (
+            <DataTable
+              rows={items}
+              columns={columns}
+              rowKey={(s) => s.id}
+              initialSort={{ key: "started", dir: "desc" }}
+              noun="session"
+              searchLabel="search sessions by user, target or address"
+              searchPlaceholder="Search sessions…"
+              // Sütundan çıkanlar aramada KALIYOR (bkz. os_user/src notu).
+              extraSearch={(s) =>
+                `${s.os_user} ${s.src_ip} ${s.id} ${s.kind ?? ""} ${s.closed_by ?? ""} ${s.terminated_by ?? ""}`
+              }
+              foot={
+                <p>
+                  An empty <b>Evidence</b> cell means neither of two things was
+                  flagged: postern losing audit events, and postern refusing a
+                  request. It is not a verdict on the recording or the journal —
+                  open a session and press <b>Verify</b> for that. postern lists
+                  at most the {SESSION_CAP} most recent sessions, and sorting
+                  and search work on what was returned.
+                  {items.length >= SESSION_CAP &&
+                    " This list is at that limit, so older sessions exist and are not shown here."}
+                </p>
+              }
+            />
+          )}
+        </>
       )}
     </section>
   );
+}
+
+/*
+ * endedHow, kapanış sebebini insan cümlesine çevirir.
+ *
+ * ⚠️ JETON EKRANA YAZILMIYOR. "max_lifetime" bir makine jetonu; onu
+ * olduğu gibi göstermek, denetçiyi kaynak kodda anlam aramaya
+ * gönderirdi.
+ */
+function endedHow(s: Session): string {
+  switch (s.closed_by) {
+    case "terminated":
+      return s.terminated_by
+        ? `cut by ${s.terminated_by}`
+        : "cut by an administrator";
+    case "idle_timeout":
+      return "closed by postern — idle for too long";
+    case "max_lifetime":
+      return "closed by postern — it reached the maximum session length";
+    case "recording_failed":
+      return "closed by postern — the recording could not be written";
+    default:
+      return s.closed_by ?? "";
+  }
 }
 
 export function AdminLog() {

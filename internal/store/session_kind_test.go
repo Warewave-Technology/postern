@@ -94,3 +94,70 @@ func TestASessionWithNoDoorIsRecordedAsSSH(t *testing.T) {
 		t.Fatalf("kapı = %q", sess.Kind)
 	}
 }
+
+/*
+ * ⚠️ KESEN YÖNETİCİ KAYDA GİRİYOR.
+ *
+ * proxy bunu biliyordu ve yalnızca log satırına ve geçici olay akışına
+ * yazıyordu; log döner. Olaydan SONRA denetim ekranına bakan kişi için
+ * bir yöneticinin kestiği oturum ile kişinin kendi çıktığı oturum
+ * birbirinin aynısıydı.
+ */
+func TestHowASessionEndedIsRecorded(t *testing.T) {
+	s, target := hostAcctEnv(t)
+	ctx := t.Context()
+
+	now := time.Unix(1_700_000_000, 0)
+	for _, tc := range []struct{ id, closedBy, by string }{
+		{"sess-cut", "terminated", "veli"},
+		{"sess-idle", "idle_timeout", ""},
+		{"sess-normal", "", ""},
+	} {
+		if err := s.StartSession(ctx, SessionStart{
+			ID: tc.id, Username: "ayse", TargetName: target, OSUser: "ayse",
+			SrcIP: "10.0.0.5", StartedAt: now, RecordingPath: tc.id + ".cast",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.EndSession(ctx, tc.id, now.Add(time.Minute), tc.closedBy, tc.by); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cut, err := s.Session(ctx, "sess-cut")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cut.ClosedBy != "terminated" || cut.TerminatedBy != "veli" {
+		t.Fatalf("kesme kaydedilmedi: %+v", cut)
+	}
+
+	// Jeton ile insan adı AYRI: adında ": " geçen biri ayrıştırılabilsin.
+	idle, err := s.Session(ctx, "sess-idle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if idle.ClosedBy != "idle_timeout" || idle.TerminatedBy != "" {
+		t.Errorf("boşta kapanma: %+v", idle)
+	}
+
+	// Kişinin kendi çıkışı: sebep yok, uydurulmuyor.
+	normal, err := s.Session(ctx, "sess-normal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if normal.ClosedBy != "" || normal.TerminatedBy != "" {
+		t.Errorf("olmayan sebep yazıldı: %+v", normal)
+	}
+
+	// Liste de taşıyor: aranan satırı bulmanın yolu.
+	list, lerr := s.Sessions(ctx, "", 10)
+	if lerr != nil {
+		t.Fatal(lerr)
+	}
+	for _, sess := range list {
+		if sess.ID == "sess-cut" && sess.TerminatedBy != "veli" {
+			t.Errorf("listede kesen yok: %+v", sess)
+		}
+	}
+}

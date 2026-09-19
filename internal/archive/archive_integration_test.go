@@ -227,7 +227,7 @@ func seedFinishedSession(t *testing.T, db *store.Store, dir, id, content string)
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.EndSession(ctx, id, time.Now().Add(-30*time.Minute)); err != nil {
+	if err := db.EndSession(ctx, id, time.Now().Add(-30*time.Minute), "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.QueueArchive(ctx, id); err != nil {
