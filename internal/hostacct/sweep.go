@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/Warewave-Technology/postern/v2/internal/model"
@@ -294,8 +295,8 @@ func (s *Sweeper) sweepTarget(ctx context.Context, name string, people []string,
 
 			return
 		}
-		s.audit(ctx, name, fmt.Sprintf("swept %s: repaired %d drifted step(s) for %d account(s)",
-			name, len(steps), len(crew)))
+		s.audit(ctx, name, fmt.Sprintf("swept %s: repaired %d drifted step(s) for %d account(s): %s",
+			name, len(steps), len(crew), driftReasons(steps)))
 	}
 
 	s.enforceMembership(ctx, runner, caps, name, observed, wants)
@@ -426,6 +427,52 @@ func desiredFor(wants []Want) provision.Desired {
 	}
 
 	return d
+}
+
+/*
+ * driftReasons, onarılan sürüklenmenin SEBEPLERİNİ tek cümlede toplar.
+ *
+ * ⚠️ SAYI TEK BAŞINA YANILTIYOR — ÖLÇÜLDÜ. Defterde iki kez "repaired 5
+ * drifted step(s)" duruyordu ve sayı, o hesabın ilk kurulumunun adım
+ * sayısıyla aynıydı; süpürmenin her turda bütün planı yeniden koştuğunu
+ * sandım. Sebep yazılı olsaydı ("grup yok", "üyelik yok") cevap ilk
+ * bakışta görünürdü: hedef tazelenmiş, postern'in yazdığı her şey
+ * gitmişti. Bir denetim satırının işi, okuyanı makineye gönderip
+ * ölçtürmemek.
+ *
+ * sudo dosyasının doğrulama ve yerine koyma adımları dışarıda: ikisi de
+ * ilk adımın devamı ve kendi cümleleri sürüklenmeyi değil, yazma yordamını
+ * anlatıyor.
+ */
+func driftReasons(steps []provision.Step) string {
+	const most = 5
+	seen := map[string]bool{}
+	reasons := make([]string, 0, most)
+	extra := 0
+	for _, st := range steps {
+		if st.Kind == provision.StepSudoCheck || st.Kind == provision.StepSudoInstall {
+			continue
+		}
+		if st.Why == "" || seen[st.Why] {
+			continue
+		}
+		seen[st.Why] = true
+		if len(reasons) == most {
+			extra++
+
+			continue
+		}
+		reasons = append(reasons, st.Why)
+	}
+	if len(reasons) == 0 {
+		return "no reason was recorded"
+	}
+	out := strings.Join(reasons, "; ")
+	if extra > 0 {
+		out += fmt.Sprintf(" (and %d more)", extra)
+	}
+
+	return out
 }
 
 // needsMarkerLookup, kaynağı henüz bilinmeyen bir satır var mı.

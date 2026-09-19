@@ -30,6 +30,19 @@ audit rows into a shape it does not understand.
 
 ## Unreleased
 
+### Changed
+
+- **The sweep's audit line says what it repaired, not just how many
+  steps.** `swept db01: repaired 5 drifted step(s) for 1 account(s)` is a
+  number you cannot act on: it happens to equal the step count of that
+  account's first provisioning run, so a target rebuilt overnight and a
+  loop replanning its own work read exactly alike — the difference took a
+  file's mtime on the machine to settle. The line now carries the reasons
+  the plan gave: `group postern-dba is missing; ayse is not in
+  postern-dba; sudo rule for postern-dba is missing or has changed`. The
+  staging steps of a sudoers write are left out; they describe how postern
+  writes a file, not what drifted on the machine.
+
 ## 2.0.0 — 2026-09-19
 
 ### The panel moved some things

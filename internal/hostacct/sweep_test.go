@@ -300,3 +300,79 @@ func TestASweepOnlyReadsATargetAlreadyInShape(t *testing.T) {
 		}
 	}
 }
+
+/*
+ * ⚠️ DEFTER NEYİN SÜRÜKLENDİĞİNİ SÖYLÜYOR, YALNIZCA KAÇ ADIM OLDUĞUNU
+ * DEĞİL.
+ *
+ * Ölçüldü: "repaired 5 drifted step(s)" satırı tek başına, ilk kurulumun
+ * adım sayısıyla aynı olduğu için "süpürme her turda her şeyi yeniden
+ * koşuyor" diye okundu. Sebep yazılı olsaydı cevap ilk bakışta
+ * görünürdü — hedef tazelenmiş, grup ve üyelik gitmişti.
+ */
+func TestTheLedgerSaysWhatDrifted(t *testing.T) {
+	group := HostGroupPrefix + "dba"
+	rule := sudoers.Rule{Commands: []sudoers.Command{{Path: "/usr/bin/pg_ctl"}}}
+
+	// Hedef yeni doğmuş: hesap duruyor ama postern'in yazdığı grup,
+	// üyelik ve sudo dosyası yok.
+	principals := "/etc/ssh/auth_principals/%u"
+	answers := map[string]string{
+		"getent group " + provision.ManagedGroup:        provision.ManagedGroup + ":x:5001:acctayse\n",
+		"id -Gn acctayse":                               "acctayse " + provision.ManagedGroup + "\n",
+		"sudo -n cat /etc/ssh/auth_principals/acctayse": "acctayse\n",
+		"sudo -n sshd -T -C user=acctayse 2>/dev/null | " +
+			"awk 'tolower($1)==\"authorizedprincipalsfile\"{print $2}'": principals + "\n",
+	}
+
+	dialed := 0
+	d := sweepDeps(&dialed, answers, nil)
+	d.Rows = func(context.Context) ([]store.HostAccount, error) {
+		return []store.HostAccount{{
+			TargetName: "db01", Username: "ayse", OSUser: "acctayse",
+			Origin: store.OriginCreated, State: store.HostAccountActive,
+		}}, nil
+	}
+	d.Rules = func(context.Context) (map[string]store.GroupSudo, error) {
+		return map[string]store.GroupSudo{"dba": {Rule: rule}}, nil
+	}
+	d.Caps = func(context.Context, Runner) (upstream.ManageCapabilities, error) {
+		return upstream.ManageCapabilities{
+			Sudo: true, AddUser: "/usr/sbin/useradd", AddGroup: "/usr/sbin/groupadd",
+			ModUser: "/usr/sbin/usermod", Visudo: "/usr/sbin/visudo",
+			Shell: "/bin/sh", DelMember: "/usr/bin/gpasswd",
+			PrincipalsFile: principals,
+		}, nil
+	}
+	var details []string
+	d.Audit = func(_ context.Context, _, detail string) error {
+		details = append(details, detail)
+
+		return nil
+	}
+
+	NewSweeper(d, time.Hour).Tick(t.Context())
+
+	line := ""
+	for _, s := range details {
+		if strings.Contains(s, "swept") {
+			line = s
+		}
+	}
+	if line == "" {
+		t.Fatalf("süpürme deftere yazmadı: %v", details)
+	}
+	for _, want := range []string{
+		"group " + group + " is missing",
+		"acctayse is not in " + group,
+		"sudo rule for " + group + " is missing or has changed",
+	} {
+		if !strings.Contains(line, want) {
+			t.Errorf("satır %q sebebini söylemiyor:\n  %s", want, line)
+		}
+	}
+	// Yazma yordamının kendi cümleleri sürüklenme sebebi değil.
+	if strings.Contains(line, "visudo") || strings.Contains(line, "staging") {
+		t.Errorf("satır sürüklenmeyi değil yazma yordamını anlatıyor:\n  %s", line)
+	}
+}
