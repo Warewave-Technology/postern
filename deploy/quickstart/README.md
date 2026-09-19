@@ -18,7 +18,7 @@ creates lives under `deploy/quickstart/.state` and in one Docker volume;
 | --- | --- |
 | `demo-a`, `demo-b` | Alpine containers running `sshd`, trusting the CA. No `authorized_keys` file, no passwords — a postern certificate is the only way in. |
 | `ayse` | A user with the `developer` role, landing on the targets as `ayse`. |
-| `developer` | Reaches both machines. SFTP is allowed under `/home/ayse` and **denied everywhere else**, so the file journal has something to refuse. |
+| `developer` | Reaches both machines. SFTP is allowed under `~` — each person's own home, resolved from the host — and **denied everywhere else**, so the file journal has something to refuse. |
 | `admin` | The break-glass administrator for the panel. |
 | account propagation | On, so the demo shows what postern now is. See below — it is off by default in a real install. |
 

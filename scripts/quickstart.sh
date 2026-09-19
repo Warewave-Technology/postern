@@ -224,7 +224,14 @@ pg role add --name developer --target demo-a --target demo-b >/dev/null
 # listede göstermesi — hiç görünmüyor. Ev dizini açık, gerisi kapalı:
 # `get /etc/shadow` artık HEDEFİN izin hatası değil, POSTERN'İN reddi
 # olarak deftere giriyor.
-pg role path set --role developer --prefix /home/ayse --write >/dev/null
+#
+# ⚠️ KURAL BİR KİŞİNİN EVİNİ ADIYLA YAZMIYOR. Önceki hâli
+# "/home/ayse" idi ve bu, bir GRUBUN kuralında tek bir kişiye yazılmış
+# bir kuraldı: gruba ikinci bir kişi eklenince o kişi dosya tarayıcısını
+# bir reddin üstüne açıyordu (ölçüldü). "~" oturum açılırken hedefin
+# bildirdiği evden çözülüyor, yani aynı satır grubun her üyesi için
+# doğru.
+pg role path set --role developer --prefix '~' --write >/dev/null
 pg role path set --role developer --prefix / --deny >/dev/null
 
 say "creating a demo user"
