@@ -1,5 +1,7 @@
 package model
 
+import "strings"
+
 // Group, bir hedef kümesine erişim yetkisi.
 //
 // S3 şemasında groups + group_targets tablolarının karşılığı.
@@ -21,6 +23,27 @@ type Group struct {
 }
 
 // PathRule, bir yol öneği üzerindeki karar.
+/*
+ * HomeToken, yol kuralının "kişinin kendi evi" yazma biçimi.
+ *
+ * ⚠️ BURADA, PathRule'UN YANINDA: hem yazma yolu (store.SetGroupPath)
+ * hem karar yolu (policy) aynı şeye bakmak zorunda. İki ayrı sabit,
+ * birinin değişip öbürünün kalmasıyla "kabul edilen ama hiç eşleşmeyen"
+ * bir kural üretirdi — yönetici koruma koyduğunu sanır, koymamış olurdu.
+ */
+const HomeToken = "~"
+
+/*
+ * IsHomeRule, önek ev token'ıyla mı başlıyor.
+ *
+ * "~" ve "~/..." evet; "~otheruser" HAYIR — başka birinin evini bu
+ * token üzerinden adreslemek, kuralı yazanın beklemediği bir yere
+ * erişim açardı ve kabuğun ~user sözdizimiyle karışırdı.
+ */
+func IsHomeRule(prefix string) bool {
+	return prefix == HomeToken || strings.HasPrefix(prefix, HomeToken+"/")
+}
+
 type PathRule struct {
 	// Prefix, mutlak yol öneki. Eşleşme DİZİN SINIRINDA yapılıyor.
 	Prefix string

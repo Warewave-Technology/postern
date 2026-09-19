@@ -15,6 +15,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/Warewave-Technology/postern/internal/model"
 	"github.com/Warewave-Technology/postern/internal/proxy"
 	"github.com/Warewave-Technology/postern/internal/upstream"
 )
@@ -147,6 +148,12 @@ func (s *Server) serveChannel(w http.ResponseWriter, r *http.Request, sftp bool)
 		AccountID:  sessionAccountID(r),
 		TargetName: r.PathValue("target"),
 		SrcIP:      host,
+		/*
+		 * ⚠️ PANELİN İKİ KAPISI AYRI YAZILIYOR. Biri makinede dururken
+		 * dosya tarayıcısını açmak İKİNCİ bir oturum açıyor ve iki
+		 * satır, yöneticinin görebildiği her sütunda aynıydı.
+		 */
+		Kind: kindOf(sftp),
 	})
 	if err != nil {
 		s.refuseTerminal(w, r, err)
@@ -396,4 +403,13 @@ func terminalRefusal(err error) (int, string) {
 		return closeUnavailable, "The session was refused because it could not be recorded."
 	}
 	return closeUnavailable, "The session could not be opened."
+}
+
+// kindOf, panelin hangi kapısının açıldığını söyler.
+func kindOf(sftp bool) string {
+	if sftp {
+		return model.SessionFromFiles
+	}
+
+	return model.SessionFromWeb
 }

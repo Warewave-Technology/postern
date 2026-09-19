@@ -14,7 +14,7 @@ func queuedSession(t *testing.T, s *Store, id string) {
 	if err := s.SetRecordingPathForTest(ctx, id, "2026-09-03/"+id+".cast"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.EndSession(ctx, id, time.Now()); err != nil {
+	if err := s.EndSession(ctx, id, time.Now(), "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.QueueArchive(ctx, id); err != nil {

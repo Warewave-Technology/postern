@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, toMessage, type VerifyResult } from "../api";
 import { ActionButton } from "./common";
 
@@ -12,10 +12,21 @@ import { ActionButton } from "./common";
  * ⚠️ BU EKRANIN EN BÜYÜK RİSKİ HAK EDİLMEMİŞ ONAY. Veritabanında bir
  * zincir başı olması, dosyanın o başla TUTTUĞU anlamına gelmiyor: bunu
  * ancak dosyayı baştan sona okuyup yeniden hesaplamak söyler. Bu yüzden
- * yeşil rozet YALNIZCA sunucu gerçekten doğruladıktan sonra çiziliyor;
- * "baş kayıtlı" durumu nötr bir cümleyle ve bir düğmeyle gösteriliyor.
+ * yeşil rozet YALNIZCA sunucu gerçekten doğruladıktan sonra çiziliyor.
  * Hiç doğrulanmamış bir kaydı doğrulanmış göstermek, hiçbir şey
  * göstermemekten kötüdür.
+ *
+ * ⚠️ AÇILIR AÇILMAZ KOŞUYOR. Önceki hâli nötr bir cümle ve bir "Verify"
+ * düğmesi gösteriyordu: kontrolü istemek için düğmeye basan kişiden bir
+ * düğmeye daha basmasını istiyordu (kullanıcı söyledi). Bu, hak
+ * edilmemiş onay kuralını BOZMUYOR — rozet hâlâ yalnızca sunucu
+ * gerçekten doğruladıktan sonra çiziliyor; değişen tek şey, o
+ * doğrulamanın ne zaman istendiği.
+ *
+ * ⚠️ KENDİ KARTINI VE BAŞLIĞINI ÇİZMİYOR. Modalın içinde duruyor ve
+ * modalın kendi başlığı var; ikisi birden "Recording chain" yazınca
+ * ekranda iç içe iki pencere gibi görünüyordu (kullanıcı ekran
+ * görüntüsüyle gösterdi).
  */
 
 /** Yerel eksenin sunumu. */
@@ -90,7 +101,9 @@ export default function ChainStatus({
   chain?: string;
 }) {
   const [result, setResult] = useState<VerifyResult | null>(null);
-  const [busy, setBusy] = useState(false);
+  // Mühürlü bir kayıtta iş daha ilk çizimde başlıyor: "kontrol edilmedi"
+  // cümlesinin bir an görünüp kaybolması, okunacak bir şey sanılırdı.
+  const [busy, setBusy] = useState(Boolean(chain));
   const [error, setError] = useState("");
 
   const run = () => {
@@ -103,90 +116,111 @@ export default function ChainStatus({
       .finally(() => setBusy(false));
   };
 
+  /*
+   * ⚠️ TEK SEFER. Bağımlılık listesi yalnızca oturum kimliği: run'ı
+   * listeye koymak her çizimde yeni bir kimlik demek olurdu ve
+   * doğrulama sonsuza dek kendini tetiklerdi — aynı tuzağa bu turda bir
+   * kez düşüldü (NotificationsScreen).
+   */
+  useEffect(() => {
+    if (!chain) return;
+    let live = true;
+    setBusy(true);
+    setError("");
+    api
+      .verifyRecording(sessionId)
+      .then((r) => {
+        if (live) setResult(r);
+      })
+      .catch((e: unknown) => {
+        if (live) setError(toMessage(e));
+      })
+      .finally(() => {
+        if (live) setBusy(false);
+      });
+
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, chain]);
+
   return (
-    <section className="card chain-card">
-      <div className="card-head">
-        <h3>Recording chain</h3>
-      </div>
-      <div className="card-body">
-        {error && (
-          <p className="msg msg-error" role="alert">
-            {error}
+    <div className="chain-status">
+      {error && (
+        <p className="msg msg-error" role="alert">
+          {error}
+        </p>
+      )}
+
+      {busy && result === null && <p className="state">Checking…</p>}
+
+      {!busy && result === null && !error ? (
+        /*
+          ⚠️ MÜHÜRSÜZ OTURUMDA KOŞACAK BİR ŞEY YOK. Kontrolü çalıştırmak
+          "doğrulandı" diyemeyeceği bir sonuç üretirdi; cümle nötr.
+        */
+        <p className="state">
+          No chain was stored for this session — it ended before chains existed,
+          or it has only just closed.
+        </p>
+      ) : result === null ? null : (
+        <>
+          <p className="chain-line">
+            <span className={`badge ${LOCAL[result.local].badge}`}>
+              {LOCAL[result.local].label}
+            </span>
+            <span>{result.detail || LOCAL[result.local].text}</span>
           </p>
-        )}
 
-        {result === null ? (
-          <>
-            {/*
-              ⚠️ DOĞRULAMADAN ÖNCE SÖYLENEBİLECEK TEK ŞEY, BİR BAŞ
-              YAZILIP YAZILMADIĞI. Bunu bir onay gibi çizmek yasak:
-              baş kayıtlı olabilir ve dosya yine de değişmiş olabilir.
-            */}
-            <p className="state">
-              {chain
-                ? "A chain was stored when this session closed. Whether the file " +
-                  "still matches it has not been checked."
-                : "No chain was stored for this session — it ended before chains " +
-                  "existed, or it has only just closed."}
-            </p>
-            {chain && (
-              <ActionButton variant="primary" onClick={run} disabled={busy}>
-                {busy ? "Checking…" : "Verify"}
-              </ActionButton>
-            )}
-          </>
-        ) : (
-          <>
-            <p className="chain-line">
-              <span className={`badge ${LOCAL[result.local].badge}`}>
-                {LOCAL[result.local].label}
-              </span>
-              <span>{result.detail || LOCAL[result.local].text}</span>
-            </p>
-
-            {/*
+          {/*
               ⚠️ KUTU DIŞI SONUÇ AYRI SATIRDA VE HER ZAMAN YAZILIYOR.
               Yerel sonuçla tek rozette birleştirmek, "yerel tuttu ama
               arşiv çelişiyor" durumunu gizlerdi; sessizlik ise
               bakılmadığını bakılmış gibi okutur.
             */}
-            <p className="chain-line">
-              <span className={`badge ${OFFBOX[result.off_box.state].badge}`}>
-                {OFFBOX[result.off_box.state].label}
-              </span>
-              <span>
-                {result.off_box.state === "match" && result.off_box.object
-                  ? `The copy in ${result.off_box.object} carries the same head.`
-                  : result.off_box.state === "mismatch"
-                    ? `The archived copy carries ${result.off_box.chain} — treat ` +
-                      `the archived head as the one to trust, and this host as ` +
-                      `compromised.`
-                    : result.off_box.detail}
-              </span>
-            </p>
+          <p className="chain-line">
+            <span className={`badge ${OFFBOX[result.off_box.state].badge}`}>
+              {OFFBOX[result.off_box.state].label}
+            </span>
+            <span>
+              {result.off_box.state === "match" && result.off_box.object
+                ? `The copy in ${result.off_box.object} carries the same head.`
+                : result.off_box.state === "mismatch"
+                  ? `The archived copy carries ${result.off_box.chain} — treat ` +
+                    `the archived head as the one to trust, and this host as ` +
+                    `compromised.`
+                  : result.off_box.detail}
+            </span>
+          </p>
 
-            {result.local === "verified" &&
-              result.off_box.state !== "match" && (
-                /*
+          {result.local === "verified" && result.off_box.state !== "match" && (
+            /*
                   ⚠️ YEREL "GEÇTİ" TEK BAŞINA DAR BİR İDDİA ve bunu
                   yazmazsak yeşil rozet fazla okunur: bu makinede root
                   olan biri dosyayı ve veritabanındaki başı BİRLİKTE
                   yeniden yazabilir.
                 */
-                <p className="state chain-note">
-                  This only shows the file was not changed after postern wrote
-                  it. Whoever holds root here could rewrite the file and the
-                  stored chain together; the copy in the archive is what closes
-                  that, and it was not consulted.
-                </p>
-              )}
+            <p className="state chain-note">
+              This only shows the file was not changed after postern wrote it.
+              Whoever holds root here could rewrite the file and the stored
+              chain together; the copy in the archive is what closes that, and
+              it was not consulted.
+            </p>
+          )}
 
+          {/*
+            ⚠️ STANDART DÜĞME SATIRI. Çıplak bir düğme, modalın
+            "eylemler sağ altta" kuralının dışında kalırdı; kural satırın
+            kendisine yazılı.
+          */}
+          <div className="form-actions">
             <ActionButton onClick={run} disabled={busy}>
               {busy ? "Checking…" : "Check again"}
             </ActionButton>
-          </>
-        )}
-      </div>
-    </section>
+          </div>
+        </>
+      )}
+    </div>
   );
 }

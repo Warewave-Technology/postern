@@ -24,7 +24,7 @@ func TestCloseOrphanSessions(t *testing.T) {
 	// çalışmadı. arşiv kuyruğuna ancak burada girmeli.
 	startAtRec(t, s, "sess-acik", time.Now().Add(-2*time.Hour), "rec/sess-acik.cast")
 	startAt(t, s, "sess-kapali", time.Now().Add(-3*time.Hour))
-	if err := s.EndSession(ctx, "sess-kapali", time.Now().Add(-time.Hour)); err != nil {
+	if err := s.EndSession(ctx, "sess-kapali", time.Now().Add(-time.Hour), "", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -100,7 +100,7 @@ func TestOpenSessionsFindsSessionsPastTheHistoryWindow(t *testing.T) {
 	for i := range 250 {
 		id := "sess-yeni-" + itoa(i)
 		startAt(t, s, id, time.Now().Add(-time.Duration(250-i)*time.Minute))
-		if err := s.EndSession(ctx, id, time.Now()); err != nil {
+		if err := s.EndSession(ctx, id, time.Now(), "", ""); err != nil {
 			t.Fatal(err)
 		}
 	}

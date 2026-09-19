@@ -25,7 +25,7 @@ import (
  * aykırı görünüyor ama tutarlı — kural yazmak bir ROLÜ kısıtlamak demek,
  * kullanıcıyı değil. Belge bunu böyle anlatıyor.
  */
-func SFTPDecider(groups []model.Group) sftpaudit.Decider {
+func SFTPDecider(groups []model.Group, home string) sftpaudit.Decider {
 	var active []model.Group
 	for _, r := range groups {
 		if len(r.Paths) > 0 {
@@ -55,6 +55,29 @@ func SFTPDecider(groups []model.Group) sftpaudit.Decider {
 	var all []model.PathRule
 	for _, r := range active {
 		all = append(all, r.Paths...)
+	}
+
+	/*
+	 * ⚠️ EV TOKEN'I ÇÖZÜLEMİYORSA HİÇBİR ŞEYE İZİN YOK.
+	 *
+	 * Kuralı atlamak ilk bakışta zararsız görünüyor ve değil: `~/.ssh`
+	 * RET kuralı sessizce düşerse, yöneticinin kestiğini sandığı dal
+	 * açık kalır — kural yazmanın en kötü sonucu, tam da bu dosyanın
+	 * başka bir yerinde ölçülmüş olan şey. Değerlendirilemeyen bir
+	 * politika, yok sayılabilecek bir politika değil.
+	 *
+	 * Oturum kesilmiyor: kapanan yalnızca SFTP. Kabuk, bu ürünün hiçbir
+	 * yerinde bir ölçüm arızası yüzünden reddedilmiyor.
+	 */
+	for i := range all {
+		expanded, ok := ExpandHome(all[i].Prefix, home)
+		if !ok {
+			return func(sftpaudit.Request) (bool, string) {
+				return false, "postern could not read your home directory on this host, " +
+					"and a path rule depends on it"
+			}
+		}
+		all[i].Prefix = expanded
 	}
 
 	return func(req sftpaudit.Request) (bool, string) {

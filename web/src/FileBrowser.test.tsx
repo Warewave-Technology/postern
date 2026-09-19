@@ -224,6 +224,62 @@ describe("FileBrowser", () => {
    * dizinin listesini yeni dizinin içeriği diye gösterirdi. Yol
    * yalnızca okuma BAŞARIRSA değişiyor.
    */
+  /*
+   * ⚠️ EV DİZİNİ REDDEDİLİRSE HİÇ AÇILMAMIŞ BİR YOL ÇİZİLMİYOR — EKRANDA
+   * GÖRÜLDÜ.
+   *
+   * Pencere açılışta kullanıcının ev dizinini istiyor (realpath "."). O
+   * yol grubun kurallarınca reddedilince ekranda kalan şey şuydu: yol
+   * kırıntısında "/", listede "This directory is empty." ve hangi yolun
+   * reddedildiğini söylemeyen bir cümle. Yani kullanıcı hiç denenmemiş
+   * bir kökte duruyor sanıyor, o kökü boş sanıyor ve neyi düzelteceğini
+   * bilmiyordu. Laboratuvarda görüldü: developer grubu yalnızca
+   * /home/ayse'ye izin veriyor, giren kişi ise yigit.
+   */
+  it("ev dizini reddedilince hangi yol olduğunu söylüyor, kök çizmiyor", async () => {
+    render(<FileBrowser target="web01" canWrite />);
+    const ws = FakeWS.last!;
+
+    await act(async () => {
+      ws.onopen?.();
+    });
+    await next(ws, FXP.INIT);
+    await ws.deliver(0, packet(FXP.VERSION, ...u32(3)));
+
+    const rp = await next(ws, FXP.REALPATH);
+    await ws.deliver(
+      0,
+      packet(
+        FXP.NAME,
+        ...u32(idOf(ws.body(rp))),
+        ...u32(1),
+        ...str("/home/yigit"),
+        ...str(""),
+        ...u32(0),
+      ),
+    );
+
+    const od = await next(ws, FXP.OPENDIR);
+    await ws.deliver(
+      2,
+      packet(
+        FXP.STATUS,
+        ...u32(idOf(ws.body(od))),
+        ...u32(FX.PERMISSION_DENIED),
+        ...str("postern: this path is explicitly denied"),
+      ),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toBe(
+        "/home/yigit: this path is explicitly denied",
+      ),
+    );
+    // Hiç açılmayan kök ne kırıntıda, ne de "boş" diye listede.
+    expect(screen.queryByRole("button", { name: "/" })).toBeNull();
+    expect(screen.queryByText(/this directory is empty/i)).toBeNull();
+  });
+
   it("reddedilen dizine girmiyor ve sebebi yazıyor", async () => {
     render(<FileBrowser target="web01" canWrite />);
     const ws = FakeWS.last!;
@@ -249,9 +305,15 @@ describe("FileBrowser", () => {
       ),
     );
 
+    /*
+     * ⚠️ CÜMLE HANGİ YOLUN REDDEDİLDİĞİNİ SÖYLÜYOR. Sebep tek başına
+     * hangi yol olduğunu söylemiyor ve açılıştaki ret bunu okunamaz
+     * yapıyordu: pencere ev dizinini istiyor, o reddediliyor, ekranda
+     * ise hiç denenmemiş bir yol duruyordu.
+     */
     await waitFor(() =>
       expect(screen.getByRole("alert").textContent).toBe(
-        "path is not allowed by your group",
+        "/home/yigit/gizli: path is not allowed by your group",
       ),
     );
 
@@ -842,7 +904,7 @@ describe("dizin indirme", () => {
     HTMLAnchorElement.prototype.click = click;
   });
 
-  it("klasörü gezip tek arşiv veriyor, bağa ve \".\" ile \"..\"ye girmiyor", async () => {
+  it('klasörü gezip tek arşiv veriyor, bağa ve "." ile ".."ye girmiyor', async () => {
     render(<FileBrowser target="web01" canWrite />);
     const ws = FakeWS.last!;
     await handshake(ws, "/home/yigit", [entry("proje", DIR)]);

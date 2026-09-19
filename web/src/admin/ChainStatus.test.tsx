@@ -1,5 +1,4 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ChainStatus from "./ChainStatus";
 import { api, type VerifyResult } from "../api";
@@ -24,16 +23,38 @@ beforeEach(() => {
  * olarak bu ve o hâl, hiçbir şey göstermemekten kötüdür.
  */
 describe("doğrulamadan önce", () => {
-  it("zincir kayıtlıyken onay VERMİYOR, doğrulama teklif ediyor", () => {
+  /*
+   * ⚠️ SUNUCU CEVAP VERENE KADAR HİÇBİR ONAY ÇİZİLMİYOR.
+   *
+   * Kontrol artık açılışta kendiliğinden koşuyor, ama bu kuralı
+   * gevşetmiyor: cevap gelmeden yeşil rozet yok. İstek ASKIDA
+   * bırakılarak ölçülüyor — çözülen bir promise ile ayırt edilemezdi.
+   */
+  it("cevap gelmeden onay VERMİYOR", () => {
+    vi.spyOn(api, "verifyRecording").mockReturnValue(
+      new Promise(() => {}) as never,
+    );
     render(<ChainStatus sessionId="s1" chain="abc123" />);
 
-    // Yeşil rozet YOK.
     expect(document.querySelector(".badge-ok")).toBeNull();
-    expect(screen.queryByText(/verified/i)).toBeNull();
+    expect(screen.queryByText("verified")).toBeNull();
+    expect(screen.getByText(/checking/i)).toBeTruthy();
+  });
 
-    // Ne bilindiği ve ne bilinmediği açıkça yazılı.
-    expect(screen.getByText(/has not been checked/i)).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Verify/i })).toBeTruthy();
+  /*
+   * ⚠️ AÇILIR AÇILMAZ KOŞUYOR. Önceki hâli kontrolü istemek için düğmeye
+   * basan kişiden bir düğmeye daha basmasını istiyordu (kullanıcı
+   * söyledi).
+   */
+  it("mühürlü kayıtta düğme beklemeden doğruluyor", async () => {
+    const verify = vi
+      .spyOn(api, "verifyRecording")
+      .mockResolvedValue(result({ local: "verified" }));
+    render(<ChainStatus sessionId="s1" chain="abc123" />);
+
+    await waitFor(() => expect(verify).toHaveBeenCalledWith("s1"));
+    await waitFor(() => expect(screen.getByText("verified")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: /^Verify$/i })).toBeNull();
   });
 
   /*
@@ -41,12 +62,29 @@ describe("doğrulamadan önce", () => {
    * her oturum böyle görünür; ilk yükseltmede bu geçmişin TAMAMI demek.
    * Kırmızı bir rozet, kimsenin yapmadığı bir şey için alarm üretirdi.
    */
-  it("zincirsiz oturumda düğme yok ve alarm yok", () => {
+  it("zincirsiz oturumda hiç sorulmuyor ve alarm yok", () => {
+    const verify = vi.spyOn(api, "verifyRecording");
     render(<ChainStatus sessionId="s1" />);
 
-    expect(screen.queryByRole("button", { name: /Verify/i })).toBeNull();
+    // Koşacak bir şey yok: sunucuya hiç gidilmiyor.
+    expect(verify).not.toHaveBeenCalled();
     expect(document.querySelector(".badge-danger")).toBeNull();
     expect(screen.getByText(/before chains existed/i)).toBeTruthy();
+  });
+
+  /*
+   * ⚠️ MODALIN BAŞLIĞI ZATEN VAR. Bileşen kendi kartını ve "Recording
+   * chain" başlığını da çizince ekranda iç içe iki pencere görünüyordu
+   * (kullanıcı ekran görüntüsüyle gösterdi).
+   */
+  it("kendi kartını ve başlığını çizmiyor", () => {
+    vi.spyOn(api, "verifyRecording").mockReturnValue(
+      new Promise(() => {}) as never,
+    );
+    const { container } = render(<ChainStatus sessionId="s1" chain="abc" />);
+
+    expect(container.querySelector(".card")).toBeNull();
+    expect(screen.queryByRole("heading")).toBeNull();
   });
 });
 
@@ -57,8 +95,6 @@ describe("doğrulamadan sonra", () => {
     );
     render(<ChainStatus sessionId="s1" chain="abc" />);
 
-    await userEvent.click(screen.getByRole("button", { name: /Verify/i }));
-
     await waitFor(() => expect(screen.getByText("verified")).toBeTruthy());
     expect(document.querySelector(".badge-ok")).toBeTruthy();
   });
@@ -68,8 +104,6 @@ describe("doğrulamadan sonra", () => {
       result({ local: "changed", detail: "it is short by 2 lines" }),
     );
     render(<ChainStatus sessionId="s1" chain="abc" />);
-
-    await userEvent.click(screen.getByRole("button", { name: /Verify/i }));
 
     await waitFor(() => expect(screen.getByText("changed")).toBeTruthy());
     expect(screen.getByText(/short by 2 lines/)).toBeTruthy();
@@ -89,8 +123,6 @@ describe("doğrulamadan sonra", () => {
       }),
     );
     render(<ChainStatus sessionId="s1" chain="abc" />);
-
-    await userEvent.click(screen.getByRole("button", { name: /Verify/i }));
 
     await waitFor(() =>
       expect(screen.getByText("archive disagrees")).toBeTruthy(),
@@ -116,8 +148,6 @@ describe("doğrulamadan sonra", () => {
     );
     render(<ChainStatus sessionId="s1" chain="abc" />);
 
-    await userEvent.click(screen.getByRole("button", { name: /Verify/i }));
-
     await waitFor(() =>
       expect(screen.getByText("archive not checked")).toBeTruthy(),
     );
@@ -139,8 +169,6 @@ describe("doğrulamadan sonra", () => {
     );
     render(<ChainStatus sessionId="s1" chain="abc" />);
 
-    await userEvent.click(screen.getByRole("button", { name: /Verify/i }));
-
     await waitFor(() => expect(screen.getByText("verified")).toBeTruthy());
     expect(
       screen.getByText(/rewrite the file and the stored chain together/i),
@@ -156,8 +184,6 @@ describe("doğrulamadan sonra", () => {
       }),
     );
     render(<ChainStatus sessionId="s1" chain="abc" />);
-
-    await userEvent.click(screen.getByRole("button", { name: /Verify/i }));
 
     await waitFor(() =>
       expect(screen.getByText("archive confirms")).toBeTruthy(),
@@ -181,8 +207,6 @@ describe("doğrulamadan sonra", () => {
     );
     render(<ChainStatus sessionId="s1" chain="abc" />);
 
-    await userEvent.click(screen.getByRole("button", { name: /Verify/i }));
-
     await waitFor(() => expect(screen.getByText("not sealed")).toBeTruthy());
     const badge = screen.getByText("not sealed");
     expect(badge.className).not.toContain("badge-danger");
@@ -194,8 +218,6 @@ describe("doğrulamadan sonra", () => {
       new Error("another recording is being verified right now"),
     );
     render(<ChainStatus sessionId="s1" chain="abc" />);
-
-    await userEvent.click(screen.getByRole("button", { name: /Verify/i }));
 
     await waitFor(() =>
       expect(screen.getByRole("alert").textContent).toMatch(/being verified/),
@@ -218,7 +240,6 @@ describe("erişilebilirlik", () => {
       vi.spyOn(api, "verifyRecording").mockResolvedValue(result({ local }));
       const { unmount } = render(<ChainStatus sessionId="s1" chain="abc" />);
 
-      await userEvent.click(screen.getByRole("button", { name: /Verify/i }));
       await waitFor(() => expect(screen.getByText(label)).toBeTruthy());
 
       unmount();

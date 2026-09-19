@@ -165,16 +165,25 @@ func (s *Server) adminSessionDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	body := map[string]any{
-		"id":         sess.ID,
-		"user":       sess.User,
-		"target":     sess.Target,
-		"os_user":    sess.OSUser,
-		"src_ip":     sess.SrcIP,
-		"temporary":  sess.Temporary,
-		"started_at": sess.StartedAt.Format(time.RFC3339),
-		"ended_at":   endedAt(sess),
-		"recording":  recordingBlock(r, s, sess, state, size),
-		"files":      files,
+		"id":        sess.ID,
+		"user":      sess.User,
+		"target":    sess.Target,
+		"os_user":   sess.OSUser,
+		"src_ip":    sess.SrcIP,
+		"temporary": sess.Temporary,
+		"kind":      sess.Kind,
+		/*
+		 * ⚠️ KAPANIŞ SEBEBİ KÜNYEDE. Bir yöneticinin kestiği oturum ile
+		 * kişinin kendi çıktığı oturum, denetim ekranında birbirinin
+		 * aynısıydı: bilgi yalnızca log satırında ve geçici olay
+		 * akışındaydı.
+		 */
+		"closed_by":     sess.ClosedBy,
+		"terminated_by": sess.TerminatedBy,
+		"started_at":    sess.StartedAt.Format(time.RFC3339),
+		"ended_at":      endedAt(sess),
+		"recording":     recordingBlock(r, s, sess, state, size),
+		"files":         files,
 		// files_error, "dokunulmadı" ile "bakamadık"ı ayırıyor.
 		"files_error": ferr != nil,
 	}

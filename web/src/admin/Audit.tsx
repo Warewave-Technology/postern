@@ -19,6 +19,7 @@ import {
 } from "./common";
 import CastPlayer from "./CastPlayer";
 import ChainStatus from "./ChainStatus";
+import Modal from "./Modal";
 import DataTable, { Column } from "./DataTable";
 import type { Resolved } from "../theme/mode";
 
@@ -103,7 +104,8 @@ function SessionFiles({
    * görünüyordu. Uyarıyı tablonun içine koymak, tam da o oturumda
    * gizlerdi — `files.length === 0` dalı aşağıda hiçbir şey çizmiyor.
    */
-  const gap = journal && journal.state !== "intact" && journal.state !== "unmeasured";
+  const gap =
+    journal && journal.state !== "intact" && journal.state !== "unmeasured";
 
   if (files.length === 0) {
     return gap ? <WarnLine msg={journalMsg(journal)} /> : null;
@@ -128,68 +130,68 @@ function SessionFiles({
       {/* Kaydırma sarmalayıcısı: altı sütun dar bir ekranda yine
           sığmayabilir; sığmazsa tablo kayar, kart onu kesmez. */}
       <div className="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Time</th>
-            <th>Op</th>
-            {/* ⚠️ SARIYOR (.wrap), VE SEBEBİ ÖLÇÜLDÜ. Yol boşluksuz tek
-                parça; `td` varsayılanı yalnızca BOŞLUKTAN sarıyor, yani
-                /srv/app/releases/.../structure/ hiçbir yerden kırılmıyor
-                ve sütunu açıyordu. 1280'de (yan menü açıkken içerik
-                958px) Path tek başına 641px istiyor, tablo 1204px'e
-                çıkıyor ve son iki sütun — Wrote ile Result — yatay
-                kaydırmanın ardında kalıyordu: transfer edilen bayt ve
-                ret gerekçesi, yani denetçinin okuduğu iki sütun.
-                `.wrap` overflow-wrap:anywhere veriyor (taban 10rem);
-                yol satır ortasından kırılıyor, tablo 958px'e sığıyor. */}
-            <th className="wrap">Path</th>
-            <th>Read</th>
-            <th>Wrote</th>
-            {/* ⚠️ SARIYOR: ret gerekçesi uzun bir cümle ("postern: this
-                path is explicitly denied") ve içinde kırılamayan tek
-                parçalar geçiyor (yol, `upstream.DialManagement:` gibi).
-                `.wrap` olmadan sütun o parça kadar açılıyor — yani
-                denetçinin okuması gereken tek şey tabloyu taşırıyordu. */}
-            <th className="wrap">Result</th>
-          </tr>
-        </thead>
-        <tbody>
-          {files.map((f) => (
-            <tr key={f.id}>
-              <td>
-                <Timestamp value={f.at} />
-              </td>
-              <td>{f.op}</td>
-              <td className="wrap">
-                <code title={f.path}>{f.path}</code>
-                {f.new_path && (
-                  <>
-                    {" → "}
-                    <code title={f.new_path}>{f.new_path}</code>
-                  </>
-                )}
-              </td>
-              <td>{bytes(f.read)}</td>
-              <td>{bytes(f.wrote)}</td>
-              <td className="wrap">
-                {/*
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Op</th>
+              {/* ⚠️ SARIYOR (.wrap), VE SEBEBİ ÖLÇÜLDÜ. Yol boşluksuz tek
+                  parça; `td` varsayılanı yalnızca BOŞLUKTAN sarıyor, yani
+                  /srv/app/releases/.../structure/ hiçbir yerden kırılmıyor
+                  ve sütunu açıyordu. 1280'de (yan menü açıkken içerik
+                  958px) Path tek başına 641px istiyor, tablo 1204px'e
+                  çıkıyor ve son iki sütun — Wrote ile Result — yatay
+                  kaydırmanın ardında kalıyordu: transfer edilen bayt ve
+                  ret gerekçesi, yani denetçinin okuduğu iki sütun.
+                  `.wrap` overflow-wrap:anywhere veriyor (taban 10rem);
+                  yol satır ortasından kırılıyor, tablo 958px'e sığıyor. */}
+              <th className="wrap">Path</th>
+              <th>Read</th>
+              <th>Wrote</th>
+              {/* ⚠️ SARIYOR: ret gerekçesi uzun bir cümle ("postern: this
+                  path is explicitly denied") ve içinde kırılamayan tek
+                  parçalar geçiyor (yol, `upstream.DialManagement:` gibi).
+                  `.wrap` olmadan sütun o parça kadar açılıyor — yani
+                  denetçinin okuması gereken tek şey tabloyu taşırıyordu. */}
+              <th className="wrap">Result</th>
+            </tr>
+          </thead>
+          <tbody>
+            {files.map((f) => (
+              <tr key={f.id}>
+                <td>
+                  <Timestamp value={f.at} />
+                </td>
+                <td>{f.op}</td>
+                <td className="wrap">
+                  <code title={f.path}>{f.path}</code>
+                  {f.new_path && (
+                    <>
+                      {" → "}
+                      <code title={f.new_path}>{f.new_path}</code>
+                    </>
+                  )}
+                </td>
+                <td>{bytes(f.read)}</td>
+                <td>{bytes(f.wrote)}</td>
+                <td className="wrap">
+                  {/*
                   Başarısız satırlar SİLİNMİYOR, işaretleniyor: reddedilen
                   bir silme denemesi engelin çalıştığının kanıtı ve
                   denetimin göstermesi gereken tam olarak bu.
                 */}
-                {f.ok ? (
-                  "ok"
-                ) : (
-                  <span className="bad" title={f.detail}>
-                    denied{f.detail ? ` — ${f.detail}` : ""}
-                  </span>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                  {f.ok ? (
+                    "ok"
+                  ) : (
+                    <span className="bad" title={f.detail}>
+                      denied{f.detail ? ` — ${f.detail}` : ""}
+                    </span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -223,6 +225,8 @@ export function Sessions({ theme }: { theme: Resolved }) {
    * içine koymak, tam da en çok merak edilen oturumlarda gizlerdi.
    */
   const [opened, setOpened] = useState<Session | null>(null);
+  // Zincir kontrolü bir EYLEM: kendiliğinden çizilmiyor, istendiğinde açılıyor.
+  const [checkingChain, setCheckingChain] = useState(false);
   const [chainOf, setChainOf] = useState<{ id: string; chain?: string } | null>(
     null,
   );
@@ -246,6 +250,7 @@ export function Sessions({ theme }: { theme: Resolved }) {
     setFilesFailed(false);
     setJournal(undefined);
     setChainOf(null);
+    setCheckingChain(false);
     setOpened(null);
   };
 
@@ -406,7 +411,10 @@ export function Sessions({ theme }: { theme: Resolved }) {
           {s.temporary && (
             <>
               {" "}
-              <span className="badge badge-warn" title="admitted by a temporary access grant, not by a group">
+              <span
+                className="badge badge-warn"
+                title="admitted by a temporary access grant, not by a group"
+              >
                 temporary
               </span>
             </>
@@ -416,7 +424,54 @@ export function Sessions({ theme }: { theme: Resolved }) {
     },
     // wrap: hostname'ler tek parça; 55 karakterlik bir ad sarmadan
     // tabloyu 1280'de 330px kaydırıyordu (ölçüldü).
-    { key: "target", header: "Target", className: "wrap", value: (s) => s.target },
+    {
+      key: "target",
+      header: "Target",
+      className: "wrap",
+      /*
+       * ⚠️ OTURUMUN HANGİ KAPIDAN AÇILDIĞI SATIRDA YAZIYOR.
+       *
+       * Biri bir makinede dururken panelin dosya tarayıcısını açmak
+       * İKİNCİ bir oturum açıyor ve iki satır, panelin gösterdiği her
+       * sütunda birbirinin aynısıydı: aynı kişi, aynı hedef, aynı
+       * saniye (kullanıcı ekrana bakıp söyledi). "İki oturum açık" ama
+       * hangisinin ne olduğu belli değil, tek satırdan kötü — kopya
+       * gibi okunuyor.
+       *
+       * ⚠️ SSH ROZETSİZ. Olağan olan o; her satıra rozet koymak,
+       * ayırt etmesi gereken ikisini yine gürültüye gömerdi. Rozet
+       * aramada da bulunuyor.
+       */
+      value: (s) =>
+        `${s.target}${s.kind && s.kind !== "ssh" ? " " + s.kind : ""}`,
+      render: (s) => (
+        <>
+          {s.target}
+          {s.kind === "web" && (
+            <>
+              {" "}
+              <span
+                className="badge badge-mono"
+                title="opened from the panel's terminal"
+              >
+                web terminal
+              </span>
+            </>
+          )}
+          {s.kind === "files" && (
+            <>
+              {" "}
+              <span
+                className="badge badge-mono"
+                title="opened from the panel's file browser"
+              >
+                file browser
+              </span>
+            </>
+          )}
+        </>
+      ),
+    },
     /*
      * ⚠️ "OS user" VE "Src" SÜTUNDAN ÇIKTI, VERİDEN ÇIKMADI. İlk bakışın
      * cevaplaması gereken soru "hangisini açayım"; hedefteki hesap ve
@@ -448,7 +503,31 @@ export function Sessions({ theme }: { theme: Resolved }) {
        */
       render: (s) =>
         s.ended_at ? (
-          <Timestamp value={s.ended_at} />
+          <>
+            <Timestamp value={s.ended_at} />
+            {/*
+              ⚠️ KESİLEN OTURUM SATIRDA BELLİ OLUYOR. Bir yöneticinin
+              kestiği oturum ile kişinin kendi çıktığı oturum burada
+              birbirinin aynısıydı; bilgi yalnızca log satırında ve
+              geçici olay akışındaydı, yani olaydan sonra bakan kimse
+              göremiyordu.
+            */}
+            {s.closed_by === "terminated" && (
+              <>
+                {" "}
+                <span
+                  className="badge badge-warn"
+                  title={
+                    s.terminated_by
+                      ? `cut by ${s.terminated_by}`
+                      : "cut by an administrator"
+                  }
+                >
+                  cut
+                </span>
+              </>
+            )}
+          </>
         ) : s.running === false ? (
           <span className="badge badge-info">open, not streaming</span>
         ) : (
@@ -491,16 +570,42 @@ export function Sessions({ theme }: { theme: Resolved }) {
             ⚠️ KAPATMA BURADA, oynatıcının içinde değil: kapanan şey
             yalnızca kayıt değil — künye, zincir durumu ve dosya olayları
             da; ve kullanıcı düğmeyi Refresh'in yanında aradı.
+
+            ⚠️ ADI "Close session" DEĞİL, VE BU BİR DÜZELTME. O ad bu
+            üründe GERÇEKTEN VAR OLAN bir eylemi anlatıyor: yöneticinin
+            akan bir oturumu kesmesi. Burada kapanan yalnızca ekrandaki
+            kayıt; ikisini aynı kelimeyle çağırmak, kesme niyetiyle
+            basılacak bir düğme bırakırdı.
+
+            ⚠️ btn-quiet DEĞİL. Sessiz biçim yalnızca hover'da kendini
+            gösteriyordu ve düğme olduğu anlaşılmıyordu (kullanıcı
+            söyledi) — üstelik bu, açılan kaydı kapatmanın TEK yolu.
           */}
           {opened && (
-            <button
-              type="button"
-              className="btn-quiet"
+            <ActionButton
               onClick={closeSession}
-              aria-label={`close session ${opened.id}`}
+              label={`stop viewing the record of session ${opened.id}`}
             >
-              Close session
-            </button>
+              ← Back to all sessions
+            </ActionButton>
+          )}
+          {/*
+            ⚠️ ZİNCİR KONTROLÜ BİR EYLEM, KENDİLİĞİNDEN ÇİZİLEN BİR KART
+            DEĞİL. Her kayıt açılışında görünen kart, okunacak bir şey
+            olmadığında da yer kaplıyordu.
+
+            ⚠️ ÖBÜR İKİ DÜĞMENİN ARASINDA. Aşağıda kendi başına duran bir
+            eylem çubuğu, sayfada ikinci bir düğme bölgesi açıyordu;
+            açılan kaydın üstünde yapılabilecek her şey tek yerde
+            toplanıyor.
+          */}
+          {chainOf && (
+            <ActionButton
+              onClick={() => setCheckingChain(true)}
+              label={`check the recording chain of session ${chainOf.id}`}
+            >
+              Check recording chain
+            </ActionButton>
           )}
           <ActionButton onClick={refresh} label="refresh the session list">
             Refresh
@@ -547,6 +652,32 @@ export function Sessions({ theme }: { theme: Resolved }) {
                 <dt>From</dt>
                 <dd className="mono">{opened.src_ip}</dd>
               </div>
+              {/*
+                ⚠️ HANGİ KAPIDAN AÇILDIĞI BURADA DA YAZIYOR. Listedeki
+                rozet "hangisini açayım" sorusunu cevaplıyor; bu satır,
+                açtıktan sonra "bu ne oturumuydu" sorusunu.
+              */}
+              <div>
+                <dt>Opened from</dt>
+                <dd>
+                  {opened.kind === "files"
+                    ? "the panel's file browser"
+                    : opened.kind === "web"
+                      ? "the panel's terminal"
+                      : "an SSH client"}
+                </dd>
+              </div>
+              {/*
+                ⚠️ KESİLDİYSE KÜNYEDE YAZIYOR. "Kullanıcı çıktı" ile
+                "yönetici kesti" aynı olay değil ve ikincisi, olaydan
+                sonra kaydı okuyan için işin tamamı.
+              */}
+              {opened.closed_by && (
+                <div>
+                  <dt>How it ended</dt>
+                  <dd>{endedHow(opened)}</dd>
+                </div>
+              )}
               <div>
                 <dt>Started</dt>
                 <dd>
@@ -555,7 +686,13 @@ export function Sessions({ theme }: { theme: Resolved }) {
               </div>
               <div>
                 <dt>Ended</dt>
-                <dd>{opened.ended_at ? <Timestamp value={opened.ended_at} /> : "still open"}</dd>
+                <dd>
+                  {opened.ended_at ? (
+                    <Timestamp value={opened.ended_at} />
+                  ) : (
+                    "still open"
+                  )}
+                </dd>
               </div>
               <div>
                 <dt>Session</dt>
@@ -573,53 +710,98 @@ export function Sessions({ theme }: { theme: Resolved }) {
         olduğu için oynatıcı hiç açılmayabiliyor; tabloyu oynatıcının
         içine koymak, tam da onun gerektiği oturumlarda gizlerdi.
       */}
-      {chainOf && <ChainStatus sessionId={chainOf.id} chain={chainOf.chain} />}
+      <Modal
+        open={checkingChain && chainOf !== null}
+        title="Recording chain"
+        description="postern re-reads the recording and compares it with the seal it wrote. Nothing is changed."
+        onClose={() => setCheckingChain(false)}
+      >
+        {checkingChain && chainOf && (
+          <ChainStatus sessionId={chainOf.id} chain={chainOf.chain} />
+        )}
+      </Modal>
 
       <SessionFiles files={files} failed={filesFailed} journal={journal} />
 
-      <ListState
-        loading={loading}
-        denied={denied}
-        failed={failed}
-        empty={items.length === 0}
-        emptyText="No sessions recorded — nobody has connected through this bastion yet."
-      />
-
       {/*
+        ⚠️ BİR KAYIT AÇIKKEN BÜTÜN OTURUM LİSTESİ ÇİZİLMİYOR. Altta duran
+        liste ne o kişiye ne o makineye aitti (kullanıcı söyledi) ve
+        açılan kaydın parçası gibi okunuyordu. Üstteki künye yorumu
+        "liste aşağıda ve kayıt açıkken görünmüyor" diyordu — kod bunu
+        hiç yapmıyordu, yani yorum kendi başına bir iddiaydı.
+      */}
+      {!opened && (
+        <>
+          <ListState
+            loading={loading}
+            denied={denied}
+            failed={failed}
+            empty={items.length === 0}
+            emptyText="No sessions recorded — nobody has connected through this bastion yet."
+          />
+
+          {/*
         ⚠️ BOŞ HÜCRENİN NE DEMEK OLMADIĞINI YAZMAK ŞART. "Evidence"
         altında boşluk gören biri bunu kolayca "doğrulandı" diye
         okuyabilir; oysa listeden hesaplanabilen tek şey iki sayı.
         Yazmayan bir sütun, hak edilmemiş bir onay dağıtırdı — bu turda
         üç kez düzelttiğimiz hatanın aynısı. Notu tablonun eteğinde.
       */}
-      {items.length > 0 && (
-        <DataTable
-          rows={items}
-          columns={columns}
-          rowKey={(s) => s.id}
-          initialSort={{ key: "started", dir: "desc" }}
-          noun="session"
-          searchLabel="search sessions by user, target or address"
-          searchPlaceholder="Search sessions…"
-          // Sütundan çıkanlar aramada KALIYOR (bkz. os_user/src notu).
-          extraSearch={(s) => `${s.os_user} ${s.src_ip} ${s.id}`}
-          foot={
-            <p>
-              An empty <b>Evidence</b> cell means neither of two things was
-              flagged: postern losing audit events, and postern refusing a
-              request. It is not a verdict on the recording or the journal —
-              open a session and press <b>Verify</b> for that.
-              {" "}
-              postern lists at most the {SESSION_CAP} most recent sessions, and
-              sorting and search work on what was returned.
-              {items.length >= SESSION_CAP &&
-                " This list is at that limit, so older sessions exist and are not shown here."}
-            </p>
-          }
-        />
+          {items.length > 0 && (
+            <DataTable
+              rows={items}
+              columns={columns}
+              rowKey={(s) => s.id}
+              initialSort={{ key: "started", dir: "desc" }}
+              noun="session"
+              searchLabel="search sessions by user, target or address"
+              searchPlaceholder="Search sessions…"
+              // Sütundan çıkanlar aramada KALIYOR (bkz. os_user/src notu).
+              extraSearch={(s) =>
+                `${s.os_user} ${s.src_ip} ${s.id} ${s.kind ?? ""} ${s.closed_by ?? ""} ${s.terminated_by ?? ""}`
+              }
+              foot={
+                <p>
+                  An empty <b>Evidence</b> cell means neither of two things was
+                  flagged: postern losing audit events, and postern refusing a
+                  request. It is not a verdict on the recording or the journal —
+                  open a session and press <b>Verify</b> for that. postern lists
+                  at most the {SESSION_CAP} most recent sessions, and sorting
+                  and search work on what was returned.
+                  {items.length >= SESSION_CAP &&
+                    " This list is at that limit, so older sessions exist and are not shown here."}
+                </p>
+              }
+            />
+          )}
+        </>
       )}
     </section>
   );
+}
+
+/*
+ * endedHow, kapanış sebebini insan cümlesine çevirir.
+ *
+ * ⚠️ JETON EKRANA YAZILMIYOR. "max_lifetime" bir makine jetonu; onu
+ * olduğu gibi göstermek, denetçiyi kaynak kodda anlam aramaya
+ * gönderirdi.
+ */
+function endedHow(s: Session): string {
+  switch (s.closed_by) {
+    case "terminated":
+      return s.terminated_by
+        ? `cut by ${s.terminated_by}`
+        : "cut by an administrator";
+    case "idle_timeout":
+      return "closed by postern — idle for too long";
+    case "max_lifetime":
+      return "closed by postern — it reached the maximum session length";
+    case "recording_failed":
+      return "closed by postern — the recording could not be written";
+    default:
+      return s.closed_by ?? "";
+  }
 }
 
 export function AdminLog() {
@@ -648,7 +830,12 @@ export function AdminLog() {
       render: (e) => <code>{e.action}</code>,
     },
     // wrap: "target/<uzun hostname>" tek parça; sarmazsa sütun 460px.
-    { key: "entity", header: "Entity", className: "wrap", value: (e) => e.entity },
+    {
+      key: "entity",
+      header: "Entity",
+      className: "wrap",
+      value: (e) => e.entity,
+    },
     {
       key: "details",
       header: "Details",

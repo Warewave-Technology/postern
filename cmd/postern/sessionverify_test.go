@@ -62,7 +62,7 @@ func kayitliOturum(t *testing.T, e *testEnv, id string, zincirYaz bool) string {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.db.EndSession(ctx, id, time.Now()); err != nil {
+	if err := e.db.EndSession(ctx, id, time.Now(), "", ""); err != nil {
 		t.Fatal(err)
 	}
 

@@ -310,6 +310,18 @@ type Request struct {
 
 	TargetName string
 	SrcIP      string
+
+	/*
+	 * Kind, isteğin geldiği kapı (model.SessionFrom*). Boşsa "ssh".
+	 *
+	 * ⚠️ KANAL TÜRÜ DEĞİL, KAPI. SSH tarafında istek türü (shell,
+	 * subsystem) bu noktada HENÜZ GELMEMİŞ oluyor; burada onu uydurmak
+	 * yerine "bu bir SSH istemcisi" diyoruz. Panel iki kapıyı zaten
+	 * ayırt edebiliyor ve asıl karışan çift oydu: biri makinede
+	 * dururken dosya tarayıcısını açmak, ayırt edilemeyen ikinci bir
+	 * satır bırakıyordu.
+	 */
+	Kind string
 }
 
 // Session, açılmış ama henüz sürülmemiş bir oturum: hedefe bağlanılmış,
@@ -351,6 +363,17 @@ type Session struct {
 
 	start  time.Time
 	closed bool
+
+	/*
+	 * closedBy ve terminatedBy, Run'ın ölçtüğü kapanış sebebi.
+	 *
+	 * ⚠️ Run HESAPLIYOR, Close YAZIYOR. Sebep yalnızca bağlamın
+	 * iptal nedeni okunabildiği yerde belli oluyor; satırı kapatan ise
+	 * çağıranın defer'ı. İkisini bağlayan tek şey bu alanlar — ve
+	 * olmasalardı "yönetici kesti" bilgisi kayda hiç giremezdi.
+	 */
+	closedBy     string
+	terminatedBy string
 
 	// endDetail, Run'ın hesapladığı kapanış cümlesi. Yayını
 	// Close yapıyor: olay, ended_at yazıldıktan SONRA gitmeli.
@@ -612,7 +635,7 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 		if id != "" {
 			// Denetim satırı yazıldıysa kapat: yarıda kalan kurulum
 			// sonsuza dek "running" bir kayıt bırakmamalı.
-			if err := deps.Store.EndSession(context.WithoutCancel(ctx), id, time.Now()); err != nil &&
+			if err := deps.Store.EndSession(context.WithoutCancel(ctx), id, time.Now(), "", ""); err != nil &&
 				!errors.Is(err, store.ErrNotFound) {
 				log.Error("end session failed", "error", err)
 			}
@@ -706,7 +729,7 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 	err = deps.Store.StartSession(ctx, store.SessionStart{
 		ID: id, Username: req.Username, TargetName: target.Name,
 		OSUser: d.OSUser, SrcIP: req.SrcIP, StartedAt: start,
-		RecordingPath: path, Temporary: d.Temporary,
+		RecordingPath: path, Temporary: d.Temporary, Kind: req.Kind,
 	})
 	if err != nil {
 		log.Error("start session failed", "error", err)
@@ -715,10 +738,31 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 		return nil, fmt.Errorf("proxy.Open: %w", ErrUnavailable)
 	}
 
+	/*
+	 * ⚠️ EV YALNIZCA BİR KURAL ONU İSTİYORSA SORULUYOR.
+	 *
+	 * Bu satır SICAK YOLDA: her oturuma bir exec kanalı eklemek, ev
+	 * token'ı kullanmayan her kuruluma bedelsiz bir gecikme yüklerdi.
+	 * UsesHome, o bedeli yalnızca kuralında `~` yazanlara bırakıyor.
+	 *
+	 * ⚠️ OKUNAMAZSA OTURUM KESİLMİYOR, SFTP KAPANIYOR. SFTPDecider boş
+	 * ev gördüğünde her isteği reddediyor: değerlendirilemeyen bir
+	 * politikayı yok saymak, `~/.ssh` gibi bir RET kuralını sessizce
+	 * düşürmek olurdu.
+	 */
+	var home string
+	if policy.UsesHome(u.Groups) {
+		home = readHome(ctx, conn, d.OSUser)
+		if home == "" {
+			log.Warn("home directory unreadable; path rules that use ~ will refuse",
+				"os_user", d.OSUser)
+		}
+	}
+
 	opened = true
 	return &Session{
 		ID: id, OSUser: d.OSUser, Log: log,
-		sftpPolicy: policy.SFTPDecider(u.Groups),
+		sftpPolicy: policy.SFTPDecider(u.Groups, home),
 		deps:       deps, conn: conn, up: up, upR: upR, rec: rec, start: start,
 		user: req.Username, target: req.TargetName, src: req.SrcIP,
 	}, nil
@@ -996,6 +1040,8 @@ func (s *Session) Run(ctx context.Context, down ssh.Channel, downR <-chan *ssh.R
 	 * yayın Close'da yapılıyor.
 	 */
 	s.endDetail = detail
+	s.closedBy = closedBy
+	s.terminatedBy = terminatedBy
 
 	return err
 }
@@ -1104,7 +1150,7 @@ func (s *Session) Close(ctx context.Context) {
 	// İptal edilmiş ctx ile yapılan kapanış, denetim satırını sonsuza dek
 	// "running" bırakır.
 	closeCtx := context.WithoutCancel(ctx)
-	if serr := s.deps.Store.EndSession(closeCtx, s.ID, time.Now()); serr != nil {
+	if serr := s.deps.Store.EndSession(closeCtx, s.ID, time.Now(), s.closedBy, s.terminatedBy); serr != nil {
 		s.Log.Error("end session failed", "error", serr)
 	}
 
@@ -1179,4 +1225,40 @@ func denialRow(id, sessionID, reqType, reason string, at time.Time) store.Sessio
 		ID: id, SessionID: sessionID, At: at,
 		Op: "denied." + sftpcast.Safe(reqType), OK: false, Detail: sftpcast.Safe(reason),
 	}
+}
+
+/*
+ * readHome, hesabın ev dizinini HEDEFTEN okur; okunamazsa boş döner.
+ *
+ * ⚠️ "/home/<ad>" VARSAYILMIYOR. Bu depo o varsayımı başka bir yerde
+ * (provision.Account) açıkça reddediyor: evi başka yerde olan bir
+ * hesapta kural, o hesabın sahibi olmadığı bir dizini gösterirdi.
+ *
+ * ⚠️ KOMUT KİŞİNİN KENDİ BAĞLANTISINDAN GİDİYOR, sudo YOK. `getent
+ * passwd` herkesin çalıştırabildiği bir okuma ve sorulan şey zaten
+ * "benim evim nerede". Yönetim hesabını buna karıştırmak, yönetimi
+ * kurulmamış bir hedefte kuralı çalışmaz yapardı.
+ *
+ * ⚠️ AD KOMUTA GİRMEDEN ÖNCE DOĞRULANIYOR. policy.Authorize onu zaten
+ * doğruladı; buradaki kontrol, veritabanına elle dokunulmuş bir satıra
+ * karşı son savunma — komut bir KABUĞA gidiyor.
+ */
+func readHome(ctx context.Context, conn *upstream.Conn, osUser string) string {
+	if !model.ValidOSUserName(osUser) {
+		return ""
+	}
+	out, err := conn.Exec(ctx, "getent passwd "+osUser, "")
+	if err != nil {
+		return ""
+	}
+	fields := strings.Split(strings.TrimSpace(out), ":")
+	if len(fields) < 6 {
+		return ""
+	}
+	home := strings.TrimSpace(fields[5])
+	if !strings.HasPrefix(home, "/") {
+		return ""
+	}
+
+	return home
 }

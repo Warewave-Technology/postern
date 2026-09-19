@@ -5,6 +5,7 @@ import { HostIcon, SearchIcon } from "./icons";
 import ShellMenu from "./ShellMenu";
 import { targetURL } from "./TargetPage";
 import { Fields, describe as explain, matches, parse } from "./query";
+import { groupTargets } from "./grouping";
 
 /**
  * Home — herkesin ekranı: erişebildiğin makineler.
@@ -55,6 +56,98 @@ function shellHint(me: Me): string {
   return `ssh ${p}${me.name}:${target}@${me.ssh_host}`;
 }
 
+/**
+ * TargetCard — bir hedefin kutusu.
+ *
+ * ⚠️ AYRI BİR BİLEŞEN, ÇÜNKÜ İKİ YERDE ÇİZİLİYOR: düz ızgarada ve
+ * gruplanmış düzende. Kopyalamak, kartın bir yerde düzeltilip öbüründe
+ * eskimesi demekti.
+ */
+function TargetCard({ t, me }: { t: MyTarget; me: Me }) {
+  return (
+    <article className="tcard">
+      <header className="tcard-head">
+        {/*
+                ⚠️ TIKLANABİLİR OLAN AD, KARTIN TAMAMI DEĞİL.
+                
+                Kartın içinde bir menü düğmesi var; kartı komple
+                bağlantıya çevirmek, menüye her basışta sayfayı da
+                değiştirirdi. Ayrıca bağlantı olarak <a> kullanmak
+                orta tık ve "yeni sekmede aç" davranışını
+                koruyor — bir onClick sarmalayıcısı ikisini de
+                kaybettirirdi.
+              */}
+        <a className="tcard-name" href={targetURL(t.name)}>
+          <HostIcon />
+          {t.name}
+        </a>
+        {/*
+                ⚠️ MENÜ, web terminali KAPALI olsa da çiziliyor.
+                Eskiden düğme tamamen terminale bağlıydı ve
+                terminali kapatan kurulumda kartta hiçbir eylem
+                kalmıyordu — oysa ssh komutu o kurulumda da
+                geçerli, hatta tek yol o.
+              */}
+        <ShellMenu
+          target={t.name}
+          user={me.name}
+          sshHost={me.ssh_host}
+          sshPort={me.ssh_port}
+          connectHref={me.terminal_enabled ? shellURL(t.name) : undefined}
+        />
+      </header>
+
+      <div className="tcard-body">
+        {Object.keys(t.labels).length === 0 ? (
+          <span className="muted small">no labels</span>
+        ) : (
+          <div className="chips">
+            {Object.entries(t.labels).map(([k, v]) => (
+              <span key={k} className="label-chip">
+                <span className="k">{k}</span>
+                <span className="v">{v}</span>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <footer className="tcard-foot">
+        {/*
+                ⚠️ SÜRELİ HAK KARTTA YAZIYOR: "temporary until …".
+                Hak bitince kutu kaybolacak; bunu önceden söylemeyen
+                bir kart, kaybolduğu gün bir arıza gibi okunur.
+              */}
+        {t.temporary && (
+          <span
+            className="badge badge-warn"
+            title={`granted by ${t.temporary.granted_by}`}
+          >
+            temporary until <Timestamp value={t.temporary.until} />
+          </span>
+        )}
+        {/*
+                Gözlemler: bağlanmadan önce sorulmaya değer sorular.
+                "Hiç bağlanılmadı" ile "dün bağlanıldı" arasındaki
+                fark, bir makinenin gerçekten ayakta olup olmadığı.
+              */}
+        {t.last_seen_at ? (
+          <span title={t.last_seen_at}>
+            last reached {seenFmt.format(new Date(t.last_seen_at))}
+          </span>
+        ) : (
+          <span>never reached from this bastion</span>
+        )}
+        {t.server_version && (
+          <code title={t.server_version}>
+            {t.server_version.replace(/^SSH-2\.0-/, "")}
+          </code>
+        )}
+      </footer>
+    </article>
+  );
+}
+
 export default function Home({ me }: { me: Me }) {
   const { items, error, denied, loading, failed } = useList<MyTarget>(
     api.myTargets,
@@ -68,6 +161,16 @@ export default function Home({ me }: { me: Me }) {
   );
 
   const searching = q.trim() !== "";
+
+  /*
+   * ⚠️ ÖNCE SÜZ, SONRA GRUPLA. Tersi, aramanın boşalttığı bir başlığı
+   * ekranda bırakırdı: "shop" yazan bir öbek altında hiç kart olmadan
+   * durur ve okuyan onu bir arıza sanardı.
+   *
+   * null = gruplanacak bir şey yok (hiçbir hedefte app ya da env
+   * label'ı yok); o hâlde bugünkü düz ızgara çiziliyor.
+   */
+  const groups = useMemo(() => groupTargets(shown), [shown]);
 
   return (
     <section>
@@ -138,90 +241,43 @@ export default function Home({ me }: { me: Me }) {
               Nothing matches that filter. Try a label like{" "}
               <code>env: prod</code>, or clear the box.
             </p>
-          ) : (
+          ) : groups === null ? (
             <div className="card-grid">
               {shown.map((t) => (
-                <article key={t.name} className="tcard">
-                  <header className="tcard-head">
-                    {/*
-                      ⚠️ TIKLANABİLİR OLAN AD, KARTIN TAMAMI DEĞİL.
-                      
-                      Kartın içinde bir menü düğmesi var; kartı komple
-                      bağlantıya çevirmek, menüye her basışta sayfayı da
-                      değiştirirdi. Ayrıca bağlantı olarak <a> kullanmak
-                      orta tık ve "yeni sekmede aç" davranışını
-                      koruyor — bir onClick sarmalayıcısı ikisini de
-                      kaybettirirdi.
-                    */}
-                    <a className="tcard-name" href={targetURL(t.name)}>
-                      <HostIcon />
-                      {t.name}
-                    </a>
-                    {/*
-                      ⚠️ MENÜ, web terminali KAPALI olsa da çiziliyor.
-                      Eskiden düğme tamamen terminale bağlıydı ve
-                      terminali kapatan kurulumda kartta hiçbir eylem
-                      kalmıyordu — oysa ssh komutu o kurulumda da
-                      geçerli, hatta tek yol o.
-                    */}
-                    <ShellMenu
-                      target={t.name}
-                      user={me.name}
-                      sshHost={me.ssh_host}
-                      sshPort={me.ssh_port}
-                      connectHref={
-                        me.terminal_enabled ? shellURL(t.name) : undefined
-                      }
-                    />
-                  </header>
-
-                  <div className="tcard-body">
-                    {Object.keys(t.labels).length === 0 ? (
-                      <span className="muted small">no labels</span>
-                    ) : (
-                      <div className="chips">
-                        {Object.entries(t.labels).map(([k, v]) => (
-                          <span key={k} className="label-chip">
-                            <span className="k">{k}</span>
-                            <span className="v">{v}</span>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <footer className="tcard-foot">
-                    {/*
-                      ⚠️ SÜRELİ HAK KARTTA YAZIYOR: "temporary until …".
-                      Hak bitince kutu kaybolacak; bunu önceden söylemeyen
-                      bir kart, kaybolduğu gün bir arıza gibi okunur.
-                    */}
-                    {t.temporary && (
-                      <span className="badge badge-warn" title={`granted by ${t.temporary.granted_by}`}>
-                        temporary until <Timestamp value={t.temporary.until} />
-                      </span>
-                    )}
-                    {/*
-                      Gözlemler: bağlanmadan önce sorulmaya değer sorular.
-                      "Hiç bağlanılmadı" ile "dün bağlanıldı" arasındaki
-                      fark, bir makinenin gerçekten ayakta olup olmadığı.
-                    */}
-                    {t.last_seen_at ? (
-                      <span title={t.last_seen_at}>
-                        last reached {seenFmt.format(new Date(t.last_seen_at))}
-                      </span>
-                    ) : (
-                      <span>never reached from this bastion</span>
-                    )}
-                    {t.server_version && (
-                      <code title={t.server_version}>
-                        {t.server_version.replace(/^SSH-2\.0-/, "")}
-                      </code>
-                    )}
-                  </footer>
-                </article>
+                <TargetCard key={t.name} t={t} me={me} />
               ))}
             </div>
+          ) : (
+            /*
+              ⚠️ BAŞLIK BİR LABEL'IN DEĞERİ, UYDURULMUŞ BİR AD DEĞİL.
+              "Others" ve "Other env" ise label'ı olmayanların yeri ve
+              her zaman en sonda duruyor — alfabetik sıraya karışsalardı
+              göz onları aramayı öğrenemezdi.
+            */
+            groups.map((g) => (
+              <section key={g.app} className="tgroup">
+                <h3 className="tgroup-head">
+                  <span className={g.other ? "muted" : undefined}>{g.app}</span>
+                  <span className="tgroup-count">
+                    {g.count} {g.count === 1 ? "machine" : "machines"}
+                  </span>
+                </h3>
+                {g.envs.map((e) => (
+                  <div key={e.env} className="tgroup-env">
+                    <h4 className="tgroup-env-head">
+                      <span className={e.other ? "muted" : undefined}>
+                        {e.env}
+                      </span>
+                    </h4>
+                    <div className="card-grid">
+                      {e.targets.map((t) => (
+                        <TargetCard key={t.name} t={t} me={me} />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </section>
+            ))
           )}
         </>
       )}

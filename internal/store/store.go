@@ -404,10 +404,22 @@ func (s *Store) loadGroupPaths(ctx context.Context, groups []model.Group) error 
  * kısıtın yerine geçmek için değil.
  */
 func (s *Store) SetGroupPath(ctx context.Context, roleName, prefix string, allow, canWrite bool) error {
-	if !strings.HasPrefix(prefix, "/") {
-		return fmt.Errorf("store.SetGroupPath: prefix must be absolute: %q", prefix)
+	/*
+	 * ⚠️ "~" MUTLAK SAYILIYOR, ÇÜNKÜ ÇÖZÜMÜ BİZDE. Göreli bir yolun neye
+	 * göre olduğunu bilemiyoruz — istemcinin çalışma dizini hedefte,
+	 * bizde değil — ama ev token'ı oturum açılırken hedeften okunan
+	 * mutlak bir yola çevriliyor (policy.ExpandHome). Onu da reddetmek,
+	 * bir grubun bütün üyeleri için tek bir kural yazmanın tek doğru
+	 * yolunu kapatırdı.
+	 */
+	if model.IsHomeRule(prefix) {
+		prefix = path.Clean(prefix)
+	} else {
+		if !strings.HasPrefix(prefix, "/") {
+			return fmt.Errorf("store.SetGroupPath: prefix must be absolute or start with ~: %q", prefix)
+		}
+		prefix = path.Clean(prefix)
 	}
-	prefix = path.Clean(prefix)
 
 	res, err := s.db.ExecContext(ctx, `
 		INSERT INTO group_paths (group_id, prefix, allow, can_write)
@@ -2083,6 +2095,10 @@ type SessionStart struct {
 
 	// Temporary, erişimi grup değil süreli hak verdi (model.Session.Temporary).
 	Temporary bool
+
+	// Kind, oturumun hangi kapıdan açıldığı (model.Session.Kind).
+	// Boşsa "ssh" yazılıyor: sütun boş kalmamalı.
+	Kind string
 }
 
 func (s *Store) StartSession(ctx context.Context, rec SessionStart) error {
@@ -2110,7 +2126,11 @@ func (s *Store) StartSession(ctx context.Context, rec SessionStart) error {
 		return translateErr("store.StartSession", err)
 	}
 
-	if _, err = s.db.ExecContext(ctx, `INSERT INTO sessions (id, user_id, target_id, os_user, src_ip, recording_path, started_at, temporary) VALUES ($1, $2, $3, $4, $5, $6, $7, $8);`, rec.ID, userID, targetID, rec.OSUser, rec.SrcIP, rec.RecordingPath, rec.StartedAt.Unix(), rec.Temporary); err != nil {
+	kind := rec.Kind
+	if kind == "" {
+		kind = model.SessionFromSSH
+	}
+	if _, err = s.db.ExecContext(ctx, `INSERT INTO sessions (id, user_id, target_id, os_user, src_ip, recording_path, started_at, temporary, kind) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);`, rec.ID, userID, targetID, rec.OSUser, rec.SrcIP, rec.RecordingPath, rec.StartedAt.Unix(), rec.Temporary, kind); err != nil {
 		return translateErr("store.StartSession", err)
 	}
 
@@ -2193,7 +2213,15 @@ func (s *Store) MarkSFTPJournal(ctx context.Context, id string, j model.SFTPJour
 	return nil
 }
 
-func (s *Store) EndSession(ctx context.Context, id string, endedAt time.Time) error {
+/*
+ * EndSession, oturumu kapatır ve NEDEN kapandığını kaydeder.
+ *
+ * ⚠️ SEBEP KAYDA GİRİYOR, YALNIZCA LOGA DEĞİL. proxy bunu biliyordu ve
+ * yalnızca log satırına ve canlı akışa yazıyordu; log döner, akış
+ * geçicidir. Olaydan sonra bakan denetçi için "yönetici kesti" ile
+ * "kullanıcı çıktı" aynı satır görünüyordu.
+ */
+func (s *Store) EndSession(ctx context.Context, id string, endedAt time.Time, closedBy, terminatedBy string) error {
 	var sessionID string
 	queryStr := `
 		SELECT id
@@ -2206,7 +2234,9 @@ func (s *Store) EndSession(ctx context.Context, id string, endedAt time.Time) er
 		return translateErr("store.EndSession", err)
 	}
 
-	if _, err = s.db.ExecContext(ctx, `UPDATE sessions SET ended_at=$1 WHERE id=$2 AND ended_at IS NULL;`, endedAt.Unix(), sessionID); err != nil {
+	if _, err = s.db.ExecContext(ctx,
+		`UPDATE sessions SET ended_at=$1, closed_by=$3, terminated_by=$4 WHERE id=$2 AND ended_at IS NULL;`,
+		endedAt.Unix(), sessionID, closedBy, terminatedBy); err != nil {
 		return translateErr("store.EndSession", err)
 	}
 
@@ -2233,7 +2263,10 @@ func (s *Store) Session(ctx context.Context, id string) (model.Session, error) {
 	       s.sftp_lost,
 	       s.sftp_digest,
 	       s.sftp_denied,
-	       s.temporary
+	       s.temporary,
+	       s.kind,
+	       s.closed_by,
+	       s.terminated_by
 		FROM sessions s
 		JOIN users   u ON u.id = s.user_id
 		JOIN targets t ON t.id = s.target_id
@@ -2251,7 +2284,8 @@ func (s *Store) Session(ctx context.Context, id string) (model.Session, error) {
 		&session.SrcIP, &startedAt, &endedAt, &session.RecordingPath,
 		&session.RecordingChain, &session.RecordingLinks,
 		&sftpEvents, &session.SFTPJournal.Lost, &session.SFTPJournal.Digest,
-		&sftpDenied, &session.Temporary,
+		&sftpDenied, &session.Temporary, &session.Kind,
+		&session.ClosedBy, &session.TerminatedBy,
 	)
 	if err != nil {
 		return model.Session{}, translateErr("store.Session", err)
@@ -2296,7 +2330,10 @@ func (s *Store) Sessions(ctx context.Context, username string, limit int) ([]mod
 	       s.sftp_events,
 	       s.sftp_lost,
 	       s.sftp_denied,
-	       s.temporary
+	       s.temporary,
+	       s.kind,
+	       s.closed_by,
+	       s.terminated_by
 		FROM sessions s
 		JOIN users   u ON u.id = s.user_id
 		JOIN targets t ON t.id = s.target_id
@@ -2330,7 +2367,8 @@ func (s *Store) Sessions(ctx context.Context, username string, limit int) ([]mod
 		if err := rows.Scan(&session.ID, &session.User, &session.Target,
 			&session.OSUser, &session.SrcIP, &startedAt, &endedAt,
 			&session.RecordingPath, &session.RecordingChain,
-			&sftpEvents, &session.SFTPJournal.Lost, &sftpDenied, &session.Temporary); err != nil {
+			&sftpEvents, &session.SFTPJournal.Lost, &sftpDenied, &session.Temporary,
+			&session.Kind, &session.ClosedBy, &session.TerminatedBy); err != nil {
 			return nil, translateErr("store.Sessions", err)
 		}
 

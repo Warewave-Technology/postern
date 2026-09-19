@@ -30,6 +30,43 @@ type Session struct {
 	SrcIP string
 
 	/*
+	 * Kind, oturumun HANGİ KAPIDAN açıldığı: "ssh" bir SSH istemcisi,
+	 * "web" panelin terminali, "files" panelin dosya tarayıcısı.
+	 *
+	 * ⚠️ AYNI GÖRÜNEN İKİ SATIR DENETİM KAYDI DEĞİL. Birinin içinde
+	 * olduğu bir makinede dosya tarayıcısını açmak İKİNCİ bir oturum
+	 * açıyor ve iki satır, yöneticinin görebildiği her sütunda
+	 * birbirinin aynısıydı: aynı kişi, aynı hedef, aynı hesap, aynı
+	 * saniye. "İki oturum açık" demek ama hangisinin ne olduğunu
+	 * söylememek, tek satırdan daha kötü — çünkü kopya gibi okunuyor.
+	 *
+	 * ⚠️ SSH TARAFINDA KABUK İLE SFTP AYRILMIYOR, VE BU BİLİNÇLİ. Kanal
+	 * açılırken istek türü henüz gelmemiş oluyor (shell/subsystem
+	 * sonra); burada uydurmak yerine "ssh" diyoruz ve ne taşındığı
+	 * SFTPJournal'da zaten duruyor.
+	 */
+	Kind string
+
+	/*
+	 * ClosedBy, oturumun NEDEN kapandığı — makine tarafından okunan bir
+	 * jeton: "terminated", "idle_timeout", "max_lifetime",
+	 * "recording_failed". Boş: kullanıcı kendi çıktı.
+	 *
+	 * TerminatedBy, KESEN yöneticinin adı; yalnızca ClosedBy
+	 * "terminated" iken dolu.
+	 *
+	 * ⚠️ İKİSİ AYRI, ÇÜNKÜ BİRİ JETON BİRİ İNSAN ADI. Tek alanda
+	 * birleştirmek, adında ": " geçen birini ayrıştırılamaz yapardı.
+	 *
+	 * ⚠️ BU BİLGİ VARDI VE KAYDA GİRMİYORDU (göç 053). proxy ikisini de
+	 * biliyor ve log satırına yazıyordu; log döner. Olaydan sonra
+	 * bakan denetçi için bir yöneticinin kestiği oturum ile kişinin
+	 * kendi çıktığı oturum birbirinin aynısıydı.
+	 */
+	ClosedBy     string
+	TerminatedBy string
+
+	/*
 	 * Temporary: oturumu bir ROL değil, SÜRELİ BİR HAK açtı (göç 044).
 	 *
 	 * ⚠️ KARAR ANINDA YAZILIYOR, SONRADAN TÜRETİLMİYOR. Hak geri
@@ -140,3 +177,16 @@ type SFTPJournal struct {
 
 // Open, oturumun hâlâ sürüp sürmediğini söyler.
 func (s Session) Open() bool { return s.EndedAt.IsZero() }
+
+/*
+ * Oturumun açıldığı kapı.
+ *
+ * ⚠️ DEĞERLER KAYDA YAZILIYOR, YANİ DEĞİŞTİRİLEMEZ. Bir denetim satırı
+ * yıllar sonra okunuyor; adı değiştirmek, eski satırları okunamaz
+ * yapardı.
+ */
+const (
+	SessionFromSSH   = "ssh"
+	SessionFromWeb   = "web"
+	SessionFromFiles = "files"
+)

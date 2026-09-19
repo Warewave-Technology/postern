@@ -19,7 +19,7 @@ func closedSession(t *testing.T, db *store.Store, id string, mark model.SFTPJour
 	t.Helper()
 	ctx := context.Background()
 	startSession(t, db, id, "web01", time.Now())
-	if err := db.EndSession(ctx, id, time.Now()); err != nil {
+	if err := db.EndSession(ctx, id, time.Now(), "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.MarkSFTPJournal(ctx, id, mark); err != nil {

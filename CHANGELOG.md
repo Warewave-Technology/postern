@@ -30,6 +30,26 @@ audit rows into a shape it does not understand.
 
 ## Unreleased
 
+### The home screen groups by application and environment
+
+**Targets carrying an `app` label are grouped under it, and split by
+`env` inside it.** A fleet is not read alphabetically: the question is
+almost always which application first, then which environment, and the
+screen carries that order now. `application` and `environment` work as
+well, and the key is matched without regard to case — discovery copies
+Proxmox and vCenter tags verbatim, so `App` and `ENV` are what some
+estates actually have.
+
+A machine with an environment but no application is not lost: **Others**
+opens at the end and holds it under its own environment name, with
+**Other env** for the ones carrying neither. The two leftover buckets
+always sort last, so the eye learns where to find them.
+
+**A fleet with none of these labels keeps the flat grid it has today.**
+Putting everything under a single "Others → Other env" heading would add
+two lines of noise and separate nothing. Grouping starts on its own the
+first time an `app` or `env` label exists.
+
 ### Needs action if you manage accounts with something else
 
 **postern can now own the OS accounts of the people it lets in, and it is
@@ -107,6 +127,31 @@ person's run tried to create the `postern-managed` group again, the target
 refused because it already existed, and the whole preparation failed —
 every time, with backoff, so it never recovered. Nobody hit this in a
 release; it is fixed before the feature ships.
+
+**A path rule can say `~`, meaning each person's own home.** A rule naming
+one person's home is a rule for one person: a group allowing `/home/ayse`
+sends every other member of that group to a refusal, which is what the
+demo did. `postern group path set --group dev --prefix ~ --write` is one
+rule that is right for all of them, and `~/.ssh --deny` still carves out
+of it. The token is resolved per session from the home the **target**
+reports — postern asks with `getent passwd` over the person's own
+connection, no sudo, rather than assuming `/home/<name>`. If a rule uses
+`~` and the home cannot be read, SFTP is refused for that session and says
+why; the shell is untouched. Ignoring the rule instead would leave a
+`~/.ssh` denial silently open.
+
+**A session now records how it ended, and who ended it.** postern knew
+both — an administrator cutting a live session, an idle timeout, the
+maximum session length, a recording that could not be written — and wrote
+them only to its log and the live event stream. Logs rotate and a stream
+is gone once you look away, so the audit screen showed a session an admin
+cut and a session the person exited as the same row. The Sessions list
+marks a cut one, and the record says who did it.
+
+Sessions also record which door they came through — an SSH client, the
+panel's terminal, or the panel's file browser. Opening the file browser on
+a host somebody is already in creates a second session, and those two rows
+used to be identical in every column the panel shows.
 
 Run `postern db migrate` before starting this version.
 

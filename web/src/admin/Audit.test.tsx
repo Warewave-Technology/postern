@@ -209,7 +209,8 @@ describe("SFTP dosya olayları", () => {
         events: 3,
         rows: 1,
         lost: 0,
-        detail: "the journal has no row for 2 events the recording's seal counts",
+        detail:
+          "the journal has no row for 2 events the recording's seal counts",
         digest_checked: false,
       },
     });
@@ -218,9 +219,7 @@ describe("SFTP dosya olayları", () => {
     expect(await screen.findByText(/NOT the whole story/i)).toBeInTheDocument();
     // Gerekçe SUNUCUDAN geliyor: aynı cümleyi `postern session verify`
     // de basıyor ve ikisi ayrışmamalı.
-    expect(
-      screen.getByText(/has no row for 2 events/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/has no row for 2 events/i)).toBeInTheDocument();
   });
 
   /*
@@ -238,7 +237,8 @@ describe("SFTP dosya olayları", () => {
         events: 4,
         rows: 0,
         lost: 0,
-        detail: "the journal has no row for 4 events the recording's seal counts",
+        detail:
+          "the journal has no row for 4 events the recording's seal counts",
         digest_checked: false,
       },
     });
@@ -355,7 +355,9 @@ describe("kanıt sütunu", () => {
      * ÇALIŞTIĞI anlamına da geliyor; kırmızı çizmek onu arıza gibi
      * okuturdu ve gerçek çelişkinin rengini ucuzlatırdı.
      */
-    expect(screen.getByText("4 refused").className).not.toContain("badge-danger");
+    expect(screen.getByText("4 refused").className).not.toContain(
+      "badge-danger",
+    );
   });
 
   /*
@@ -452,8 +454,12 @@ describe("kanıt sütunu", () => {
     show([session({ temporary: true })]);
 
     await waitFor(() => expect(screen.getByText("temporary")).toBeTruthy());
-    await userEvent.click(await screen.findByRole("button", { name: /watch/i }));
-    await waitFor(() => expect(screen.getByText(/temporary access, not a group/)).toBeTruthy());
+    await userEvent.click(
+      await screen.findByRole("button", { name: /watch/i }),
+    );
+    await waitFor(() =>
+      expect(screen.getByText(/temporary access, not a group/)).toBeTruthy(),
+    );
   });
 
   /*
@@ -473,10 +479,7 @@ describe("kanıt sütunu", () => {
     expect(screen.queryByRole("columnheader", { name: /Src/i })).toBeNull();
 
     // …ama arama buluyor.
-    await userEvent.type(
-      screen.getByLabelText(/search sessions/i),
-      "10.0.0.7",
-    );
+    await userEvent.type(screen.getByLabelText(/search sessions/i), "10.0.0.7");
     await waitFor(() => expect(screen.queryByText("ayse")).toBeNull());
     expect(screen.getByText("veli")).toBeTruthy();
   });
@@ -520,5 +523,132 @@ describe("dosya defteri görünümü", () => {
     const td = cell.closest("td");
     expect(td).not.toBeNull();
     expect(td!.className).toContain("wrap");
+  });
+});
+
+/*
+ * Açılan bir kaydın etrafındaki ekran: neyin görünüp neyin görünmeyeceği.
+ */
+describe("açılan kayıt", () => {
+  const openRecord = async (over: Partial<Session> = {}) => {
+    vi.spyOn(api, "sessions").mockResolvedValue([
+      session(over),
+      session({ id: "s2", user: "veli", target: "db-01" }),
+    ]);
+    vi.spyOn(api, "sessionDetail").mockResolvedValue({
+      ...session(over),
+      recording: { state: "complete", size: 120, chain: "sha256:abc" },
+      files: [],
+    });
+    render(<Sessions theme="dark" />);
+    /*
+     * ⚠️ DÜĞME ADIYLA SEÇİLİYOR, SIRAYLA DEĞİL. İki satırın started_at'i
+     * aynıydı ve "ilk Watch" bazen öbür oturumu açıyordu — test o zaman
+     * ölçmek istediği şeyi ölçmüyordu.
+     */
+    await userEvent.click(
+      await screen.findByRole("button", { name: /on web-01/i }),
+    );
+  };
+
+  /*
+   * ⚠️ BİR KAYIT AÇIKKEN BÜTÜN OTURUM LİSTESİ ÇİZİLMİYOR.
+   *
+   * Altta duran liste ne o kişiye ne o makineye aitti (kullanıcı ekrana
+   * bakıp söyledi) ve açılan kaydın parçası gibi okunuyordu. Künyenin
+   * yanındaki yorum bunu zaten iddia ediyordu; kod hiç yapmıyordu.
+   */
+  it("alakasız oturum listesini gizliyor", async () => {
+    await openRecord();
+
+    await waitFor(() =>
+      expect(screen.getByText(/how it ended|person/i)).toBeTruthy(),
+    );
+    // Öbür oturum listeden gitti.
+    expect(screen.queryByText("db-01")).toBeNull();
+    expect(screen.queryByRole("searchbox")).toBeNull();
+  });
+
+  /*
+   * ⚠️ GERİ DÖNME YOLU BİR DÜĞME GİBİ GÖRÜNMEK ZORUNDA. Önceki hâli
+   * yalnızca hover'da kendini gösteren sessiz bir biçimdeydi ve düğme
+   * olduğu anlaşılmıyordu — üstelik açılan kaydı kapatmanın TEK yolu.
+   *
+   * ⚠️ ADI DA DEĞİŞTİ: "Close session" bu üründe GERÇEKTEN var olan bir
+   * eylemi anlatıyor (yöneticinin akan bir oturumu kesmesi).
+   */
+  it("listeye dönüş düğmesi oturumu kesiyormuş gibi adlandırılmıyor", async () => {
+    await openRecord();
+
+    expect(screen.queryByRole("button", { name: /close session/i })).toBeNull();
+    const back = await screen.findByRole("button", {
+      name: /stop viewing the record/i,
+    });
+    await userEvent.click(back);
+
+    // Liste geri geldi.
+    await waitFor(() => expect(screen.getByText("db-01")).toBeTruthy());
+  });
+
+  /*
+   * ⚠️ KESİLEN OTURUM SÖYLENİYOR. Bilgi proxy'de vardı ve yalnızca log
+   * satırıyla geçici olay akışına gidiyordu: olaydan sonra denetim
+   * ekranına bakan kişi için bir yöneticinin kestiği oturum ile kişinin
+   * kendi çıktığı oturum birbirinin aynısıydı.
+   */
+  it("yöneticinin kestiğini künyede kimle birlikte yazıyor", async () => {
+    await openRecord({ closed_by: "terminated", terminated_by: "veli" });
+
+    expect(await screen.findByText(/cut by veli/i)).toBeTruthy();
+  });
+
+  // Jeton ekrana olduğu gibi yazılmıyor: "max_lifetime" bir makine sözü.
+  it("postern'in kapattığı oturumu insan cümlesiyle anlatıyor", async () => {
+    await openRecord({ closed_by: "max_lifetime" });
+
+    expect(await screen.findByText(/maximum session length/i)).toBeTruthy();
+    expect(screen.queryByText("max_lifetime")).toBeNull();
+  });
+
+  /*
+   * ⚠️ ZİNCİR KONTROLÜ BİR EYLEM, KENDİLİĞİNDEN ÇİZİLEN BİR KART DEĞİL.
+   * Her kayıt açılışında görünen kart, okunacak bir şey olmadığında da
+   * yer kaplıyordu.
+   */
+  it("zincir kontrolünü düğmeyle açıyor", async () => {
+    /*
+     * ⚠️ GEÇERLİ BİR VerifyResult. Kontrol artık modal açılır açılmaz
+     * koşuyor; uydurma bir gövde, bileşeni modalın İÇİNDE düşürüyor ve
+     * test "modal hiç açılmadı" diye okunuyordu.
+     */
+    vi.spyOn(api, "verifyRecording").mockResolvedValue({
+      local: "verified",
+      off_box: { state: "unchecked", detail: "archiving is not configured" },
+    });
+    await openRecord();
+
+    // Açılışta kart yok.
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    /*
+     * ⚠️ DÜĞMENİN YERİ DE ÖLÇÜLÜYOR. Aşağıda kendi başına duran bir
+     * eylem çubuğu sayfada ikinci bir düğme bölgesi açıyordu; açılan
+     * kaydın üstünde yapılabilecek her şey tek çubukta ve bu sırada
+     * (kullanıcı ekran görüntüsüyle gösterdi).
+     */
+    const bar = document.querySelector(".page-actions");
+    const labels = Array.from(bar?.querySelectorAll("button") ?? []).map((b) =>
+      (b.textContent ?? "").trim(),
+    );
+    expect(labels).toEqual([
+      "← Back to all sessions",
+      "Check recording chain",
+      "Refresh",
+    ]);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /check the recording chain/i }),
+    );
+    expect(await screen.findByRole("dialog")).toBeTruthy();
   });
 });

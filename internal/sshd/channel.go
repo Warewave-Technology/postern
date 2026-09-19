@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 
+	"github.com/Warewave-Technology/postern/internal/model"
 	"github.com/Warewave-Technology/postern/internal/proxy"
 	"golang.org/x/crypto/ssh"
 )
@@ -91,6 +92,7 @@ func (s *Server) handleChannel(ctx context.Context, sshConn *ssh.ServerConn, new
 		AccountID:  sshConn.Permissions.Extensions["postern-account"],
 		TargetName: route.Target,
 		SrcIP:      host,
+		Kind:       model.SessionFromSSH,
 	})
 	if err != nil {
 		// Open olayı zaten kendi logladı; burada yalnızca istemciye ne

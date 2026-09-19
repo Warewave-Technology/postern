@@ -1049,14 +1049,23 @@ func (s *Server) adminListSessions(w http.ResponseWriter, r *http.Request) {
 	 * açardı — göç 037/038'in NULL kararının panele kadar taşınması.
 	 */
 	type row struct {
-		ID      string  `json:"id"`
-		User    string  `json:"user"`
-		Target  string  `json:"target"`
-		OSUser  string  `json:"os_user"`
-		SrcIP   string  `json:"src_ip"`
-		Started string  `json:"started_at"`
-		Ended   *string `json:"ended_at"`
-		Running bool    `json:"running"`
+		ID     string `json:"id"`
+		User   string `json:"user"`
+		Target string `json:"target"`
+		OSUser string `json:"os_user"`
+		SrcIP  string `json:"src_ip"`
+		// Kind, oturumun açıldığı kapı: ssh, web ya da files.
+		// ⚠️ LİSTEDE OLMAK ZORUNDA. Biri makinede dururken dosya
+		// tarayıcısını açmak ikinci bir satır bırakıyor ve o iki satır,
+		// bu alan olmadan birbirinin aynısı.
+		Kind string `json:"kind"`
+		// ClosedBy/TerminatedBy: bir yöneticinin kesmesi listede de
+		// görünmeli — aranan satırı bulmanın yolu bu.
+		ClosedBy     string  `json:"closed_by,omitempty"`
+		TerminatedBy string  `json:"terminated_by,omitempty"`
+		Started      string  `json:"started_at"`
+		Ended        *string `json:"ended_at"`
+		Running      bool    `json:"running"`
 		// Temporary, oturumu grup değil süreli hak açtı; yoksa alan da yok.
 		Temporary bool `json:"temporary,omitempty"`
 		// Denied, postern'in reddettiği istek sayısı; sayılmadıysa yok.
@@ -1080,7 +1089,9 @@ func (s *Server) adminListSessions(w http.ResponseWriter, r *http.Request) {
 
 		out = append(out, row{
 			ID: sess.ID, User: sess.User, Target: sess.Target, OSUser: sess.OSUser,
-			SrcIP: sess.SrcIP, Started: sess.StartedAt.Format(time.RFC3339), Ended: ended,
+			SrcIP: sess.SrcIP, Kind: sess.Kind,
+			ClosedBy: sess.ClosedBy, TerminatedBy: sess.TerminatedBy,
+			Started: sess.StartedAt.Format(time.RFC3339), Ended: ended,
 			Running: running[sess.ID], Temporary: sess.Temporary,
 			Denied: denied,
 			Lost:   sess.SFTPJournal.Lost,

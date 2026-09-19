@@ -46,3 +46,17 @@ target_probe:
 # satırı bir üretim yapılandırmasına kopyalamak bilinçli bir karar olmalı.
 manage:
    enabled: true
+
+   # ⚠️ BAĞLANMA ANINDA HESAP AÇMA. Açıkken postern, bağlanan kişinin
+   # hesabını hedefte YOKSA AÇIYOR ve grubunun sudo kuralını yazıyor;
+   # son grup gidince de kilitliyor. Üretimde bu, postern'i makinelerdeki
+   # hesapların KAYNAĞI yapmak demek — okunmadan açılacak bir anahtar
+   # değil.
+   propagate_accounts: true
+
+   # ⚠️ SÜPÜRME: hedefte ELLE yapılan değişikliği yakalayan tek yol.
+   # Sıcak yol yalnızca kişi bağlanınca, itme yolu yalnızca postern'in
+   # kendi kaydına bakarak koşuyor; ikisi de elle `postern-<grup>`
+   # grubuna eklenen bir hesabı göremiyor — ki o hesap postern'in yazdığı
+   # sudo kuralını alıyor. Her turda filodaki HER hedefe bağlanıyor.
+   sweep_interval: 1h

@@ -576,9 +576,20 @@ section > .page-head:not(:first-child) {
 .page-bar .page-head {
   margin-bottom: 0;
 }
-/* Sayfa çubuğunun sağındaki düğme öbeği (Kapat + Yenile gibi). */
+/*
+ * Düğme öbeği: sayfa çubuğunun sağında (Kapat + Yenile), bir tablonun
+ * üstünde (seçime uygulanan eylemler) ve modal sihirbazlarının adım
+ * düğmelerinde.
+ *
+ * ⚠️ SAĞA YASLI — HER ÜÇÜNDE DE. Bu panelde her düğme satırı sola
+ * yaslıydı; eylemler hemen her arayüzde sağ altta/üstte aranıyor
+ * (kullanıcı söyledi). Sayfa çubuğundaki hâli zaten sağdaydı (.page-bar
+ * space-between veriyor), bu kural onu değiştirmiyor; değişen, tablonun
+ * üstündeki ve sihirbazdaki satırlar.
+ */
 .page-actions {
   display: flex;
+  justify-content: flex-end;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
@@ -2103,7 +2114,9 @@ label.check input[type="checkbox"] {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 1rem 1.15rem 0.5rem;
+  /* ⚠️ ÜST BOŞLUK BAŞLIĞIN NEFESİ. 1rem'de başlık pencerenin kenarına
+     yapışık duruyordu (kullanıcı ekran görüntüsüyle gösterdi). */
+  padding: 1.4rem 1.4rem 0.5rem;
 }
 .modal-head h3 {
   font-size: 15px;
@@ -2122,14 +2135,16 @@ label.check input[type="checkbox"] {
    kapsayıcının içinde duruyor, yani modalın kendi stili nereye
    takıldığından BAĞIMSIZ olmak zorunda. */
 .modal .modal-sub {
-  margin: 0 1.15rem 1rem;
+  margin: 0 1.4rem 1rem;
   color: var(--muted);
   font-size: 12.5px;
   max-width: 60ch;
 }
 .modal .modal-body {
-  padding: 0 1.15rem 1.15rem;
+  padding: 0 1.4rem 1.4rem;
 }
+
+
 /* Tek bir kısa alan için 44rem çok geniş: altı haneli bir kod kutusu
    ekranı boydan boya kaplıyordu. Yönetim formları (birkaç alan yan yana)
    geniş hâli istiyor, bu yüzden varsayılan değişmiyor. */
@@ -3801,8 +3816,24 @@ a.tcard-name:focus-visible {
 }
 
 /* Kayıt zinciri durumu (admin/ChainStatus.tsx). */
-.chain-card {
-  margin-top: 1rem;
+/*
+ * ⚠️ KART DEĞİL. Zincir durumu modalın İÇİNDE duruyor ve modalın kendi
+ * başlığı var; bileşen bir de kendi kartını ve "Recording chain"
+ * başlığını çizince ekranda iç içe iki pencere görünüyordu (kullanıcı
+ * ekran görüntüsüyle gösterdi). Kalan tek iş, satırların arasını açmak.
+ */
+.chain-status {
+  display: grid;
+  gap: 0.2rem;
+}
+/*
+ * ⚠️ NOT KUTUSU MODALI DOLDURUYOR. 62ch sınırı geniş bir SAYFADA
+ * okunurluk için; modalın içinde o sınır, kutuyu pencerenin ortasında
+ * dar bir şerit hâlinde bırakıyordu (kullanıcı ekran görüntüsüyle
+ * gösterdi) — modal zaten satır uzunluğunu kendi genişliğiyle sınırlıyor.
+ */
+.chain-status .chain-note {
+  max-width: none;
 }
 .chain-line {
   display: flex;
@@ -3944,8 +3975,15 @@ a.tcard-name:focus-visible {
   margin-bottom: 0.9rem;
 }
 
+/*
+ * ⚠️ FORM EYLEMLERİ SAĞ ALTTA — HER YERDE.
+ *
+ * Bu panelde her düğme satırı sola yaslıydı; bir formun eylemleri hemen
+ * her arayüzde sağ altta aranıyor (kullanıcı söyledi).
+ */
 .form-actions {
   display: flex;
+  justify-content: flex-end;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.6rem;
@@ -3953,8 +3991,26 @@ a.tcard-name:focus-visible {
   padding-top: 0.9rem;
   border-top: 1px solid var(--line);
 }
+/*
+ * form-push, ögeyi SAĞ kenara iter; form-pull SOL kenara.
+ *
+ * ⚠️ İKİ SINIF, ÇÜNKÜ İKİ FARKLI İŞ VAR VE TEK SINIF İKİSİNİ BİRDEN
+ * YAPAMAZ. Kaynak formunda itilen şey BİRİNCİL eylem ("Save source"),
+ * yanındaki ikincil eylem ve açıklamasıyla arasında boşluk kalsın diye.
+ * Sudo kartında itilen şey YIKICI eylem ("Remove rule"), birincilden
+ * uzak dursun diye. Satır sağa yaslandıktan sonra ikisi ters yönlere
+ * bakıyor.
+ *
+ * ⚠️ SOLA İTİLEN ÖGE DOM'DA DA ÖNDE OLMAK ZORUNDA. Sağa yaslı bir
+ * satırın SON çocuğuna margin-right:auto vermek, boşluğu yutup BÜTÜN
+ * grubu sola kaydırıyor — ekranda görüldü: "Add command" ile "Remove
+ * rule" yan yana kaldı, yani tam da ayırmak istediğimiz iki düğme.
+ */
 .form-actions > .form-push {
   margin-left: auto;
+}
+.form-actions > .form-pull {
+  margin-right: auto;
 }
 
 /*
@@ -4193,5 +4249,47 @@ a.tcard-name:focus-visible {
   /* Açıklama kutucuğun altında hizalı: onay kutusu + rozet genişliği. */
   margin: 0.15rem 0 0 1.4rem;
   max-width: 62ch;
+}
+
+/* ---- ana ekranda app/env öbekleri ----
+ *
+ * ⚠️ BAŞLIKLAR KARTLARDAN DAHA SESSİZ. Öbek adı bir label'ın değeri;
+ * kartların kendisi kadar bağırırsa göz önce başlıkları tarar ve asıl
+ * aradığı makine adını sonra bulur. Hiyerarşiyi taşıyan şey boşluk ve
+ * çizgi, punto değil.
+ */
+.tgroup {
+  margin-bottom: 1.75rem;
+}
+.tgroup-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin: 0 0 0.75rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+.tgroup-count {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.tgroup-env {
+  margin-bottom: 1rem;
+}
+/*
+ * ⚠️ ORTAM ADI BİR ETİKET GİBİ, BAŞLIK GİBİ DEĞİL. İkinci bir başlık
+ * puntosu, iki seviyeli kırılımı üç seviyeli gösterirdi; küçük ve
+ * harfleri açılmış bir satır, altındaki ızgaraya ait olduğunu söylüyor.
+ */
+.tgroup-env-head {
+  margin: 0 0 0.5rem;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--label);
 }
 

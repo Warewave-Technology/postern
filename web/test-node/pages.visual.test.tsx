@@ -384,10 +384,16 @@ const labelsBig = {
   "cost-center": "CC-4471-EMEA",
 };
 
+/*
+ * ⚠️ FİKSTÜR HEM app'Lİ HEM app'SİZ HEDEF TAŞIYOR. Ana ekran bunları
+ * app → env diye öbekliyor; yalnızca app'li hedefler koysaydık "Others"
+ * öbeği ve onun altındaki "Other env" hiçbir sayfada görünmezdi — yani
+ * düzeni bozulduğunda kimsenin haberi olmazdı.
+ */
 const myTargets = [
   {
     name: "web-01",
-    labels: { env: "prod", team: "web" },
+    labels: { app: "storefront", env: "prod", team: "web" },
     server_version: "SSH-2.0-OpenSSH_9.6",
     last_seen_at: T(9, 12),
   },
@@ -399,7 +405,7 @@ const myTargets = [
   },
   {
     name: "db-primary",
-    labels: { env: "prod", role: "database" },
+    labels: { application: "storefront", env: "prod", role: "database" },
     server_version: "SSH-2.0-OpenSSH_9.3",
     last_seen_at: T(7),
     temporary: { until: T(21), granted_by: "ops", groups: ["dba"] },
@@ -412,7 +418,7 @@ const myTargets = [
   },
   {
     name: "build-runner-linux-amd64-07",
-    labels: { env: "ci", pool: "linux-amd64-large-memory-runners" },
+    labels: { app: "ci", env: "ci", pool: "linux-amd64-large-memory-runners" },
     server_version: "SSH-2.0-OpenSSH_9.6",
     last_seen_at: T(6, 45),
   },
@@ -793,16 +799,14 @@ const targetDetail = (name: string): TargetDetail => {
       probed_at: T(8, 3),
     },
     granted_by: ["sre", "dba", "readonly-auditors-emea"],
-    recent_sessions: sessions
-      .slice(0, 5)
-      .map((s) => ({
-        id: s.id,
-        user: s.user,
-        os_user: s.os_user,
-        src_ip: s.src_ip,
-        started_at: s.started_at,
-        ended_at: s.ended_at ?? undefined,
-      })),
+    recent_sessions: sessions.slice(0, 5).map((s) => ({
+      id: s.id,
+      user: s.user,
+      os_user: s.os_user,
+      src_ip: s.src_ip,
+      started_at: s.started_at,
+      ended_at: s.ended_at ?? undefined,
+    })),
     recent_partial: true,
     recent_scanned: 200,
     manage_enabled: true,
@@ -1074,14 +1078,12 @@ const base: Fixtures = {
         granted_by: "ops",
         groups: ["dba", "developer"],
       },
-      sessions: sessions
-        .slice(0, 6)
-        .map((s) => ({
-          id: s.id,
-          started: s.started_at,
-          ended: s.ended_at ?? undefined,
-          os_user: s.os_user,
-        })),
+      sessions: sessions.slice(0, 6).map((s) => ({
+        id: s.id,
+        started: s.started_at,
+        ended: s.ended_at ?? undefined,
+        os_user: s.os_user,
+      })),
       sessions_partial: true,
       sessions_scanned: 200,
     }),

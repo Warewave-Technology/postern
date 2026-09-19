@@ -480,3 +480,54 @@ func TestShellSessionIsMarkedAsHavingNoFileEvents(t *testing.T) {
 		t.Errorf("kabuk oturumu için durum = %v (%s)", got.State, got.Detail)
 	}
 }
+
+/*
+ * ⚠️ EV TOKEN'I GERÇEK HEDEFTE: YOL HEDEFTEN OKUNUYOR.
+ *
+ * Birim testleri genişletmenin doğruluğunu ölçüyor; burada ölçülen şey,
+ * evin NEREDEN geldiği. postern oturum açılırken hedefe `getent passwd`
+ * gönderiyor ve kuralı o cevapla çözüyor — "/home/<ad>" varsayımı bu
+ * depoda başka bir yerde zaten reddedilmiş bir şey (provision.Account).
+ *
+ * Bu testin var olma sebebi somut: demoda `developer` grubu bir KİŞİNİN
+ * evine izin veriyordu ve gruptaki herkes dosya tarayıcısını bir reddin
+ * üstüne açıyordu.
+ */
+func TestTheHomeTokenResolvesFromTheTarget(t *testing.T) {
+	client, db := sftpBastion(t, true)
+	ctx := context.Background()
+
+	/*
+	 * Kural oturum AÇILMADAN önce yazılıyor: politika proxy.Open'da
+	 * kuruluyor ve sonradan yazmak bu koşuda hiçbir şeyi değiştirmezdi.
+	 */
+	if err := db.SetGroupPath(ctx, "ops", "~", true, true); err != nil {
+		t.Fatalf("SetGroupPath(~): %v", err)
+	}
+	if err := db.SetGroupPath(ctx, "ops", "/", false, false); err != nil {
+		t.Fatalf("SetGroupPath(/): %v", err)
+	}
+
+	sc, err := sftp.NewClient(client)
+	if err != nil {
+		t.Fatalf("sftp: %v", err)
+	}
+	defer sc.Close()
+
+	// Hedefin kendi cevabı: kuralın çözülmesi gereken yer burası.
+	home, err := sc.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	if !strings.HasPrefix(home, "/") {
+		t.Fatalf("ev mutlak değil: %q", home)
+	}
+
+	if _, err := sc.ReadDir(home); err != nil {
+		t.Fatalf("kişinin kendi evi reddedildi (%s): %v", home, err)
+	}
+	// Evin dışı hâlâ kapalı: token her şeyi açmıyor.
+	if _, err := sc.ReadDir("/etc"); err == nil {
+		t.Error("ev token'ı evin dışını da açtı")
+	}
+}

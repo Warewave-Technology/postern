@@ -165,7 +165,9 @@ describe("değişken atıfları", () => {
 describe("rozet okunurluğu", () => {
   const lum = (hex: string) => {
     const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
-    const [r, g, b] = c.map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    const [r, g, b] = c.map((v) =>
+      v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4,
+    );
 
     return 0.2126 * r + 0.7152 * g + 0.0722 * b;
   };
@@ -216,7 +218,9 @@ describe("açılır durum süzgeci", () => {
 describe("bölüm etiketi okunurluğu", () => {
   const lum = (hex: string) => {
     const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
-    const [r, g, b] = c.map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    const [r, g, b] = c.map((v) =>
+      v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4,
+    );
 
     return 0.2126 * r + 0.7152 * g + 0.0722 * b;
   };
@@ -233,5 +237,53 @@ describe("bölüm etiketi okunurluğu", () => {
       expect(ratio(t["--label"], t["--surface"])).toBeGreaterThan(4.5);
       expect(ratio(t["--label"], t["--raised"])).toBeGreaterThan(4.5);
     }
+  });
+});
+
+/*
+ * ⚠️ İLETİŞİM KUTUSUNUN EYLEMLERİ SAĞ ALTTA.
+ *
+ * Bu panelde her düğme satırı sola yaslıydı ve bir modalın eylemleri
+ * hemen her arayüzde sağ altta aranıyor (kullanıcı söyledi).
+ *
+ * ⚠️ SAYFA FORMLARI BU KURALIN DIŞINDA. Orada desen başka: solda
+ * birincil eylem, sağa itilmiş yıkıcı eylem. İkisini de sağa toplamak,
+ * "Add command" ile "Remove rule"u yan yana getirirdi — yanlışlıkla
+ * basılması en pahalı olan iki düğmeyi.
+ */
+describe("düğme satırı", () => {
+  /*
+   * ⚠️ FORM EYLEMLERİ SAĞ ALTTA. Bu panelde her düğme satırı sola
+   * yaslıydı; bir formun eylemleri hemen her arayüzde sağ altta
+   * aranıyor (kullanıcı söyledi).
+   */
+  it("form eylemleri her yerde sağa yaslı", () => {
+    const rule = css.slice(css.indexOf("\n.form-actions {"));
+    expect(rule.slice(0, rule.indexOf("}"))).toMatch(
+      /justify-content:\s*flex-end/,
+    );
+
+    const bar = css.slice(css.indexOf("\n.page-actions {"));
+    expect(bar.slice(0, bar.indexOf("}"))).toMatch(
+      /justify-content:\s*flex-end/,
+    );
+  });
+
+  /*
+   * ⚠️ "İT" ARTIK SOLA İTİYOR. Satır sağa yaslıyken sağa itmenin anlamı
+   * kalmıyor; bu sınıfın var olma sebebi YIKICI eylemi birincilden uzak
+   * tutmak ve bunu şimdi karşı kenara iterek yapıyor.
+   */
+  /*
+   * ⚠️ İKİ YÖN, İKİ SINIF. Sağa yaslı bir satırın SON çocuğuna "sola it"
+   * vermek boşluğu yutup bütün grubu sola kaydırıyor — ekranda görüldü:
+   * ayırmak istediğimiz iki düğme yan yana kalmıştı.
+   */
+  it("iki itme yönü de var ve birbirinin tersi", () => {
+    const push = css.slice(css.indexOf(".form-actions > .form-push {"));
+    expect(push.slice(0, push.indexOf("}"))).toMatch(/margin-left:\s*auto/);
+
+    const pull = css.slice(css.indexOf(".form-actions > .form-pull {"));
+    expect(pull.slice(0, pull.indexOf("}"))).toMatch(/margin-right:\s*auto/);
   });
 });

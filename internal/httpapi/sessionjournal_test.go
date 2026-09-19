@@ -43,7 +43,7 @@ func sessionWithJournal(t *testing.T, s *Server, db *store.Store, id string,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.EndSession(ctx, id, time.Now()); err != nil {
+	if err := db.EndSession(ctx, id, time.Now(), "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.MarkSFTPJournal(ctx, id, mark); err != nil {

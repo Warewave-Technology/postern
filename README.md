@@ -1168,13 +1168,30 @@ Rules themselves are written from the panel (**Groups → Paths**) or from
 the CLI:
 
 ```bash
-postern group path set --group dev --prefix /home/dev --write
-postern group path set --group dev --prefix /home/dev/.ssh --deny
+postern group path set --group dev --prefix ~ --write
+postern group path set --group dev --prefix ~/.ssh --deny
 ```
+
+**`~` is each person's own home**, and it is almost always what you want on
+a group. A rule naming one person's home is a rule for one person: write
+`/home/ayse` on a group and everybody else in it opens the file browser
+onto a refusal. The token is resolved per session from the home the target
+itself reports — postern asks the host with `getent passwd`, on the
+person's own connection and without sudo, rather than assuming
+`/home/<name>`; an account whose home is somewhere else would otherwise
+have its rule pointed at a directory it does not own. Only the person's
+own home has a token: `~someone-else` is not one, and is treated as a
+literal prefix that will never match.
+
+If a rule uses `~` and postern cannot read the home on that host, SFTP is
+refused for that session and says so — the shell is untouched. Skipping
+the rule would be worse than refusing: a `~/.ssh` **denial** that quietly
+disappears leaves open exactly the branch the administrator meant to cut.
 
 The rules of every group a user holds are pooled and the longest matching
 prefix decides, so the second line above carves `.ssh` out of an
-otherwise writable home. At equal length a denial beats an allow — including
+otherwise writable home — the comparison happens after `~` is resolved,
+on the real paths. At equal length a denial beats an allow — including
 one written on a different group — so a refusal cannot be reopened by a
 second group granting the same prefix. A *longer* allow still wins, which
 is what makes the carve-out possible in the first place; write the denial

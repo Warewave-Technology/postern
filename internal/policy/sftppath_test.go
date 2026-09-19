@@ -25,10 +25,10 @@ func write(p string) sftpaudit.Request {
  * karar, tutma ve gecikme de eklenmiyor.
  */
 func TestNoRulesMeansNoPolicy(t *testing.T) {
-	if d := SFTPDecider(nil); d != nil {
+	if d := SFTPDecider(nil, ""); d != nil {
 		t.Fatal("grup yokken politika kuruldu")
 	}
-	if d := SFTPDecider([]model.Group{{Name: "dev"}}); d != nil {
+	if d := SFTPDecider([]model.Group{{Name: "dev"}}, ""); d != nil {
 		t.Fatal("kuralsız grup politika kurdurdu")
 	}
 }
@@ -45,7 +45,7 @@ func TestAnUnrestrictedGroupKeepsAccessOpen(t *testing.T) {
 	d := SFTPDecider([]model.Group{
 		{Name: "kisitli", Paths: []model.PathRule{rule("/srv", true, false)}},
 		{Name: "serbest"},
-	})
+	}, "")
 	if d != nil {
 		t.Fatal("kuralsız grup varken politika kuruldu")
 	}
@@ -55,7 +55,7 @@ func TestLongestPrefixWinsSoCarveOutsWork(t *testing.T) {
 	d := SFTPDecider([]model.Group{{Name: "dev", Paths: []model.PathRule{
 		rule("/home/u", true, true),
 		rule("/home/u/.ssh", false, false),
-	}}})
+	}}}, "")
 	if d == nil {
 		t.Fatal("politika kurulmadı")
 	}
@@ -88,7 +88,7 @@ func TestLongestPrefixWinsSoCarveOutsWork(t *testing.T) {
 func TestPrefixDoesNotLeakAcrossNameBoundaries(t *testing.T) {
 	d := SFTPDecider([]model.Group{{Name: "dev", Paths: []model.PathRule{
 		rule("/home/user", true, true),
-	}}})
+	}}}, "")
 
 	if ok, _ := d(read("/home/user/x")); !ok {
 		t.Error("kendi ağacı reddedildi")
@@ -105,7 +105,7 @@ func TestPrefixDoesNotLeakAcrossNameBoundaries(t *testing.T) {
 func TestReadOnlyRuleRefusesWrites(t *testing.T) {
 	d := SFTPDecider([]model.Group{{Name: "dev", Paths: []model.PathRule{
 		rule("/srv/veri", true, false),
-	}}})
+	}}}, "")
 
 	if ok, _ := d(read("/srv/veri/a.csv")); !ok {
 		t.Error("okuma reddedildi")
@@ -127,7 +127,7 @@ func TestReadOnlyRuleRefusesWrites(t *testing.T) {
 func TestBothPathsAreCheckedOnTwoPathOperations(t *testing.T) {
 	d := SFTPDecider([]model.Group{{Name: "dev", Paths: []model.PathRule{
 		rule("/home/u", true, true),
-	}}})
+	}}}, "")
 
 	cases := []struct {
 		name string
@@ -150,7 +150,7 @@ func TestAccessIsTheUnionOfGroups(t *testing.T) {
 	d := SFTPDecider([]model.Group{
 		{Name: "a", Paths: []model.PathRule{rule("/srv/a", true, false)}},
 		{Name: "b", Paths: []model.PathRule{rule("/srv/b", true, true)}},
-	})
+	}, "")
 
 	if ok, _ := d(read("/srv/a/x")); !ok {
 		t.Error("a rolünün yolu reddedildi")
@@ -181,7 +181,7 @@ func TestAnExplicitDenyIsNotReopenedByAnotherGroup(t *testing.T) {
 		{Name: "acan", Paths: []model.PathRule{
 			rule("/home/u", true, true),
 		}},
-	})
+	}, "")
 
 	if ok, _ := d(read("/home/u/notlar.txt")); !ok {
 		t.Error("izinli yol reddedildi")
@@ -202,7 +202,7 @@ func TestDenyWinsOnEqualLengthPrefixes(t *testing.T) {
 	d := SFTPDecider([]model.Group{
 		{Name: "a", Paths: []model.PathRule{rule("/srv/gizli", true, true)}},
 		{Name: "b", Paths: []model.PathRule{rule("/srv/gizli", false, false)}},
-	})
+	}, "")
 
 	if ok, reason := d(read("/srv/gizli/x")); ok {
 		t.Fatal("eşit uzunlukta izin, reddi bastırdı")
@@ -217,7 +217,7 @@ func TestWriteRightUnionsAtTheSameLength(t *testing.T) {
 	d := SFTPDecider([]model.Group{
 		{Name: "ro", Paths: []model.PathRule{rule("/srv/v", true, false)}},
 		{Name: "rw", Paths: []model.PathRule{rule("/srv/v", true, true)}},
-	})
+	}, "")
 
 	if ok, _ := d(write("/srv/v/a")); !ok {
 		t.Error("yazma hakkı birleşmedi")

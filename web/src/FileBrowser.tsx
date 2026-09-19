@@ -134,7 +134,17 @@ export default function FileBrowser({
       setEntries(sortEntries(list));
       setCwd(dir);
     } catch (e) {
-      setError(reason(e));
+      /*
+       * ⚠️ HANGİ YOLUN REDDEDİLDİĞİ YAZILIYOR — EKRANDA GÖRÜLDÜ.
+       *
+       * Sebep tek başına "this path is explicitly denied" diyor ve
+       * hangi yol olduğunu söylemiyor. Açılıştaki ret bunu okunamaz
+       * yapıyordu: pencere kullanıcının ev dizinini istiyor
+       * (realpath "."), o reddediliyor, ama ekranda görünen yol
+       * kırıntısı "/" — yani kullanıcı hiç denenmemiş bir yolun
+       * reddedildiğini sanıyor ve neyi düzelteceğini bilemiyor.
+       */
+      setError(`${dir}: ${reason(e)}`);
     } finally {
       setBusy(false);
     }
@@ -276,7 +286,10 @@ export default function FileBrowser({
            * basılan Stop, sıra geldiğinde işi HİÇ BAŞLATMAMALI.
            */
           if (signal.aborted) {
-            patch(t.id, { state: "cancelled", error: "stopped before it began" });
+            patch(t.id, {
+              state: "cancelled",
+              error: "stopped before it began",
+            });
             return;
           }
           patch(t.id, { state: "running" });
@@ -552,7 +565,9 @@ export default function FileBrowser({
             patch(id, {
               done: bytes,
               note:
-                missing > 0 ? `${missing} not included · ${noteName}` : undefined,
+                missing > 0
+                  ? `${missing} not included · ${noteName}`
+                  : undefined,
             });
           },
         );
@@ -764,8 +779,13 @@ export default function FileBrowser({
               ↑ Up
             </button>
 
+            {/*
+              ⚠️ AÇILMAMIŞ BİR YOL KIRINTI OLARAK ÇİZİLMİYOR. cwd "" iken
+              crumbs onu tek başına "/" veriyor ve o, bulunduğumuz yer
+              gibi okunuyordu — oysa orayı hiç açmadık.
+            */}
             <nav className="fb-crumbs" aria-label="path">
-              {crumbs(cwd).map((c, i) => (
+              {(cwd === "" ? [] : crumbs(cwd)).map((c, i) => (
                 <span key={c.path}>
                   {i > 0 && <span className="fb-sep">/</span>}
                   <button
@@ -806,13 +826,23 @@ export default function FileBrowser({
           <div className="fb-list-wrap">
             {phase === "connecting" && <p className="fb-empty">Connecting…</p>}
 
-            {phase !== "connecting" && shown.length === 0 && !busy && (
-              <p className="fb-empty">
-                {entries.length > 0
-                  ? "Only hidden files here."
-                  : "This directory is empty."}
-              </p>
-            )}
+            {/*
+              ⚠️ HİÇBİR DİZİN AÇILMADIYSA "BOŞ" DENMİYOR — EKRANDA GÖRÜLDÜ.
+              cwd açılışta "" ve kırıntılar onu "/" diye çiziyor; altına
+              "This directory is empty." koymak, hiç okunmamış bir kökü
+              okunmuş ve boş göstermek oluyordu. Reddedilen yolun cümlesi
+              zaten yukarıda duruyor.
+            */}
+            {phase !== "connecting" &&
+              shown.length === 0 &&
+              !busy &&
+              cwd !== "" && (
+                <p className="fb-empty">
+                  {entries.length > 0
+                    ? "Only hidden files here."
+                    : "This directory is empty."}
+                </p>
+              )}
 
             {shown.length > 0 && (
               <table className="fb-list">

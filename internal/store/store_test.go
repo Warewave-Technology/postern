@@ -411,7 +411,7 @@ func TestSessionLifecycle(t *testing.T) {
 	}
 
 	end := start.Add(3 * time.Minute)
-	if err := s.EndSession(ctx, rec.ID, end); err != nil {
+	if err := s.EndSession(ctx, rec.ID, end, "", ""); err != nil {
 		t.Fatalf("EndSession: %v", err)
 	}
 
@@ -463,11 +463,11 @@ func TestEndSessionDoesNotOverwrite(t *testing.T) {
 	}
 
 	first := start.Add(1 * time.Minute)
-	if err := s.EndSession(ctx, "bb", first); err != nil {
+	if err := s.EndSession(ctx, "bb", first, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	// İkinci kapanış: hata vermese de vermese de olur, ama DEĞİŞTİRMEMELİ.
-	_ = s.EndSession(ctx, "bb", start.Add(99*time.Minute))
+	_ = s.EndSession(ctx, "bb", start.Add(99*time.Minute), "", "")
 
 	got, err := s.Sessions(ctx, "", 0)
 	if err != nil {
@@ -479,7 +479,7 @@ func TestEndSessionDoesNotOverwrite(t *testing.T) {
 }
 
 func TestEndSessionUnknown(t *testing.T) {
-	err := newTestStore(t).EndSession(context.Background(), "hic-boyle-oturum-yok", time.Now())
+	err := newTestStore(t).EndSession(context.Background(), "hic-boyle-oturum-yok", time.Now(), "", "")
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("hata = %v, beklenen ErrNotFound", err)
 	}
