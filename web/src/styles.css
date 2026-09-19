@@ -4251,3 +4251,45 @@ a.tcard-name:focus-visible {
   max-width: 62ch;
 }
 
+/* ---- ana ekranda app/env öbekleri ----
+ *
+ * ⚠️ BAŞLIKLAR KARTLARDAN DAHA SESSİZ. Öbek adı bir label'ın değeri;
+ * kartların kendisi kadar bağırırsa göz önce başlıkları tarar ve asıl
+ * aradığı makine adını sonra bulur. Hiyerarşiyi taşıyan şey boşluk ve
+ * çizgi, punto değil.
+ */
+.tgroup {
+  margin-bottom: 1.75rem;
+}
+.tgroup-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin: 0 0 0.75rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+.tgroup-count {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.tgroup-env {
+  margin-bottom: 1rem;
+}
+/*
+ * ⚠️ ORTAM ADI BİR ETİKET GİBİ, BAŞLIK GİBİ DEĞİL. İkinci bir başlık
+ * puntosu, iki seviyeli kırılımı üç seviyeli gösterirdi; küçük ve
+ * harfleri açılmış bir satır, altındaki ızgaraya ait olduğunu söylüyor.
+ */
+.tgroup-env-head {
+  margin: 0 0 0.5rem;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--label);
+}
+

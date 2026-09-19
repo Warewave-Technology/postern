@@ -30,6 +30,26 @@ audit rows into a shape it does not understand.
 
 ## Unreleased
 
+### The home screen groups by application and environment
+
+**Targets carrying an `app` label are grouped under it, and split by
+`env` inside it.** A fleet is not read alphabetically: the question is
+almost always which application first, then which environment, and the
+screen carries that order now. `application` and `environment` work as
+well, and the key is matched without regard to case — discovery copies
+Proxmox and vCenter tags verbatim, so `App` and `ENV` are what some
+estates actually have.
+
+A machine with an environment but no application is not lost: **Others**
+opens at the end and holds it under its own environment name, with
+**Other env** for the ones carrying neither. The two leftover buckets
+always sort last, so the eye learns where to find them.
+
+**A fleet with none of these labels keeps the flat grid it has today.**
+Putting everything under a single "Others → Other env" heading would add
+two lines of noise and separate nothing. Grouping starts on its own the
+first time an `app` or `env` label exists.
+
 ### Needs action if you manage accounts with something else
 
 **postern can now own the OS accounts of the people it lets in, and it is
