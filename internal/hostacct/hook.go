@@ -89,6 +89,43 @@ func Hook(db *store.Store, authority *ca.CA, logger *slog.Logger, poolMin, poolM
 	}
 }
 
+/*
+ * VerifyHook, proxy.Deps.VerifyAccount'a takılacak fonksiyonu üretir.
+ *
+ * ⚠️ ONARIM İÇİN SICAK YOLUN KENDİSİ VERİLİYOR, İKİNCİ BİR YAZMA YOLU
+ * DEĞİL. Hesabı hazırlamanın tek bir uygulaması olmalı; buraya ikinci
+ * bir "eksikse şunu yaz" yazsaydık, biri değişip öbürü kaldığında aynı
+ * makinede iki farklı istenen durum üretirdi.
+ */
+func VerifyHook(db *store.Store, logger *slog.Logger,
+	repair func(context.Context, model.User, model.Target) error,
+) func(context.Context, *upstream.Conn, model.User, model.Target) {
+	d := VerifyDeps{
+		Rules: db.GroupSudoRules,
+		Row:   db.HostAccountFor,
+		Save:  db.SaveHostAccount,
+		/*
+		 * ⚠️ AKTÖR KİŞİ, "system" DEĞİL. Komut onun bağlantısında,
+		 * hedefin günlüklerinde onun adına koştu; deftere sistem adına
+		 * yazmak, hedefteki izle postern'in defterini birbirine
+		 * bağlanamaz hâle getirirdi. via=probe, çünkü bu da kişinin
+		 * yazmadığı bir komut (bkz. proxy.maybeProbe).
+		 */
+		Audit: func(ctx context.Context, target, actor, detail string) error {
+			return db.LogAdmin(ctx, store.AdminLogEntry{
+				At: time.Now(), Actor: actor, Via: "probe",
+				Action: "account.verify", Entity: target, Details: detail,
+			})
+		},
+		Repair: repair,
+		Logger: logger,
+	}
+
+	return func(ctx context.Context, c *upstream.Conn, u model.User, t model.Target) {
+		Verify(ctx, d, c, u, t)
+	}
+}
+
 type errReason string
 
 func (e errReason) Error() string { return string(e) }

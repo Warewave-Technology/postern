@@ -605,13 +605,43 @@ provisioning is skipped and the session is attempted exactly as before; if
 the dial then fails, the reason postern could not prepare the account is
 carried in the error, rather than left in a log on the other machine.
 
+### Every session measures the record it relies on
+
+The connect-time path skips a target when postern's record says the
+account is already in the shape it wants, and that skip is what keeps a
+login from costing an extra management connection. The record can be
+wrong. A machine rebuilt, reimaged or restored from a backup comes up
+without the group and the sudo rule postern wrote, while postern's record
+still says it applied them. Measured on a demo target: it came up fresh at
+07:30, the person connected at 17:08, and postern opened no management
+connection at all — her group and her sudo rule were missing until the
+next sweep repaired them an hour later.
+
+So a session on a managed target asks one question on the person's own
+connection — `id -Gn`, with no argument, so no name is interpolated into a
+shell — and compares the answer with the groups postern's record claims to
+have applied. If the machine agrees, nothing is written, and the record
+stops being a claim: it is a measurement, taken on that connection, at
+that moment. If a group is missing, the record is cleared and the account
+is prepared again immediately, so the machine is right within seconds
+instead of at the next sweep. Both outcomes go to the audit log, because
+the command ran on that person's account and appears in the machine's own
+logs under their name.
+
+The target's answer can only cause more work, never less: "she has
+everything" changes nothing postern would otherwise do, and "she is
+missing a group" only makes postern write the state it already wanted. A
+sudoers file edited by hand, and an account deleted outright, are not
+visible this way — those stay the sweep's job.
+
 ### The sweep, and what only it can see
 
 The connect-time path runs when somebody connects, and skips the target
 entirely when nothing postern knows about has changed. The lock loop reads
-postern's own records. **Neither can see a change made by hand on the
-machine** — a deleted sudoers file, a membership somebody removed, or the
-one that matters: an account added by hand to a `postern-<group>` group.
+postern's own records. Apart from the one question above, **neither can
+see a change made by hand on the machine** — a deleted sudoers file, a
+membership removed from somebody who is not connecting, or the one that
+matters: an account added by hand to a `postern-<group>` group.
 That account holds the sudo rule postern wrote for that group, and appears
 in none of postern's records.
 

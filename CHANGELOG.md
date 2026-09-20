@@ -30,6 +30,24 @@ audit rows into a shape it does not understand.
 
 ## Unreleased
 
+### Added
+
+- **A session now measures the record it relies on, on the person's own
+  connection.** Connect-time provisioning skips a target when postern's
+  record says the account is already in shape — that skip is what keeps a
+  login cheap — so a machine rebuilt or restored under postern's feet came
+  up without the group and the sudo rule it had written, and nothing
+  noticed until the next sweep. Measured on a demo target: rebuilt at
+  07:30, connected at 17:08, not one management connection opened, no
+  group, no sudo. Every session on a managed target now runs `id -Gn` on
+  the connection that is already open and compares it with what the record
+  claims; a missing group clears the record and prepares the account again
+  within seconds. Both outcomes are audited, because the command runs
+  under that person's name on the target. It needs no new setting — it
+  runs wherever `manage.propagate_accounts` already does — and a target
+  that answers nothing, or answers that everything is present, changes
+  nothing.
+
 ### Changed
 
 - **The sweep's audit line says what it repaired, not just how many

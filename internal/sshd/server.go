@@ -25,6 +25,7 @@ import (
 	"github.com/Warewave-Technology/postern/v2/internal/proxy"
 	"github.com/Warewave-Technology/postern/v2/internal/record"
 	"github.com/Warewave-Technology/postern/v2/internal/store"
+	"github.com/Warewave-Technology/postern/v2/internal/upstream"
 )
 
 // oobTimeout, tarayıcı onayı için üst sınır. Çok kısa olursa insan
@@ -53,6 +54,13 @@ type Server struct {
 	 * anahtarlara bağlamak, birini unutmayı mümkün kılardı.
 	 */
 	ensureAccount func(context.Context, model.User, model.Target) error
+
+	/*
+	 * verifyAccount, kişinin kendi bağlantısında kaydın doğruluğunu
+	 * ölçen kanca. ensureAccount ile AYNI anahtara bağlı: hesapların
+	 * kaynağı postern değilse ölçülecek bir iddia da yok.
+	 */
+	verifyAccount func(context.Context, *upstream.Conn, model.User, model.Target)
 
 	// lockWorker, group'u düşen hesapları hedefte kapatan döngü.
 	lockWorker *hostacct.Worker
@@ -181,6 +189,7 @@ func (s *Server) ProxyDeps() proxy.Deps {
 		 * Usta anahtar kapalıysa hiç kurulmuyor (spec K9).
 		 */
 		EnsureAccount: s.ensureAccount,
+		VerifyAccount: s.verifyAccount,
 		Requests: proxy.RequestPolicy{
 			AcceptEnv: s.cfg.Session.AcceptEnv,
 			AllowSFTP: s.cfg.Session.SFTP,
@@ -309,11 +318,13 @@ func New(cfg *config.Config, db *store.Store, logger *slog.Logger) (*Server, err
 	 * her oturuma boşuna bir bağlantı denemesi eklemek olurdu.
 	 */
 	var ensure func(context.Context, model.User, model.Target) error
+	var verify func(context.Context, *upstream.Conn, model.User, model.Target)
 	var locker *hostacct.Worker
 	var sweeper *hostacct.Sweeper
 	if cfg.Manage.Enabled && cfg.Manage.PropagateAccounts {
 		poolMin, poolMax := cfg.Manage.UIDPool()
 		ensure = hostacct.Hook(db, caAuthority, logger, poolMin, poolMax)
+		verify = hostacct.VerifyHook(db, logger, ensure)
 		/*
 		 * ⚠️ AÇMA VE KAPATMA BİRLİKTE KURULUYOR. Hesap açabilen ama
 		 * kapatamayan bir kurulum, bu özelliğin var olma sebebinin tam
@@ -347,7 +358,7 @@ func New(cfg *config.Config, db *store.Store, logger *slog.Logger) (*Server, err
 		live: proxy.NewLive(),
 		cfg:  cfg, signer: signer, logger: logger,
 		rStore: recStore, recordMinFree: minFree, db: db, authority: caAuthority,
-		groups: auth.ClaimGroups{}, ensureAccount: ensure, lockWorker: locker,
+		groups: auth.ClaimGroups{}, ensureAccount: ensure, verifyAccount: verify, lockWorker: locker,
 		sweeper: sweeper,
 
 		limiter: newConnLimiter(

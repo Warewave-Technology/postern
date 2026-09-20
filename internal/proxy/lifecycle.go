@@ -126,6 +126,18 @@ type Deps struct {
 	 */
 	EnsureAccount func(ctx context.Context, u model.User, t model.Target) error
 
+	/*
+	 * VerifyAccount, kişinin KENDİ bağlantısında postern'in kaydının
+	 * hedefte karşılığı olup olmadığını ölçer. nil ise hiç koşmaz.
+	 *
+	 * ⚠️ NEDEN OTURUMUN İÇİNDEN: sıcak yol, kayıt "uyguladım" diyorsa
+	 * hedefe hiç bağlanmıyor ve makine postern'in ayağının altından
+	 * yeniden kurulduğunda bunu göremiyor (ölçüldü: 2026-09-20). Kişinin
+	 * bağlantısı zaten açık; tek bir komut, fazladan hiçbir bağlantı
+	 * açmadan o kör noktayı kapatıyor.
+	 */
+	VerifyAccount func(ctx context.Context, c *upstream.Conn, u model.User, t model.Target)
+
 	// Events, canlı izleme akışı. nil ise olay yayınlanmaz.
 	//
 	// ⚠️ Publish BLOKLAMAZ (bkz. events.Bus): burası bir oturumun açılış
@@ -167,6 +179,36 @@ type ProbePolicy struct {
 // sınırı. Yoklamanın kendi süresinden BAĞIMSIZ: yazmalar veritabanına
 // gidiyor, hedefe değil.
 const probeWriteTimeout = 10 * time.Second
+
+/*
+ * maybeVerifyAccount, postern'in kaydını kişinin kendi bağlantısında
+ * ölçer (hostacct.Verify).
+ *
+ * ⚠️ OTURUM BUNU BEKLEMEZ — yoklamadaki gerekçenin aynısı: ölçüm ve
+ * gerekirse onarım, kullanıcının kabuğunun açılış gecikmesine eklenemez.
+ * Bağlam oturumla birlikte iptal olmasın diye ayrılıyor; kendi süresi
+ * var.
+ */
+// verifyTimeout, ölçümün VE gerekiyorsa onarımın üst sınırı: tek bir
+// komut, artı sürüklenme bulunduysa bir hazırlama koşusu. Oturumun
+// dışında olduğu için cömert; asılı kalan bir kanal en çok bu kadar
+// goroutine tutuyor.
+const verifyTimeout = time.Minute
+
+func maybeVerifyAccount(ctx context.Context, deps Deps, conn *upstream.Conn,
+	u model.User, t model.Target,
+) {
+	if deps.VerifyAccount == nil {
+		return
+	}
+	ctx = context.WithoutCancel(ctx)
+
+	go func() {
+		vctx, cancel := context.WithTimeout(ctx, verifyTimeout)
+		defer cancel()
+		deps.VerifyAccount(vctx, conn, u, t)
+	}()
+}
 
 func maybeProbe(ctx context.Context, deps Deps, log *slog.Logger, conn *upstream.Conn, targetName, byUser string) {
 	if !deps.Probe.Enabled {
@@ -676,6 +718,7 @@ func Open(ctx context.Context, deps Deps, req Request) (*Session, error) {
 	}
 	recordTargetOutcome(ctx, deps, log, req.TargetName, conn.Facts(), nil)
 	maybeProbe(ctx, deps, log, conn, req.TargetName, req.Username)
+	maybeVerifyAccount(ctx, deps, conn, u, target)
 
 	up, upR, err := conn.OpenSession()
 	if err != nil {
